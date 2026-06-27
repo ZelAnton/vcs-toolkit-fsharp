@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<AssemblyName>VcsToolkit.CliSupport</AssemblyName>
+		<PackageId>VcsToolkit.CliSupport</PackageId>
+		<Description>Shared ProcessKit-coupled plumbing for the VcsToolkit CLI wrappers: an argv injection guard, error classifiers, a lock-contention retry policy, and credential provisioning.</Description>
+		<PackageTags>fsharp;vcs;git;jj;jujutsu;cli;process;credentials;retry</PackageTags>
+	</PropertyGroup>
+
+	<!-- F# COMPILE ORDER IS SIGNIFICANT. Files are compiled top-to-bottom; a type or
+	     function must be declared before its first use. -->
+	<ItemGroup>
+		<Compile Include="Secret.fs" />
+		<Compile Include="Credentials.fs" />
+		<Compile Include="Classify.fs" />
+		<Compile Include="Retry.fs" />
+		<Compile Include="ManagedClient.fs" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="FSharp.Core" />
+		<PackageReference Include="ProcessKit" />
+	</ItemGroup>
+
+</Project>

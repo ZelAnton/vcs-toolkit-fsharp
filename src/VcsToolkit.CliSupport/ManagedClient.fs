@@ -1,0 +1,214 @@
+namespace VcsToolkit.CliSupport
+
+open System
+open System.Threading
+open System.Threading.Tasks
+open ProcessKit
+
+[<NoEquality; NoComparison>]
+type private ManagedConfig =
+    { Program: string
+      Runner: IProcessRunner
+      DefaultTimeout: TimeSpan option
+      DefaultEnv: (string * string) list
+      EnvRemove: string list
+      Cancel: CancellationToken
+      Retry: RetryPolicy
+      Credentials: ICredentialProvider option
+      TokenEnv: (CredentialService * string) option }
+
+/// A ProcessKit-runner wrapper that adds two opt-in concerns the CLI wrappers all
+/// share, without touching a call site: lock-contention retry per a `RetryPolicy`
+/// (off by default), and credential injection from an opt-in `ICredentialProvider`
+/// (off by default → ambient auth). With neither configured it behaves like a bare
+/// runner. The default constructor drives the real job-backed `JobRunner`; pass a
+/// `ScriptedRunner` via `WithRunner` to inject a fake in tests.
+[<Sealed>]
+type ManagedClient private (cfg: ManagedConfig) =
+
+    static let initial program runner =
+        { Program = program
+          Runner = runner
+          DefaultTimeout = None
+          DefaultEnv = []
+          EnvRemove = []
+          Cancel = CancellationToken.None
+          Retry = RetryPolicy.None
+          Credentials = None
+          TokenEnv = None }
+
+    /// A client driving `program` on the real job-backed runner (no retry until `WithRetry`).
+    static member Create(program: string) =
+        ManagedClient(initial program (JobRunner()))
+
+    /// A client driving `program` on `runner` — inject a fake in tests.
+    static member WithRunner(program: string, runner: IProcessRunner) = ManagedClient(initial program runner)
+
+    /// The underlying process runner (passthrough).
+    member _.Runner = cfg.Runner
+
+    /// The active retry policy.
+    member _.RetryPolicy = cfg.Retry
+
+    /// Whether a credential provider is configured.
+    member _.HasCredentials = cfg.Credentials.IsSome
+
+    /// Set the lock-contention retry policy (opt-in; default is no retry).
+    member _.WithRetry(policy: RetryPolicy) =
+        ManagedClient { cfg with Retry = policy }
+
+    /// Attach a credential provider (opt-in; default is none → ambient auth).
+    member _.WithCredentials(provider: ICredentialProvider) =
+        ManagedClient { cfg with Credentials = Some provider }
+
+    /// Bind the resolved token to an environment variable injected on every command
+    /// this client runs (the forge case: `GH_TOKEN`, `GITLAB_TOKEN`).
+    member _.WithTokenEnv(service: CredentialService, var: string) =
+        ManagedClient
+            { cfg with
+                TokenEnv = Some(service, var) }
+
+    /// Apply a default timeout to every command this client builds.
+    member _.DefaultTimeout(timeout: TimeSpan) =
+        ManagedClient
+            { cfg with
+                DefaultTimeout = Some timeout }
+
+    /// Set an environment variable on every command this client builds.
+    member _.DefaultEnv(key: string, value: string) =
+        ManagedClient
+            { cfg with
+                DefaultEnv = cfg.DefaultEnv @ [ (key, value) ] }
+
+    /// Remove an inherited environment variable on every command this client builds.
+    member _.DefaultEnvRemove(key: string) =
+        ManagedClient
+            { cfg with
+                EnvRemove = cfg.EnvRemove @ [ key ] }
+
+    /// Cancel every command this client builds when `token` fires.
+    member _.DefaultCancelOn(token: CancellationToken) =
+        ManagedClient { cfg with Cancel = token }
+
+    member private _.ApplyDefaults(cmd: Command) : Command =
+        let mutable c = cmd
+
+        match cfg.DefaultTimeout with
+        | Some t -> c <- c.Timeout t
+        | None -> ()
+
+        for (k, v) in cfg.DefaultEnv do
+            c <- c.Env(k, v)
+
+        for k in cfg.EnvRemove do
+            c <- c.EnvRemove k
+
+        c.CancelOn cfg.Cancel
+
+    /// Build a `Command` for this client's program (defaults applied).
+    member this.Command(args: string seq) : Command =
+        this.ApplyDefaults(Command(cfg.Program).Args args)
+
+    /// Build a `Command` bound to `dir` (defaults applied).
+    member this.CommandIn(dir: string, args: string seq) : Command =
+        this.ApplyDefaults(Command(cfg.Program).CurrentDir(dir).Args args)
+
+    /// Resolve a credential for `service`/`host` from the configured provider, or
+    /// `None` if no provider is set or it (or an empty secret) defers to ambient auth.
+    member _.ResolveCredential
+        (service: CredentialService, host: string option)
+        : Task<Result<Credential option, ProcessError>> =
+        task {
+            match cfg.Credentials with
+            | None -> return Ok None
+            | Some provider ->
+                match! provider.Credential { Service = service; Host = host } with
+                | Error e -> return Error e
+                | Ok None -> return Ok None
+                | Ok(Some cred) ->
+                    // An empty (or whitespace-only) secret is not a usable credential:
+                    // injecting it would override the ambient login with nothing.
+                    if cred.Secret.Expose().Trim() = "" then
+                        return Ok None
+                    else
+                        return Ok(Some cred)
+        }
+
+    /// Inject the forge token env (if a token-env binding and a provider are both set).
+    member private this.Prepare(cmd: Command) : Task<Result<Command, ProcessError>> =
+        task {
+            match cfg.TokenEnv with
+            | None -> return Ok cmd
+            | Some(service, var) ->
+                match! this.ResolveCredential(service, None) with
+                | Error e -> return Error e
+                | Ok None -> return Ok cmd
+                | Ok(Some cred) -> return Ok(cmd.Env(var, cred.Secret.Expose()))
+        }
+
+    /// Require a zero exit and return stdout (trimmed), with credential injection and lock-retry.
+    member this.Run(cmd: Command) : Task<Result<string, ProcessError>> =
+        task {
+            match! this.Prepare cmd with
+            | Error e -> return Error e
+            | Ok prepared ->
+                return!
+                    Retry.retryAsync cfg.Retry isLockContention (fun () -> Runner.run cfg.Runner cfg.Cancel prepared)
+        }
+
+    /// Like `Run`, discarding the output.
+    member this.RunUnit(cmd: Command) : Task<Result<unit, ProcessError>> =
+        task {
+            match! this.Prepare cmd with
+            | Error e -> return Error e
+            | Ok prepared ->
+                return!
+                    Retry.retryAsync cfg.Retry isLockContention (fun () ->
+                        Runner.runUnit cfg.Runner cfg.Cancel prepared)
+        }
+
+    /// Capture the full `ProcessResult` (a non-zero exit is data). Credential injection
+    /// applied; no lock-retry (a lock failure surfaces as an `Ok` here, not an error).
+    member this.Output(cmd: Command) : Task<Result<ProcessResult<string>, ProcessError>> =
+        task {
+            match! this.Prepare cmd with
+            | Error e -> return Error e
+            | Ok prepared -> return! Runner.outputString cfg.Runner cfg.Cancel prepared
+        }
+
+    /// Read the exit code as a yes/no (0 -> true, 1 -> false), with credential injection and lock-retry.
+    member this.Probe(cmd: Command) : Task<Result<bool, ProcessError>> =
+        task {
+            match! this.Prepare cmd with
+            | Error e -> return Error e
+            | Ok prepared ->
+                return!
+                    Retry.retryAsync cfg.Retry isLockContention (fun () -> Runner.probe cfg.Runner cfg.Cancel prepared)
+        }
+
+    /// The raw exit code, with credential injection and lock-retry.
+    member this.ExitCode(cmd: Command) : Task<Result<int, ProcessError>> =
+        task {
+            match! this.Prepare cmd with
+            | Error e -> return Error e
+            | Ok prepared ->
+                return!
+                    Retry.retryAsync cfg.Retry isLockContention (fun () ->
+                        Runner.exitCode cfg.Runner cfg.Cancel prepared)
+        }
+
+    /// Require a zero exit and parse the trimmed stdout (credential injection applied; no lock-retry).
+    member this.Parse(cmd: Command, parser: string -> 'T) : Task<Result<'T, ProcessError>> =
+        task {
+            match! this.Prepare cmd with
+            | Error e -> return Error e
+            | Ok prepared -> return! Runner.parse cfg.Runner cfg.Cancel parser prepared
+        }
+
+    /// Like `Parse`, but the parser returns its own `Result` (credential injection applied; no lock-retry).
+    member this.TryParse(cmd: Command, parser: string -> Result<'T, string>) : Task<Result<'T, ProcessError>> =
+        task {
+            match! this.Prepare cmd with
+            | Error e -> return Error e
+            | Ok prepared -> return! Runner.tryParse cfg.Runner cfg.Cancel parser prepared
+        }
