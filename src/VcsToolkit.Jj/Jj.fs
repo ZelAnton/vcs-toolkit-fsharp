@@ -1,0 +1,772 @@
+namespace VcsToolkit.Jj
+
+open System
+open System.Threading
+open System.Threading.Tasks
+open ProcessKit
+open VcsToolkit.CliSupport
+open VcsToolkit.Diff
+
+/// jj-specific command shaping shared by the client's methods.
+[<AutoOpen>]
+module private JjHelpers =
+
+    /// Apply the argv injection guard to each (what, value) pair, short-circuiting
+    /// on the first refusal.
+    let checkFlags (checks: (string * string) list) : Result<unit, ProcessError> =
+        let bad =
+            checks
+            |> List.tryPick (fun (what, value) ->
+                match rejectFlagLike BINARY what value with
+                | Error e -> Some e
+                | Ok() -> None)
+
+        match bad with
+        | Some e -> Error e
+        | None -> Ok()
+
+    /// The first bookmark name from a comma-joined `BOOKMARKS_TEMPLATE` render;
+    /// `None` when the commit carries no local bookmark.
+    let firstBookmark (rendered: string) : string option =
+        let r = rendered.Trim()
+        if r = "" then None else Some(r.Split(',').[0])
+
+    /// How many `jj workspace root` lookups `WorkspaceRoots` keeps in flight at once
+    /// — a cap so a repo with many workspaces doesn't spawn an unbounded burst of
+    /// processes, while still overlapping the (fast, network-free) calls.
+    [<Literal>]
+    let WorkspaceRootsConcurrency = 8
+
+/// The real Jujutsu client: typed async methods that run the real `jj`, parse its
+/// templated output, and return structured values. `Jj.Create()` uses the
+/// job-backed runner; `Jj.WithRunner` injects a fake one for tests. Wraps a
+/// `ManagedClient` (enable lock-contention retry with `WithRetry`).
+///
+/// Remote authentication is ambient: unlike the git client, `jj`'s git remote
+/// support runs through its own in-process backend with no per-invocation
+/// credential override, so `jj git fetch`/`push` authenticate from the ambient git
+/// credential helpers / SSH agent. There is deliberately no `Harden` counterpart:
+/// jj has no repo-local hooks. In a colocated repo the hook risk lives on the git
+/// side — harden the `Git` client you point at it.
+///
+/// Injection safety: every method placing a caller-supplied bookmark name, revset,
+/// operation id, or merge parent in a positional argv slot rejects an empty or
+/// `-`-leading value before spawning. Flag-value slots (`-r <revset>`, `-m <msg>`)
+/// and the `Run`/`RunRaw` escape hatches are not guarded; for eager validation see
+/// `RevsetExpr`.
+[<Sealed>]
+type Jj private (core: ManagedClient) =
+
+    /// A repo-scoped `jj` command with `--color never` forced on. jj honours
+    /// `ui.color = "always"` from user config even when its output is piped, which
+    /// would wrap templated output — and the error text the classifiers read — in
+    /// ANSI escapes and break parsing; `--color never` is the only thing that
+    /// overrides that config. It is a global flag, appended here (no jj subcommand
+    /// takes a trailing `--`, so this is safe).
+    let cmdIn (dir: string) (args: string seq) : Command =
+        (core.CommandIn(dir, args)).Arg("--color").Arg("never")
+
+    /// Create a client driving the real job-backed runner.
+    static member Create() = Jj(ManagedClient.Create BINARY)
+
+    /// Create a client driving `runner` — inject a fake in tests.
+    static member WithRunner(runner: IProcessRunner) =
+        Jj(ManagedClient.WithRunner(BINARY, runner))
+
+    // --- Configuration (chainable; each returns a new client) ----------------
+
+    /// Apply a default timeout to every command this client builds.
+    member _.DefaultTimeout(timeout: TimeSpan) = Jj(core.DefaultTimeout timeout)
+
+    /// Set an environment variable on every command this client builds.
+    member _.DefaultEnv(key: string, value: string) = Jj(core.DefaultEnv(key, value))
+
+    /// Remove an inherited environment variable on every command this client builds.
+    member _.DefaultEnvRemove(key: string) = Jj(core.DefaultEnvRemove key)
+
+    /// Cancel every command this client builds when `token` fires.
+    member _.DefaultCancelOn(token: CancellationToken) = Jj(core.DefaultCancelOn token)
+
+    /// Retry working-copy lock-contention failures per `policy` (opt-in, off by
+    /// default). Safe even for mutating commands: a lock-acquisition failure is
+    /// pre-execution (jj never ran). jj's operation log already auto-resolves most
+    /// concurrency, so hard lock failures are rarer than with git.
+    member _.WithRetry(policy: RetryPolicy) = Jj(core.WithRetry policy)
+
+    // --- Escape hatches / version --------------------------------------------
+
+    /// Run `jj <args>` in the current directory, returning trimmed stdout. Unguarded
+    /// — never forward untrusted argv (jj's `--config`/aliases can reach code execution).
+    member _.Run(args: string seq) = core.Run(core.Command args)
+
+    /// Like `Run` but never errors on a non-zero exit — returns the captured result.
+    member _.RunRaw(args: string seq) = core.Output(core.Command args)
+
+    /// Installed Jujutsu version (`jj --version`).
+    member _.Version() = core.Run(core.Command [ "--version" ])
+
+    /// The installed binary's parsed version, as `JjCapabilities`.
+    member this.Capabilities() =
+        task {
+            match! this.Version() with
+            | Error e -> return Error e
+            | Ok raw ->
+                match JjParse.parseJjVersion raw with
+                | Some v -> return Ok { Version = v }
+                | None ->
+                    return Error(ProcessError.Parse(BINARY, sprintf "unrecognisable `jj --version` output: \"%s\"" raw))
+        }
+
+    // --- Changes -------------------------------------------------------------
+
+    /// Parsed working-copy changes — the files changed in `@` (`jj diff -r @ --summary`).
+    member _.Status(dir: string) =
+        core.Parse(cmdIn dir [ "diff"; "-r"; "@"; "--summary" ], JjParse.parseDiffSummary)
+
+    /// Raw `jj status` text (human-readable) — the unparsed counterpart of `Status`.
+    member _.StatusText(dir: string) = core.Run(cmdIn dir [ "status" ])
+
+    /// Changes matching `revset`, newest first, up to `max` (`jj log`).
+    member _.Log(dir: string, revset: string, max: int) =
+        let n = sprintf "-n%d" max
+
+        core.Parse(
+            cmdIn dir [ "log"; "-r"; revset; n; "--no-graph"; "-T"; JjParse.CHANGE_TEMPLATE ],
+            JjParse.parseChanges
+        )
+
+    /// The working-copy change (`jj log -r @`).
+    member this.CurrentChange(dir: string) =
+        task {
+            match! this.Log(dir, "@", 1) with
+            | Error e -> return Error e
+            | Ok changes ->
+                match List.tryLast changes with
+                | Some c -> return Ok c
+                | None -> return Error(ProcessError.Parse(BINARY, "no working-copy change found"))
+        }
+
+    /// Set the working-copy change's description (`jj describe -m`).
+    member _.Describe(dir: string, message: string) =
+        core.RunUnit(cmdIn dir [ "describe"; "-m"; message ])
+
+    /// Set the description of an arbitrary revision (`jj describe -r <revset> -m`).
+    member _.DescribeRev(dir: string, revset: string, message: string) =
+        core.RunUnit(cmdIn dir [ "describe"; "-r"; revset; "-m"; message ])
+
+    /// Start a new change on top of the working copy (`jj new -m`).
+    member _.NewChange(dir: string, message: string) =
+        core.RunUnit(cmdIn dir [ "new"; "-m"; message ])
+
+    // --- Bookmarks -----------------------------------------------------------
+
+    /// Local bookmarks (`jj bookmark list`).
+    member _.Bookmarks(dir: string) =
+        core.Parse(cmdIn dir [ "bookmark"; "list"; "-T"; JjParse.BOOKMARK_LIST_TEMPLATE ], JjParse.parseBookmarks)
+
+    /// Local *and* remote-tracking bookmarks (`jj bookmark list -a`).
+    member _.BookmarksAll(dir: string) =
+        core.Parse(
+            cmdIn dir [ "bookmark"; "list"; "-a"; "-T"; JjParse.BOOKMARK_ALL_TEMPLATE ],
+            JjParse.parseBookmarksAll
+        )
+
+    /// Local bookmarks on the nearest commits reachable from `@`
+    /// (`log -r 'heads(::@ & bookmarks())'`) — the candidate targets a commit
+    /// "belongs to". A commit carrying several bookmarks yields one entry each.
+    member _.ReachableBookmarks(dir: string) =
+        core.Parse(
+            cmdIn
+                dir
+                [ "log"
+                  "-r"
+                  "heads(::@ & bookmarks())"
+                  "--no-graph"
+                  "-T"
+                  JjParse.REACHABLE_BOOKMARKS_TEMPLATE ],
+            JjParse.parseReachableBookmarks
+        )
+
+    /// Track a remote bookmark (`jj bookmark track <name>@<remote>`).
+    member _.BookmarkTrack(dir: string, name: string, remote: string) =
+        task {
+            // A leading-`-` name makes the whole `{name}@{remote}` token start with
+            // `-`, which jj parses as a global flag; guard it.
+            match checkFlags [ "bookmark name", name ] with
+            | Error e -> return Error e
+            | Ok() ->
+                let target = sprintf "%s@%s" name remote
+                return! core.RunUnit(cmdIn dir [ "bookmark"; "track"; target ])
+        }
+
+    /// Point a bookmark at `revision` (`jj bookmark set <name> -r <revision>`).
+    member _.BookmarkSet(dir: string, name: string, revision: string) =
+        task {
+            match checkFlags [ "bookmark name", name ] with
+            | Error e -> return Error e
+            | Ok() -> return! core.RunUnit(cmdIn dir [ "bookmark"; "set"; name; "-r"; revision ])
+        }
+
+    /// Create a bookmark at a revision (`bookmark create <name> -r <rev>`).
+    member _.BookmarkCreate(dir: string, name: string, revision: string) =
+        task {
+            match checkFlags [ "bookmark name", name ] with
+            | Error e -> return Error e
+            | Ok() -> return! core.RunUnit(cmdIn dir [ "bookmark"; "create"; name; "-r"; revision ])
+        }
+
+    /// Rename a bookmark (`bookmark rename <old> <new>`).
+    member _.BookmarkRename(dir: string, oldName: string, newName: string) =
+        task {
+            match checkFlags [ "bookmark name", oldName; "bookmark name", newName ] with
+            | Error e -> return Error e
+            | Ok() -> return! core.RunUnit(cmdIn dir [ "bookmark"; "rename"; oldName; newName ])
+        }
+
+    /// Delete a bookmark (`bookmark delete <name>`).
+    member _.BookmarkDelete(dir: string, name: string) =
+        task {
+            match checkFlags [ "bookmark name", name ] with
+            | Error e -> return Error e
+            | Ok() -> return! core.RunUnit(cmdIn dir [ "bookmark"; "delete"; name ])
+        }
+
+    /// Move a bookmark to a revision (`bookmark move <name> --to <rev> [--allow-backwards]`).
+    member _.BookmarkMove(dir: string, name: string, toRev: string, allowBackwards: bool) =
+        task {
+            match checkFlags [ "bookmark name", name ] with
+            | Error e -> return Error e
+            | Ok() ->
+                let args =
+                    [ "bookmark"; "move"; name; "--to"; toRev ]
+                    @ (if allowBackwards then [ "--allow-backwards" ] else [])
+
+                return! core.RunUnit(cmdIn dir args)
+        }
+
+    // --- Discovery / identity ------------------------------------------------
+
+    /// Working-copy root of the current workspace (`jj root`).
+    member _.Root(dir: string) = core.Run(cmdIn dir [ "root" ])
+
+    /// The local bookmark on the working-copy change `@`, if exactly one (or the
+    /// first of several); `None` when `@` carries no bookmark.
+    member _.CurrentBookmark(dir: string) =
+        task {
+            match!
+                core.Run(
+                    cmdIn
+                        dir
+                        [ "log"
+                          "-r"
+                          "@"
+                          "--no-graph"
+                          "--limit"
+                          "1"
+                          "-T"
+                          JjParse.BOOKMARKS_TEMPLATE ]
+                )
+            with
+            | Error e -> return Error e
+            | Ok out -> return Ok(firstBookmark out)
+        }
+
+    /// The trunk bookmark (`jj log -r 'trunk()'`); `None` when unresolved.
+    member _.Trunk(dir: string) =
+        task {
+            match!
+                core.Run(
+                    cmdIn
+                        dir
+                        [ "log"
+                          "-r"
+                          "trunk()"
+                          "--no-graph"
+                          "--limit"
+                          "1"
+                          "-T"
+                          JjParse.BOOKMARKS_TEMPLATE ]
+                )
+            with
+            | Error e -> return Error e
+            | Ok out -> return Ok(firstBookmark out)
+        }
+
+    // --- Diff / query / state ------------------------------------------------
+
+    /// Per-file change summary for a range (`diff -r <from>..<to> --summary`).
+    member _.DiffSummary(dir: string, fromRev: string, toRev: string) =
+        // Parenthesise each endpoint so a compound revset (e.g. `x | y`) keeps its
+        // meaning inside the `..` range instead of binding by operator precedence.
+        let range = sprintf "(%s)..(%s)" fromRev toRev
+        core.Parse(cmdIn dir [ "diff"; "-r"; range; "--summary" ], JjParse.parseDiffSummary)
+
+    /// Aggregate change stats for a revset (`diff -r <revset> --stat`).
+    member _.DiffStat(dir: string, revset: string) =
+        core.Parse(cmdIn dir [ "diff"; "-r"; revset; "--stat" ], JjParse.parseDiffStat)
+
+    /// Raw git-format unified diff text for `spec` (`diff -r <spec> --git`).
+    member _.DiffText(dir: string, spec: DiffSpec) =
+        let revset =
+            match spec with
+            | DiffSpec.WorkingTree -> "@"
+            | DiffSpec.Rev rev -> rev
+
+        core.Run(cmdIn dir [ "diff"; "-r"; revset; "--git" ])
+
+    /// Parsed per-file unified diff for `spec`, layered on `DiffText`.
+    member this.Diff(dir: string, spec: DiffSpec) =
+        task {
+            match! this.DiffText(dir, spec) with
+            | Error e -> return Error e
+            | Ok text -> return Ok(parseDiff text)
+        }
+
+    /// Count commits in a revset (`log -r <revset> --no-graph`, one id per line).
+    member _.CommitCount(dir: string, revset: string) =
+        core.Parse(
+            cmdIn dir [ "log"; "-r"; revset; "--no-graph"; "-T"; JjParse.COUNT_TEMPLATE ],
+            fun s ->
+                s.Split('\n')
+                |> Array.filter (fun line -> line <> "" && line <> "\r")
+                |> Array.length
+        )
+
+    /// Whether the commit a revset resolves to has a conflict.
+    member _.IsConflicted(dir: string, revset: string) =
+        task {
+            match!
+                core.Run(
+                    cmdIn
+                        dir
+                        [ "log"
+                          "-r"
+                          revset
+                          "--no-graph"
+                          "--limit"
+                          "1"
+                          "-T"
+                          JjParse.CONFLICT_TEMPLATE ]
+                )
+            with
+            | Error e -> return Error e
+            | Ok out -> return Ok(out.Trim() = "1")
+        }
+
+    /// Whether the working copy has unresolved conflicts.
+    member this.HasWorkingcopyConflict(dir: string) = this.IsConflicted(dir, "@")
+
+    /// Paths with unresolved conflicts in `revset` (`jj resolve --list -r <revset>`).
+    /// Empty when there are none.
+    member _.ResolveList(dir: string, revset: string) =
+        task {
+            match! core.Output(cmdIn dir [ "resolve"; "--list"; "-r"; revset ]) with
+            | Error e -> return Error e
+            | Ok res ->
+                match res.Code with
+                | Some 0 -> return Ok(JjParse.parseResolveList res.Stdout)
+                // jj exits non-zero with "No conflicts found …" when the revision is
+                // conflict-free — the one non-zero we read as an empty list. Any other
+                // failure (bad revset, not a repo, …) must surface. jj's output is
+                // English-only, matched case-insensitively on the stable core phrase.
+                | _ when res.Stderr.Contains("no conflicts", StringComparison.OrdinalIgnoreCase) -> return Ok []
+                | _ ->
+                    match ProcessResult.ensureSuccess res with
+                    | Error e -> return Error e
+                    | Ok _ -> return Ok [] // unreachable: a non-zero exit always errors above.
+        }
+
+    /// Run an arbitrary templated `jj log` query and return raw stdout
+    /// (`log -r <revset> --no-graph [--limit n] -T <template>`).
+    member _.TemplateQuery(dir: string, revset: string, template: string, limit: int option) =
+        let args =
+            [ "log"; "-r"; revset; "--no-graph" ]
+            @ (match limit with
+               | Some n -> [ "--limit"; string n ]
+               | None -> [])
+            @ [ "-T"; template ]
+
+        core.Run(cmdIn dir args)
+
+    /// The full (possibly multiline) description of the commit `revset` resolves to,
+    /// trailing whitespace trimmed; empty for an undescribed change. A multi-commit
+    /// revset yields only the newest commit's description (`--limit 1`).
+    member this.Description(dir: string, revset: string) =
+        this.TemplateQuery(dir, revset, "description", Some 1)
+
+    /// How the commit a revset resolves to evolved, newest snapshot first, up to
+    /// `max` (`jj evolog -r <revset>`) — one `Change` row per recorded predecessor.
+    member _.Evolog(dir: string, revset: string, max: int) =
+        core.Parse(
+            cmdIn
+                dir
+                [ "evolog"
+                  "-r"
+                  revset
+                  "--no-graph"
+                  "--limit"
+                  string max
+                  "-T"
+                  JjParse.EVOLOG_TEMPLATE ],
+            JjParse.parseChanges
+        )
+
+    /// Per-line authorship of `path` (`jj file annotate <path> [-r <revset>]`;
+    /// `None` = `@`): which change introduced each line.
+    member _.FileAnnotate(dir: string, path: string, revset: string option) =
+        // `file annotate` takes a plain PATH (not a fileset), so a leading-`-` path
+        // would be parsed as a flag. The `--` separator before it keeps even a
+        // `-dash.txt` literal safe — but global flags (`--color never`) MUST precede
+        // `--`, so this builds the command directly (not via `cmdIn`, which trails them).
+        let args =
+            [ "file"; "annotate" ]
+            @ (match revset with
+               | Some r -> [ "-r"; r ]
+               | None -> [])
+            @ [ "-T"; JjParse.ANNOTATE_TEMPLATE; "--color"; "never"; "--"; path ]
+
+        task {
+            // Parse the raw (un-trimmed) stdout via `Output` rather than `Parse`: the
+            // latter feeds the parser `TrimEnd`-ed stdout, which would strip the final
+            // line's trailing `\r` that `parseAnnotate` is documented to preserve for a
+            // CRLF-terminated source file. Rust's `core.parse` feeds raw stdout, so this
+            // keeps byte-for-byte parity for the last line.
+            match! core.Output(core.CommandIn(dir, args)) with
+            | Error e -> return Error e
+            | Ok res ->
+                match ProcessResult.ensureSuccess res with
+                | Error e -> return Error e
+                | Ok ok -> return Ok(JjParse.parseAnnotate ok.Stdout)
+        }
+
+    /// A file's content at a revision (`jj file show -r <revset> file:"<path>"` — the
+    /// path is wrapped as an exact-path fileset, so metacharacters stay literal).
+    member _.FileShow(dir: string, revset: string, path: string) =
+        let fileset = JjFileset.Path path
+        core.Run(cmdIn dir [ "file"; "show"; "-r"; revset; fileset.Value ])
+
+    // --- Mutations -----------------------------------------------------------
+
+    /// Rebase the working copy onto a destination (`rebase -d <onto>`).
+    member _.Rebase(dir: string, onto: string) =
+        core.RunUnit(cmdIn dir [ "rebase"; "-d"; onto ])
+
+    /// Rebase a whole branch onto a destination (`rebase -b <branch> -d <dest>`).
+    member _.RebaseBranch(dir: string, branch: string, dest: string) =
+        core.RunUnit(cmdIn dir [ "rebase"; "-b"; branch; "-d"; dest ])
+
+    /// Move the working copy to a revision (`edit <rev>`).
+    member _.Edit(dir: string, revset: string) =
+        task {
+            match checkFlags [ "revset", revset ] with
+            | Error e -> return Error e
+            | Ok() -> return! core.RunUnit(cmdIn dir [ "edit"; revset ])
+        }
+
+    /// Squash the working copy into a revision (`squash --into <rev>`). When
+    /// `useDestinationMessage`, keep the destination's description instead of
+    /// combining the two.
+    member _.SquashInto(dir: string, into: string, useDestinationMessage: bool) =
+        let cmd = cmdIn dir [ "squash"; "--into"; into ]
+
+        let cmd =
+            if useDestinationMessage then
+                cmd.Arg "--use-destination-message"
+            else
+                cmd
+
+        core.RunUnit cmd
+
+    /// Finalise a commit from exactly these filesets (`commit -m <message>
+    /// <filesets>`); the rest stay in the new working-copy change.
+    member _.CommitPaths(dir: string, filesets: JjFileset list, message: string) =
+        let args = [ "commit"; "-m"; message ] @ (filesets |> List.map (fun f -> f.Value))
+        core.RunUnit(cmdIn dir args)
+
+    /// Squash exactly these filesets from one revision into another
+    /// (`squash --from <from> --into <into> [--use-destination-message] <filesets>`).
+    member _.SquashPaths(dir: string, spec: SquashPaths) =
+        let args =
+            [ "squash"; "--from"; spec.From; "--into"; spec.Into ]
+            @ (if spec.UseDestinationMessage then
+                   [ "--use-destination-message" ]
+               else
+                   [])
+            @ (spec.Filesets |> List.map (fun f -> f.Value))
+
+        core.RunUnit(cmdIn dir args)
+
+    /// Set the working copy's sparse patterns to exactly `patterns`
+    /// (`sparse set --clear --add <p>…`); an empty list clears the working copy.
+    member _.SparseSet(dir: string, patterns: string list) =
+        // `--clear` empties the working copy first, then each `--add` reinstates a
+        // pattern — so the working copy ends up holding exactly `patterns`.
+        let args =
+            [ "sparse"; "set"; "--clear" ]
+            @ (patterns |> List.collect (fun p -> [ "--add"; p ]))
+
+        core.RunUnit(cmdIn dir args)
+
+    /// Create a new change with the given parents (`new -m <msg> <p1> <p2> …`).
+    member _.NewMerge(dir: string, message: string, parents: string list) =
+        task {
+            // Parents are bare positionals — a leading-`-` one would be silently
+            // consumed as a flag.
+            match checkFlags (parents |> List.map (fun p -> "parent", p)) with
+            | Error e -> return Error e
+            | Ok() ->
+                let args = [ "new"; "-m"; message ] @ parents
+                return! core.RunUnit(cmdIn dir args)
+        }
+
+    /// Abandon a revision (`abandon <rev>`).
+    member _.Abandon(dir: string, revset: string) =
+        task {
+            match checkFlags [ "revset", revset ] with
+            | Error e -> return Error e
+            | Ok() -> return! core.RunUnit(cmdIn dir [ "abandon"; revset ])
+        }
+
+    /// Fold working-copy edits into the mutable ancestors that introduced the touched
+    /// lines (`absorb [--from <revset>] [<filesets>…]`); empty `filesets` absorbs
+    /// everything.
+    member _.Absorb(dir: string, from: string option, filesets: JjFileset list) =
+        let args =
+            [ "absorb" ]
+            @ (match from with
+               | Some f -> [ "--from"; f ]
+               | None -> [])
+            @ (filesets |> List.map (fun f -> f.Value))
+
+        core.RunUnit(cmdIn dir args)
+
+    /// Split exactly these filesets out of `@` into their own commit described by
+    /// `message` (`split -m <message> <filesets>…`); the remainder stays behind.
+    /// `filesets` must be non-empty — a fileset-less split opens jj's interactive
+    /// diff editor (a headless hang), so it is refused before spawning.
+    member _.SplitPaths(dir: string, filesets: JjFileset list, message: string) =
+        task {
+            if List.isEmpty filesets then
+                return
+                    Error(
+                        ProcessError.Spawn(
+                            BINARY,
+                            "split requires at least one fileset — an empty split opens jj's interactive diff editor"
+                        )
+                    )
+            else
+                // `-m` doubles as the description-editor suppressor.
+                let args = [ "split"; "-m"; message ] @ (filesets |> List.map (fun f -> f.Value))
+                return! core.RunUnit(cmdIn dir args)
+        }
+
+    /// Duplicate the commits a revset resolves to (`duplicate <revset>`).
+    member _.Duplicate(dir: string, revset: string) =
+        task {
+            match checkFlags [ "revset", revset ] with
+            | Error e -> return Error e
+            | Ok() -> return! core.RunUnit(cmdIn dir [ "duplicate"; revset ])
+        }
+
+    // --- Git sync ------------------------------------------------------------
+
+    /// Fetch from the git remote (`jj git fetch`); transient (network) failures are
+    /// retried (3 attempts, 500 ms backoff).
+    member _.GitFetch(dir: string) =
+        // Idempotent → retry replays it on a transient failure; graceful
+        // terminate-then-kill on a per-client timeout so a timed-out fetch closes cleanly.
+        let cmd =
+            (cmdIn dir [ "git"; "fetch" ])
+                .TimeoutGrace(FetchTimeoutGrace)
+                .Retry(FetchAttempts, FetchBackoff, (fun e -> isTransientFetchError e))
+
+        core.RunUnit cmd
+
+    /// Fetch from a *named* git remote (`jj git fetch --remote <remote>`); transient
+    /// failures are retried like `GitFetch`.
+    member _.GitFetchFrom(dir: string, remote: string) =
+        let cmd =
+            (cmdIn dir [ "git"; "fetch"; "--remote"; remote ])
+                .TimeoutGrace(FetchTimeoutGrace)
+                .Retry(FetchAttempts, FetchBackoff, (fun e -> isTransientFetchError e))
+
+        core.RunUnit cmd
+
+    /// Fetch a single bookmark from origin (`git fetch --remote origin -b <branch>`);
+    /// transient failures are retried (3×, 500 ms).
+    member _.GitFetchBranch(dir: string, branch: string) =
+        let cmd =
+            (cmdIn dir [ "git"; "fetch"; "--remote"; "origin"; "-b"; branch ])
+                .TimeoutGrace(FetchTimeoutGrace)
+                .Retry(FetchAttempts, FetchBackoff, (fun e -> isTransientFetchError e))
+
+        core.RunUnit cmd
+
+    /// Push to the git remote (`jj git push`, optionally `-b <bookmark>`).
+    member _.GitPush(dir: string, bookmark: string option) =
+        let args =
+            [ "git"; "push" ]
+            @ (match bookmark with
+               | Some name -> [ "-b"; name ]
+               | None -> [])
+
+        // Graceful terminate-then-kill on a per-client timeout so a timed-out push
+        // doesn't leave the remote ref half-updated.
+        let cmd = (cmdIn dir args).TimeoutGrace(FetchTimeoutGrace)
+        core.RunUnit cmd
+
+    /// Import git refs into jj (`jj git import`) — colocated-repo sync.
+    member _.GitImport(dir: string) =
+        core.RunUnit(cmdIn dir [ "git"; "import" ])
+
+    /// Clone a git repository into `dest` (`jj git clone <url> <dest>
+    /// --colocate|--no-colocate`). Runs without a working directory — pass an
+    /// absolute `dest`. The colocate flag is always passed explicitly: whether
+    /// colocation is jj's default depends on the jj version *and* the user's
+    /// `git.colocate` config, so `colocate` decides deterministically.
+    member _.GitClone(url: string, dest: string, colocate: bool) =
+        task {
+            // A leading-`-` url is a bare positional — guard it (a real URL never
+            // leads with `-`, so no false positives).
+            match checkFlags [ "url", url ] with
+            | Error e -> return Error e
+            | Ok() ->
+                let colocateFlag = if colocate then "--colocate" else "--no-colocate"
+
+                let cmd =
+                    (core.Command [ "git"; "clone"; url ])
+                        .Arg(dest)
+                        .Arg(colocateFlag)
+                        .Arg("--color")
+                        .Arg("never")
+                        .TimeoutGrace(FetchTimeoutGrace)
+
+                return! core.RunUnit cmd
+        }
+
+    // --- Operation log -------------------------------------------------------
+
+    /// The current operation id (`op log --no-graph --limit 1`) — capture before a
+    /// risky sequence to roll back to.
+    member _.OpHead(dir: string) =
+        core.Run(cmdIn dir [ "op"; "log"; "--no-graph"; "--limit"; "1"; "-T"; "id.short()" ])
+
+    /// The newest `limit` operations, newest first (`op log --no-graph --limit n`).
+    member _.OpLog(dir: string, limit: int) =
+        core.Parse(
+            cmdIn
+                dir
+                [ "op"
+                  "log"
+                  "--no-graph"
+                  "--limit"
+                  string limit
+                  "-T"
+                  JjParse.OP_TEMPLATE ],
+            JjParse.parseOperations
+        )
+
+    /// Restore the repo to an operation (`op restore <id>`).
+    member _.OpRestore(dir: string, opId: string) =
+        task {
+            match checkFlags [ "operation id", opId ] with
+            | Error e -> return Error e
+            | Ok() -> return! core.RunUnit(cmdIn dir [ "op"; "restore"; opId ])
+        }
+
+    /// Undo the latest operation (`op undo`).
+    member _.OpUndo(dir: string) =
+        core.RunUnit(cmdIn dir [ "op"; "undo" ])
+
+    // --- Workspaces ----------------------------------------------------------
+
+    /// List workspaces (`workspace list`).
+    member _.WorkspaceList(dir: string) =
+        core.Parse(cmdIn dir [ "workspace"; "list"; "-T"; JjParse.WORKSPACE_TEMPLATE ], JjParse.parseWorkspaces)
+
+    /// Resolve a workspace's root path (`workspace root [--name <name>]`).
+    member _.WorkspaceRoot(dir: string, name: string option) =
+        let args =
+            [ "workspace"; "root" ]
+            @ (match name with
+               | Some n -> [ "--name"; n ]
+               | None -> [])
+
+        core.Run(cmdIn dir args)
+
+    /// Add a workspace (`workspace add --name <name> -r <base> <path>`).
+    member _.WorkspaceAdd(dir: string, spec: WorkspaceAdd) =
+        // Built directly on `CommandIn` (not `cmdIn`) because the trailing
+        // `--color never` must come after the chained value args, not between
+        // `--name` and its value.
+        let cmd =
+            (core.CommandIn(dir, [ "workspace"; "add"; "--name" ])).Arg(spec.Name).Arg("-r").Arg(spec.Base)
+
+        let cmd =
+            match spec.SparsePatterns with
+            | Some mode -> cmd.Arg("--sparse-patterns").Arg(mode.AsArg)
+            | None -> cmd
+
+        let cmd = cmd.Arg(spec.Path).Arg("--color").Arg("never")
+        core.RunUnit cmd
+
+    /// Forget a workspace (`workspace forget <name>`).
+    member _.WorkspaceForget(dir: string, name: string) =
+        task {
+            match checkFlags [ "workspace name", name ] with
+            | Error e -> return Error e
+            | Ok() -> return! core.RunUnit(cmdIn dir [ "workspace"; "forget"; name ])
+        }
+
+    /// Resolve several workspaces' root paths in one bounded fan-out — one
+    /// `jj workspace root --name <n>` per name, at most 8 live at a time. Per-name
+    /// `Ok`/`Error` mirrors `WorkspaceRoot` (a non-zero exit or spawn failure →
+    /// `Error`); results come back in `names` order.
+    member _.WorkspaceRoots(dir: string, names: string list) : Task<Result<string, ProcessError> list> =
+        task {
+            use sem = new SemaphoreSlim(WorkspaceRootsConcurrency)
+
+            let runOne (n: string) =
+                task {
+                    do! sem.WaitAsync()
+
+                    try
+                        match! core.Output(cmdIn dir [ "workspace"; "root"; "--name"; n ]) with
+                        | Error e -> return Error e
+                        | Ok res ->
+                            match ProcessResult.ensureSuccess res with
+                            | Error e -> return Error e
+                            // `TrimEnd` (not `Trim`) for parity with the single
+                            // `WorkspaceRoot`, whose `core.Run` trims trailing whitespace.
+                            | Ok ok -> return Ok(ok.Stdout.TrimEnd())
+                    finally
+                        sem.Release() |> ignore
+                }
+
+            let! results = names |> List.map runOne |> Task.WhenAll
+            return List.ofArray results
+        }
+
+    // --- Transactions --------------------------------------------------------
+
+    /// Run a mutation sequence with op-log rollback: capture the current operation
+    /// (`OpHead`), run `f` with this client, and on `Error` restore the repo to the
+    /// captured operation (`OpRestore`) before returning the error. The op log is
+    /// jj's safety net; this wraps it as a scope.
+    ///
+    /// Caveats: rollback runs on `Error` only — not on a thrown exception or
+    /// cancellation. If the restore itself fails, the *original* error from `f` is
+    /// returned and the repo may be left mid-transaction; re-probe `OpHead` to detect that.
+    member this.Transaction(dir: string, f: Jj -> Task<Result<'T, ProcessError>>) : Task<Result<'T, ProcessError>> =
+        task {
+            match! this.OpHead dir with
+            | Error e -> return Error e
+            | Ok pre ->
+                match! f this with
+                | Ok value -> return Ok value
+                | Error err ->
+                    // Best-effort restore; the closure's error is the cause and is what
+                    // the caller must see even when the restore also fails.
+                    let! _ = this.OpRestore(dir, pre)
+                    return Error err
+        }

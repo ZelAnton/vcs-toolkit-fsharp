@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<AssemblyName>VcsToolkit.Jj</AssemblyName>
+		<PackageId>VcsToolkit.Jj</PackageId>
+		<Description>Automate Jujutsu (jj) by driving the jj CLI: typed async methods that run real jj, parse its templated output, and return structured values. Changes/log, bookmarks, the operation log with rollback transactions, workspaces, squash/split/absorb, diff queries, and git sync. Built on ProcessKit.</Description>
+		<PackageTags>fsharp;vcs;jujutsu;jj;cli;process;automation</PackageTags>
+		<!-- Cross-project references resolve through assembly search paths (no ProjectReference). -->
+		<AssemblySearchPaths>$(AssemblySearchPaths);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework);$(DiffDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
+	</PropertyGroup>
+
+	<!-- F# COMPILE ORDER IS SIGNIFICANT. -->
+	<ItemGroup>
+		<Compile Include="Types.fs" />
+		<Compile Include="Parse.fs" />
+		<Compile Include="Jj.fs" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="FSharp.Core" />
+		<PackageReference Include="ProcessKit" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Reference Include="VcsToolkit.CliSupport" />
+		<Reference Include="VcsToolkit.Diff" />
+	</ItemGroup>
+
+</Project>

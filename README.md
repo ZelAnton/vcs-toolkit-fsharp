@@ -22,7 +22,7 @@ The toolkit is split into one package per concern, mirroring the Rust workspace.
 | `VcsToolkit.CliSupport` | ✅ available | Shared plumbing: argv injection guard, error classifiers, lock-contention retry, credential provisioning, the `ManagedClient` runner wrapper. |
 | `VcsToolkit.Diff` | ✅ available | The git-format unified-diff model and parser, plus a tolerant `<tool> --version` parser. Pure, no subprocess. |
 | `VcsToolkit.Git` | ✅ available | The `git` CLI client (the cwd-bound view and the conflict-marker model are still pending). |
-| `VcsToolkit.Jj` | 🚧 planned | The Jujutsu (`jj`) CLI client. |
+| `VcsToolkit.Jj` | ✅ available | The Jujutsu (`jj`) CLI client: changes/log, bookmarks, the operation log with rollback transactions, workspaces, squash/split/absorb, diff queries, and git sync (the cwd-bound view and the native conflict model are still pending). |
 | `VcsToolkit.GitHub` | 🚧 planned | The GitHub (`gh`) CLI client. |
 | `VcsToolkit.GitLab` / `VcsToolkit.Gitea` | 🚧 planned | The `glab` / `tea` CLI clients. |
 | `VcsToolkit.Core` | 🚧 planned | The backend-agnostic `Repo` facade over Git / Jujutsu. |
@@ -53,8 +53,8 @@ to resolve before the first release:
 2. **Inter-package dependencies are not yet declared.** Because cross-project
    references use `Reference` + `AssemblySearchPaths` (per the repo conventions)
    rather than `ProjectReference`, `dotnet pack` does not record sibling
-   dependencies: `VcsToolkit.Git`'s package does not yet declare its dependency on
-   `VcsToolkit.CliSupport` / `VcsToolkit.Diff`. This must be wired up (e.g. via a
+   dependencies: the `VcsToolkit.Git` / `VcsToolkit.Jj` packages do not yet declare
+   their dependency on `VcsToolkit.CliSupport` / `VcsToolkit.Diff`. This must be wired up (e.g. via a
    pack-time dependency injection, or by revisiting the reference style for the
    packaged libraries) before publishing, or an external consumer of
    `VcsToolkit.Git` would hit a missing-assembly error.
