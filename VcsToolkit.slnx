@@ -1,0 +1,19 @@
+<Solution>
+	<Folder Name="/Tests/">
+		<Project Path="tests/VcsToolkit.CliSupport.Tests/VcsToolkit.CliSupport.Tests.fsproj">
+			<BuildDependency Project="src/VcsToolkit.CliSupport/VcsToolkit.CliSupport.fsproj" />
+		</Project>
+		<Project Path="tests/VcsToolkit.Diff.Tests/VcsToolkit.Diff.Tests.fsproj">
+			<BuildDependency Project="src/VcsToolkit.Diff/VcsToolkit.Diff.fsproj" />
+		</Project>
+		<Project Path="tests/VcsToolkit.Git.Tests/VcsToolkit.Git.Tests.fsproj">
+			<BuildDependency Project="src/VcsToolkit.Git/VcsToolkit.Git.fsproj" />
+		</Project>
+	</Folder>
+	<Project Path="src/VcsToolkit.CliSupport/VcsToolkit.CliSupport.fsproj" />
+	<Project Path="src/VcsToolkit.Diff/VcsToolkit.Diff.fsproj" />
+	<Project Path="src/VcsToolkit.Git/VcsToolkit.Git.fsproj">
+		<BuildDependency Project="src/VcsToolkit.CliSupport/VcsToolkit.CliSupport.fsproj" />
+		<BuildDependency Project="src/VcsToolkit.Diff/VcsToolkit.Diff.fsproj" />
+	</Project>
+</Solution>

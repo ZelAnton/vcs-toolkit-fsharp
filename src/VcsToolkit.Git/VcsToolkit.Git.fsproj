@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<AssemblyName>VcsToolkit.Git</AssemblyName>
+		<PackageId>VcsToolkit.Git</PackageId>
+		<Description>Automate Git by driving the git CLI: typed async methods that run real git, parse its output, and return structured values. Status, branches, commit, diff/log, merge/rebase, worktrees, tags, blame, clone, config. Built on ProcessKit.</Description>
+		<PackageTags>fsharp;vcs;git;cli;process;automation</PackageTags>
+		<!-- Cross-project references resolve through assembly search paths (no ProjectReference). -->
+		<AssemblySearchPaths>$(AssemblySearchPaths);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework);$(DiffDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
+	</PropertyGroup>
+
+	<!-- F# COMPILE ORDER IS SIGNIFICANT. -->
+	<ItemGroup>
+		<Compile Include="Types.fs" />
+		<Compile Include="Parse.fs" />
+		<Compile Include="Git.fs" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="FSharp.Core" />
+		<PackageReference Include="ProcessKit" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Reference Include="VcsToolkit.CliSupport" />
+		<Reference Include="VcsToolkit.Diff" />
+	</ItemGroup>
+
+</Project>
