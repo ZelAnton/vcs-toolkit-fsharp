@@ -11,13 +11,13 @@ module Parse =
 
     // Digit-only, invariant-culture parse matching Rust's `usize::from_str` (which
     // rejects signs/whitespace), so a malformed hunk range like `-5` reads as 0.
-    let private parseIntOr0 (s: string) =
+    let private parseIntOr0 (s: string) : uint64 =
         if s.Length > 0 && s |> Seq.forall Char.IsAsciiDigit then
-            match Int32.TryParse(s, Globalization.NumberStyles.None, Globalization.CultureInfo.InvariantCulture) with
+            match UInt64.TryParse(s, Globalization.NumberStyles.None, Globalization.CultureInfo.InvariantCulture) with
             | true, v -> v
-            | _ -> 0
+            | _ -> 0UL
         else
-            0
+            0UL
 
     let private stripPrefix (prefix: string) (s: string) : string option =
         if s.StartsWith(prefix, StringComparison.Ordinal) then
@@ -134,9 +134,9 @@ module Parse =
             Encoding.UTF8.GetString(out.ToArray())
 
     /// Parse a `<start>[,<count>]` hunk range; an omitted count means 1 line.
-    let private parseHunkRange (range: string) : int * int =
+    let private parseHunkRange (range: string) : uint64 * uint64 =
         match range.IndexOf ',' with
-        | -1 -> (parseIntOr0 range, 1)
+        | -1 -> (parseIntOr0 range, 1UL)
         | idx -> (parseIntOr0 (range.Substring(0, idx)), parseIntOr0 (range.Substring(idx + 1)))
 
     /// Parse a hunk header `@@ -<os>[,<ol>] +<ns>[,<nl>] @@[ <section>]` into an empty

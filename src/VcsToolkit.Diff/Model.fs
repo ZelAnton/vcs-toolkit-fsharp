@@ -6,15 +6,15 @@ namespace VcsToolkit.Diff
 type DiffStat =
     {
         /// Number of files changed.
-        FilesChanged: int
+        FilesChanged: uint64
         /// Lines added (`insertions(+)`).
-        Insertions: int
+        Insertions: uint64
         /// Lines removed (`deletions(-)`).
-        Deletions: int
+        Deletions: uint64
     }
 
     /// Build a `DiffStat`.
-    static member Create(filesChanged: int, insertions: int, deletions: int) =
+    static member Create(filesChanged: uint64, insertions: uint64, deletions: uint64) =
         { FilesChanged = filesChanged
           Insertions = insertions
           Deletions = deletions }
@@ -47,13 +47,13 @@ type DiffLine =
 type Hunk =
     {
         /// Start line in the old file (the `-<start>` of the `@@` header).
-        OldStart: int
+        OldStart: uint64
         /// Line count in the old file (defaults to 1 when the `,<count>` is omitted).
-        OldLines: int
+        OldLines: uint64
         /// Start line in the new file (the `+<start>` of the `@@` header).
-        NewStart: int
+        NewStart: uint64
         /// Line count in the new file (defaults to 1 when the `,<count>` is omitted).
-        NewLines: int
+        NewLines: uint64
         /// Text after the closing `@@` (the function/section heading); empty when none.
         Section: string
         /// The hunk body, one entry per `+`/`-`/` ` line.

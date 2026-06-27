@@ -1,8 +1,7 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Checks this machine can build and test an F# (.NET) project before you
-    initialize the template.
+    Checks this machine can build and test this F# (.NET) project.
 
 .DESCRIPTION
     Verifies the .NET SDK is installed and new enough (the major band pinned in
@@ -11,7 +10,7 @@
     names, then re-run. (Fantomas is a local tool restored by `dotnet tool restore`,
     not a separate environment prerequisite, so it is not checked here.)
 
-    Run it first, before scripts/init.ps1:
+    Run it first:
 
         pwsh ./scripts/check-env.ps1
 #>
@@ -50,14 +49,14 @@ if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     }
 }
 
-# Soft: git drives the init defaults (author/email) and the VCS workflow.
+# Soft: git drives the version-control workflow this project uses.
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-    Write-Host "    note: git is not on PATH — init falls back to placeholder author/email." -ForegroundColor Yellow
+    Write-Host "    note: git is not on PATH — it's used by the version-control workflow." -ForegroundColor Yellow
 }
 
 if ($problems.Count -eq 0) {
     Write-Host ""
-    Write-Host "Environment ready. Next: pwsh ./scripts/init.ps1 -ProjectName ..." -ForegroundColor Green
+    Write-Host "Environment ready. Next: dotnet tool restore; dotnet build VcsToolkit.slnx" -ForegroundColor Green
     exit 0
 }
 

@@ -197,10 +197,10 @@ type DiffTests() =
         // The verbatim section is preserved for display.
         Assert.That(files.[0].Raw, Is.EqualTo full)
         let hunk = files.[0].Hunks.[0]
-        Assert.That(hunk.OldStart, Is.EqualTo 1)
-        Assert.That(hunk.OldLines, Is.EqualTo 2)
-        Assert.That(hunk.NewStart, Is.EqualTo 1)
-        Assert.That(hunk.NewLines, Is.EqualTo 3)
+        Assert.That(hunk.OldStart, Is.EqualTo 1UL)
+        Assert.That(hunk.OldLines, Is.EqualTo 2UL)
+        Assert.That(hunk.NewStart, Is.EqualTo 1UL)
+        Assert.That(hunk.NewLines, Is.EqualTo 3UL)
         Assert.That(hunk.Section, Is.EqualTo "fn main()")
         Assert.That(hunk.Lines.Length, Is.EqualTo 4)
         Assert.That(hunk.Lines.[0], Is.EqualTo(DiffLine.Context "ctx"))
@@ -214,10 +214,10 @@ type DiffTests() =
             doc [ "diff --git a/f b/f"; "--- a/f"; "+++ b/f"; "@@ -3 +3 @@"; "-a"; "+b" ]
 
         let hunk = (parseDiff full).[0].Hunks.[0]
-        Assert.That(hunk.OldStart, Is.EqualTo 3)
-        Assert.That(hunk.OldLines, Is.EqualTo 1)
-        Assert.That(hunk.NewStart, Is.EqualTo 3)
-        Assert.That(hunk.NewLines, Is.EqualTo 1)
+        Assert.That(hunk.OldStart, Is.EqualTo 3UL)
+        Assert.That(hunk.OldLines, Is.EqualTo 1UL)
+        Assert.That(hunk.NewStart, Is.EqualTo 3UL)
+        Assert.That(hunk.NewLines, Is.EqualTo 1UL)
 
 [<TestFixture>]
 type VersionTests() =
@@ -247,6 +247,20 @@ type VersionTests() =
         let lo = parseDottedVersion "jj 0.38.0" |> Option.get
         let hi = parseDottedVersion "jj 0.40.0" |> Option.get
         Assert.That(hi > lo)
+        // The discriminating case: 2.9.0 < 2.10.0 holds numerically but FAILS under a
+        // lexicographic ("9" > "10") comparison — guards the custom comparison itself.
+        let nine =
+            { Major = 2UL
+              Minor = 9UL
+              Patch = 0UL }
+
+        let ten =
+            { Major = 2UL
+              Minor = 10UL
+              Patch = 0UL }
+
+        Assert.That(nine < ten)
+        Assert.That(ten > nine)
 
     [<Test>]
     member _.DisplaysDotted() =

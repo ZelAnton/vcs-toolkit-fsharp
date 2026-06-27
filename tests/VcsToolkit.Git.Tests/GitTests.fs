@@ -9,6 +9,7 @@ open VcsToolkit.Git
 // Control bytes built explicitly so no escape has to survive a round-trip.
 let private nul = string (char 0)
 let private us = string (char 0x1f)
+let private tab = string (char 9)
 
 let private scripted (tokens: string list) (reply: Reply) =
     Git.WithRunner(ScriptedRunner().On(tokens, reply))
@@ -61,10 +62,10 @@ type StatusTests() =
             | Ok s ->
                 Assert.That(s.Branch, Is.EqualTo(Some "main"))
                 Assert.That(s.Upstream, Is.EqualTo(Some "origin/main"))
-                Assert.That(s.Ahead, Is.EqualTo(Some 1))
-                Assert.That(s.Behind, Is.EqualTo(Some 0))
-                Assert.That(s.TrackedChanges, Is.EqualTo 1)
-                Assert.That(s.Untracked, Is.EqualTo 1)
+                Assert.That(s.Ahead, Is.EqualTo(Some 1UL))
+                Assert.That(s.Behind, Is.EqualTo(Some 0UL))
+                Assert.That(s.TrackedChanges, Is.EqualTo 1UL)
+                Assert.That(s.Untracked, Is.EqualTo 1UL)
                 Assert.That(s.IsDirty)
             | Error e -> Assert.Fail $"branch_status failed: {e}"
         }
@@ -95,6 +96,37 @@ type QueryTests() =
             match! git.RevParseShort(".", "HEAD") with
             | Ok out -> Assert.That(out, Is.EqualTo "a1b2c3d")
             | Error e -> Assert.Fail $"rev_parse_short failed: {e}"
+        }
+
+    [<Test>]
+    member _.BlameParsesLinePorcelain() : Task =
+        task {
+            let sha = "0123456789abcdef0123456789abcdef01234567"
+
+            let out =
+                [ sha + " 1 1 1" // <sha> <orig-line> <final-line> <group-size>
+                  "author Alice Example"
+                  "author-mail <alice@example.com>"
+                  "author-time 1700000000"
+                  "author-tz +0000"
+                  "summary first commit"
+                  "filename f.txt"
+                  tab + "let x = 1" ] // tab-prefixed content line closes the record
+                |> String.concat "\n"
+
+            let git = scripted [ "blame"; "--line-porcelain" ] (Reply.Ok out)
+
+            match! git.Blame(".", "f.txt", None) with
+            | Ok lines ->
+                Assert.That(lines.Length, Is.EqualTo 1)
+                Assert.That(lines.[0].Commit, Is.EqualTo sha)
+                Assert.That(lines.[0].OrigLine, Is.EqualTo 1)
+                Assert.That(lines.[0].FinalLine, Is.EqualTo 1)
+                Assert.That(lines.[0].Author, Is.EqualTo "Alice Example")
+                Assert.That(lines.[0].AuthorTime, Is.EqualTo 1700000000L)
+                Assert.That(lines.[0].AuthorTz, Is.EqualTo "+0000")
+                Assert.That(lines.[0].Content, Is.EqualTo "let x = 1")
+            | Error e -> Assert.Fail $"blame failed: {e}"
         }
 
     [<Test>]
@@ -181,9 +213,9 @@ type QueryTests() =
 
             match! git.DiffStat(".", "HEAD~1..HEAD") with
             | Ok stat ->
-                Assert.That(stat.FilesChanged, Is.EqualTo 3)
-                Assert.That(stat.Insertions, Is.EqualTo 12)
-                Assert.That(stat.Deletions, Is.EqualTo 4)
+                Assert.That(stat.FilesChanged, Is.EqualTo 3UL)
+                Assert.That(stat.Insertions, Is.EqualTo 12UL)
+                Assert.That(stat.Deletions, Is.EqualTo 4UL)
             | Error e -> Assert.Fail $"diff_stat failed: {e}"
         }
 

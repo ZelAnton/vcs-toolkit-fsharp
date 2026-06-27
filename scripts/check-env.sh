@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Checks this machine can build and test an F# (.NET) project before you
-# initialize the template (POSIX counterpart of check-env.ps1 — use whichever
-# matches your shell; both do the same thing).
+# Checks this machine can build and test this F# (.NET) project (POSIX
+# counterpart of check-env.ps1 — use whichever matches your shell; both do
+# the same thing).
 #
 # Verifies the .NET SDK is installed and new enough (the major band pinned in
 # global.json). Exits 0 when ready; if a required tool is missing it prints
@@ -37,13 +37,13 @@ else
   problems+=("a .NET ${required_major} SDK (dotnet found, but no installed SDK >= ${required_major})")
 fi
 
-# Soft: git drives the init defaults (author/email) and the VCS workflow.
+# Soft: git drives the version-control workflow this project uses.
 command -v git >/dev/null 2>&1 || \
-  echo "    note: git is not on PATH — init falls back to placeholder author/email."
+  echo "    note: git is not on PATH — it's used by the version-control workflow."
 
 if [ ${#problems[@]} -eq 0 ]; then
   echo
-  echo "Environment ready. Next: bash ./scripts/init.sh --project-name ..."
+  echo "Environment ready. Next: dotnet tool restore && dotnet build VcsToolkit.slnx"
   exit 0
 fi
 

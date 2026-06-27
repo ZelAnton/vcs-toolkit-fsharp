@@ -184,11 +184,11 @@ type ParseTests() =
             "README.md | 10 +++---\nsrc/lib.rs | 4 +-\n4 files changed, 157 insertions(+), 137 deletions(-)\n"
 
         let stat = JjParse.parseDiffStat input
-        Assert.That(stat.FilesChanged, Is.EqualTo 4)
-        Assert.That(stat.Insertions, Is.EqualTo 157)
-        Assert.That(stat.Deletions, Is.EqualTo 137)
+        Assert.That(stat.FilesChanged, Is.EqualTo 4UL)
+        Assert.That(stat.Insertions, Is.EqualTo 157UL)
+        Assert.That(stat.Deletions, Is.EqualTo 137UL)
         let empty = JjParse.parseDiffStat ""
-        Assert.That(empty.FilesChanged, Is.EqualTo 0)
+        Assert.That(empty.FilesChanged, Is.EqualTo 0UL)
 
     [<Test>]
     member _.JjVersionParsesRealWorldShapes() =
@@ -218,6 +218,19 @@ type ParseTests() =
 
 [<TestFixture>]
 type ClientTests() =
+
+    [<Test>]
+    member _.RepoScopedCommandsForceColorNever() : Task =
+        task {
+            // The rule requires --color and never present; if cmdIn stopped forcing
+            // color off, no rule would match and the runner would raise.
+            let jj =
+                scripted [ "status"; "--color"; "never" ] (Reply.Ok "Working copy changes:\n")
+
+            match! jj.StatusText "." with
+            | Ok text -> Assert.That(text.Contains "Working copy changes")
+            | Error e -> Assert.Fail $"status_text failed: {e}"
+        }
 
     [<Test>]
     member _.StatusParsesDiffSummary() : Task =

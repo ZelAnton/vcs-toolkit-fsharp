@@ -170,13 +170,13 @@ module JjParse =
 
     /// Digit-only, invariant-culture parse matching Rust's `usize::from_str` (which
     /// rejects signs/whitespace), so a malformed token reads as 0.
-    let private parseIntOr0 (s: string) =
+    let private parseIntOr0 (s: string) : uint64 =
         if s.Length > 0 && s |> Seq.forall Char.IsAsciiDigit then
-            match Int32.TryParse(s, Globalization.NumberStyles.None, Globalization.CultureInfo.InvariantCulture) with
+            match UInt64.TryParse(s, Globalization.NumberStyles.None, Globalization.CultureInfo.InvariantCulture) with
             | true, v -> v
-            | _ -> 0
+            | _ -> 0UL
         else
-            0
+            0UL
 
     let private normalize (p: string) = p.Replace(char 92, '/')
 
@@ -404,9 +404,9 @@ module JjParse =
             |> List.tryFind (fun line -> line.Contains "changed")
             |> Option.defaultValue ""
 
-        let mutable files = 0
-        let mutable insertions = 0
-        let mutable deletions = 0
+        let mutable files = 0UL
+        let mutable insertions = 0UL
+        let mutable deletions = 0UL
 
         for rawPart in summary.Split(',') do
             let part = rawPart.Trim()
@@ -417,7 +417,7 @@ module JjParse =
                     |> Array.tryHead
                 with
                 | Some tok -> parseIntOr0 tok
-                | None -> 0
+                | None -> 0UL
 
             if part.Contains "file" then
                 files <- n

@@ -24,15 +24,15 @@ type BranchStatus =
         /// Upstream tracking branch; `None` when unset.
         Upstream: string option
         /// Commits ahead of the upstream; `None` when no upstream.
-        Ahead: int option
+        Ahead: uint64 option
         /// Commits behind the upstream; `None` when no upstream.
-        Behind: int option
+        Behind: uint64 option
         /// Count of changed *tracked* entries (the `1`/`2`/`u` records).
-        TrackedChanges: int
+        TrackedChanges: uint64
         /// Count of untracked files (the `?` records).
-        Untracked: int
+        Untracked: uint64
         /// Count of unmerged (conflicted) entries (the `u` records).
-        Conflicts: int
+        Conflicts: uint64
     }
 
     /// An empty snapshot (all unset / zero).
@@ -42,12 +42,12 @@ type BranchStatus =
           Upstream = None
           Ahead = None
           Behind = None
-          TrackedChanges = 0
-          Untracked = 0
-          Conflicts = 0 }
+          TrackedChanges = 0UL
+          Untracked = 0UL
+          Conflicts = 0UL }
 
     /// Whether the working tree has any change at all — tracked or untracked.
-    member this.IsDirty = this.TrackedChanges > 0 || this.Untracked > 0
+    member this.IsDirty = this.TrackedChanges > 0UL || this.Untracked > 0UL
 
 /// A commit, parsed from a unit-separator-delimited `git log` line.
 type Commit =
@@ -129,6 +129,16 @@ module GitParse =
         else
             0
 
+    // As `parseIntOr0`, but for the `usize` fields (diff stats, ahead/behind, change
+    // counts) — mirrors Rust's `usize::from_str` width.
+    let private parseUInt64Or0 (s: string) : uint64 =
+        if s.Length > 0 && s |> Seq.forall Char.IsAsciiDigit then
+            match UInt64.TryParse(s, Globalization.NumberStyles.None, Globalization.CultureInfo.InvariantCulture) with
+            | true, v -> v
+            | _ -> 0UL
+        else
+            0UL
+
     /// Lines with terminators stripped (mirrors Rust `str::lines`: strips the `\r` of a
     /// `\r\n`, keeps a bare trailing `\r`, and yields no trailing empty for a final `\n`).
     let private linesOf (text: string) : string[] =
@@ -179,13 +189,13 @@ module GitParse =
 
         List.ofSeq entries
 
-    let private parseSignedPrefix (sign: char) (token: string) : int option =
+    let private parseSignedPrefix (sign: char) (token: string) : uint64 option =
         if token.Length >= 1 && token.[0] = sign then
             let rest = token.Substring 1
 
             if rest.Length > 0 && rest |> Seq.forall Char.IsAsciiDigit then
                 match
-                    Int32.TryParse(rest, Globalization.NumberStyles.None, Globalization.CultureInfo.InvariantCulture)
+                    UInt64.TryParse(rest, Globalization.NumberStyles.None, Globalization.CultureInfo.InvariantCulture)
                 with
                 | true, n -> Some n
                 | _ -> None
@@ -202,9 +212,9 @@ module GitParse =
         let mutable upstream = None
         let mutable ahead = None
         let mutable behind = None
-        let mutable tracked = 0
-        let mutable untracked = 0
-        let mutable conflicts = 0
+        let mutable tracked = 0UL
+        let mutable untracked = 0UL
+        let mutable conflicts = 0UL
         let oidP = "# branch.oid "
         let headP = "# branch.head "
         let upP = "# branch.upstream "
@@ -238,17 +248,17 @@ module GitParse =
                     else
                         None
             elif record.StartsWith("1 ", StringComparison.Ordinal) then
-                tracked <- tracked + 1
+                tracked <- tracked + 1UL
             elif record.StartsWith("2 ", StringComparison.Ordinal) then
-                tracked <- tracked + 1
+                tracked <- tracked + 1UL
                 // The rename/copy original path is the next NUL record; consume it.
                 if i < records.Length then
                     i <- i + 1
             elif record.StartsWith("u ", StringComparison.Ordinal) then
-                tracked <- tracked + 1
-                conflicts <- conflicts + 1
+                tracked <- tracked + 1UL
+                conflicts <- conflicts + 1UL
             elif record.StartsWith("? ", StringComparison.Ordinal) then
-                untracked <- untracked + 1
+                untracked <- untracked + 1UL
 
         { Head = head
           Branch = branch
@@ -398,10 +408,14 @@ module GitParse =
                         | "author" -> current <- Some { entry with Author = value }
                         | "author-time" ->
                             let t =
+                                // Mirror Rust's `value.parse::<i64>()`: an optional leading
+                                // sign + digits only, no surrounding whitespace
+                                // (`AllowLeadingSign`, not `Integer` which also permits
+                                // leading/trailing whitespace). git emits a clean epoch.
                                 match
                                     Int64.TryParse(
                                         value,
-                                        Globalization.NumberStyles.Integer,
+                                        Globalization.NumberStyles.AllowLeadingSign,
                                         Globalization.CultureInfo.InvariantCulture
                                     )
                                 with
@@ -415,15 +429,15 @@ module GitParse =
 
         List.ofSeq lines
 
-    let private leadingCount (part: string) =
+    let private leadingCount (part: string) : uint64 =
         let toks = part.Split([| ' '; tab |], StringSplitOptions.RemoveEmptyEntries)
-        if toks.Length >= 1 then parseIntOr0 toks.[0] else 0
+        if toks.Length >= 1 then parseUInt64Or0 toks.[0] else 0UL
 
     /// Parse `git diff --shortstat`, e.g. ` 3 files changed, 12 insertions(+), 4 deletions(-)`.
     let parseShortstat (output: string) : DiffStat =
-        let mutable files = 0
-        let mutable insertions = 0
-        let mutable deletions = 0
+        let mutable files = 0UL
+        let mutable insertions = 0UL
+        let mutable deletions = 0UL
 
         for raw in output.Split ',' do
             let part = raw.Trim()

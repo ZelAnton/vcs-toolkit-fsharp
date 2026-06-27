@@ -164,6 +164,19 @@ type CredentialTests() =
         Assert.That(s.Expose(), Is.EqualTo "hunter2")
 
     [<Test>]
+    member _.CredentialToStringRedactsSecretButShowsUsername() =
+        // The secret must never appear in a rendered Credential; the username may.
+        let up = Credential.Userpass("alice", "s3cr3t")
+        let upText = up.ToString()
+        Assert.That(upText.Contains "s3cr3t", Is.False, $"secret leaked: {upText}")
+        Assert.That(upText.Contains "alice", $"username should render: {upText}")
+        Assert.That(upText.Contains "***")
+
+        let tok = Credential.Token "t0p-secret"
+        Assert.That(tok.ToString().Contains "t0p-secret", Is.False, "token secret leaked")
+        Assert.That(tok.ToString().Contains "***")
+
+    [<Test>]
     member _.GitCredentialHelperKeepsSecretOutOfArgv() =
         let h = Credentials.gitCredentialHelper (Credential.Userpass("alice", "s3cr3t"))
 

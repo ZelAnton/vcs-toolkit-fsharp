@@ -441,7 +441,7 @@ type Git private (core: ManagedClient) =
 
                             if t.Length > 0 && t |> Seq.forall Char.IsAsciiDigit then
                                 match
-                                    Int32.TryParse(
+                                    UInt64.TryParse(
                                         t,
                                         Globalization.NumberStyles.None,
                                         Globalization.CultureInfo.InvariantCulture
