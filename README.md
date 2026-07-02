@@ -1,6 +1,6 @@
 # VcsToolkit
 
-A toolkit for automating Git, Jujutsu, and GitHub through CLI process execution.
+A toolkit for automating Git, Jujutsu, and the major forges (GitHub, GitLab, Gitea) through CLI process execution.
 
 VcsToolkit is an F# port of the Rust [vcs-toolkit-rs](https://github.com/ZelAnton/vcs-toolkit-rs)
 workspace. It drives the real `git`, `jj`, `gh` (and `glab` / `tea`) command-line

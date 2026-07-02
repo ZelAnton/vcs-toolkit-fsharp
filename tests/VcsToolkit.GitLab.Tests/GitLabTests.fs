@@ -61,7 +61,7 @@ type ParseTests() =
             Assert.That(mr.State, Is.EqualTo "opened")
             Assert.That(mr.SourceBranch, Is.EqualTo "feat/x")
             Assert.That(mr.TargetBranch, Is.EqualTo "main")
-            Assert.That(mr.WebUrl, Is.EqualTo "https://gl/mr/12")
+            Assert.That(mr.Url, Is.EqualTo "https://gl/mr/12")
             Assert.That(mr.Draft, Is.False)
         | other -> Assert.Fail $"expected one MR, got {other.Length}"
 
@@ -70,7 +70,7 @@ type ParseTests() =
         let json = """{"iid":5,"title":"wip","state":"opened","draft":true}"""
         let mr = expectOk (GitLabParse.parseMr json)
         Assert.That(mr.SourceBranch, Is.EqualTo "")
-        Assert.That(mr.WebUrl, Is.EqualTo "")
+        Assert.That(mr.Url, Is.EqualTo "")
         Assert.That(mr.Draft, Is.True)
 
     [<Test>]

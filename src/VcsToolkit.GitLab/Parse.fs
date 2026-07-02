@@ -19,16 +19,17 @@ type MergeRequest =
         SourceBranch: string
         /// Target (base) branch name.
         TargetBranch: string
-        /// Web URL.
-        WebUrl: string
+        /// Web URL (GitLab's `web_url`). Named `Url` for consistency with the other
+        /// DTOs here and the GitHub/Gitea wrappers.
+        Url: string
         /// Whether the MR is a draft (GitLab's `draft`; the deprecated
         /// `work_in_progress` is not read).
         Draft: bool
     }
 
-/// A project, returned as `RepoView` (`glab repo view --output json`) — the fields are
-/// GitLab's REST `Project` object.
-type RepoView =
+/// A project, returned by `repoView` (`glab repo view --output json`) — the fields are
+/// GitLab's REST `Project` object. Named `Repo` for consistency with the GitHub wrapper.
+type Repo =
     {
         /// Project name (the last path segment's display name).
         Name: string
@@ -36,8 +37,8 @@ type RepoView =
         PathWithNamespace: string
         /// Default branch name (empty/null for an empty project).
         DefaultBranch: string
-        /// Web URL.
-        WebUrl: string
+        /// Web URL (GitLab's `web_url`).
+        Url: string
         /// Visibility, e.g. `"public"`, `"internal"`, `"private"`. `None` when glab
         /// omits the field — a consumer must treat an absent visibility as *unknown*,
         /// not as private.
@@ -124,14 +125,14 @@ module GitLabParse =
           State = Json.strOr el "state"
           SourceBranch = Json.strOr el "source_branch"
           TargetBranch = Json.strOr el "target_branch"
-          WebUrl = Json.strOr el "web_url"
+          Url = Json.strOr el "web_url"
           Draft = Json.boolOr el "draft" }
 
-    let private toRepoView (el: JsonElement) : RepoView =
+    let private toRepo (el: JsonElement) : Repo =
         { Name = Json.strOr el "name"
           PathWithNamespace = Json.strOr el "path_with_namespace"
           DefaultBranch = Json.strOr el "default_branch"
-          WebUrl = Json.strOr el "web_url"
+          Url = Json.strOr el "web_url"
           Visibility = Json.strOpt el "visibility" }
 
     let private toIssue (el: JsonElement) : Issue =
@@ -166,7 +167,7 @@ module GitLabParse =
     /// Parse a single `glab mr view` object.
     let parseMr = Json.parseObject toMr
     /// Parse a `glab repo view` object.
-    let parseRepoView = Json.parseObject toRepoView
+    let parseRepoView = Json.parseObject toRepo
     /// Parse a `glab issue list` array.
     let parseIssueList = Json.parseArray toIssue
     /// Parse a single `glab issue view` object.
