@@ -23,7 +23,7 @@ The toolkit is split into one package per concern, mirroring the Rust workspace.
 | `VcsToolkit.Diff` | ✅ available | The git-format unified-diff model and parser, plus a tolerant `<tool> --version` parser. Pure, no subprocess. |
 | `VcsToolkit.Git` | ✅ available | The `git` CLI client (the cwd-bound view and the conflict-marker model are still pending). |
 | `VcsToolkit.Jj` | ✅ available | The Jujutsu (`jj`) CLI client: changes/log, bookmarks, the operation log with rollback transactions, workspaces, squash/split/absorb, diff queries, and git sync (the cwd-bound view and the native conflict model are still pending). |
-| `VcsToolkit.GitHub` | ✅ available | The GitHub (`gh`) CLI client: pull requests (list/view/create/merge/edit/review/checks/feedback), issues, Actions runs (list/view/watch), releases, repo view, and the REST/GraphQL escape hatch. Tokens are injected as `GH_TOKEN`, never in argv. |
+| `VcsToolkit.GitHub` | ✅ available | The GitHub (`gh`) CLI client: pull requests (list/view/create/merge/edit/review/checks/feedback), issues, Actions runs (list/view/watch), releases, repo view, and the REST/GraphQL escape hatch. Tokens are injected as `GH_TOKEN`, never in argv (the cwd-bound view is still pending). |
 | `VcsToolkit.GitLab` / `VcsToolkit.Gitea` | 🚧 planned | The `glab` / `tea` CLI clients. |
 | `VcsToolkit.Core` | 🚧 planned | The backend-agnostic `Repo` facade over Git / Jujutsu. |
 | `VcsToolkit.Forge` | 🚧 planned | The unified forge facade over GitHub / GitLab / Gitea. |

@@ -485,13 +485,13 @@ type ClientTests() =
             let branched =
                 scripted [ "run"; "list"; "--limit"; "5"; "--branch"; "main"; "--json" ] (Reply.Ok "[]")
 
-            match! branched.RunList(".", 5UL, Some "main") with
+            match! branched.RunList(".", 5, Some "main") with
             | Ok xs -> Assert.That(xs, Is.Empty)
             | Error e -> Assert.Fail $"run list (branch) failed: {e}"
 
             let all = scripted [ "run"; "list"; "--limit"; "5"; "--json" ] (Reply.Ok "[]")
 
-            match! all.RunList(".", 5UL, None) with
+            match! all.RunList(".", 5, None) with
             | Ok xs -> Assert.That(xs, Is.Empty)
             | Error e -> Assert.Fail $"run list (all) failed: {e}"
         }

@@ -80,9 +80,14 @@ type GitHub private (core: ManagedClient) =
     member this.WithEnvToken(var: string) =
         this.WithCredentials(EnvToken var :> ICredentialProvider)
 
+    /// Binding this client to `dir` is provided by the dir-taking methods directly; a
+    /// cwd-bound view may be added later.
+
     // --- Escape hatches / version / auth -------------------------------------
 
-    /// Run `gh <args>` in the current directory, returning trimmed stdout.
+    /// Run `gh <args>` in the current directory, returning trimmed stdout. Unguarded
+    /// — never forward untrusted argv (gh aliases/extensions and `gh api` can reach
+    /// code execution).
     member _.Run(args: string seq) = core.Run(core.Command args)
 
     /// Like `Run` but never errors on a non-zero exit — returns the captured result.
@@ -267,7 +272,8 @@ type GitHub private (core: ManagedClient) =
     // --- Actions runs --------------------------------------------------------
 
     /// Recent workflow runs, newest first (`gh run list --limit <n> [--branch <b>] --json …`).
-    member _.RunList(dir: string, limit: uint64, branch: string option) =
+    /// `limit` is an `int` result cap, matching the count parameters on `Git.Log`/`Jj.OpLog`.
+    member _.RunList(dir: string, limit: int, branch: string option) =
         let args =
             [ "run"; "list"; "--limit"; string limit ]
             @ (match branch with
