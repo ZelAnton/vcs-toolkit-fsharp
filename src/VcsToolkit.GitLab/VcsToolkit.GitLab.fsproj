@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<AssemblyName>VcsToolkit.GitLab</AssemblyName>
+		<PackageId>VcsToolkit.GitLab</PackageId>
+		<Description>Automate GitLab by driving the glab CLI: typed async methods that run real glab, ask it for --output json, and deserialize structured values. The lean merge-request lifecycle (list/view/create/merge/ready/close/comment/edit), CI/pipeline status, issues, releases, project view, and the REST/GraphQL escape hatch. Tokens are injected as GITLAB_TOKEN, never in argv. Built on ProcessKit.</Description>
+		<PackageTags>fsharp;vcs;gitlab;glab;cli;process;automation;merge-request;pipeline</PackageTags>
+		<!-- Cross-project references resolve through assembly search paths (no ProjectReference). -->
+		<AssemblySearchPaths>$(AssemblySearchPaths);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
+	</PropertyGroup>
+
+	<!-- F# COMPILE ORDER IS SIGNIFICANT. -->
+	<ItemGroup>
+		<Compile Include="Types.fs" />
+		<Compile Include="Parse.fs" />
+		<Compile Include="GitLab.fs" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="FSharp.Core" />
+		<PackageReference Include="ProcessKit" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Reference Include="VcsToolkit.CliSupport" />
+	</ItemGroup>
+
+</Project>

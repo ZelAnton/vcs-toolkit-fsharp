@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<AssemblyName>VcsToolkit.Gitea</AssemblyName>
+		<PackageId>VcsToolkit.Gitea</PackageId>
+		<Description>Automate Gitea and Forgejo by driving the tea CLI: typed async methods that run real tea, ask it for --output json, and deserialize structured values. The lean pull-request lifecycle (list/view/create/merge/close/comment/edit), issues (list/view/create), and release listing. Authentication is ambient (tea's stored logins). Built on ProcessKit.</Description>
+		<PackageTags>fsharp;vcs;gitea;forgejo;tea;cli;process;automation;pull-request</PackageTags>
+		<!-- Cross-project references resolve through assembly search paths (no ProjectReference). -->
+		<AssemblySearchPaths>$(AssemblySearchPaths);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
+	</PropertyGroup>
+
+	<!-- F# COMPILE ORDER IS SIGNIFICANT. -->
+	<ItemGroup>
+		<Compile Include="Types.fs" />
+		<Compile Include="Parse.fs" />
+		<Compile Include="Gitea.fs" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="FSharp.Core" />
+		<PackageReference Include="ProcessKit" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Reference Include="VcsToolkit.CliSupport" />
+	</ItemGroup>
+
+</Project>

@@ -1,6 +1,7 @@
 namespace VcsToolkit.GitHub
 
 open System.Text.Json
+open VcsToolkit.CliSupport
 
 /// A pull request (`gh pr list/view --json number,title,state,headRefName,baseRefName,url`).
 type PullRequest =
@@ -189,75 +190,34 @@ type Repo =
 [<RequireQualifiedAccess>]
 module GitHubParse =
 
-    /// A string property, or `""` when absent / `null` / not a string (gh sends a
-    /// present `null` for some optional strings, e.g. a deleted branch's `headRefName`).
-    let private strOr (el: JsonElement) (name: string) : string =
-        match el.TryGetProperty name with
-        | true, p when p.ValueKind = JsonValueKind.String -> p.GetString() |> Option.ofObj |> Option.defaultValue ""
-        | _ -> ""
-
-    /// A string property as an option: `Some` only for a present non-null string.
-    let private strOpt (el: JsonElement) (name: string) : string option =
-        match el.TryGetProperty name with
-        | true, p when p.ValueKind = JsonValueKind.String -> p.GetString() |> Option.ofObj
-        | _ -> None
-
-    /// A numeric property as `uint64`, or `0` when absent / not a number.
-    let private u64Or (el: JsonElement) (name: string) : uint64 =
-        match el.TryGetProperty name with
-        | true, p when p.ValueKind = JsonValueKind.Number ->
-            match p.TryGetUInt64() with
-            | true, n -> n
-            | _ -> 0UL
-        | _ -> 0UL
-
-    /// A boolean property, or `false` when absent / not a boolean.
-    let private boolOr (el: JsonElement) (name: string) : bool =
-        match el.TryGetProperty name with
-        | true, p when p.ValueKind = JsonValueKind.True || p.ValueKind = JsonValueKind.False -> p.GetBoolean()
-        | _ -> false
-
-    /// A string `field` read from a nested object property `objName`, or `""` when
-    /// the object is absent / `null` (gh nests `owner`/`author`/`defaultBranchRef`).
-    let private nestedStr (el: JsonElement) (objName: string) (field: string) : string =
-        match el.TryGetProperty objName with
-        | true, o when o.ValueKind = JsonValueKind.Object -> strOr o field
-        | _ -> ""
-
-    /// The elements of an array property (empty when absent / not an array).
-    let private arrayOf (el: JsonElement) (name: string) : JsonElement list =
-        match el.TryGetProperty name with
-        | true, a when a.ValueKind = JsonValueKind.Array -> [ for x in a.EnumerateArray() -> x ]
-        | _ -> []
-
     // --- element -> record ---------------------------------------------------
 
     let private toPr (el: JsonElement) : PullRequest =
-        { Number = u64Or el "number"
-          Title = strOr el "title"
-          State = strOr el "state"
-          HeadRefName = strOr el "headRefName"
-          BaseRefName = strOr el "baseRefName"
-          Url = strOr el "url" }
+        { Number = Json.u64Or el "number"
+          Title = Json.strOr el "title"
+          State = Json.strOr el "state"
+          HeadRefName = Json.strOr el "headRefName"
+          BaseRefName = Json.strOr el "baseRefName"
+          Url = Json.strOr el "url" }
 
     let private toIssue (el: JsonElement) : Issue =
-        { Number = u64Or el "number"
-          Title = strOr el "title"
-          State = strOr el "state"
-          Body = strOr el "body"
-          Url = strOr el "url" }
+        { Number = Json.u64Or el "number"
+          Title = Json.strOr el "title"
+          State = Json.strOr el "state"
+          Body = Json.strOr el "body"
+          Url = Json.strOr el "url" }
 
     let private toRun (el: JsonElement) : WorkflowRun =
-        { DatabaseId = u64Or el "databaseId"
-          Name = strOr el "name"
-          DisplayTitle = strOr el "displayTitle"
-          Status = strOr el "status"
-          Conclusion = strOr el "conclusion"
-          WorkflowName = strOr el "workflowName"
-          HeadBranch = strOr el "headBranch"
-          Event = strOr el "event"
-          Url = strOr el "url"
-          CreatedAt = strOr el "createdAt" }
+        { DatabaseId = Json.u64Or el "databaseId"
+          Name = Json.strOr el "name"
+          DisplayTitle = Json.strOr el "displayTitle"
+          Status = Json.strOr el "status"
+          Conclusion = Json.strOr el "conclusion"
+          WorkflowName = Json.strOr el "workflowName"
+          HeadBranch = Json.strOr el "headBranch"
+          Event = Json.strOr el "event"
+          Url = Json.strOr el "url"
+          CreatedAt = Json.strOr el "createdAt" }
 
     let private toBucket (el: JsonElement) : CheckBucket =
         // gh emits lowercase bucket strings; match them exactly (an unknown value or
@@ -274,116 +234,69 @@ module GitHubParse =
         | _ -> CheckBucket.Unknown
 
     let private toCheck (el: JsonElement) : CheckRun =
-        { Name = strOr el "name"
-          State = strOr el "state"
+        { Name = Json.strOr el "name"
+          State = Json.strOr el "state"
           Bucket = toBucket el
-          Workflow = strOr el "workflow"
-          Link = strOr el "link"
-          StartedAt = strOr el "startedAt"
-          CompletedAt = strOr el "completedAt" }
+          Workflow = Json.strOr el "workflow"
+          Link = Json.strOr el "link"
+          StartedAt = Json.strOr el "startedAt"
+          CompletedAt = Json.strOr el "completedAt" }
 
     let private toRelease (el: JsonElement) : Release =
-        { TagName = strOr el "tagName"
-          Name = strOr el "name"
-          Body = strOr el "body"
-          Url = strOr el "url"
-          PublishedAt = strOr el "publishedAt"
-          IsDraft = boolOr el "isDraft"
-          IsPrerelease = boolOr el "isPrerelease"
-          IsLatest = boolOr el "isLatest" }
+        { TagName = Json.strOr el "tagName"
+          Name = Json.strOr el "name"
+          Body = Json.strOr el "body"
+          Url = Json.strOr el "url"
+          PublishedAt = Json.strOr el "publishedAt"
+          IsDraft = Json.boolOr el "isDraft"
+          IsPrerelease = Json.boolOr el "isPrerelease"
+          IsLatest = Json.boolOr el "isLatest" }
 
     let private toReview (el: JsonElement) : Review =
-        { Author = nestedStr el "author" "login"
-          State = strOr el "state"
-          Body = strOr el "body"
-          SubmittedAt = strOr el "submittedAt" }
+        { Author = Json.nestedStr el "author" "login"
+          State = Json.strOr el "state"
+          Body = Json.strOr el "body"
+          SubmittedAt = Json.strOr el "submittedAt" }
 
     let private toComment (el: JsonElement) : Comment =
-        { Author = nestedStr el "author" "login"
-          Body = strOr el "body"
-          Url = strOr el "url"
-          CreatedAt = strOr el "createdAt" }
+        { Author = Json.nestedStr el "author" "login"
+          Body = Json.strOr el "body"
+          Url = Json.strOr el "url"
+          CreatedAt = Json.strOr el "createdAt" }
 
     let private toRepo (el: JsonElement) : Repo =
-        { Name = strOr el "name"
-          Owner = nestedStr el "owner" "login"
-          Description = strOpt el "description"
-          Url = strOr el "url"
-          IsPrivate = boolOr el "isPrivate"
-          DefaultBranch = nestedStr el "defaultBranchRef" "name" }
+        { Name = Json.strOr el "name"
+          Owner = Json.nestedStr el "owner" "login"
+          Description = Json.strOpt el "description"
+          Url = Json.strOr el "url"
+          IsPrivate = Json.boolOr el "isPrivate"
+          DefaultBranch = Json.nestedStr el "defaultBranchRef" "name" }
 
     let private toFeedback (el: JsonElement) : PrFeedback =
-        { Reviews = arrayOf el "reviews" |> List.map toReview
-          Comments = arrayOf el "comments" |> List.map toComment }
+        { Reviews = Json.arrayOf el "reviews" |> List.map toReview
+          Comments = Json.arrayOf el "comments" |> List.map toComment }
 
-    // --- public parsers ------------------------------------------------------
-
-    /// Run `parse` over the parsed document's root, mapping a malformed document to
-    /// an `Error` — never an exception. Two exception families are expected here and
-    /// both are the parser saying "this isn't the shape I model", so both become
-    /// `Error`: `JsonException` (syntactically malformed JSON, or a `null` input
-    /// string via `ArgumentNullException`, a subtype) and `InvalidOperationException`
-    /// (a field reader hit a `JsonElement` of the wrong kind — e.g. `TryGetProperty`
-    /// on a non-object). This keeps the parsers total, the contract the callers rely on.
-    let private withDoc (json: string) (parse: JsonElement -> Result<'T, string>) : Result<'T, string> =
-        try
-            use doc = JsonDocument.Parse json
-            parse doc.RootElement
-        with
-        | :? JsonException as ex ->
-            // Malformed JSON is the expected failure here; surface its message as a
-            // parse error rather than letting the exception escape the pure boundary.
-            Error ex.Message
-        | :? System.ArgumentNullException ->
-            // A null input string — `gh` never emits one, but a caller could pass it;
-            // report it as a parse failure rather than throwing.
-            Error "no JSON to parse (null input)"
-        | :? System.InvalidOperationException as ex ->
-            // A wrong-kind `JsonElement` reached a field reader (e.g. a non-object
-            // array element in `reviews`/`comments`). Rust's serde rejects the same
-            // shapes; we mirror that with an `Error` instead of a crash.
-            Error ex.Message
-
-    let private parseArray (toItem: JsonElement -> 'T) (json: string) : Result<'T list, string> =
-        withDoc json (fun root ->
-            if root.ValueKind <> JsonValueKind.Array then
-                Error "expected a JSON array"
-            elif
-                root.EnumerateArray()
-                |> Seq.forall (fun e -> e.ValueKind = JsonValueKind.Object)
-            then
-                Ok [ for item in root.EnumerateArray() -> toItem item ]
-            else
-                // A non-object element (`[1,2,3]`, `[null]`) can't populate a record —
-                // serde fails the whole parse on this shape, so we do too.
-                Error "expected a JSON array of objects")
-
-    let private parseObject (toItem: JsonElement -> 'T) (json: string) : Result<'T, string> =
-        withDoc json (fun root ->
-            if root.ValueKind = JsonValueKind.Object then
-                Ok(toItem root)
-            else
-                Error "expected a JSON object")
+    // --- public parsers (over the shared total helpers in `Json`) ------------
 
     /// Parse a `gh pr list` array.
-    let parsePrList = parseArray toPr
+    let parsePrList = Json.parseArray toPr
     /// Parse a single `gh pr view` object.
-    let parsePr = parseObject toPr
+    let parsePr = Json.parseObject toPr
     /// Parse a `gh issue list` array.
-    let parseIssueList = parseArray toIssue
+    let parseIssueList = Json.parseArray toIssue
     /// Parse a single `gh issue view` object.
-    let parseIssue = parseObject toIssue
+    let parseIssue = Json.parseObject toIssue
     /// Parse a `gh run list` array.
-    let parseRunList = parseArray toRun
+    let parseRunList = Json.parseArray toRun
     /// Parse a single `gh run view` object.
-    let parseRun = parseObject toRun
+    let parseRun = Json.parseObject toRun
     /// Parse a `gh pr checks` array.
-    let parseChecks = parseArray toCheck
+    let parseChecks = Json.parseArray toCheck
     /// Parse a `gh release list` array.
-    let parseReleaseList = parseArray toRelease
+    let parseReleaseList = Json.parseArray toRelease
     /// Parse a single `gh release view` object.
-    let parseRelease = parseObject toRelease
+    let parseRelease = Json.parseObject toRelease
     /// Parse a `gh repo view` object, flattening the nested `owner`/`defaultBranchRef`.
-    let parseRepo = parseObject toRepo
+    let parseRepo = Json.parseObject toRepo
     /// Parse a `gh pr view --json reviews,comments` object, flattening nested authors.
-    let parseFeedback = parseObject toFeedback
+    let parseFeedback = Json.parseObject toFeedback

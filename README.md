@@ -24,7 +24,8 @@ The toolkit is split into one package per concern, mirroring the Rust workspace.
 | `VcsToolkit.Git` | ✅ available | The `git` CLI client (the cwd-bound view and the conflict-marker model are still pending). |
 | `VcsToolkit.Jj` | ✅ available | The Jujutsu (`jj`) CLI client: changes/log, bookmarks, the operation log with rollback transactions, workspaces, squash/split/absorb, diff queries, and git sync (the cwd-bound view and the native conflict model are still pending). |
 | `VcsToolkit.GitHub` | ✅ available | The GitHub (`gh`) CLI client: pull requests (list/view/create/merge/edit/review/checks/feedback), issues, Actions runs (list/view/watch), releases, repo view, and the REST/GraphQL escape hatch. Tokens are injected as `GH_TOKEN`, never in argv (the cwd-bound view is still pending). |
-| `VcsToolkit.GitLab` / `VcsToolkit.Gitea` | 🚧 planned | The `glab` / `tea` CLI clients. |
+| `VcsToolkit.GitLab` | ✅ available | The GitLab (`glab`) CLI client: the lean merge-request lifecycle (list/view/create/merge/ready/close/comment/edit), CI/pipeline status, issues, releases, project view, and the REST/GraphQL escape hatch. Tokens are injected as `GITLAB_TOKEN`, never in argv (the cwd-bound view is still pending). |
+| `VcsToolkit.Gitea` | ✅ available | The Gitea/Forgejo (`tea`) CLI client: the lean pull-request lifecycle (list/view/create/merge/close/comment/edit), issues (list/view/create), and release listing. Authentication is ambient (`tea`'s stored logins); the cwd-bound view is still pending. |
 | `VcsToolkit.Core` | 🚧 planned | The backend-agnostic `Repo` facade over Git / Jujutsu. |
 | `VcsToolkit.Forge` | 🚧 planned | The unified forge facade over GitHub / GitLab / Gitea. |
 | `VcsToolkit.Watch` / `VcsToolkit.TestKit` / `VcsToolkit.Mcp` | 🚧 planned | File watcher, test utilities, and the Model Context Protocol server. |
@@ -53,9 +54,9 @@ to resolve before the first release:
 2. **Inter-package dependencies are not yet declared.** Because cross-project
    references use `Reference` + `AssemblySearchPaths` (per the repo conventions)
    rather than `ProjectReference`, `dotnet pack` does not record sibling
-   dependencies: the `VcsToolkit.Git` / `VcsToolkit.Jj` / `VcsToolkit.GitHub` packages
-   do not yet declare their dependency on `VcsToolkit.CliSupport` / `VcsToolkit.Diff`.
-   This must be wired up (e.g. via a
+   dependencies: the `VcsToolkit.Git` / `VcsToolkit.Jj` / `VcsToolkit.GitHub` /
+   `VcsToolkit.GitLab` / `VcsToolkit.Gitea` packages do not yet declare their dependency
+   on `VcsToolkit.CliSupport` / `VcsToolkit.Diff`. This must be wired up (e.g. via a
    pack-time dependency injection, or by revisiting the reference style for the
    packaged libraries) before publishing, or an external consumer of
    `VcsToolkit.Git` would hit a missing-assembly error.

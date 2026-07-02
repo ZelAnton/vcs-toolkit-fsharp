@@ -15,6 +15,12 @@
 		<Project Path="tests/VcsToolkit.GitHub.Tests/VcsToolkit.GitHub.Tests.fsproj">
 			<BuildDependency Project="src/VcsToolkit.GitHub/VcsToolkit.GitHub.fsproj" />
 		</Project>
+		<Project Path="tests/VcsToolkit.GitLab.Tests/VcsToolkit.GitLab.Tests.fsproj">
+			<BuildDependency Project="src/VcsToolkit.GitLab/VcsToolkit.GitLab.fsproj" />
+		</Project>
+		<Project Path="tests/VcsToolkit.Gitea.Tests/VcsToolkit.Gitea.Tests.fsproj">
+			<BuildDependency Project="src/VcsToolkit.Gitea/VcsToolkit.Gitea.fsproj" />
+		</Project>
 	</Folder>
 	<Project Path="src/VcsToolkit.CliSupport/VcsToolkit.CliSupport.fsproj" />
 	<Project Path="src/VcsToolkit.Diff/VcsToolkit.Diff.fsproj" />
@@ -27,6 +33,12 @@
 		<BuildDependency Project="src/VcsToolkit.Diff/VcsToolkit.Diff.fsproj" />
 	</Project>
 	<Project Path="src/VcsToolkit.GitHub/VcsToolkit.GitHub.fsproj">
+		<BuildDependency Project="src/VcsToolkit.CliSupport/VcsToolkit.CliSupport.fsproj" />
+	</Project>
+	<Project Path="src/VcsToolkit.GitLab/VcsToolkit.GitLab.fsproj">
+		<BuildDependency Project="src/VcsToolkit.CliSupport/VcsToolkit.CliSupport.fsproj" />
+	</Project>
+	<Project Path="src/VcsToolkit.Gitea/VcsToolkit.Gitea.fsproj">
 		<BuildDependency Project="src/VcsToolkit.CliSupport/VcsToolkit.CliSupport.fsproj" />
 	</Project>
 </Solution>
