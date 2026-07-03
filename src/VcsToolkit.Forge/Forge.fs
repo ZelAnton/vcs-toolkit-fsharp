@@ -112,9 +112,12 @@ type Forge private (cwd: string, backend: Backend) =
 
     /// Whether this handle's backend supports `op`. The capability-varying operations
     /// (`ForgeOp`) are all present on GitHub and GitLab; Gitea (`tea`) supports **none**
-    /// of them. Branch on this to hide an unavailable operation up front.
+    /// of them, and an `Unknown` handle (no CLI) supports nothing — so this agrees with
+    /// the dispatch and `Capabilities` rather than contradicting them. Branch on this to
+    /// hide an unavailable operation up front.
     member this.Supports(op: ForgeOp) =
         match this.Kind, op with
+        | ForgeKind.Unknown, _ -> false
         | ForgeKind.Gitea, (ForgeOp.RepoView | ForgeOp.PrMarkReady | ForgeOp.PrChecks | ForgeOp.ReleaseView) -> false
         | _ -> true
 

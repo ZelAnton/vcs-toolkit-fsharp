@@ -147,7 +147,11 @@ type DispatchTests() =
 
     [<Test>]
     member _.KindAndSupportsReflectTheBackend() =
-        Assert.That((Forge.FromUnknown ".").Kind, Is.EqualTo ForgeKind.Unknown)
+        let unknown = Forge.FromUnknown "."
+        Assert.That(unknown.Kind, Is.EqualTo ForgeKind.Unknown)
+        // An Unknown handle supports nothing — agrees with its all-Unsupported dispatch.
+        Assert.That(unknown.Supports ForgeOp.PrChecks, Is.False)
+        Assert.That(unknown.Supports ForgeOp.RepoView, Is.False)
 
         let gh = ghForge [ "pr"; "list" ] (Reply.Ok "[]")
         Assert.That(gh.Kind, Is.EqualTo ForgeKind.GitHub)
