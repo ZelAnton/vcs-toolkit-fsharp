@@ -185,7 +185,7 @@ type GitHub private (core: ManagedClient) =
         core.RunUnit(core.CommandIn(dir, args))
 
     /// Mark a draft pull request as ready for review (`gh pr ready <n>`).
-    member _.PrReady(dir: string, number: uint64) =
+    member _.PrMarkReady(dir: string, number: uint64) =
         core.RunUnit(core.CommandIn(dir, [ "pr"; "ready"; string number ]))
 
     /// Close a pull request without merging (`gh pr close <n> [--delete-branch]`).
@@ -402,7 +402,7 @@ and [<Sealed>] GitHubAt internal (github: GitHub, dir: string) =
     member _.PrMerge(number: uint64, merge: PrMerge) = github.PrMerge(dir, number, merge)
 
     /// Mark a draft pull request as ready for review (`gh pr ready <n>`).
-    member _.PrReady(number: uint64) = github.PrReady(dir, number)
+    member _.PrMarkReady(number: uint64) = github.PrMarkReady(dir, number)
 
     /// Close a pull request without merging (`gh pr close <n> [--delete-branch]`).
     member _.PrClose(number: uint64, deleteBranch: bool) =

@@ -46,18 +46,32 @@ module private JjConflictInternal =
         (label.TrimEnd()).EndsWith(NO_EOL_MARKER, StringComparison.Ordinal)
 
     /// Strip all consecutive leading `prefix`es from `s` (Rust `str::trim_start_matches`).
-    let rec trimStartMatches (prefix: string) (s: string) : string =
-        if prefix <> "" && s.StartsWith(prefix, StringComparison.Ordinal) then
-            trimStartMatches prefix (s.Substring prefix.Length)
-        else
+    /// O(n) — advances an offset and takes one final substring (a recursive `Substring` per match
+    /// would be O(n²) on an adversarial label, e.g. a huge run of `diff from:` before the newline).
+    let trimStartMatches (prefix: string) (s: string) : string =
+        if prefix = "" then
             s
+        else
+            let mutable i = 0
 
-    /// Strip all consecutive trailing `suffix`es from `s` (Rust `str::trim_end_matches`).
-    let rec trimEndMatches (suffix: string) (s: string) : string =
-        if suffix <> "" && s.EndsWith(suffix, StringComparison.Ordinal) then
-            trimEndMatches suffix (s.Substring(0, s.Length - suffix.Length))
-        else
+            while i + prefix.Length <= s.Length
+                  && String.CompareOrdinal(s, i, prefix, 0, prefix.Length) = 0 do
+                i <- i + prefix.Length
+
+            s.Substring i
+
+    /// Strip all consecutive trailing `suffix`es from `s` (Rust `str::trim_end_matches`). O(n).
+    let trimEndMatches (suffix: string) (s: string) : string =
+        if suffix = "" then
             s
+        else
+            let mutable len = s.Length
+
+            while len >= suffix.Length
+                  && String.CompareOrdinal(s, len - suffix.Length, suffix, 0, suffix.Length) = 0 do
+                len <- len - suffix.Length
+
+            s.Substring(0, len)
 
     /// Materialize a diff section: `old = true` keeps `-`/` ` lines (the base), `old = false`
     /// keeps `+`/` ` lines (the side), stripping the prefix char but preserving the line ending.

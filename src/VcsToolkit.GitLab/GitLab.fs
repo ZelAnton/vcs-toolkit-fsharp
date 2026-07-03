@@ -158,7 +158,7 @@ type GitLab private (core: ManagedClient) =
         core.RunUnit(core.CommandIn(dir, args))
 
     /// Mark a draft merge request as ready (`glab mr update <id> --ready`).
-    member _.MrReady(dir: string, number: uint64) =
+    member _.MrMarkReady(dir: string, number: uint64) =
         core.RunUnit(core.CommandIn(dir, [ "mr"; "update"; string number; "--ready" ]))
 
     /// Close a merge request without merging (`glab mr close <id>`).
@@ -290,7 +290,7 @@ and [<Sealed>] GitLabAt internal (gitlab: GitLab, dir: string) =
     member _.MrMerge(number: uint64, strategy: MergeStrategy) = gitlab.MrMerge(dir, number, strategy)
 
     /// Mark a draft merge request as ready (`glab mr update <id> --ready`).
-    member _.MrReady(number: uint64) = gitlab.MrReady(dir, number)
+    member _.MrMarkReady(number: uint64) = gitlab.MrMarkReady(dir, number)
 
     /// Close a merge request without merging (`glab mr close <id>`).
     member _.MrClose(number: uint64) = gitlab.MrClose(dir, number)

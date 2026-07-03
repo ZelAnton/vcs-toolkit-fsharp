@@ -166,7 +166,7 @@ module internal GitHubForge =
 
     let prMarkReady (gh: VcsToolkit.GitHub.GitHub) (dir: string) (number: uint64) =
         task {
-            let! r = gh.PrReady(dir, number)
+            let! r = gh.PrMarkReady(dir, number)
             return ofForge r
         }
 

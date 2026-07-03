@@ -158,7 +158,7 @@ module internal GitLabForge =
 
     let prMarkReady (glab: VcsToolkit.GitLab.GitLab) (dir: string) (number: uint64) =
         task {
-            let! r = glab.MrReady(dir, number)
+            let! r = glab.MrMarkReady(dir, number)
             return ofForge r
         }
 

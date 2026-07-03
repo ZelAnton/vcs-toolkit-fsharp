@@ -75,6 +75,10 @@ module private HostClassify =
             | h -> Some h
 
 /// Which forge backs a `Forge` handle.
+///
+/// Treat this as potentially extensible (the Rust model is `#[non_exhaustive]`) — even with the
+/// `Unknown` catch-all, add a `| _ ->` arm when pattern-matching so a future forge doesn't break
+/// your code.
 [<RequireQualifiedAccess>]
 type ForgeKind =
     /// GitHub (the `gh` CLI).

@@ -184,7 +184,7 @@ module internal GitBackend =
 
     let fetchBranch (git: Git) (dir: string) (branch: string) =
         task {
-            let! r = git.FetchRemoteBranch(dir, branch)
+            let! r = git.FetchBranch(dir, branch)
             return ofVcs r
         }
 

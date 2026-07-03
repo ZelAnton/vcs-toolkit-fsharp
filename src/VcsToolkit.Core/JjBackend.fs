@@ -155,7 +155,7 @@ module internal JjBackend =
                 // A **conflicted** change is uncommitted state (it needs resolution) even when jj
                 // marks it `empty` — so this agrees with `snapshot`'s `conflict ⇒ dirty`. Only
                 // probed when `@` is empty, so the common non-empty case stays a single query.
-                match! jj.HasWorkingcopyConflict dir with
+                match! jj.HasWorkingCopyConflict dir with
                 | Error e -> return Error(RepoError.Vcs e)
                 | Ok conflicted -> return Ok conflicted
         }
@@ -297,7 +297,7 @@ module internal JjBackend =
         task {
             // jj operations are atomic — there is no paused merge/rebase. A conflict is
             // recorded on the working-copy change instead.
-            match! jj.HasWorkingcopyConflict dir with
+            match! jj.HasWorkingCopyConflict dir with
             | Error e -> return Error(RepoError.Vcs e)
             | Ok true -> return Ok OperationState.Conflict
             | Ok false -> return Ok OperationState.Clear

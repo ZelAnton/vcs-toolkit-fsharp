@@ -10,6 +10,9 @@ open VcsToolkit.Core
 
 /// One typed change to a repository's observable state, derived by diffing two consecutive
 /// `RepoSnapshot`s (plus the branch set).
+///
+/// Treat this as potentially extensible (the Rust model is `#[non_exhaustive]`) — add a `| _ ->`
+/// arm when pattern-matching so a future observable delta doesn't break your code.
 [<RequireQualifiedAccess>]
 type RepoEvent =
     /// The working-copy commit moved (a commit, checkout, reset, `jj` op, …). `From`/`To`

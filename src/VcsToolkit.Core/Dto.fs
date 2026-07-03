@@ -8,6 +8,9 @@ open VcsToolkit.Diff
 // `VcsToolkit.Diff` types (one type across the wrappers and the facade, no remapping).
 
 /// Which version-control tool backs a `Repo`.
+///
+/// Treat this as potentially extensible (the Rust model is `#[non_exhaustive]`) — add a `| _ ->`
+/// arm when pattern-matching so a future backend doesn't break your code.
 [<RequireQualifiedAccess>]
 type BackendKind =
     /// A plain Git repository.
@@ -50,6 +53,9 @@ type WorktreeInfo =
 /// models: git exposes an in-progress merge or rebase as on-disk state (`MERGE_HEAD` /
 /// a `rebase-*` dir), while jj has no multi-step operations — it records a conflict
 /// directly on the working-copy change.
+///
+/// Treat this as potentially extensible (the Rust model is `#[non_exhaustive]`) — add a `| _ ->`
+/// arm when pattern-matching so a future operation kind doesn't break your code.
 [<RequireQualifiedAccess>]
 type OperationState =
     /// No operation in progress and no conflict.

@@ -407,7 +407,7 @@ type Jj private (core: ManagedClient) =
         }
 
     /// Whether the working copy has unresolved conflicts.
-    member this.HasWorkingcopyConflict(dir: string) = this.IsConflicted(dir, "@")
+    member this.HasWorkingCopyConflict(dir: string) = this.IsConflicted(dir, "@")
 
     /// Paths with unresolved conflicts in `revset` (`jj resolve --list -r <revset>`).
     /// Empty when there are none.
@@ -960,7 +960,7 @@ and [<Sealed>] JjAt internal (jj: Jj, dir: string) =
     member _.IsConflicted(revset: string) = jj.IsConflicted(dir, revset)
 
     /// Whether the working copy has unresolved conflicts.
-    member _.HasWorkingcopyConflict() = jj.HasWorkingcopyConflict dir
+    member _.HasWorkingCopyConflict() = jj.HasWorkingCopyConflict dir
 
     /// Paths with unresolved conflicts in `revset` (`jj resolve --list -r <revset>`).
     member _.ResolveList(revset: string) = jj.ResolveList(dir, revset)

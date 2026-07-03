@@ -664,7 +664,7 @@ type Git private (core: ManagedClient) =
         }
 
     /// Fetch a single branch from `origin` into its remote-tracking ref.
-    member this.FetchRemoteBranch(dir: string, branch: string) =
+    member this.FetchBranch(dir: string, branch: string) =
         let refspec = sprintf "refs/heads/%s:refs/remotes/origin/%s" branch branch
         this.RunFetch(dir, [ "origin"; refspec ])
 
@@ -1326,7 +1326,7 @@ and [<Sealed>] GitAt internal (git: Git, dir: string) =
     member _.FetchFrom(remote: string) = git.FetchFrom(dir, remote)
 
     /// Fetch a single branch from `origin` into its remote-tracking ref.
-    member _.FetchRemoteBranch(branch: string) = git.FetchRemoteBranch(dir, branch)
+    member _.FetchBranch(branch: string) = git.FetchBranch(dir, branch)
 
     /// Push to a remote (`push [-u] <remote> <refspec>`).
     member _.Push(spec: GitPush) = git.Push(dir, spec)

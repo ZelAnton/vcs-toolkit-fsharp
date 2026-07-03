@@ -20,6 +20,10 @@ type DiffStat =
           Deletions = deletions }
 
 /// How a file changed in a unified diff.
+///
+/// Treat this as potentially extensible (the Rust model is `#[non_exhaustive]`) — add a `| _ ->`
+/// arm when pattern-matching so a future change kind (e.g. copied / type-changed) doesn't break
+/// your code.
 [<RequireQualifiedAccess>]
 type ChangeKind =
     /// A new file (`new file mode …`).

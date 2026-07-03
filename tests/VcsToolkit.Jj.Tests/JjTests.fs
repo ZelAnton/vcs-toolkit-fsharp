@@ -88,8 +88,8 @@ type ParseTests() =
     [<Test>]
     member _.OperationsSplitTabFields() =
         let out =
-            $"abc123{tab}user@host{tab}2026-06-05T10:00:00+0200{tab}new empty commit\n"
-            + $"def456{tab}user@host{tab}2026-06-05T09:59:00+0200{tab}describe commit{tab}with tab\n"
+            $"abc123{tab}user@host{tab}2026-06-05T10:00:00+02:00{tab}new empty commit\n"
+            + $"def456{tab}user@host{tab}2026-06-05T09:59:00+02:00{tab}describe commit{tab}with tab\n"
 
         let ops = JjParse.parseOperations out
         Assert.That(ops.Length, Is.EqualTo 2)
@@ -631,7 +631,7 @@ type ClientTests() =
     member _.OpLogParsesRows() : Task =
         task {
             let jj =
-                scripted [ "op"; "log" ] (Reply.Ok $"abc{tab}u@h{tab}2026-06-05T10:00:00+0200{tab}new empty commit\n")
+                scripted [ "op"; "log" ] (Reply.Ok $"abc{tab}u@h{tab}2026-06-05T10:00:00+02:00{tab}new empty commit\n")
 
             match! jj.OpLog(".", 5) with
             | Ok ops ->

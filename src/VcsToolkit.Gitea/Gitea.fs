@@ -39,7 +39,7 @@ module private GiteaHelpers =
 ///
 /// **Deliberately leaner than the GitHub/GitLab wrappers**, because `tea` lacks the
 /// commands: there is no current-repo view, no single-release-by-tag view, no
-/// PR-checks command, no draft toggle (so no `prReady`), and no `api` escape hatch.
+/// PR-checks command, no draft toggle (so no `prMarkReady`), and no `api` escape hatch.
 /// `prView` is synthesized by listing with `--state all` and filtering by number.
 ///
 /// Injection safety: `PrComment`'s body lands in a bare positional slot and is rejected

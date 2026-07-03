@@ -287,11 +287,11 @@ type ClientTests() =
         }
 
     [<Test>]
-    member _.MrReadyAndCloseBuildArgs() : Task =
+    member _.MrMarkReadyAndCloseBuildArgs() : Task =
         task {
             let ready = scripted [ "mr"; "update"; "3"; "--ready" ] (Reply.Ok "")
 
-            match! ready.MrReady(".", 3UL) with
+            match! ready.MrMarkReady(".", 3UL) with
             | Ok() -> ()
             | Error e -> Assert.Fail $"mr ready failed: {e}"
 

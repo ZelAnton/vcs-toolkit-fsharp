@@ -139,9 +139,12 @@ module JjParse =
     let EVOLOG_TEMPLATE =
         "commit.change_id().short() ++ \"\\t\" ++ commit.commit_id().short() ++ \"\\t\" ++ if(commit.empty(), \"true\", \"false\") ++ \"\\t\" ++ commit.description().first_line() ++ \"\\n\""
 
-    /// `jj op log -T` template: `id\tuser\tstart-time\tdescription`, one row per operation.
+    /// `jj op log -T` template: `id\tuser\tstart-time\tdescription`, one row per operation. The
+    /// time uses `%:z` (extended offset `+02:00`), NOT `%z` (basic `+0200`): strict RFC-3339 / ISO-
+    /// 8601 parsers reject the basic form, and `+02:00` matches the git backend's `%aI` dates so a
+    /// cross-backend consumer sees one timestamp shape.
     let OP_TEMPLATE =
-        "id.short() ++ \"\\t\" ++ user ++ \"\\t\" ++ time.start().format(\"%Y-%m-%dT%H:%M:%S%z\") ++ \"\\t\" ++ description.first_line() ++ \"\\n\""
+        "id.short() ++ \"\\t\" ++ user ++ \"\\t\" ++ time.start().format(\"%Y-%m-%dT%H:%M:%S%:z\") ++ \"\\t\" ++ description.first_line() ++ \"\\n\""
 
     /// `jj file annotate -T` template: `change-id\tcontent`. Annotate emits one row
     /// per source line and separates them itself — no trailing `\n` here, or every
