@@ -34,4 +34,12 @@
 	<ItemGroup>
 		<PackageVersion Include="ProcessKit" Version="2.0.0" />
 	</ItemGroup>
+
+	<!-- VcsToolkit.Mcp dependencies: clean F#→JSON for tool results, and the Model Context
+	     Protocol server SDK (+ its Hosting glue) for the vcs-mcp binary. -->
+	<ItemGroup>
+		<PackageVersion Include="FSharp.SystemTextJson" Version="1.4.36" />
+		<PackageVersion Include="ModelContextProtocol" Version="0.4.0-preview.2" />
+		<PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
+	</ItemGroup>
 </Project>

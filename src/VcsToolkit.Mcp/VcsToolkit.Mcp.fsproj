@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<AssemblyName>VcsToolkit.Mcp</AssemblyName>
+		<PackageId>VcsToolkit.Mcp</PackageId>
+		<Description>The hermetically-testable core of a Model Context Protocol server over a git/jj repository (and its forge): the VcsMcpServer with the repo_* and forge_* tools over VcsToolkit.Core / VcsToolkit.Forge, the WriteGate write policy (read tools always available, mutations gated), the error mapping, and the CLI argument parser. The thin vcs-mcp binary wires this to the ModelContextProtocol SDK over stdio.</Description>
+		<PackageTags>fsharp;vcs;git;jujutsu;jj;forge;mcp;model-context-protocol;agent;tools</PackageTags>
+		<!-- Cross-project references resolve through assembly search paths (no ProjectReference). -->
+		<AssemblySearchPaths>$(AssemblySearchPaths);$(CoreDir)bin\$(Configuration)\$(TargetFramework);$(ForgeDir)bin\$(Configuration)\$(TargetFramework);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework);$(DiffDir)bin\$(Configuration)\$(TargetFramework);$(GitDir)bin\$(Configuration)\$(TargetFramework);$(JjDir)bin\$(Configuration)\$(TargetFramework);$(GitHubDir)bin\$(Configuration)\$(TargetFramework);$(GitLabDir)bin\$(Configuration)\$(TargetFramework);$(GiteaDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
+	</PropertyGroup>
+
+	<!-- The pure logic is internal to the tools; the test project drives them directly. -->
+	<ItemGroup>
+		<AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+			<_Parameter1>VcsToolkit.Mcp.Tests</_Parameter1>
+		</AssemblyAttribute>
+	</ItemGroup>
+
+	<!-- F# COMPILE ORDER IS SIGNIFICANT. -->
+	<ItemGroup>
+		<Compile Include="WriteGate.fs" />
+		<Compile Include="Json.fs" />
+		<Compile Include="Error.fs" />
+		<Compile Include="Server.fs" />
+		<Compile Include="Catalog.fs" />
+		<Compile Include="Args.fs" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="FSharp.Core" />
+		<PackageReference Include="ProcessKit" />
+		<PackageReference Include="FSharp.SystemTextJson" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Reference Include="VcsToolkit.Core" />
+		<Reference Include="VcsToolkit.Forge" />
+		<Reference Include="VcsToolkit.CliSupport" />
+		<Reference Include="VcsToolkit.Diff" />
+		<Reference Include="VcsToolkit.Git" />
+		<Reference Include="VcsToolkit.Jj" />
+		<Reference Include="VcsToolkit.GitHub" />
+		<Reference Include="VcsToolkit.GitLab" />
+		<Reference Include="VcsToolkit.Gitea" />
+	</ItemGroup>
+
+</Project>
