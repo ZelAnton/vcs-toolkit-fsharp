@@ -97,6 +97,8 @@ $shadowedPaths = @(
     '/src/src/VcsToolkit.GitLab/obj',
     '/src/src/VcsToolkit.Gitea/bin',
     '/src/src/VcsToolkit.Gitea/obj',
+    '/src/src/VcsToolkit.Core/bin',
+    '/src/src/VcsToolkit.Core/obj',
     '/src/tests/VcsToolkit.CliSupport.Tests/bin',
     '/src/tests/VcsToolkit.CliSupport.Tests/obj',
     '/src/tests/VcsToolkit.Diff.Tests/bin',
@@ -110,7 +112,9 @@ $shadowedPaths = @(
     '/src/tests/VcsToolkit.GitLab.Tests/bin',
     '/src/tests/VcsToolkit.GitLab.Tests/obj',
     '/src/tests/VcsToolkit.Gitea.Tests/bin',
-    '/src/tests/VcsToolkit.Gitea.Tests/obj'
+    '/src/tests/VcsToolkit.Gitea.Tests/obj',
+    '/src/tests/VcsToolkit.Core.Tests/bin',
+    '/src/tests/VcsToolkit.Core.Tests/obj'
 )
 
 $dockerArgs = @(

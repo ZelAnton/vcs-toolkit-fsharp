@@ -26,7 +26,7 @@ The toolkit is split into one package per concern, mirroring the Rust workspace.
 | `VcsToolkit.GitHub` | ✅ available | The GitHub (`gh`) CLI client: pull requests (list/view/create/merge/edit/review/checks/feedback), issues, Actions runs (list/view/watch), releases, repo view, and the REST/GraphQL escape hatch. Tokens are injected as `GH_TOKEN`, never in argv (the cwd-bound view is still pending). |
 | `VcsToolkit.GitLab` | ✅ available | The GitLab (`glab`) CLI client: the lean merge-request lifecycle (list/view/create/merge/ready/close/comment/edit), CI/pipeline status, issues, releases, project view, and the REST/GraphQL escape hatch. Tokens are injected as `GITLAB_TOKEN`, never in argv (the cwd-bound view is still pending). |
 | `VcsToolkit.Gitea` | ✅ available | The Gitea/Forgejo (`tea`) CLI client: the lean pull-request lifecycle (list/view/create/merge/close/comment/edit), issues (list/view/create), and release listing. Authentication is ambient (`tea`'s stored logins); the cwd-bound view is still pending. |
-| `VcsToolkit.Core` | 🚧 planned | The backend-agnostic `Repo` facade over Git / Jujutsu. |
+| `VcsToolkit.Core` | ✅ available | The backend-agnostic `Repo` facade over Git / Jujutsu: `Open` auto-detects git vs jj, then one handle runs whatever both tools support — branch/snapshot reads, changed files & diff stat, partial commits, fetch/push/checkout/rebase, a trace-free merge-conflict probe (`TryMerge`), in-progress merge/rebase state, and worktree management — returning plain result types. Escape hatches (`.Git`/`.Jj`) reach the raw client; the dir-dropped `GitAt`/`JjAt` views and the blocking cleanup helper are still pending. |
 | `VcsToolkit.Forge` | 🚧 planned | The unified forge facade over GitHub / GitLab / Gitea. |
 | `VcsToolkit.Watch` / `VcsToolkit.TestKit` / `VcsToolkit.Mcp` | 🚧 planned | File watcher, test utilities, and the Model Context Protocol server. |
 
@@ -55,8 +55,9 @@ to resolve before the first release:
    references use `Reference` + `AssemblySearchPaths` (per the repo conventions)
    rather than `ProjectReference`, `dotnet pack` does not record sibling
    dependencies: the `VcsToolkit.Git` / `VcsToolkit.Jj` / `VcsToolkit.GitHub` /
-   `VcsToolkit.GitLab` / `VcsToolkit.Gitea` packages do not yet declare their dependency
-   on `VcsToolkit.CliSupport` / `VcsToolkit.Diff`. This must be wired up (e.g. via a
+   `VcsToolkit.GitLab` / `VcsToolkit.Gitea` / `VcsToolkit.Core` packages do not yet
+   declare their dependency on `VcsToolkit.CliSupport` / `VcsToolkit.Diff` (and `Core`
+   on `VcsToolkit.Git` / `VcsToolkit.Jj`). This must be wired up (e.g. via a
    pack-time dependency injection, or by revisiting the reference style for the
    packaged libraries) before publishing, or an external consumer of
    `VcsToolkit.Git` would hit a missing-assembly error.

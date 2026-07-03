@@ -1,0 +1,317 @@
+namespace VcsToolkit.Core
+
+open System.IO
+open VcsToolkit.Git
+open VcsToolkit.Jj
+
+/// The per-tool client behind a `Repo`. Git/Jj are reference types, so a sibling handle
+/// from `Repo.At` shares the same client instance without rebuilding it.
+[<RequireQualifiedAccess>]
+type internal Backend =
+    | Git of Git
+    | Jj of Jj
+
+/// A cwd-bound, backend-agnostic VCS handle: write code against "the repository" without
+/// caring whether it's git or jj. `Repo.Open` auto-detects the backend; every common
+/// method dispatches to the underlying `VcsToolkit.Git` / `VcsToolkit.Jj` client and hands
+/// back plain result types (`RepoSnapshot`, `FileChange`, `MergeProbe`, …) that don't
+/// mention the backend.
+///
+/// It is a thin common layer: the operations the two tools model too differently (a full
+/// merge, jj's op-restore, range/revset queries) stay on the raw client — reach them via
+/// the `Git` / `Jj` accessors (each `Some` only for its backend). The dir-dropped `GitAt`/
+/// `JjAt` views and the synchronous `cleanupWorktreeBlocking` Drop-guard helper are not
+/// yet ported.
+[<Sealed>]
+type Repo private (root: string, cwd: string, backend: Backend) =
+
+    /// Detect the repository at or above `dir` and open a handle bound to `dir`, using
+    /// the real job-backed runner. `NotARepository` when no `.git`/`.jj` is found.
+    static member Open(dir: string) : Result<Repo, RepoError> =
+        // Absolutise first: `detect` walks parents, and a relative path like "." has no
+        // real ancestor chain, so a relative input would never find a repo above the cwd.
+        let absResult =
+            try
+                Ok(Path.GetFullPath dir)
+            with ex ->
+                // `GetFullPath` throws on an invalid path (bad chars / too long); report
+                // it as an Io failure rather than letting it escape.
+                Error(RepoError.Io ex.Message)
+
+        match absResult with
+        | Error e -> Error e
+        | Ok absDir ->
+            match Detect.detect absDir with
+            | None -> Error(RepoError.NotARepository absDir)
+            | Some located ->
+                let backend =
+                    match located.Kind with
+                    | BackendKind.Git -> Backend.Git(Git.Create())
+                    | BackendKind.Jj -> Backend.Jj(Jj.Create())
+
+                Ok(Repo(located.Root, absDir, backend))
+
+    /// Build a git-backed handle from an explicit client — for a custom runner (e.g. a
+    /// test seam) or a pre-configured `Git`.
+    static member FromGit(root: string, cwd: string, client: Git) = Repo(root, cwd, Backend.Git client)
+
+    /// Build a jj-backed handle from an explicit client.
+    static member FromJj(root: string, cwd: string, client: Jj) = Repo(root, cwd, Backend.Jj client)
+
+    // --- Identity / re-anchoring / escape hatches ----------------------------
+
+    /// Which backend drives this handle.
+    member _.Kind =
+        match backend with
+        | Backend.Git _ -> BackendKind.Git
+        | Backend.Jj _ -> BackendKind.Jj
+
+    /// The repository root detected at open time.
+    member _.Root = root
+
+    /// The directory operations run against.
+    member _.Cwd = cwd
+
+    /// A sibling handle bound to `dir`, sharing this handle's client and root.
+    member _.At(dir: string) = Repo(root, dir, backend)
+
+    /// The underlying `Git` client, or `None` when jj-backed — an escape hatch to
+    /// git-only operations not on the common surface (pass this handle's `Cwd` as `dir`).
+    member _.Git =
+        match backend with
+        | Backend.Git g -> Some g
+        | Backend.Jj _ -> None
+
+    /// The underlying `Jj` client, or `None` when git-backed.
+    member _.Jj =
+        match backend with
+        | Backend.Jj j -> Some j
+        | Backend.Git _ -> None
+
+    // --- Refs ----------------------------------------------------------------
+
+    /// The current branch (git) or bookmark (jj). On jj this is the nearest bookmark
+    /// reachable from the working copy, so it stays set across a `jj describe`/`new`/
+    /// `commit`; when several are equally near `@` the lexicographically-smallest name is
+    /// returned. `None` only when detached / no bookmark on or above `@`.
+    member _.CurrentBranch() =
+        match backend with
+        | Backend.Git g -> GitBackend.currentBranch g cwd
+        | Backend.Jj j -> JjBackend.currentBranch j cwd
+
+    /// The trunk branch/bookmark. Resolution order: the backend's own notion (git's
+    /// `origin/HEAD`, jj's `trunk()` revset), then a fallback to a local `main`, then
+    /// `master`; `None` when none of those resolve.
+    member this.Trunk() =
+        task {
+            let! native =
+                match backend with
+                | Backend.Git g -> GitBackend.trunk g cwd
+                | Backend.Jj j -> JjBackend.trunk j cwd
+
+            match native with
+            | Error e -> return Error e
+            | Ok(Some t) -> return Ok(Some t)
+            | Ok None ->
+                let! mainExists = this.BranchExists "main"
+
+                match mainExists with
+                | Error e -> return Error e
+                | Ok true -> return Ok(Some "main")
+                | Ok false ->
+                    let! masterExists = this.BranchExists "master"
+
+                    match masterExists with
+                    | Error e -> return Error e
+                    | Ok true -> return Ok(Some "master")
+                    | Ok false -> return Ok None
+        }
+
+    /// Local branch (git) / bookmark (jj) names.
+    member _.LocalBranches() =
+        match backend with
+        | Backend.Git g -> GitBackend.localBranches g cwd
+        | Backend.Jj j -> JjBackend.localBranches j cwd
+
+    /// Whether a local branch/bookmark named `name` exists.
+    member _.BranchExists(name: string) =
+        match backend with
+        | Backend.Git g -> GitBackend.branchExists g cwd name
+        | Backend.Jj j -> JjBackend.branchExists j cwd name
+
+    /// Delete a local branch (git) / bookmark (jj). `force` applies to git only
+    /// (`branch -D` vs `-d`); jj has no force and ignores it.
+    member _.DeleteBranch(name: string, force: bool) =
+        match backend with
+        | Backend.Git g -> GitBackend.deleteBranch g cwd name force
+        | Backend.Jj j -> JjBackend.deleteBranch j cwd name
+
+    /// Rename a local branch (git) / bookmark (jj).
+    member _.RenameBranch(oldName: string, newName: string) =
+        match backend with
+        | Backend.Git g -> GitBackend.renameBranch g cwd oldName newName
+        | Backend.Jj j -> JjBackend.renameBranch j cwd oldName newName
+
+    // --- Status --------------------------------------------------------------
+
+    /// Whether the working copy has uncommitted changes (git: a non-empty `status`; jj: a
+    /// non-empty working-copy change `@`).
+    member _.HasUncommittedChanges() =
+        match backend with
+        | Backend.Git g -> GitBackend.hasUncommittedChanges g cwd
+        | Backend.Jj j -> JjBackend.hasUncommittedChanges j cwd
+
+    /// Whether the working copy has uncommitted changes to *tracked* files. Backend
+    /// nuance: git ignores untracked files here; jj auto-tracks new files, so this equals
+    /// `HasUncommittedChanges`.
+    member _.HasTrackedChanges() =
+        match backend with
+        | Backend.Git g -> GitBackend.hasTrackedChanges g cwd
+        | Backend.Jj j -> JjBackend.hasUncommittedChanges j cwd
+
+    /// Paths with unresolved merge conflicts in the working copy, repo-relative with `/`
+    /// separators. Empty when there are none.
+    member _.ConflictedFiles() =
+        match backend with
+        | Backend.Git g -> GitBackend.conflictedFiles g cwd
+        | Backend.Jj j -> JjBackend.conflictedFiles j cwd
+
+    /// The working-copy changes (git `status` / jj `diff -r @ --summary`).
+    member _.ChangedFiles() =
+        match backend with
+        | Backend.Git g -> GitBackend.changedFiles g cwd
+        | Backend.Jj j -> JjBackend.changedFiles j cwd
+
+    /// Aggregate insertion/deletion counts for the working copy. Backend nuance: git
+    /// counts the working tree against `HEAD` (excludes untracked files; against the empty
+    /// tree on an unborn repo), while jj counts the `@` change against its parent
+    /// (includes newly-added files).
+    member _.DiffStat() =
+        match backend with
+        | Backend.Git g -> GitBackend.diffStat g cwd
+        | Backend.Jj j -> JjBackend.diffStat j cwd
+
+    /// A batched `RepoSnapshot` of the common repo state in a small fixed number of
+    /// spawns instead of a call per field. `Tracking` is always `None` on jj.
+    member _.Snapshot() =
+        match backend with
+        | Backend.Git g -> GitBackend.snapshot g cwd
+        | Backend.Jj j -> JjBackend.snapshot j cwd
+
+    // --- Mutations -----------------------------------------------------------
+
+    /// Commit exactly `paths` with `message` (git `commit --only`, jj `commit <filesets>`).
+    /// Paths are repo-relative. `paths` must be non-empty: an empty set is refused up
+    /// front, because the backends diverge dangerously — git errors, while jj's `commit`
+    /// with no filesets would silently commit the **entire** working copy.
+    member _.CommitPaths(paths: string list, message: string) =
+        task {
+            if List.isEmpty paths then
+                return
+                    Error(
+                        RepoError.Io
+                            "commitPaths requires at least one path: an empty set would error on git but commit the entire working copy on jj"
+                    )
+            else
+                match backend with
+                | Backend.Git g -> return! GitBackend.commitPaths g cwd paths message
+                | Backend.Jj j -> return! JjBackend.commitPaths j cwd paths message
+        }
+
+    /// Fetch from the default remote (git `fetch` / jj `git fetch`).
+    member _.Fetch() =
+        match backend with
+        | Backend.Git g -> GitBackend.fetch g cwd
+        | Backend.Jj j -> JjBackend.fetch j cwd
+
+    /// Fetch from a *named* remote. Transient network failures are retried by the client.
+    member _.FetchFrom(remote: string) =
+        match backend with
+        | Backend.Git g -> GitBackend.fetchFrom g cwd remote
+        | Backend.Jj j -> JjBackend.fetchFrom j cwd remote
+
+    /// Fetch a single branch/bookmark from `origin` into its remote-tracking ref.
+    member _.FetchBranch(branch: string) =
+        match backend with
+        | Backend.Git g -> GitBackend.fetchBranch g cwd branch
+        | Backend.Jj j -> JjBackend.fetchBranch j cwd branch
+
+    /// Push `branch` to `origin` (git `push -u origin <branch>` / jj `git push -b
+    /// <branch>`). The branch (jj: bookmark) must already exist locally. For renamed
+    /// refspecs or non-`origin` remotes, use the `Git` escape hatch.
+    member _.Push(branch: string) =
+        match backend with
+        | Backend.Git g -> GitBackend.push g cwd branch
+        | Backend.Jj j -> JjBackend.push j cwd branch
+
+    /// Switch the working copy to `reference` (git `checkout` / jj `edit`).
+    member _.Checkout(reference: string) =
+        match backend with
+        | Backend.Git g -> GitBackend.checkout g cwd reference
+        | Backend.Jj j -> JjBackend.checkout j cwd reference
+
+    /// Rebase the current work onto `onto` (git `rebase` / jj `rebase -d`).
+    member _.Rebase(onto: string) =
+        match backend with
+        | Backend.Git g -> GitBackend.rebase g cwd onto
+        | Backend.Jj j -> JjBackend.rebase j cwd onto
+
+    // --- Merge & operation state ---------------------------------------------
+
+    /// Probe whether merging `source` into the current work would conflict, **without
+    /// leaving any trace**: the probe is rolled back before returning (git: `merge
+    /// --no-commit --no-ff` then `merge --abort`; jj: a merge change probed and undone via
+    /// `op restore`). A failing rollback propagates as an error rather than a result that
+    /// misdescribes the on-disk state.
+    member _.TryMerge(source: string) =
+        match backend with
+        | Backend.Git g -> GitBackend.tryMerge g cwd source
+        | Backend.Jj j -> JjBackend.tryMerge j cwd source
+
+    /// Abort the in-progress operation, if any (git: `merge`/`rebase --abort`; jj: a
+    /// no-op). Returns the fresh *post-call* `OperationState`.
+    member _.AbortInProgress() =
+        match backend with
+        | Backend.Git g -> GitBackend.abortInProgress g cwd
+        | Backend.Jj j -> JjBackend.abortInProgress j cwd
+
+    /// Continue the in-progress operation after conflict resolution (git: `commit
+    /// --no-edit` for a merge / `rebase --continue`; jj: a no-op). Returns the fresh
+    /// *post-call* `OperationState`: `Conflict` when unresolved paths still block (also on
+    /// git, unlike `InProgressState`), `Clear` when finished.
+    member _.ContinueInProgress() =
+        match backend with
+        | Backend.Git g -> GitBackend.continueInProgress g cwd
+        | Backend.Jj j -> JjBackend.continueInProgress j cwd
+
+    /// Whether the working copy is mid-operation or conflicted. Note the asymmetry: *this
+    /// method* reports `Merge`/`Rebase` (never `Conflict`) on git — a git conflict *is*
+    /// that paused state — while jj has no paused op and reports `Conflict` directly.
+    member _.InProgressState() =
+        match backend with
+        | Backend.Git g -> GitBackend.inProgressState g cwd
+        | Backend.Jj j -> JjBackend.inProgressState j cwd
+
+    // --- Worktrees / workspaces ----------------------------------------------
+
+    /// List attached worktrees (git) / workspaces (jj).
+    member _.ListWorktrees() =
+        match backend with
+        | Backend.Git g -> GitBackend.listWorktrees g cwd
+        | Backend.Jj j -> JjBackend.listWorktrees j cwd
+
+    /// Create a worktree/workspace at `path` on a **new** `branch` based on `baseRef`.
+    /// Always `CreateOutcome.Plain`. `branch` must not already exist; the jj path is two
+    /// non-atomic steps but a failed bookmark step rolls back the half-made worktree.
+    member _.CreateWorktree(path: string, branch: string, baseRef: string) =
+        match backend with
+        | Backend.Git g -> GitBackend.createWorktree g cwd path branch baseRef
+        | Backend.Jj j -> JjBackend.createWorktree j cwd path branch baseRef
+
+    /// Remove the worktree/workspace at `path`. For jj this resolves the workspace name by
+    /// matching `path`, deletes the directory, then forgets it; a `path` that matches no
+    /// attached jj workspace returns `WorktreeNotFound`.
+    member _.RemoveWorktree(path: string, force: bool) =
+        match backend with
+        | Backend.Git g -> GitBackend.removeWorktree g cwd path force
+        | Backend.Jj j -> JjBackend.removeWorktree j cwd path force

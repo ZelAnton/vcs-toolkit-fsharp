@@ -21,6 +21,9 @@
 		<Project Path="tests/VcsToolkit.Gitea.Tests/VcsToolkit.Gitea.Tests.fsproj">
 			<BuildDependency Project="src/VcsToolkit.Gitea/VcsToolkit.Gitea.fsproj" />
 		</Project>
+		<Project Path="tests/VcsToolkit.Core.Tests/VcsToolkit.Core.Tests.fsproj">
+			<BuildDependency Project="src/VcsToolkit.Core/VcsToolkit.Core.fsproj" />
+		</Project>
 	</Folder>
 	<Project Path="src/VcsToolkit.CliSupport/VcsToolkit.CliSupport.fsproj" />
 	<Project Path="src/VcsToolkit.Diff/VcsToolkit.Diff.fsproj" />
@@ -40,5 +43,11 @@
 	</Project>
 	<Project Path="src/VcsToolkit.Gitea/VcsToolkit.Gitea.fsproj">
 		<BuildDependency Project="src/VcsToolkit.CliSupport/VcsToolkit.CliSupport.fsproj" />
+	</Project>
+	<Project Path="src/VcsToolkit.Core/VcsToolkit.Core.fsproj">
+		<BuildDependency Project="src/VcsToolkit.CliSupport/VcsToolkit.CliSupport.fsproj" />
+		<BuildDependency Project="src/VcsToolkit.Diff/VcsToolkit.Diff.fsproj" />
+		<BuildDependency Project="src/VcsToolkit.Git/VcsToolkit.Git.fsproj" />
+		<BuildDependency Project="src/VcsToolkit.Jj/VcsToolkit.Jj.fsproj" />
 	</Project>
 </Solution>

@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<AssemblyName>VcsToolkit.Core</AssemblyName>
+		<PackageId>VcsToolkit.Core</PackageId>
+		<Description>Write code against "the repository" without caring whether it's Git or Jujutsu. One `Repo` handle auto-detects git vs jj and runs whatever both tools support — branch/snapshot reads, changed-file and diff-stat queries, partial commits, fetch/push/checkout/rebase, a trace-free merge-conflict probe, in-progress merge/rebase state, and worktree management — handing back plain result types that don't mention the backend. Built on VcsToolkit.Git and VcsToolkit.Jj over ProcessKit.</Description>
+		<PackageTags>fsharp;vcs;git;jujutsu;jj;facade;repository;cli;process</PackageTags>
+		<!-- Cross-project references resolve through assembly search paths (no ProjectReference). -->
+		<AssemblySearchPaths>$(AssemblySearchPaths);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework);$(DiffDir)bin\$(Configuration)\$(TargetFramework);$(GitDir)bin\$(Configuration)\$(TargetFramework);$(JjDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
+	</PropertyGroup>
+
+	<!-- F# COMPILE ORDER IS SIGNIFICANT. -->
+	<ItemGroup>
+		<Compile Include="Dto.fs" />
+		<Compile Include="Error.fs" />
+		<Compile Include="Detect.fs" />
+		<Compile Include="GitBackend.fs" />
+		<Compile Include="JjBackend.fs" />
+		<Compile Include="Repo.fs" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="FSharp.Core" />
+		<PackageReference Include="ProcessKit" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Reference Include="VcsToolkit.CliSupport" />
+		<Reference Include="VcsToolkit.Diff" />
+		<Reference Include="VcsToolkit.Git" />
+		<Reference Include="VcsToolkit.Jj" />
+	</ItemGroup>
+
+</Project>
