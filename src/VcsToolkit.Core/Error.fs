@@ -35,6 +35,17 @@ type RepoError =
         | RepoError.Vcs e -> isNothingToCommit e
         | _ -> false
 
+    /// Whether this is a whole-repository **lock-contention** failure — another process
+    /// held git's index lock or jj's working-copy/op-heads lock, so the command couldn't
+    /// even start. Such a failure is pre-execution and therefore safe to retry, even on a
+    /// mutating operation. `Repo.Open` builds clients with retry off, so this surfaces to
+    /// the caller; branch on it to retry a higher-level flow rather than matching the
+    /// wrapped error's internals. Delegates to `VcsToolkit.CliSupport.isLockContention`.
+    member this.IsLockContention =
+        match this with
+        | RepoError.Vcs e -> isLockContention e
+        | _ -> false
+
     /// Whether this is a **transient** fetch/network failure worth retrying (DNS,
     /// connection reset, timeout). The underlying clients already retry their own
     /// fetches; this is for retrying higher-level flows.

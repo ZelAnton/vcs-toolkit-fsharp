@@ -163,6 +163,7 @@ type TypeTests() =
         Assert.That(io.IsTransient, Is.False)
         Assert.That(io.IsTransientFetchError, Is.False)
         Assert.That(io.IsNothingToCommit, Is.False)
+        Assert.That(io.IsLockContention, Is.False)
         Assert.That((RepoError.WorktreeNotFound "/wt").IsTransient, Is.False)
 
     [<Test>]
