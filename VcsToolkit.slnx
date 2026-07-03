@@ -27,6 +27,9 @@
 		<Project Path="tests/VcsToolkit.Forge.Tests/VcsToolkit.Forge.Tests.fsproj">
 			<BuildDependency Project="src/VcsToolkit.Forge/VcsToolkit.Forge.fsproj" />
 		</Project>
+		<Project Path="tests/VcsToolkit.TestKit.Tests/VcsToolkit.TestKit.Tests.fsproj">
+			<BuildDependency Project="src/VcsToolkit.TestKit/VcsToolkit.TestKit.fsproj" />
+		</Project>
 	</Folder>
 	<Project Path="src/VcsToolkit.CliSupport/VcsToolkit.CliSupport.fsproj" />
 	<Project Path="src/VcsToolkit.Diff/VcsToolkit.Diff.fsproj" />
@@ -59,4 +62,5 @@
 		<BuildDependency Project="src/VcsToolkit.GitLab/VcsToolkit.GitLab.fsproj" />
 		<BuildDependency Project="src/VcsToolkit.Gitea/VcsToolkit.Gitea.fsproj" />
 	</Project>
+	<Project Path="src/VcsToolkit.TestKit/VcsToolkit.TestKit.fsproj" />
 </Solution>

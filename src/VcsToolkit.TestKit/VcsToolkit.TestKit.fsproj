@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<AssemblyName>VcsToolkit.TestKit</AssemblyName>
+		<PackageId>VcsToolkit.TestKit</PackageId>
+		<Description>Throwaway git/jj sandboxes (and a bare remote) for integration tests. Hands a test a real repository to drive: a unique self-cleaning TempDir, a configured GitSandbox / JjSandbox to build scenarios in, and a seeded BareRemote to clone/fetch/push against. Dependency-free (not even the wrapper libraries, so it can be a test dependency of any of them without a cycle), synchronous, and raising on failure. Runs the actual git/jj on PATH.</Description>
+		<PackageTags>fsharp;vcs;git;jujutsu;jj;testing;test-fixtures;sandbox;integration-test</PackageTags>
+	</PropertyGroup>
+
+	<!-- F# COMPILE ORDER IS SIGNIFICANT. -->
+	<ItemGroup>
+		<Compile Include="TestKit.fs" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="FSharp.Core" />
+	</ItemGroup>
+
+</Project>

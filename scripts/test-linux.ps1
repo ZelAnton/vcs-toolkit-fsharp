@@ -101,6 +101,8 @@ $shadowedPaths = @(
     '/src/src/VcsToolkit.Core/obj',
     '/src/src/VcsToolkit.Forge/bin',
     '/src/src/VcsToolkit.Forge/obj',
+    '/src/src/VcsToolkit.TestKit/bin',
+    '/src/src/VcsToolkit.TestKit/obj',
     '/src/tests/VcsToolkit.CliSupport.Tests/bin',
     '/src/tests/VcsToolkit.CliSupport.Tests/obj',
     '/src/tests/VcsToolkit.Diff.Tests/bin',
@@ -118,7 +120,9 @@ $shadowedPaths = @(
     '/src/tests/VcsToolkit.Core.Tests/bin',
     '/src/tests/VcsToolkit.Core.Tests/obj',
     '/src/tests/VcsToolkit.Forge.Tests/bin',
-    '/src/tests/VcsToolkit.Forge.Tests/obj'
+    '/src/tests/VcsToolkit.Forge.Tests/obj',
+    '/src/tests/VcsToolkit.TestKit.Tests/bin',
+    '/src/tests/VcsToolkit.TestKit.Tests/obj'
 )
 
 $dockerArgs = @(
