@@ -2,7 +2,7 @@ namespace VcsToolkit.GitLab
 
 /// Toolkit-wide constants for the GitLab wrapper.
 [<AutoOpen>]
-module Constants =
+module internal Constants =
 
     /// Name of the underlying CLI binary this crate drives.
     ///
@@ -26,7 +26,7 @@ type MergeStrategy =
     | Rebase
 
     /// The glab flag this strategy emits, or `None` for the default merge commit.
-    member this.Flag =
+    member internal this.Flag =
         match this with
         | MergeStrategy.Merge -> None
         | MergeStrategy.Squash -> Some "--squash"

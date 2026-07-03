@@ -188,7 +188,7 @@ type Repo =
 /// an absent or `null` field reads as empty (`""`/`None`/`false`/`0`), mirroring
 /// gh's optional-field shapes rather than demanding every key.
 [<RequireQualifiedAccess>]
-module GitHubParse =
+module internal GitHubParse =
 
     // --- element -> record ---------------------------------------------------
 

@@ -4,7 +4,7 @@ open System
 open VcsToolkit.Forge
 
 /// Parsed command-line arguments for the `vcs-mcp` server.
-type McpArgs =
+type internal McpArgs =
     {
         /// Repository to serve (default: current directory).
         Repo: string
@@ -18,7 +18,7 @@ type McpArgs =
 
 /// Command-line parsing for the `vcs-mcp` binary.
 [<RequireQualifiedAccess>]
-module Args =
+module internal Args =
 
     /// Default per-command timeout (seconds): a generous ceiling so a stalled fetch/forge
     /// call can't hang a request forever. Override with `--timeout`; `--timeout 0` disables.

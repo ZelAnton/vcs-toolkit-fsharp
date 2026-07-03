@@ -4,7 +4,7 @@ open System.Text.Json
 open System.Threading.Tasks
 
 /// One argument of a tool, for the advertised input schema.
-type ToolParam =
+type internal ToolParam =
     {
         /// Property name (the JSON key the client sends).
         Name: string
@@ -18,7 +18,7 @@ type ToolParam =
 
 /// A tool's advertised metadata: name, description, the read-only/destructive/idempotent
 /// hints, and its parameters (→ input schema). The handler dispatch lives in `Catalog`.
-type ToolSpec =
+type internal ToolSpec =
     { Name: string
       Description: string
       ReadOnly: bool
@@ -31,7 +31,7 @@ type ToolSpec =
 /// seam the `vcs-mcp` binary wires to the MCP SDK's list-tools / call-tool handlers — and
 /// it's fully testable without the SDK.
 [<RequireQualifiedAccess>]
-module Catalog =
+module internal Catalog =
 
     // --- argument extraction ----------------------------------------------
 

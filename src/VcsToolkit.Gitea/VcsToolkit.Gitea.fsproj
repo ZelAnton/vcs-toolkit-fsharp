@@ -17,6 +17,11 @@
 		<Compile Include="Gitea.fs" />
 	</ItemGroup>
 
+	<!-- The parse module is internal (Rust: `mod parse` / `pub(crate)`); the tests exercise it directly. -->
+	<ItemGroup>
+		<InternalsVisibleTo Include="VcsToolkit.Gitea.Tests" />
+	</ItemGroup>
+
 	<ItemGroup>
 		<PackageReference Include="FSharp.Core" />
 		<PackageReference Include="ProcessKit" />

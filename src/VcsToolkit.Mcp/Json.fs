@@ -6,7 +6,7 @@ open System.Text.Json.Serialization
 /// JSON serialization for tool results — F#-aware (clean options/unions/records) so a DTO
 /// renders as idiomatic JSON for the agent, not `{ "Case": … }` noise.
 [<RequireQualifiedAccess>]
-module Json =
+module internal Json =
 
     /// The shared serializer options: F# support (options → value/null, fieldless unions →
     /// their bare tag string, e.g. `OperationState.Clear` → `"Clear"`, `CiStatus.Passing` →

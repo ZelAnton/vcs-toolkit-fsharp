@@ -306,7 +306,13 @@ type ClientTests() =
             let json =
                 """{"name":"r","owner":{"login":"o"},"description":"d","url":"u","isPrivate":false,"defaultBranchRef":{"name":"main"}}"""
 
-            let gh = scripted [ "repo"; "view"; "--json"; REPO_FIELDS ] (Reply.Ok json)
+            let gh =
+                scripted
+                    [ "repo"
+                      "view"
+                      "--json"
+                      "name,owner,description,url,isPrivate,defaultBranchRef" ]
+                    (Reply.Ok json)
 
             match! gh.RepoView "." with
             | Ok repo ->
@@ -767,7 +773,7 @@ type HardeningTests() =
             let json = """[{"number":3,"title":"Docs","state":"OPEN","body":"","url":""}]"""
 
             let gh =
-                scripted [ "issue"; "list"; "--limit"; "100"; "--json"; ISSUE_LIST_FIELDS ] (Reply.Ok json)
+                scripted [ "issue"; "list"; "--limit"; "100"; "--json"; "number,title,state,body,url" ] (Reply.Ok json)
 
             match! gh.IssueList "." with
             | Ok [ issue ] -> Assert.That(issue.Number, Is.EqualTo 3UL)
@@ -782,7 +788,14 @@ type HardeningTests() =
                 """[{"tagName":"v1.0.0","name":"1.0.0","isLatest":true,"isDraft":false,"isPrerelease":false,"publishedAt":"t"}]"""
 
             let gh =
-                scripted [ "release"; "list"; "--limit"; "100"; "--json"; RELEASE_LIST_FIELDS ] (Reply.Ok json)
+                scripted
+                    [ "release"
+                      "list"
+                      "--limit"
+                      "100"
+                      "--json"
+                      "tagName,name,isLatest,isDraft,isPrerelease,publishedAt" ]
+                    (Reply.Ok json)
 
             match! gh.ReleaseList "." with
             | Ok [ rel ] -> Assert.That(rel.TagName, Is.EqualTo "v1.0.0")
@@ -793,12 +806,19 @@ type HardeningTests() =
     [<Test>]
     member _.PrListPinsFullFieldSet() : Task =
         task {
-            // The full PR_FIELDS constant must be requested — a short/wrong field set
+            // The full PR field set must be requested — a short/wrong field set
             // would silently drop columns the DTO expects.
             let json = """[]"""
 
             let gh =
-                scripted [ "pr"; "list"; "--limit"; "100"; "--json"; PR_FIELDS ] (Reply.Ok json)
+                scripted
+                    [ "pr"
+                      "list"
+                      "--limit"
+                      "100"
+                      "--json"
+                      "number,title,state,headRefName,baseRefName,url" ]
+                    (Reply.Ok json)
 
             match! gh.PrList "." with
             | Ok xs -> Assert.That(xs, Is.Empty)

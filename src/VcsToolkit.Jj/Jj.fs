@@ -1042,6 +1042,9 @@ and [<Sealed>] JjAt internal (jj: Jj, dir: string) =
     /// Resolve a workspace's root path (`workspace root [--name <name>]`).
     member _.WorkspaceRoot(name: string option) = jj.WorkspaceRoot(dir, name)
 
+    /// The `jj workspace root` for each name, bound to this view's dir. See `Jj.WorkspaceRoots`.
+    member _.WorkspaceRoots(names: string list) = jj.WorkspaceRoots(dir, names)
+
     /// Add a workspace (`workspace add --name <name> -r <base> <path>`).
     member _.WorkspaceAdd(spec: WorkspaceAdd) = jj.WorkspaceAdd(dir, spec)
 

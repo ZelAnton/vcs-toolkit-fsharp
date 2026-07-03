@@ -5,7 +5,7 @@ open VcsToolkit.CliSupport
 
 /// Toolkit-wide constants for the jj wrapper.
 [<AutoOpen>]
-module Constants =
+module internal Constants =
 
     /// Name of the underlying CLI binary this crate drives.
     [<Literal>]
@@ -38,7 +38,7 @@ type SparseMode =
     | Empty
 
     /// The `--sparse-patterns` value jj expects.
-    member this.AsArg =
+    member internal this.AsArg =
         match this with
         | SparseMode.Copy -> "copy"
         | SparseMode.Full -> "full"

@@ -101,7 +101,13 @@ module internal GitBackend =
             match! git.IsUnborn dir with
             | Error e -> return Error(RepoError.Vcs e)
             | Ok unborn ->
-                let range = if unborn then EMPTY_TREE else "HEAD"
+                // git's well-known empty-tree object id (stand-in for HEAD in an unborn repo)
+                let range =
+                    if unborn then
+                        "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+                    else
+                        "HEAD"
+
                 let! r = git.DiffStat(dir, range)
                 return ofVcs r
         }

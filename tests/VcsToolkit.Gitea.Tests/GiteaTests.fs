@@ -227,7 +227,16 @@ type ClientTests() =
                 """[{"index":"1","title":"t","state":"open","head":"h","base":"main","url":"u"}]"""
 
             let tea =
-                scripted [ "pr"; "list"; "--limit"; "100"; "--fields"; PR_FIELDS; "--output"; "json" ] (Reply.Ok json)
+                scripted
+                    [ "pr"
+                      "list"
+                      "--limit"
+                      "100"
+                      "--fields"
+                      "index,title,state,head,base,url"
+                      "--output"
+                      "json" ]
+                    (Reply.Ok json)
 
             match! tea.PrList "." with
             | Ok [ pr ] -> Assert.That(pr.Number, Is.EqualTo 1UL)
@@ -242,7 +251,16 @@ type ClientTests() =
                 """[{"index":"6","title":"other","state":"open","head":"a","base":"main","url":"u6"},{"index":"7","title":"mine","state":"open","head":"b","base":"main","url":"u7"}]"""
 
             let tea =
-                scripted [ "pr"; "list"; "--state"; "all"; "--page"; "1"; "--fields"; PR_FIELDS ] (Reply.Ok json)
+                scripted
+                    [ "pr"
+                      "list"
+                      "--state"
+                      "all"
+                      "--page"
+                      "1"
+                      "--fields"
+                      "index,title,state,head,base,url" ]
+                    (Reply.Ok json)
 
             match! tea.PrView(".", 7UL) with
             | Ok pr ->
@@ -275,7 +293,7 @@ type ClientTests() =
                       "--page"
                       "1"
                       "--fields"
-                      PR_FIELDS
+                      "index,title,state,head,base,url"
                       "--output"
                       "json" ]
                     args
@@ -420,7 +438,7 @@ type ClientTests() =
                       "--limit"
                       "100"
                       "--fields"
-                      ISSUE_FIELDS
+                      "index,title,state,body,url"
                       "--output"
                       "json" ]
                     (Reply.Ok """[{"index":"12","title":"Bug","state":"open","body":"b","url":"u"}]""")

@@ -75,7 +75,7 @@ type Release =
 /// `Json` helpers, each parser is total — a malformed document yields `Error`, never
 /// an exception.
 [<RequireQualifiedAccess>]
-module GiteaParse =
+module internal GiteaParse =
 
     /// Parse a tea table cell holding an issue/PR index (always a JSON **string**, e.g.
     /// `"4"`) into a `uint64`, mapping a non-numeric value to an `Error`. A missing

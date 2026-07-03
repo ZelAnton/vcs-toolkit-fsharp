@@ -6,7 +6,7 @@ open VcsToolkit.CliSupport
 
 /// Toolkit-wide constants for the git wrapper.
 [<AutoOpen>]
-module Constants =
+module internal Constants =
 
     /// Name of the underlying CLI binary this crate drives.
     [<Literal>]

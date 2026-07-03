@@ -5,7 +5,7 @@ open VcsToolkit.CliSupport
 
 /// Toolkit-wide constants for the GitHub wrapper.
 [<AutoOpen>]
-module Constants =
+module internal Constants =
 
     /// Name of the underlying CLI binary this crate drives.
     [<Literal>]
@@ -55,7 +55,7 @@ type MergeStrategy =
     | Rebase
 
     /// The gh flag this strategy emits.
-    member this.Flag =
+    member internal this.Flag =
         match this with
         | MergeStrategy.Merge -> "--merge"
         | MergeStrategy.Squash -> "--squash"

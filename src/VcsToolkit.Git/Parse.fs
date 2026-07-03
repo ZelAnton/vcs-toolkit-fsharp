@@ -111,7 +111,7 @@ type BlameLine =
 
 /// Pure parsers for git's machine-readable output. No process execution.
 [<RequireQualifiedAccess>]
-module GitParse =
+module internal GitParse =
 
     let private nul = char 0
     let private unitSep = char 0x1f

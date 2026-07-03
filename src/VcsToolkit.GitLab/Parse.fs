@@ -103,7 +103,7 @@ type CiStatus =
     /// blocked-awaiting-action states `manual`/`scheduled` — read as `Pending`
     /// (conservative, "not known to be done"; see the variant docs on bounding a
     /// poller's wait).
-    static member OfGitLab(status: string) : CiStatus =
+    static member internal OfGitLab(status: string) : CiStatus =
         match status with
         | "success" -> CiStatus.Passing
         | "failed"
@@ -117,7 +117,7 @@ type CiStatus =
 /// `glab` passes through). Each parser is total — a malformed document yields `Error`,
 /// never an exception — building on the shared `Json` helpers.
 [<RequireQualifiedAccess>]
-module GitLabParse =
+module internal GitLabParse =
 
     let private toMr (el: JsonElement) : MergeRequest =
         { Iid = Json.u64Or el "iid"

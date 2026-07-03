@@ -2,7 +2,7 @@ namespace VcsToolkit.Gitea
 
 /// Toolkit-wide constants for the Gitea wrapper.
 [<AutoOpen>]
-module Constants =
+module internal Constants =
 
     /// Name of the underlying CLI binary this crate drives (also drives Forgejo).
     ///
@@ -45,7 +45,7 @@ type MergeStrategy =
     | Rebase
 
     /// The `tea pr merge --style` value for this strategy.
-    member this.Style =
+    member internal this.Style =
         match this with
         | MergeStrategy.Merge -> "merge"
         | MergeStrategy.Squash -> "squash"

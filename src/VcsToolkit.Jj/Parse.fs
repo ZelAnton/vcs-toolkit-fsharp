@@ -91,7 +91,7 @@ type AnnotationLine =
 /// Pure parsers and the `jj` templates that feed them. No process execution, so
 /// these are hermetic and total: arbitrary CLI text in, never an exception.
 [<RequireQualifiedAccess>]
-module JjParse =
+module internal JjParse =
 
     // --- Templates -----------------------------------------------------------
     // Each is a jj template-language expression. The literal `\t` / `\n` sequences
