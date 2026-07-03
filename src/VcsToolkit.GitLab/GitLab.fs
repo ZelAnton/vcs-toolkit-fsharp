@@ -100,12 +100,14 @@ type GitLab private (core: ManagedClient) =
             | Ok code -> return Ok(code = 0)
         }
 
-    /// Raw GitLab REST/GraphQL response body (`glab api <endpoint>`).
-    member _.Api(endpoint: string) =
+    /// Raw GitLab REST/GraphQL response body (`glab api <endpoint>`), run in the bound repo
+    /// `dir` so a relative endpoint resolves against *that* project rather than whatever repo
+    /// the process cwd happens to be in.
+    member _.Api(dir: string, endpoint: string) =
         task {
             match checkFlags [ "endpoint", endpoint ] with
             | Error e -> return Error e
-            | Ok() -> return! core.Run(core.Command [ "api"; endpoint ])
+            | Ok() -> return! core.Run(core.CommandIn(dir, [ "api"; endpoint ]))
         }
 
     // --- Project / lists -----------------------------------------------------

@@ -636,8 +636,8 @@ type SemanticsTests() =
 
             // The `api` endpoint and release `tag` land in bare positional slots — a
             // `-`-leading or empty value must be refused before anything spawns.
-            let! a = isErr (gh.Api "-X")
-            let! b = isErr (gh.Api "")
+            let! a = isErr (gh.Api(".", "-X"))
+            let! b = isErr (gh.Api(".", ""))
             let! c = isErr (gh.ReleaseView(".", "--cleanup-tag"))
             let! d = isErr (gh.ReleaseView(".", ""))
 
@@ -651,7 +651,7 @@ type SemanticsTests() =
             // …and a legitimate endpoint still passes through.
             let ok = scripted [ "api"; "repos/o/r" ] (Reply.Ok "{}\n")
 
-            match! ok.Api "repos/o/r" with
+            match! ok.Api(".", "repos/o/r") with
             | Ok body -> Assert.That(body, Is.EqualTo "{}")
             | Error e -> Assert.Fail $"a valid endpoint must pass: {e}"
         }

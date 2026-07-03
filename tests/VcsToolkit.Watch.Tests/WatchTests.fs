@@ -266,6 +266,14 @@ type StatsTests() =
         Assert.That(snap.LastError, Is.EqualTo None)
 
     [<Test>]
+    member _.BaselineTimeoutIsTransient() =
+        // A baseline-query timeout (`Io` wrapping `TimeoutException`, raised when the startup
+        // snapshot exceeds `RequeryTimeout`) is transient — a wedged repo may un-wedge, so
+        // `Build()` is worth retrying. A non-timeout `Io` is not.
+        Assert.That((WatchError.Io(TimeoutException "baseline exceeded")).IsTransient, Is.True)
+        Assert.That((WatchError.Io(IOException "disk error")).IsTransient, Is.False)
+
+    [<Test>]
     member _.NoteSkipRecordsTheLastError() =
         let stats = StatsInner()
         stats.NoteSkip WatcherErrorKind.Timeout

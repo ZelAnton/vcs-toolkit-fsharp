@@ -1,5 +1,6 @@
 namespace VcsToolkit.Watch
 
+open System
 open ProcessKit
 open VcsToolkit.Core
 
@@ -16,13 +17,15 @@ type WatchError =
     /// A filesystem operation failed (e.g. resolving a worktree gitlink).
     | Io of exn
 
-    /// Whether this wraps a **transient** io/spawn failure (interrupted / would-block /
-    /// resource-busy) from the underlying `VcsToolkit.Core` query — delegates to
-    /// `RepoError.IsTransient`. Mirrors the classifier family on the other facades.
-    /// `Notify`/`Io` and non-transient errors are `false`.
+    /// Whether this wraps a **transient** failure worth retrying — a transient io/spawn error
+    /// from the underlying `VcsToolkit.Core` query (delegates to `RepoError.IsTransient`), or a
+    /// baseline-query **timeout** (`Io` wrapping a `TimeoutException`, raised when the startup
+    /// snapshot exceeds `RequeryTimeout`): a wedged repo may un-wedge, and the loop already treats
+    /// a re-query timeout as a transient skip, so `Build()` agrees. Other `Io`/`Notify` are `false`.
     member this.IsTransient =
         match this with
         | WatchError.Vcs e -> e.IsTransient
+        | WatchError.Io e when (e :? TimeoutException) -> true
         | _ -> false
 
     /// Whether the underlying VCS binary (`git`/`jj`) **wasn't found** — a setup problem

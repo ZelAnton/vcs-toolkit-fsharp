@@ -21,11 +21,17 @@ module Constants =
     [<Literal>]
     let ISSUE_FIELDS = "index,title,state,body,url"
 
-    /// `tea` has no single-PR view, so `PrView` lists all states and filters by number.
-    /// This caps the page; a repo with more PRs than this would page-miss a
-    /// high-numbered PR (reported as a *possible* truncation in the not-found error).
+    /// `tea` has no single-PR view, so `PrView` lists all states and pages through, filtering
+    /// by number. The Gitea server caps each API page at `MAX_RESPONSE_ITEMS` (default 50) and
+    /// `tea` makes one call per page, so a single large `--limit` is silently clamped — hence
+    /// paging. `PR_VIEW_PAGE_SIZE` is the requested per-page size (an empty page ends the walk
+    /// regardless of the server's actual clamp); `PR_VIEW_MAX_PAGES` bounds the walk.
     [<Literal>]
-    let PR_VIEW_LIMIT = "999"
+    let PR_VIEW_PAGE_SIZE = 50
+
+    /// Safety bound on the `PrView` page walk (see `PR_VIEW_PAGE_SIZE`).
+    [<Literal>]
+    let PR_VIEW_MAX_PAGES = 200
 
 /// How `prMerge` merges the PR — maps to `tea pr merge --style` (Gitea's default is a
 /// merge commit).

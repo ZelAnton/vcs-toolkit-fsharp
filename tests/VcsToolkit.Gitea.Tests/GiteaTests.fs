@@ -236,22 +236,13 @@ type ClientTests() =
         }
 
     [<Test>]
-    member _.PrViewListsAllStatesAndFiltersByNumber() : Task =
+    member _.PrViewFindsOnFirstPage() : Task =
         task {
             let json =
                 """[{"index":"6","title":"other","state":"open","head":"a","base":"main","url":"u6"},{"index":"7","title":"mine","state":"open","head":"b","base":"main","url":"u7"}]"""
 
             let tea =
-                scripted
-                    [ "pr"
-                      "list"
-                      "--state"
-                      "all"
-                      "--limit"
-                      PR_VIEW_LIMIT
-                      "--fields"
-                      PR_FIELDS ]
-                    (Reply.Ok json)
+                scripted [ "pr"; "list"; "--state"; "all"; "--page"; "1"; "--fields"; PR_FIELDS ] (Reply.Ok json)
 
             match! tea.PrView(".", 7UL) with
             | Ok pr ->
@@ -261,10 +252,10 @@ type ClientTests() =
         }
 
     [<Test>]
-    member _.PrViewBuildsExactListArgv() : Task =
+    member _.PrViewBuildsExactPagedArgv() : Task =
         task {
-            // Lock the synthesized-view argv exactly (--state all, the 999 cap, --fields,
-            // --output json) — subset matching can't prove the cap or output flag.
+            // Lock the synthesized-view page-1 argv exactly (--state all, --limit 50, --page 1,
+            // --fields, --output json) — subset matching can't prove the paging flags.
             let json =
                 """[{"index":"7","title":"mine","state":"open","head":"b","base":"main","url":"u"}]"""
 
@@ -280,7 +271,9 @@ type ClientTests() =
                       "--state"
                       "all"
                       "--limit"
-                      PR_VIEW_LIMIT
+                      "50"
+                      "--page"
+                      "1"
                       "--fields"
                       PR_FIELDS
                       "--output"
@@ -290,15 +283,48 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.PrViewPagesToFindLaterPr() : Task =
+        task {
+            // A PR past the first page (the Gitea server caps a page at ~50) must still be
+            // found — `PrView` pages through with `--page N`, not a single large `--limit`.
+            let page1 =
+                """[{"index":"1","title":"a","state":"open","head":"x","base":"main","url":"u1"}]"""
+
+            let page2 =
+                """[{"index":"55","title":"target","state":"open","head":"y","base":"main","url":"u55"}]"""
+
+            let runner =
+                ScriptedRunner()
+                    .On([ "pr"; "list"; "--page"; "1" ], Reply.Ok page1)
+                    .On([ "pr"; "list"; "--page"; "2" ], Reply.Ok page2)
+
+            let tea = Gitea.WithRunner runner
+
+            match! tea.PrView(".", 55UL) with
+            | Ok pr -> Assert.That(pr.Title, Is.EqualTo "target", "found #55 on page 2")
+            | Error e -> Assert.Fail $"pr view failed: {e}"
+        }
+
+    [<Test>]
     member _.PrViewMissingNumberIsError() : Task =
         task {
-            let json =
-                """[{"index":"6","title":"other","state":"open","head":"a","base":"main","url":"u"}]"""
-
-            let tea = scripted [ "pr"; "list"; "--state"; "all" ] (Reply.Ok json)
+            // An empty page (past the last PR) → a genuine absence error, not a hang or crash.
+            let tea = scripted [ "pr"; "list"; "--state"; "all" ] (Reply.Ok "[]")
 
             let! r = tea.PrView(".", 99UL)
             Assert.That(Result.isError r, Is.True, "a PR number not in the listing is an error")
+        }
+
+    [<Test>]
+    member _.ListParsersTreatEmptyOutputAsEmptyList() : Task =
+        task {
+            // Some `tea` builds print NOTHING (not `[]`) for an empty result — an empty repo is
+            // a normal state, not a parse error.
+            let tea = scripted [ "pr"; "list" ] (Reply.Ok "")
+
+            match! tea.PrList "." with
+            | Ok prs -> Assert.That(prs, Is.Empty, "empty output → empty list")
+            | Error e -> Assert.Fail $"empty output should parse as an empty list: {e}"
         }
 
     [<Test>]

@@ -33,8 +33,18 @@ module Detect =
                 // read. The `gitdir:` marker is ASCII and within the first bytes.
                 use fs = File.OpenRead path
                 let buf = Array.zeroCreate<byte> 32
-                let n = fs.Read(buf, 0, buf.Length)
-                (Encoding.UTF8.GetString(buf, 0, n)).TrimStart().StartsWith("gitdir:", System.StringComparison.Ordinal)
+                // Loop over short reads (a single `Read` may return fewer than requested), up
+                // to 32 bytes or EOF — matching Rust's `take(32).read_to_end`.
+                let mutable total = 0
+                let mutable n = 1
+
+                while n > 0 && total < buf.Length do
+                    n <- fs.Read(buf, total, buf.Length - total)
+                    total <- total + n
+
+                (Encoding.UTF8.GetString(buf, 0, total))
+                    .TrimStart()
+                    .StartsWith("gitdir:", System.StringComparison.Ordinal)
             with _ ->
                 // An unreadable / binary / locked file named `.git` is not a valid
                 // marker; treat any read failure as "not a repository marker".
@@ -42,9 +52,16 @@ module Detect =
         else
             false
 
-    /// Walk up from `start` to the filesystem root looking for a repository. A `.jj`
-    /// directory wins over `.git` (colocated repos are driven through jj); `.git` may be
-    /// a directory or a gitlink file. Pure filesystem probing — no subprocess.
+    /// Whether `path` (a candidate `.jj`) is a real jj repository marker — a `.jj` **directory**
+    /// that owns a `repo` store. A stray/empty `.jj` (an aborted `jj init`, or a bare `mkdir .jj`)
+    /// must NOT shadow a healthy colocated `.git` — requiring `.jj/repo` (M19) matches Rust
+    /// `is_jj_marker` (`path.is_dir() && path.join("repo").exists()`).
+    let private isJjMarker (path: string) : bool =
+        Directory.Exists path && Path.Exists(Path.Combine(path, "repo"))
+
+    /// Walk up from `start` to the filesystem root looking for a repository. A valid `.jj`
+    /// marker wins over `.git` (colocated repos are driven through jj); `.git` may be a
+    /// directory or a gitlink file. Pure filesystem probing — no subprocess.
     ///
     /// `start` is walked via the parent chain, so pass an **absolute** path to search
     /// ancestors — a relative path like `"."` has no ancestor chain. (`Repo.Open`
@@ -55,7 +72,7 @@ module Detect =
         let mutable searching = true
 
         while searching do
-            if Directory.Exists(Path.Combine(current, ".jj")) then
+            if isJjMarker (Path.Combine(current, ".jj")) then
                 result <-
                     Some
                         { Kind = BackendKind.Jj

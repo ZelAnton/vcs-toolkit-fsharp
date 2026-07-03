@@ -70,8 +70,11 @@ module internal WatchState =
         { Head = snapshot.Head
           Branch = snapshot.Branch
           Upstream = snapshot.Tracking |> Option.map (fun t -> t.Branch)
-          Ahead = snapshot.Tracking |> Option.map (fun t -> t.Ahead)
-          Behind = snapshot.Tracking |> Option.map (fun t -> t.Behind)
+          // `bind`, not `map`: `t.Ahead`/`t.Behind` are themselves optional (M17 — `None` when a
+          // set upstream is gone/uncountable), so a gone upstream flattens to `None` here rather
+          // than `Some None`, and reads as uncountable rather than a fabricated `Some 0`.
+          Ahead = snapshot.Tracking |> Option.bind (fun t -> t.Ahead)
+          Behind = snapshot.Tracking |> Option.bind (fun t -> t.Behind)
           Dirty = snapshot.Dirty
           ChangeCount = snapshot.ChangeCount
           Conflicted = snapshot.Conflicted

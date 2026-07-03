@@ -158,14 +158,24 @@ module GiteaParse =
                   // tea's release table carries no web-page URL column.
                   Url = "" }
 
+    /// A `tea` list parser that treats **empty/whitespace output as an empty list**, not a
+    /// parse error: some `tea` builds print nothing (not `[]`) for an empty result, so
+    /// listing PRs/issues/releases on a brand-new or empty repository yields no output — a
+    /// normal state, not a failure. (Matches the Rust `parse.rs` guard.)
+    let private parseArrayOrEmpty mapper (json: string) =
+        if System.String.IsNullOrWhiteSpace json then
+            Ok []
+        else
+            Json.parseArrayResult mapper json
+
     /// Parse a `tea pr list` array (all-strings table; `index` → `uint64`).
-    let parsePrList = Json.parseArrayResult toPrResult
+    let parsePrList = parseArrayOrEmpty toPrResult
     /// Parse a `tea issues list` array (all-strings table; `index` → `uint64`).
-    let parseIssueList = Json.parseArrayResult toIssueListResult
+    let parseIssueList = parseArrayOrEmpty toIssueListResult
     /// Parse a `tea issues <index>` detail object (typed; `index` is a real number).
     let parseIssue = Json.parseObject toIssueDetail
     /// Parse a `tea releases list` array (all-strings table; a missing tag is an `Error`).
-    let parseReleaseList = Json.parseArrayResult toReleaseResult
+    let parseReleaseList = parseArrayOrEmpty toReleaseResult
 
     /// Whether `tea login list --output json` reports at least one login — the
     /// "are we logged in" signal (`tea` has no per-instance `auth status`). A non-array

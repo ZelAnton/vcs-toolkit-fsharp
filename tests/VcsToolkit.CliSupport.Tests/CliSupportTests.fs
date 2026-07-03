@@ -59,17 +59,18 @@ type ClassifierTests() =
         Assert.That(isTransientFetchError dns)
         Assert.That(isTransientFetchError nothing, Is.False)
 
-        // A ProcessKit timeout is transient too.
+        // R6: a ProcessKit timeout is NOT a transient FETCH error — retrying a fetch that already
+        // burned its whole deadline against a black-holed remote just multiplies the wait.
         let timeout = ProcessError.Timeout("git", TimeSpan.FromSeconds 10.0, "", "")
-        Assert.That(isTransientFetchError timeout)
+        Assert.That(isTransientFetchError timeout, Is.False)
 
     [<Test>]
     member _.ClassifiesLockContention() =
         let lockFailures =
             [ exit "git" 128 "fatal: Unable to create '/r/.git/index.lock': File exists."
-              exit "git" 128 "Another git process seems to be running in this repository"
-              exit "jj" 1 "Error: Failed to lock the working copy"
-              exit "jj" 1 "Error: Failed to lock op heads" ]
+              // jj's real wordings (no `the`; the full op-heads phrase).
+              exit "jj" 1 "Error: Failed to lock working copy"
+              exit "jj" 1 "Error: Failed to lock operation heads store" ]
 
         for e in lockFailures do
             Assert.That(isLockContention e, $"should be lock contention: {e}")
@@ -80,6 +81,9 @@ type ClassifierTests() =
               exit "git" 128 "fatal: not a git repository"
               // Per-ref locks are NOT classified (a multi-ref op can fail one mid-way).
               exit "git" 1 "error: cannot lock ref 'refs/heads/x': reference already exists"
+              // A per-ref lock whose PATH contains `index.lock` (a branch literally named
+              // `index`) is excluded by the `refs/` guard — not the whole-repo index lock.
+              exit "git" 128 "fatal: Unable to create '/r/.git/refs/heads/index.lock': File exists"
               ProcessError.Timeout("git", TimeSpan.FromSeconds 1.0, "", "") ]
 
         for e in notLocks do
@@ -178,7 +182,8 @@ type CredentialTests() =
 
     [<Test>]
     member _.GitCredentialHelperKeepsSecretOutOfArgv() =
-        let h = Credentials.gitCredentialHelper (Credential.Userpass("alice", "s3cr3t"))
+        let h =
+            Credentials.gitCredentialHelper (Credential.Userpass("alice", "s3cr3t")) None
 
         for a in h.ConfigArgs do
             Assert.That(a.Contains "s3cr3t", Is.False, $"secret leaked into argv: {a}")
@@ -193,8 +198,39 @@ type CredentialTests() =
         Assert.That(user.Expose(), Is.EqualTo "alice")
 
     [<Test>]
+    member _.GitCredentialHelperScopesToHost() =
+        // Unscoped: the host env is empty (the snippet's `test -z` gate passes).
+        let unscoped = Credentials.gitCredentialHelper (Credential.Token "t0p-secret") None
+        let _, h0 = unscoped.Env |> List.find (fun (k, _) -> k = "VCS_TOOLKIT_GIT_HOST")
+        Assert.That(h0.Expose(), Is.EqualTo "")
+
+        // Scoped: the host env carries the expected host (with port + case), and the snippet
+        // gates the release on git's request host matching it — while the secret stays out of argv.
+        let scoped =
+            Credentials.gitCredentialHelper (Credential.Token "t0p-secret") (Some "GitHub.com:8443")
+
+        let _, h1 = scoped.Env |> List.find (fun (k, _) -> k = "VCS_TOOLKIT_GIT_HOST")
+        Assert.That(h1.Expose(), Is.EqualTo "GitHub.com:8443")
+        // The snippet gates on the host env var by NAME; the raw secret never appears in argv.
+        Assert.That(scoped.ConfigArgs |> List.exists (fun a -> a.Contains "VCS_TOOLKIT_GIT_HOST"))
+
+        for a in scoped.ConfigArgs do
+            Assert.That(a.Contains "t0p-secret", Is.False, $"secret leaked into argv: {a}")
+
+    [<Test>]
+    member _.HttpsHostExtractsHostWithPortAndCase() =
+        Assert.That(Credentials.httpsHost "https://github.com/o/r.git", Is.EqualTo(Some "github.com"))
+        // Port and case are kept (git's `host=` carries them; the snippet compares byte-for-byte).
+        Assert.That(Credentials.httpsHost "https://GitHub.com:8443/o/r", Is.EqualTo(Some "GitHub.com:8443"))
+        // Userinfo is stripped.
+        Assert.That(Credentials.httpsHost "https://user:pass@example.com/o/r", Is.EqualTo(Some "example.com"))
+        // Non-https, and an IPv6 literal, stay unscoped (None).
+        Assert.That(Credentials.httpsHost "git@github.com:o/r.git", Is.EqualTo Option.None)
+        Assert.That(Credentials.httpsHost "https://[::1]:443/o/r", Is.EqualTo Option.None)
+
+    [<Test>]
     member _.GitCredentialHelperDefaultsUsername() =
-        let h = Credentials.gitCredentialHelper (Credential.Token "t")
+        let h = Credentials.gitCredentialHelper (Credential.Token "t") None
         let _, user = h.Env |> List.find (fun (k, _) -> k = "VCS_TOOLKIT_GIT_USERNAME")
         Assert.That(user.Expose(), Is.EqualTo Credentials.DefaultGitUsername)
 

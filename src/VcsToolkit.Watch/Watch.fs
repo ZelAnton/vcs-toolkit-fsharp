@@ -437,7 +437,14 @@ type Builder
             match Paths.stateDirs repo.Kind repo.Root with
             | Error e -> return Error e
             | Ok dirs ->
-                let raw = Channel.CreateUnbounded<unit>()
+                // Capacity-1, drop-on-full: a burst coalesces AT the channel (extra signals
+                // are dropped while one "re-check" is pending), bounding memory. An unbounded
+                // channel would grow without limit if the consumer stalled (parking the loop at
+                // the output-channel backpressure) while a filesystem storm churned. A dropped
+                // signal is harmless — the pending one already means "re-query the settled state".
+                let raw =
+                    Channel.CreateBounded<unit>(BoundedChannelOptions(1, FullMode = BoundedChannelFullMode.DropWrite))
+
                 let stats = StatsInner()
                 let onSignal () = raw.Writer.TryWrite(()) |> ignore
                 let onWatchError () = stats.NoteWatchError()
@@ -473,15 +480,47 @@ type Builder
                     // baseline is queued (not lost). A baseline-query failure — whether a
                     // returned `Error` or an unexpected throw — must dispose the watchers so a
                     // failed build never leaks an OS watch pushing into the dropped channel.
+                    let baselineWork =
+                        task {
+                            match! repo.Snapshot() with
+                            | Error e -> return Error(WatchError.Vcs e)
+                            | Ok snapshot ->
+                                match! repo.LocalBranches() with
+                                | Error e -> return Error(WatchError.Vcs e)
+                                | Ok branches -> return Ok(snapshot, branches)
+                        }
+
                     let! baseline =
                         task {
                             try
-                                match! repo.Snapshot() with
-                                | Error e -> return Error(WatchError.Vcs e)
-                                | Ok snapshot ->
-                                    match! repo.LocalBranches() with
-                                    | Error e -> return Error(WatchError.Vcs e)
-                                    | Ok branches -> return Ok(snapshot, branches)
+                                // Bound the baseline query by the same `requeryTimeout` the loop
+                                // uses — otherwise a wedged repo (held `index.lock`, hung
+                                // fsmonitor, dead network FS) would hang `Build()` at startup,
+                                // the very failure the loop-side deadline exists to prevent.
+                                match requeryTimeout with
+                                | None -> return! baselineWork
+                                | Some limit ->
+                                    let clamped =
+                                        if limit < TimeSpan.Zero then TimeSpan.Zero
+                                        elif limit > maxTimerDelay then maxTimerDelay
+                                        else limit
+
+                                    use timeoutCts = new CancellationTokenSource()
+                                    let timeoutTask = Task.Delay(clamped, timeoutCts.Token)
+                                    let! winner = Task.WhenAny(baselineWork :> Task, timeoutTask)
+
+                                    if Object.ReferenceEquals(winner, timeoutTask) then
+                                        return
+                                            Error(
+                                                WatchError.Io(
+                                                    TimeoutException(
+                                                        "baseline repository query exceeded the re-query timeout"
+                                                    )
+                                                )
+                                            )
+                                    else
+                                        timeoutCts.Cancel()
+                                        return! baselineWork
                             with e ->
                                 // `reraise` can't be used inside a `task` CE handler; rethrow
                                 // via ExceptionDispatchInfo to preserve the original stack.

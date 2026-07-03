@@ -150,7 +150,14 @@ module internal JjBackend =
         task {
             match! jj.CurrentChange dir with
             | Error e -> return Error(RepoError.Vcs e)
-            | Ok change -> return Ok(not change.Empty)
+            | Ok change when not change.Empty -> return Ok true
+            | Ok _ ->
+                // A **conflicted** change is uncommitted state (it needs resolution) even when jj
+                // marks it `empty` — so this agrees with `snapshot`'s `conflict ⇒ dirty`. Only
+                // probed when `@` is empty, so the common non-empty case stays a single query.
+                match! jj.HasWorkingcopyConflict dir with
+                | Error e -> return Error(RepoError.Vcs e)
+                | Ok conflicted -> return Ok conflicted
         }
 
     let conflictedFiles (jj: Jj) (dir: string) =
@@ -410,7 +417,12 @@ module internal JjBackend =
                     return Error(RepoError.Vcs e)
         }
 
-    let removeWorktree (jj: Jj) (dir: string) (path: string) (_force: bool) =
+    /// jj's initial workspace — its directory is the repository's main working copy, so it
+    /// must never be deleted by a worktree-removal call.
+    [<Literal>]
+    let private DEFAULT_WORKSPACE = "default"
+
+    let removeWorktree (jj: Jj) (dir: string) (path: string) (force: bool) =
         task {
             // Resolve `path` against `dir` (jj's cwd) so the lookup and the dir removal
             // target the location jj used, even when the process cwd differs.
@@ -419,23 +431,63 @@ module internal JjBackend =
             match! workspaceNameForPath jj dir absPath with
             | Error e -> return Error e
             | Ok name ->
-                // Delete the on-disk dir first: an orphan dir jj has forgotten is worse
-                // than a still-attached workspace.
-                let deleteResult =
-                    if Directory.Exists absPath then
-                        try
-                            Directory.Delete(absPath, true)
-                            Ok()
-                        with ex ->
-                            Error(RepoError.Io ex.Message)
-                    else
-                        Ok()
+                // Never remove the repository's **main** workspace: its directory *is* the main
+                // working copy, so deleting it wipes the whole checkout (`.jj`/`.git` and every
+                // file). git refuses to remove its main worktree; jj has no such guard and we
+                // delete the directory ourselves, so guard it here. Two signals (either alone is
+                // bypassable): the name is `default` (the initial workspace), which `jj workspace
+                // rename` can move off — OR the workspace owns the object store: a main
+                // workspace's `.jj/repo` is a **directory** (the store), a secondary's is a
+                // **file** (a pointer), stable across a rename.
+                let ownsStore = Directory.Exists(Path.Combine(absPath, ".jj", "repo"))
 
-                match deleteResult with
-                | Error e -> return Error e
-                | Ok() ->
-                    // Then forget the workspace. jj happily forgets an already-deleted
-                    // workspace dir; surface a failure rather than swallow it.
-                    let! r = jj.WorkspaceForget(dir, name)
-                    return ofVcs r
+                if name = DEFAULT_WORKSPACE || ownsStore then
+                    return
+                        Error(
+                            RepoError.Io
+                                "refusing to remove the repository's main workspace (its directory is the main working copy and owns the object store)"
+                        )
+                else
+                    // Honor `force` like git's `worktree remove`: unless forced, refuse a
+                    // workspace that still has uncommitted changes. Querying `current_change`
+                    // there snapshots the working copy first, so a refusal leaves the edits in
+                    // jj's op log rather than only on disk. (Skip when the dir is already gone.)
+                    let! dirtyCheck =
+                        task {
+                            if not force && Directory.Exists absPath then
+                                match! jj.CurrentChange absPath with
+                                | Error e -> return Error(RepoError.Vcs e)
+                                | Ok change when not change.Empty ->
+                                    return
+                                        Error(
+                                            RepoError.Io
+                                                "worktree has uncommitted changes; pass force = true to remove it (the changes are snapshotted in jj's op log and recoverable)"
+                                        )
+                                | Ok _ -> return Ok()
+                            else
+                                return Ok()
+                        }
+
+                    match dirtyCheck with
+                    | Error e -> return Error e
+                    | Ok() ->
+                        // Delete the on-disk dir first: an orphan dir jj has forgotten is worse
+                        // than a still-attached workspace.
+                        let deleteResult =
+                            if Directory.Exists absPath then
+                                try
+                                    Directory.Delete(absPath, true)
+                                    Ok()
+                                with ex ->
+                                    Error(RepoError.Io ex.Message)
+                            else
+                                Ok()
+
+                        match deleteResult with
+                        | Error e -> return Error e
+                        | Ok() ->
+                            // Then forget the workspace. jj happily forgets an already-deleted
+                            // workspace dir; surface a failure rather than swallow it.
+                            let! r = jj.WorkspaceForget(dir, name)
+                            return ofVcs r
         }

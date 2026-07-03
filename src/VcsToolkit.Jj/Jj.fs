@@ -25,6 +25,41 @@ module private JjHelpers =
         | Some e -> Error e
         | None -> Ok()
 
+    /// jj treats a bare `<NAMES>` / `-b <BOOKMARK>` / `--remote <REMOTE>` argument as a **glob**
+    /// pattern (verified on 0.42: `bookmark delete '*'` deletes every bookmark; `git push -b '*'`
+    /// pushes them all), so a name containing `*`/`?` — or a hostile `"*"` from a UI/bot — would
+    /// fan the operation across every matching ref. `exact:` forces a literal match of exactly
+    /// this name (a literal `*` in a name is then matched verbatim), so the typed methods mutate
+    /// exactly the one ref the caller named.
+    let exact (name: string) : string = "exact:" + name
+
+    /// R7: whether `dest` is one a clone could have *created* — absent, unreadable, or an empty
+    /// directory — vs a non-empty pre-existing dir (the caller's data, which jj/git refuses to
+    /// clone into). Captured **before** the clone so a failure cleans only its own partial output.
+    let cloneDestCleanable (dest: string) : bool =
+        try
+            (not (System.IO.Directory.Exists dest))
+            || (System.IO.Directory.EnumerateFileSystemEntries dest |> Seq.isEmpty)
+        with _ ->
+            true
+
+    /// R7: on a failed clone into a `cleanable` `dest`, best-effort remove the partial output so a
+    /// retry isn't blocked by "destination already exists". `timeout_grace` can't prevent the
+    /// partial (Windows' job-kill is atomic; the Unix grace is too short for a multi-GB partial).
+    /// Never touches a non-`cleanable` dest.
+    let cloneCleanupOnError (dest: string) (cleanable: bool) (result: Result<unit, ProcessError>) =
+        match result with
+        | Error _ when cleanable ->
+            try
+                if System.IO.Directory.Exists dest then
+                    System.IO.Directory.Delete(dest, true)
+            with _ ->
+                // Best-effort cleanup on the error path; a leftover partial is not fatal.
+                ()
+        | _ -> ()
+
+        result
+
     /// The first bookmark name from a comma-joined `BOOKMARKS_TEMPLATE` render;
     /// `None` when the commit carries no local bookmark.
     let firstBookmark (rendered: string) : string option =
@@ -65,6 +100,20 @@ type Jj private (core: ManagedClient) =
     /// takes a trailing `--`, so this is safe).
     let cmdIn (dir: string) (args: string seq) : Command =
         (core.CommandIn(dir, args)).Arg("--color").Arg("never")
+
+    /// Run `cmd` returning **untrimmed** stdout (unlike `core.Run`, which trims the trailing
+    /// newline) — for blob content and diffs where a trailing newline is significant: a
+    /// read-modify-write must be byte-exact, and a diff's trailing blank context line keeps the
+    /// last hunk's `@@` count valid on re-parse/re-apply.
+    let runUntrimmed (cmd: Command) : System.Threading.Tasks.Task<Result<string, ProcessError>> =
+        task {
+            match! core.Output cmd with
+            | Error e -> return Error e
+            | Ok res ->
+                match ProcessResult.ensureSuccess res with
+                | Error e -> return Error e
+                | Ok ok -> return Ok ok.Stdout
+        }
 
     /// Create a client driving the real job-backed runner.
     static member Create() = Jj(ManagedClient.Create BINARY)
@@ -195,7 +244,9 @@ type Jj private (core: ManagedClient) =
             match checkFlags [ "bookmark name", name ] with
             | Error e -> return Error e
             | Ok() ->
-                let target = sprintf "%s@%s" name remote
+                // `exact:` on the whole `name@remote` token stops a `*`/pattern name from
+                // tracking every remote bookmark at once.
+                let target = sprintf "exact:%s@%s" name remote
                 return! core.RunUnit(cmdIn dir [ "bookmark"; "track"; target ])
         }
 
@@ -223,22 +274,24 @@ type Jj private (core: ManagedClient) =
             | Ok() -> return! core.RunUnit(cmdIn dir [ "bookmark"; "rename"; oldName; newName ])
         }
 
-    /// Delete a bookmark (`bookmark delete <name>`).
+    /// Delete a bookmark (`bookmark delete exact:<name>`). `exact:` so a `*`/pattern name
+    /// deletes only the one named, not every matching bookmark.
     member _.BookmarkDelete(dir: string, name: string) =
         task {
             match checkFlags [ "bookmark name", name ] with
             | Error e -> return Error e
-            | Ok() -> return! core.RunUnit(cmdIn dir [ "bookmark"; "delete"; name ])
+            | Ok() -> return! core.RunUnit(cmdIn dir [ "bookmark"; "delete"; exact name ])
         }
 
-    /// Move a bookmark to a revision (`bookmark move <name> --to <rev> [--allow-backwards]`).
+    /// Move a bookmark to a revision (`bookmark move exact:<name> --to <rev> [--allow-backwards]`).
     member _.BookmarkMove(dir: string, name: string, toRev: string, allowBackwards: bool) =
         task {
             match checkFlags [ "bookmark name", name ] with
             | Error e -> return Error e
             | Ok() ->
+                // `exact:` on the name (a `*` would move every bookmark); `toRev` is a revision.
                 let args =
-                    [ "bookmark"; "move"; name; "--to"; toRev ]
+                    [ "bookmark"; "move"; exact name; "--to"; toRev ]
                     @ (if allowBackwards then [ "--allow-backwards" ] else [])
 
                 return! core.RunUnit(cmdIn dir args)
@@ -312,7 +365,7 @@ type Jj private (core: ManagedClient) =
             | DiffSpec.WorkingTree -> "@"
             | DiffSpec.Rev rev -> rev
 
-        core.Run(cmdIn dir [ "diff"; "-r"; revset; "--git" ])
+        runUntrimmed (cmdIn dir [ "diff"; "-r"; revset; "--git" ])
 
     /// Parsed per-file unified diff for `spec`, layered on `DiffText`.
     member this.Diff(dir: string, spec: DiffSpec) =
@@ -386,13 +439,21 @@ type Jj private (core: ManagedClient) =
                | None -> [])
             @ [ "-T"; template ]
 
-        core.Run(cmdIn dir args)
+        // Untrimmed: a template's output can be significant to the trailing byte (a consumer
+        // may render or round-trip it), matching the Rust `run_untrimmed`.
+        runUntrimmed (cmdIn dir args)
 
     /// The full (possibly multiline) description of the commit `revset` resolves to,
     /// trailing whitespace trimmed; empty for an undescribed change. A multi-commit
     /// revset yields only the newest commit's description (`--limit 1`).
     member this.Description(dir: string, revset: string) =
-        this.TemplateQuery(dir, revset, "description", Some 1)
+        task {
+            // `TemplateQuery` is raw (untrimmed); `description` is a scalar, so strip the
+            // trailing newline jj appends after the `description` keyword.
+            match! this.TemplateQuery(dir, revset, "description", Some 1) with
+            | Error e -> return Error e
+            | Ok out -> return Ok(out.TrimEnd())
+        }
 
     /// How the commit a revset resolves to evolved, newest snapshot first, up to
     /// `max` (`jj evolog -r <revset>`) — one `Change` row per recorded predecessor.
@@ -443,7 +504,8 @@ type Jj private (core: ManagedClient) =
     /// path is wrapped as an exact-path fileset, so metacharacters stay literal).
     member _.FileShow(dir: string, revset: string, path: string) =
         let fileset = JjFileset.Path path
-        core.Run(cmdIn dir [ "file"; "show"; "-r"; revset; fileset.Value ])
+        // Untrimmed: a blob's trailing newline(s) must survive for a byte-exact read-modify-write.
+        runUntrimmed (cmdIn dir [ "file"; "show"; "-r"; revset; fileset.Value ])
 
     // --- Mutations -----------------------------------------------------------
 
@@ -585,8 +647,9 @@ type Jj private (core: ManagedClient) =
     /// Fetch from a *named* git remote (`jj git fetch --remote <remote>`); transient
     /// failures are retried like `GitFetch`.
     member _.GitFetchFrom(dir: string, remote: string) =
+        // `--remote` is glob-matched too, so `exact:` keeps a `*` remote from fetching every one.
         let cmd =
-            (cmdIn dir [ "git"; "fetch"; "--remote"; remote ])
+            (cmdIn dir [ "git"; "fetch"; "--remote"; exact remote ])
                 .TimeoutGrace(FetchTimeoutGrace)
                 .Retry(FetchAttempts, FetchBackoff, (fun e -> isTransientFetchError e))
 
@@ -595,19 +658,21 @@ type Jj private (core: ManagedClient) =
     /// Fetch a single bookmark from origin (`git fetch --remote origin -b <branch>`);
     /// transient failures are retried (3×, 500 ms).
     member _.GitFetchBranch(dir: string, branch: string) =
+        // `-b` is glob-matched, so `exact:` keeps a `*` branch from fetching every branch.
         let cmd =
-            (cmdIn dir [ "git"; "fetch"; "--remote"; "origin"; "-b"; branch ])
+            (cmdIn dir [ "git"; "fetch"; "--remote"; "origin"; "-b"; exact branch ])
                 .TimeoutGrace(FetchTimeoutGrace)
                 .Retry(FetchAttempts, FetchBackoff, (fun e -> isTransientFetchError e))
 
         core.RunUnit cmd
 
-    /// Push to the git remote (`jj git push`, optionally `-b <bookmark>`).
+    /// Push to the git remote (`jj git push`, optionally `-b exact:<bookmark>`).
     member _.GitPush(dir: string, bookmark: string option) =
+        // `-b` is glob-matched, so `exact:` keeps a `*` bookmark from pushing every local one.
         let args =
             [ "git"; "push" ]
             @ (match bookmark with
-               | Some name -> [ "-b"; name ]
+               | Some name -> [ "-b"; exact name ]
                | None -> [])
 
         // Graceful terminate-then-kill on a per-client timeout so a timed-out push
@@ -632,6 +697,8 @@ type Jj private (core: ManagedClient) =
             | Error e -> return Error e
             | Ok() ->
                 let colocateFlag = if colocate then "--colocate" else "--no-colocate"
+                // Capture whether `dest` is ours to clean BEFORE the clone populates it.
+                let cleanable = cloneDestCleanable dest
 
                 let cmd =
                     (core.Command [ "git"; "clone"; url ])
@@ -641,7 +708,8 @@ type Jj private (core: ManagedClient) =
                         .Arg("never")
                         .TimeoutGrace(FetchTimeoutGrace)
 
-                return! core.RunUnit cmd
+                let! result = core.RunUnit cmd
+                return cloneCleanupOnError dest cleanable result
         }
 
     // --- Operation log -------------------------------------------------------

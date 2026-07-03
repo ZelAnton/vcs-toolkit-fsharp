@@ -174,8 +174,15 @@ module GitParse =
                 let code = record.Substring(0, 2)
                 let path = record.Substring 3
 
+                // A rename/copy's source path is the next NUL record; consume it. The `R`/`C`
+                // can sit in EITHER status column — the index column (`R ` staged rename) or the
+                // worktree column (` R` worktree rename) — so check both. Missing the ` R`/` C`
+                // case left the source record as a phantom entry with a garbage code/path.
                 let oldPath =
-                    if (record.[0] = 'R' || record.[0] = 'C') && i < records.Length then
+                    if
+                        (record.[0] = 'R' || record.[0] = 'C' || record.[1] = 'R' || record.[1] = 'C')
+                        && i < records.Length
+                    then
                         let op = records.[i]
                         i <- i + 1
                         Some op

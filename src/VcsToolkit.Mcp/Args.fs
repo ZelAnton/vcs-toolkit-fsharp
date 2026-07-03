@@ -112,9 +112,14 @@ module Args =
             | "--timeout" :: value :: tl ->
                 match UInt64.TryParse value with
                 | true, secs ->
+                    // 0 disables; otherwise clamp to a sane upper bound (~68 years) so an absurd
+                    // value can't overflow `TimeSpan.FromSeconds` and crash startup — a huge
+                    // command timeout means "effectively none" either way.
+                    let clamped = min secs (uint64 Int32.MaxValue)
+
                     timeout <-
                         (if secs > 0UL then
-                             Some(TimeSpan.FromSeconds(float secs))
+                             Some(TimeSpan.FromSeconds(float clamped))
                          else
                              None)
 

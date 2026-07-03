@@ -105,7 +105,12 @@ type ForgeKind =
         match hostOf url with
         | None -> None
         | Some host ->
-            let h = host.ToLowerInvariant()
+            // ASCII-only lowercase (matches Rust `to_ascii_lowercase`): a full-Unicode fold
+            // (`ToLowerInvariant`) could map a non-ASCII character onto an ASCII letter and help
+            // complete a spoof of a trusted host, so fold only `A`–`Z` in this security check.
+            let h =
+                host
+                |> String.map (fun c -> if c >= 'A' && c <= 'Z' then char (int c + 32) else c)
 
             if hostIs h "github.com" then
                 Some ForgeKind.GitHub

@@ -30,20 +30,30 @@ let private hardenedGit (timeout: TimeSpan option) : Git =
 /// Open the repo at `dir` with a hardened, timeout-bound client. Mirrors `Repo.Open`'s
 /// detection but injects the hardened/timeout client instead of the plain default.
 let private openRepo (dir: string) (timeout: TimeSpan option) : Result<Repo, string> =
-    let abs = IO.Path.GetFullPath dir
+    // `Path.GetFullPath` throws on an empty/invalid path (e.g. `--repo ""`); surface that as a
+    // clean error rather than an unhandled crash.
+    let absResult =
+        try
+            Ok(IO.Path.GetFullPath dir)
+        with ex ->
+            Error(sprintf "invalid repository path %A: %s" dir ex.Message)
 
-    match Detect.detect abs with
-    | Option.None -> Error(sprintf "no git or jj repository found at or above %s" abs)
-    | Some located ->
-        match located.Kind with
-        | BackendKind.Git -> Ok(Repo.FromGit(located.Root, abs, hardenedGit timeout))
-        | BackendKind.Jj ->
-            let jj =
-                match timeout with
-                | Some t -> Jj.Create().DefaultTimeout t
-                | None -> Jj.Create()
+    match absResult with
+    | Error e -> Error e
+    | Ok abs ->
 
-            Ok(Repo.FromJj(located.Root, abs, jj))
+        match Detect.detect abs with
+        | Option.None -> Error(sprintf "no git or jj repository found at or above %s" abs)
+        | Some located ->
+            match located.Kind with
+            | BackendKind.Git -> Ok(Repo.FromGit(located.Root, abs, hardenedGit timeout))
+            | BackendKind.Jj ->
+                let jj =
+                    match timeout with
+                    | Some t -> Jj.Create().DefaultTimeout t
+                    | None -> Jj.Create()
+
+                Ok(Repo.FromJj(located.Root, abs, jj))
 
 /// Best-effort: read the `origin` remote URL and classify its host.
 let private detectForgeKind (root: string) (timeout: TimeSpan option) : Task<ForgeKind option> =

@@ -308,13 +308,41 @@ type ClientTests() =
     [<Test>]
     member _.BookmarkMoveAppendsAllowBackwards() : Task =
         task {
-            // No fallback: the rule only matches if --allow-backwards is built.
+            // No fallback: the rule only matches if --allow-backwards is built. The name is
+            // wrapped in `exact:` (a `*` would otherwise move every bookmark).
             let jj =
-                scripted [ "bookmark"; "move"; "main"; "--to"; "@"; "--allow-backwards" ] (Reply.Ok "")
+                scripted [ "bookmark"; "move"; "exact:main"; "--to"; "@"; "--allow-backwards" ] (Reply.Ok "")
 
             match! jj.BookmarkMove(".", "main", "@", true) with
             | Ok() -> ()
             | Error e -> Assert.Fail $"bookmark_move failed: {e}"
+        }
+
+    [<Test>]
+    member _.DestructiveOpsWrapNamesInExact() : Task =
+        task {
+            // jj glob-matches `<NAMES>`/`--remote`/`-b`, so a `*` would fan the op across every
+            // matching ref (`bookmark delete '*'` deletes them all). Each typed method wraps its
+            // name in `exact:` to force a literal, one-ref match. Assert the exact wire arg.
+            let del = scripted [ "bookmark"; "delete"; "exact:main" ] (Reply.Ok "")
+
+            match! del.BookmarkDelete(".", "main") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"bookmark_delete failed: {e}"
+
+            let fetchFrom =
+                scripted [ "git"; "fetch"; "--remote"; "exact:upstream" ] (Reply.Ok "")
+
+            match! fetchFrom.GitFetchFrom(".", "upstream") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"git_fetch_from failed: {e}"
+
+            let fetchBranch =
+                scripted [ "git"; "fetch"; "--remote"; "origin"; "-b"; "exact:feat" ] (Reply.Ok "")
+
+            match! fetchBranch.GitFetchBranch(".", "feat") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"git_fetch_branch failed: {e}"
         }
 
     [<Test>]
@@ -405,7 +433,8 @@ type ClientTests() =
     [<Test>]
     member _.GitPushWithAndWithoutBookmark() : Task =
         task {
-            let withBm = scripted [ "git"; "push"; "-b"; "feature" ] (Reply.Ok "")
+            // `-b` is glob-matched by jj, so the bookmark is wrapped in `exact:` to push only it.
+            let withBm = scripted [ "git"; "push"; "-b"; "exact:feature" ] (Reply.Ok "")
 
             match! withBm.GitPush(".", Some "feature") with
             | Ok() -> ()
@@ -471,12 +500,13 @@ type ClientTests() =
                 Assert.That(lines.[1].Line, Is.EqualTo 2)
             | Error e -> Assert.Fail $"file_annotate failed: {e}"
 
-            // file_show wraps the path as an exact-path fileset.
+            // file_show wraps the path as an exact-path fileset; the blob's trailing newline is
+            // PRESERVED (untrimmed) so a read-modify-write stays byte-exact.
             let show =
                 scripted [ "file"; "show"; "-r"; "@-"; "file:\"src/a.rs\"" ] (Reply.Ok "content\n")
 
             match! show.FileShow(".", "@-", "src/a.rs") with
-            | Ok content -> Assert.That(content, Is.EqualTo "content")
+            | Ok content -> Assert.That(content, Is.EqualTo "content\n")
             | Error e -> Assert.Fail $"file_show failed: {e}"
         }
 
@@ -520,7 +550,9 @@ type ClientTests() =
     [<Test>]
     member _.BookmarkTrackBuildsNameAtRemote() : Task =
         task {
-            let jj = scripted [ "bookmark"; "track"; "feat@origin" ] (Reply.Ok "")
+            // The whole `name@remote` token is `exact:`-prefixed (a `*` name would otherwise
+            // track every remote bookmark).
+            let jj = scripted [ "bookmark"; "track"; "exact:feat@origin" ] (Reply.Ok "")
 
             match! jj.BookmarkTrack(".", "feat", "origin") with
             | Ok() -> ()

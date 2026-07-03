@@ -47,13 +47,19 @@ module Classify =
     /// Lower-case substrings marking a whole-repository / working-copy lock contention
     /// failure — another process held the one repo-wide lock, so the command never
     /// started (clean, pre-execution) and touched nothing. Per-ref lock messages are
-    /// deliberately excluded: a multi-ref push/fetch can fail a ref lock after earlier
-    /// refs already moved, where a retry would not be idempotent.
+    /// deliberately excluded by the `refs/` guard in `isLockContention`: a multi-ref
+    /// push/fetch can fail a ref lock after earlier refs already moved, where a retry
+    /// would not be idempotent.
+    ///
+    /// git: match the **locale-stable path fragment** `index.lock`, not the translated
+    /// `': File exists'` suffix (git localizes its messages, so a non-English runner would
+    /// never match the full English phrase; and this catches any `index.lock` create
+    /// failure — a held lock, a permission error — all pre-write, so safe to retry). jj: its
+    /// exact working-copy and op-heads lock wordings.
     let private lockContentionMarkers =
-        [ "index.lock': file exists"
-          "another git process seems to be running"
-          "failed to lock the working copy"
-          "failed to lock op heads" ]
+        [ "index.lock"
+          "failed to lock working copy"
+          "failed to lock operation heads store" ]
 
     /// ASCII-only lowercasing, matching Rust's `to_ascii_lowercase`. Avoids the
     /// spurious matches a full-Unicode fold (`ToLowerInvariant`) could introduce
@@ -103,17 +109,27 @@ module Classify =
     let isNothingToCommit (err: ProcessError) =
         exitOutputMatches err nothingToCommitMarkers
 
-    /// Whether a failed fetch looks transient (DNS, timeout, dropped connection) and
-    /// is worth retrying. A ProcessKit-level timeout, and an io-level transient from
-    /// the spawn itself, are treated as transient too.
+    /// Whether a failed fetch looks transient (DNS, dropped connection) or is an io-level
+    /// transient from the spawn itself (interrupted / would-block / busy), and is worth
+    /// retrying. A ProcessKit-level **timeout is deliberately NOT** retried here (R6): a fetch
+    /// that already burned its whole deadline against a black-holed remote would just multiply
+    /// the wait on each retry. `ProcessError.isTransient` covers `Spawn`/`Io`, not `Exit`/
+    /// `Timeout`, so it composes cleanly with the marker scan.
     let isTransientFetchError (err: ProcessError) =
-        match err with
-        | ProcessError.Timeout _ -> true
-        | _ -> ProcessError.isTransient err || exitOutputMatches err transientFetchMarkers
+        ProcessError.isTransient err || exitOutputMatches err transientFetchMarkers
 
     /// Whether `err` is a whole-repository lock-contention failure — another process
     /// held git's index lock or jj's working-copy / op-heads lock, so the command
     /// couldn't even start. Such a failure is pre-execution and therefore safe to
     /// retry even on a mutating operation.
     let isLockContention (err: ProcessError) =
-        exitOutputMatches err lockContentionMarkers
+        // Rule out a **per-ref** lock first (not safely retryable — a multi-ref push/fetch
+        // can fail one ref's lock after earlier refs already moved). git's per-ref lock lives
+        // under `refs/` and its message names `refs/…`, whereas the whole-repo `index.lock`
+        // never does — so a `refs/` mention excludes it locale-independently. This also stops a
+        // branch literally named `index`/`reindex` (whose `reindex.lock` contains `index.lock`)
+        // from matching the bare `index.lock` marker.
+        if exitOutputMatches err [ "refs/" ] then
+            false
+        else
+            exitOutputMatches err lockContentionMarkers

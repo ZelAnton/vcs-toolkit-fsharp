@@ -124,46 +124,64 @@ type Gitea private (core: ManagedClient) =
             GiteaParse.parsePrList
         )
 
-    /// A single pull request by number. `tea` has no single-PR view, so this **lists**
-    /// (`tea pr list --state all --limit 999 --fields … --output json`) and filters by
-    /// number; a miss is an error (noting a *possible* page-miss when the listing hit
-    /// the 999-row cap).
+    /// A single pull request by number. `tea` has no single-PR view, so this **lists** all
+    /// states and **pages** (`tea pr list --state all --limit 50 --page N …`) until #number is
+    /// found or a page returns empty (past the end). The Gitea server caps each page at ~50 and
+    /// `tea` makes one call per page, so a single large `--limit` would silently clamp and
+    /// page-miss a higher-numbered PR — paging avoids that false "not found".
     member _.PrView(dir: string, number: uint64) =
         task {
-            let cmd =
-                core.CommandIn(
-                    dir,
-                    [ "pr"
-                      "list"
-                      "--state"
-                      "all"
-                      "--limit"
-                      PR_VIEW_LIMIT
-                      "--fields"
-                      PR_FIELDS
-                      "--output"
-                      "json" ]
-                )
+            let limit = string PR_VIEW_PAGE_SIZE
+            let mutable found: Result<PullRequest, ProcessError> option = None
+            let mutable page = 1
 
-            match! core.TryParse(cmd, GiteaParse.parsePrList) with
-            | Error e -> return Error e
-            | Ok prs ->
-                match prs |> List.tryFind (fun pr -> pr.Number = number) with
-                | Some pr -> return Ok pr
-                | None ->
-                    // When the listing filled the page cap, a miss may be a page-miss
-                    // rather than a genuine absence — say so instead of a flat "no such PR".
-                    let msg =
-                        if prs.Length >= int PR_VIEW_LIMIT then
+            while Option.isNone found && page <= PR_VIEW_MAX_PAGES do
+                let cmd =
+                    core.CommandIn(
+                        dir,
+                        [ "pr"
+                          "list"
+                          "--state"
+                          "all"
+                          "--limit"
+                          limit
+                          "--page"
+                          string page
+                          "--fields"
+                          PR_FIELDS
+                          "--output"
+                          "json" ]
+                    )
+
+                match! core.TryParse(cmd, GiteaParse.parsePrList) with
+                | Error e -> found <- Some(Error e)
+                | Ok prs ->
+                    match prs |> List.tryFind (fun pr -> pr.Number = number) with
+                    | Some pr -> found <- Some(Ok pr)
+                    | None when List.isEmpty prs ->
+                        // An empty page means we walked past the last PR — a genuine absence.
+                        found <-
+                            Some(
+                                Error(ProcessError.Parse(BINARY, sprintf "no pull request #%d in `tea pr list`" number))
+                            )
+                    | None -> page <- page + 1
+
+            match found with
+            | Some r -> return r
+            | None ->
+                // Hit the page safety bound without finding it — an extremely large repo.
+                // Report honestly rather than a confident false "not found".
+                return
+                    Error(
+                        ProcessError.Parse(
+                            BINARY,
                             sprintf
-                                "no pull request #%d in the first %s of `tea pr list` (the listing hit the %s-row cap, so a higher-numbered PR may exist but was not returned)"
+                                "pull request #%d not found in the first %d of `tea pr list` (stopped at the %d-page safety bound; query `tea`/the Gitea API directly for a repository this large)"
                                 number
-                                PR_VIEW_LIMIT
-                                PR_VIEW_LIMIT
-                        else
-                            sprintf "no pull request #%d in `tea pr list`" number
-
-                    return Error(ProcessError.Parse(BINARY, msg))
+                                (PR_VIEW_MAX_PAGES * PR_VIEW_PAGE_SIZE)
+                                PR_VIEW_MAX_PAGES
+                        )
+                    )
         }
 
     /// Open a pull request, returning the command's textual output (`tea pr create`).

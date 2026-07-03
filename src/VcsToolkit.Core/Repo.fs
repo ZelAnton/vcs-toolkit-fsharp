@@ -245,6 +245,15 @@ type Repo private (root: string, cwd: string, backend: Backend) =
         | Backend.Jj j -> JjBackend.push j cwd branch
 
     /// Switch the working copy to `reference` (git `checkout` / jj `edit`).
+    ///
+    /// ⚠ **Backend divergence — this is NOT "detach and build on top" on jj.** On **git**, a
+    /// subsequent commit *appends* on top of `reference` (its tip is untouched). On **jj**,
+    /// `Checkout` maps to `jj edit`, which makes `reference`'s commit *itself* the working-copy
+    /// change — so a following `CommitPaths` (or any edit) **rewrites that commit in place** (new
+    /// change-id, replaced description), silently amending a possibly-already-pushed commit rather
+    /// than adding a new one. Backend-agnostic "start fresh work on top of `main`" code must not
+    /// rely on `Checkout` alone; for append-on-top on both backends, start a new child change
+    /// explicitly — on jj that is `jj new <reference>` via the raw `.Jj` client.
     member _.Checkout(reference: string) =
         match backend with
         | Backend.Git g -> GitBackend.checkout g cwd reference

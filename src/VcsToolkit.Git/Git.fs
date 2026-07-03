@@ -25,6 +25,35 @@ module private GitHelpers =
         envs
         |> List.fold (fun (c: Command) (name, value) -> c.Env(name, value.Expose())) cmd
 
+    /// R7: whether `dest` is one a clone could have *created* — absent, unreadable, or an empty
+    /// directory — as opposed to a non-empty pre-existing dir (the caller's data, which git
+    /// refuses to clone into). Captured **before** the clone so a failure can clean only its own
+    /// partial output.
+    let cloneDestCleanable (dest: string) : bool =
+        try
+            (not (Directory.Exists dest))
+            || (Directory.EnumerateFileSystemEntries dest |> Seq.isEmpty)
+        with _ ->
+            // Unreadable → the clone would create/populate it; treat as cleanable.
+            true
+
+    /// R7: on a failed clone into a `cleanable` `dest`, best-effort remove the partial output so a
+    /// retry isn't blocked by "destination path already exists and is not empty". `timeout_grace`
+    /// alone can't prevent the partial (Windows' job-kill is atomic; the Unix grace is too short
+    /// for a multi-GB partial). Never touches a non-`cleanable` dest (the caller's data).
+    let cloneCleanupOnError (dest: string) (cleanable: bool) (result: Result<unit, ProcessError>) =
+        match result with
+        | Error _ when cleanable ->
+            try
+                if Directory.Exists dest then
+                    Directory.Delete(dest, true)
+            with _ ->
+                // Best-effort cleanup on the error path; a leftover partial is not fatal.
+                ()
+        | _ -> ()
+
+        result
+
     /// Apply the argv injection guard to each (what, value) pair, short-circuiting
     /// on the first refusal.
     let checkFlags (checks: (string * string) list) : Result<unit, ProcessError> =
@@ -50,12 +79,42 @@ module private GitHelpers =
 [<Sealed>]
 type Git private (core: ManagedClient) =
 
+    /// Run `cmd` returning **untrimmed** stdout (unlike `core.Run`, which trims the trailing
+    /// newline) — for blob content and diffs where a trailing newline is significant: a
+    /// read-modify-write must be byte-exact, and a diff's trailing blank context line keeps the
+    /// last hunk's `@@` count valid on re-parse/re-apply.
+    let runUntrimmed (cmd: Command) : System.Threading.Tasks.Task<Result<string, ProcessError>> =
+        task {
+            match! core.Output cmd with
+            | Error e -> return Error e
+            | Ok res ->
+                match ProcessResult.ensureSuccess res with
+                | Error e -> return Error e
+                | Ok ok -> return Ok ok.Stdout
+        }
+
+    /// Scrub the inherited repo-**redirector** environment variables on **every** command
+    /// (not just `Harden`), so a `GIT_DIR`/`GIT_INDEX_FILE` (etc.) leaking from the parent —
+    /// e.g. running inside a git hook, which exports them — can't silently redirect a command
+    /// at a *different* repository than the bound `dir`. (`Harden` additionally scrubs the
+    /// command-hook vars and pins hooks/fsmonitor/sshCommand off.)
+    static member private scrubbed(core: ManagedClient) : ManagedClient =
+        [ "GIT_DIR"
+          "GIT_WORK_TREE"
+          "GIT_INDEX_FILE"
+          "GIT_COMMON_DIR"
+          "GIT_OBJECT_DIRECTORY"
+          "GIT_ALTERNATE_OBJECT_DIRECTORIES"
+          "GIT_NAMESPACE" ]
+        |> List.fold (fun (c: ManagedClient) key -> c.DefaultEnvRemove key) core
+
     /// Create a client driving the real job-backed runner.
-    static member Create() = Git(ManagedClient.Create BINARY)
+    static member Create() =
+        Git(Git.scrubbed (ManagedClient.Create BINARY))
 
     /// Create a client driving `runner` — inject a fake in tests.
     static member WithRunner(runner: IProcessRunner) =
-        Git(ManagedClient.WithRunner(BINARY, runner))
+        Git(Git.scrubbed (ManagedClient.WithRunner(BINARY, runner)))
 
     // --- Configuration (chainable; each returns a new client) ----------------
 
@@ -157,9 +216,10 @@ type Git private (core: ManagedClient) =
                     | Ok _ -> return Ok None
         }
 
-    /// Local branches, current one flagged (`git branch`).
+    /// Local branches, current one flagged (`git branch`). `--no-color` so a user
+    /// `color.branch=always` config can't inject ANSI escapes into the parsed names.
     member _.Branches(dir: string) =
-        core.Parse(core.CommandIn(dir, [ "branch"; "--no-column" ]), GitParse.parseBranches)
+        core.Parse(core.CommandIn(dir, [ "branch"; "--no-column"; "--no-color" ]), GitParse.parseBranches)
 
     /// Up to `max` commits reachable from `revspec`, newest first.
     member _.Log(dir: string, revspec: string, max: int) =
@@ -176,12 +236,15 @@ type Git private (core: ManagedClient) =
                     )
         }
 
-    /// Resolve a revision to a full hash (`git rev-parse <rev>`).
+    /// Resolve a revision to a full hash (`git rev-parse --verify <rev>`). `--verify` (M13)
+    /// makes git ERROR on a `rev` that is not a valid object — without it, a `rev` that happens
+    /// to name a tracked path echoes back verbatim (a non-hash) with exit 0, so a caller
+    /// resolving an untrusted revision would get garbage instead of a failure.
     member _.RevParse(dir: string, rev: string) =
         task {
             match checkFlags [ "revision", rev ] with
             | Error e -> return Error e
-            | Ok() -> return! core.Run(core.CommandIn(dir, [ "rev-parse"; rev ]))
+            | Ok() -> return! core.Run(core.CommandIn(dir, [ "rev-parse"; "--verify"; rev ]))
         }
 
     /// Resolve a revision to its abbreviated hash (`git rev-parse --short <rev>`).
@@ -212,12 +275,16 @@ type Git private (core: ManagedClient) =
             | Ok() -> return! core.RunUnit(core.CommandIn(dir, [ "branch"; name ]))
         }
 
-    /// Switch to a branch or revision (`git checkout <reference>`).
+    /// Switch to a branch or revision (`git checkout <reference> --`). The trailing `--` is
+    /// load-bearing: without it, a `reference` that names no ref but DOES name a tracked path
+    /// falls into pathspec mode and silently restores that path (discarding unstaged edits,
+    /// exit 0) instead of erroring — a data-loss trap. With `--`, an unknown reference is a
+    /// hard error.
     member _.Checkout(dir: string, reference: string) =
         task {
             match checkFlags [ "reference", reference ] with
             | Error e -> return Error e
-            | Ok() -> return! core.RunUnit(core.CommandIn(dir, [ "checkout"; reference ]))
+            | Ok() -> return! core.RunUnit(core.CommandIn(dir, [ "checkout"; reference; "--" ]))
         }
 
     /// Check out a commit as a detached HEAD (`git checkout --detach <commit>`).
@@ -331,15 +398,17 @@ type Git private (core: ManagedClient) =
 
     // --- Remote credentials --------------------------------------------------
 
-    /// Resolve HTTPS credentials into the leading `-c` config args and the secret env.
-    /// Both empty when no provider is configured (ambient git auth).
-    member private _.RemoteCredentials() =
+    /// Resolve HTTPS credentials into the leading `-c` config args and the secret env, scoped to
+    /// `expectHost` (`Some host` for a clone whose URL is externally supplied — so a cross-host
+    /// redirect/submodule can't extract the token; `None` for fetch/push/ls-remote, which target
+    /// the already-configured remote). Both empty when no provider is configured (ambient auth).
+    member private _.RemoteCredentials(expectHost: string option) =
         task {
             match! core.ResolveCredential(CredentialService.Git, None) with
             | Error e -> return Error e
             | Ok None -> return Ok([], [])
             | Ok(Some cred) ->
-                let helper = Credentials.gitCredentialHelper cred
+                let helper = Credentials.gitCredentialHelper cred expectHost
                 return Ok(helper.ConfigArgs, helper.Env)
         }
 
@@ -349,7 +418,7 @@ type Git private (core: ManagedClient) =
             match checkFlags [ "remote name", remote ] with
             | Error e -> return Error e
             | Ok() ->
-                match! this.RemoteCredentials() with
+                match! this.RemoteCredentials None with
                 | Error e -> return Error e
                 | Ok(pre, envs) ->
                     let args = pre @ [ "ls-remote"; "--heads"; remote ]
@@ -366,7 +435,7 @@ type Git private (core: ManagedClient) =
         task {
             let refname = sprintf "refs/heads/%s" name
 
-            match! this.RemoteCredentials() with
+            match! this.RemoteCredentials None with
             | Error e -> return Error e
             | Ok(pre, envs) ->
                 let args = pre @ [ "ls-remote"; "origin"; refname ]
@@ -388,7 +457,7 @@ type Git private (core: ManagedClient) =
             match checkFlags [ "branch", branch; "target", target ] with
             | Error e -> return Error e
             | Ok() ->
-                match! core.Run(core.CommandIn(dir, [ "branch"; "--merged"; target; "--no-column" ])) with
+                match! core.Run(core.CommandIn(dir, [ "branch"; "--merged"; target; "--no-column"; "--no-color" ])) with
                 | Error e -> return Error e
                 | Ok out ->
                     let merged =
@@ -462,12 +531,16 @@ type Git private (core: ManagedClient) =
             | Ok() -> return! core.Probe(core.CommandIn(dir, [ "diff"; "--quiet"; range ]))
         }
 
-    /// Aggregate change stats for a range (`diff --shortstat <range>`).
+    /// Aggregate change stats for a range (`diff --shortstat <range>`). C-locale so
+    /// `parseShortstat`'s English "file"/"insertion"/"deletion" keying survives a non-English
+    /// git (otherwise the counts read as all-zero).
     member _.DiffStat(dir: string, range: string) =
         task {
             match checkFlags [ "range", range ] with
             | Error e -> return Error e
-            | Ok() -> return! core.Parse(core.CommandIn(dir, [ "diff"; "--shortstat"; range ]), GitParse.parseShortstat)
+            | Ok() ->
+                return!
+                    core.Parse(cLocale (core.CommandIn(dir, [ "diff"; "--shortstat"; range ])), GitParse.parseShortstat)
         }
 
     /// Raw git-format unified diff text for `spec`.
@@ -488,11 +561,11 @@ type Git private (core: ManagedClient) =
                 | Error e -> return Error e
                 | Ok unborn ->
                     let target = if unborn then EMPTY_TREE else "HEAD"
-                    return! core.Run(core.CommandIn(dir, args target))
+                    return! runUntrimmed (core.CommandIn(dir, args target))
             | DiffSpec.Rev rev ->
                 match checkFlags [ "revision", rev ] with
                 | Error e -> return Error e
-                | Ok() -> return! core.Run(core.CommandIn(dir, args rev))
+                | Ok() -> return! runUntrimmed (core.CommandIn(dir, args rev))
         }
 
     /// Parsed per-file unified diff for `spec`.
@@ -524,17 +597,32 @@ type Git private (core: ManagedClient) =
                 return Ok resolved
         }
 
-    /// Whether a rebase is in progress.
+    /// Whether a rebase is in progress. `rebase-merge/` is a merge-backend rebase;
+    /// `rebase-apply/` is shared by an apply-backend rebase AND `git am` — but `git am` marks
+    /// it with an `applying` file, so exclude that (an am aborts with `am --abort`, not
+    /// `rebase --abort`; see `IsAmInProgress`). M20.
     member this.IsRebaseInProgress(dir: string) =
         task {
             match! this.ResolvedGitDir dir with
             | Error e -> return Error e
             | Ok g ->
-                return
-                    Ok(
-                        Directory.Exists(Path.Combine(g, "rebase-merge"))
-                        || Directory.Exists(Path.Combine(g, "rebase-apply"))
-                    )
+                let rebaseApply = Path.Combine(g, "rebase-apply")
+
+                let isRebaseApply =
+                    Directory.Exists rebaseApply
+                    && not (File.Exists(Path.Combine(rebaseApply, "applying")))
+
+                return Ok(Directory.Exists(Path.Combine(g, "rebase-merge")) || isRebaseApply)
+        }
+
+    /// Whether a `git am` (mailbox apply) is in progress (`rebase-apply/applying`). Distinct
+    /// from a rebase, which shares the `rebase-apply` dir but without the `applying` marker —
+    /// aborting an am needs `am --abort`, not `rebase --abort`. M20.
+    member this.IsAmInProgress(dir: string) =
+        task {
+            match! this.ResolvedGitDir dir with
+            | Error e -> return Error e
+            | Ok g -> return Ok(File.Exists(Path.Combine(g, "rebase-apply", "applying")))
         }
 
     /// Whether a merge is in progress (a `MERGE_HEAD` exists under the git dir).
@@ -549,7 +637,7 @@ type Git private (core: ManagedClient) =
 
     member private this.RunFetch(dir: string, tail: string list) =
         task {
-            match! this.RemoteCredentials() with
+            match! this.RemoteCredentials None with
             | Error e -> return Error e
             | Ok(pre, envs) ->
                 let args = pre @ [ "fetch"; "--quiet" ] @ tail
@@ -586,17 +674,37 @@ type Git private (core: ManagedClient) =
             match checkFlags [ "remote", spec.Remote; "refspec", spec.Refspec ] with
             | Error e -> return Error e
             | Ok() ->
-                match! this.RemoteCredentials() with
-                | Error e -> return Error e
-                | Ok(pre, envs) ->
-                    let upstream = if spec.SetUpstream then [ "-u" ] else []
-                    let args = pre @ [ "push" ] @ upstream @ [ spec.Remote; spec.Refspec ]
+                // M16: `checkFlags` catches a leading `-`/empty/NUL, but not the refspec
+                // metacharacters that silently change what a push DOES — a leading `+`
+                // (force-push, overwriting the remote non-fast-forward) or an extra `:` (push to
+                // an unexpected remote ref). A valid refspec is `branch` or `local:remote` (a
+                // single, API-constructed `:`), so allow at most one `:` and no leading `+` on
+                // either side; a genuine force-push must go through `Run [ "push"; "--force"; … ]`.
+                let sides = spec.Refspec.Split(':')
 
-                    let cmd =
-                        (core.CommandIn(dir, args)).Env("GIT_TERMINAL_PROMPT", "0").TimeoutGrace(FetchTimeoutGrace)
-                        |> applySecretEnv envs
+                if sides.Length > 2 || sides |> Array.exists (fun s -> s.StartsWith '+') then
+                    return
+                        Error(
+                            ProcessError.Spawn(
+                                BINARY,
+                                sprintf
+                                    "push refspec %A contains a force (`+`) or multi-ref (`:`) metacharacter — pass a plain branch or `local:remote`, or use `Run [ \"push\"; … ]` for a force-push"
+                                    spec.Refspec
+                            )
+                        )
+                else
 
-                    return! core.RunUnit cmd
+                    match! this.RemoteCredentials None with
+                    | Error e -> return Error e
+                    | Ok(pre, envs) ->
+                        let upstream = if spec.SetUpstream then [ "-u" ] else []
+                        let args = pre @ [ "push" ] @ upstream @ [ spec.Remote; spec.Refspec ]
+
+                        let cmd =
+                            (core.CommandIn(dir, args)).Env("GIT_TERMINAL_PROMPT", "0").TimeoutGrace(FetchTimeoutGrace)
+                            |> applySecretEnv envs
+
+                        return! core.RunUnit cmd
         }
 
     /// Clone `url` into `dest` (pass an absolute `dest`).
@@ -605,9 +713,14 @@ type Git private (core: ManagedClient) =
             match checkFlags [ "url", url ] with
             | Error e -> return Error e
             | Ok() ->
-                match! this.RemoteCredentials() with
+                // Scope the credential helper to the clone URL's host, so a cross-host
+                // redirect/submodule during the clone can't extract the token (the URL is often
+                // externally supplied).
+                match! this.RemoteCredentials(Credentials.httpsHost url) with
                 | Error e -> return Error e
                 | Ok(pre, envs) ->
+                    // Capture whether `dest` is ours to clean BEFORE the clone populates it.
+                    let cleanable = cloneDestCleanable dest
                     let mutable cmd = core.Command(pre @ [ "clone" ])
 
                     match spec.Branch with
@@ -625,17 +738,19 @@ type Git private (core: ManagedClient) =
                         cmd.Arg(url).Arg(dest).Env("GIT_TERMINAL_PROMPT", "0").TimeoutGrace(FetchTimeoutGrace)
                         |> applySecretEnv envs
 
-                    return! core.RunUnit cmd
+                    let! result = core.RunUnit cmd
+                    return cloneCleanupOnError dest cleanable result
         }
 
     // --- Mutations: merge / rebase / reset / stash ---------------------------
 
-    /// Stage a branch's changes without committing (`merge --squash <branch>`).
+    /// Stage a branch's changes without committing (`merge --squash <branch>`). C-locale so a
+    /// conflicting squash-merge's `CONFLICT (...)` output stays classifiable by `isMergeConflict`.
     member _.MergeSquash(dir: string, branch: string) =
         task {
             match checkFlags [ "branch", branch ] with
             | Error e -> return Error e
-            | Ok() -> return! core.RunUnit(core.CommandIn(dir, [ "merge"; "--squash"; branch ]))
+            | Ok() -> return! core.RunUnit(cLocale (core.CommandIn(dir, [ "merge"; "--squash"; branch ])))
         }
 
     /// Merge a branch (`merge [--no-ff] [-m <msg> | --no-edit] <branch>`).
@@ -702,6 +817,10 @@ type Git private (core: ManagedClient) =
     member _.RebaseAbort(dir: string) =
         core.RunUnit(cLocale (core.CommandIn(dir, [ "rebase"; "--abort" ])))
 
+    /// Abort an in-progress `git am` (`am --abort`), restoring the pre-`am` HEAD. M20.
+    member _.AmAbort(dir: string) =
+        core.RunUnit(cLocale (core.CommandIn(dir, [ "am"; "--abort" ])))
+
     /// Continue a rebase after resolving conflicts (`rebase --continue`).
     member _.RebaseContinue(dir: string) =
         core.RunUnit(noEditor (cLocale (core.CommandIn(dir, [ "rebase"; "--continue" ]))))
@@ -722,9 +841,25 @@ type Git private (core: ManagedClient) =
 
         core.RunUnit cmd
 
-    /// Restore the most recent stash and drop it (`stash pop`).
+    /// Restore the most recent stash and drop it (`stash pop`). C-locale so a conflicting pop's
+    /// merge-machinery `CONFLICT (...)` output stays classifiable by `isMergeConflict`.
     member _.StashPop(dir: string) =
-        core.RunUnit(core.CommandIn(dir, [ "stash"; "pop" ]))
+        core.RunUnit(cLocale (core.CommandIn(dir, [ "stash"; "pop" ])))
+
+    /// The number of entries in the stash list (`git stash list`) — used by `SwitchWithStash` to
+    /// tell whether a `stash push` actually saved anything.
+    member _.StashDepth(dir: string) =
+        task {
+            match! core.Run(core.CommandIn(dir, [ "stash"; "list" ])) with
+            | Error e -> return Error e
+            | Ok out -> return Ok(out.Split('\n') |> Array.filter (fun l -> l.TrimEnd('\r') <> "") |> Array.length)
+        }
+
+    /// `git stash pop --index` — restore the top stash **preserving** the staged/unstaged split
+    /// (a bare `pop` returns everything unstaged). C-locale so a conflicting pop's `CONFLICT (...)`
+    /// output still feeds `isMergeConflict` (e.g. via `SwitchWithStash`).
+    member _.StashPopIndex(dir: string) =
+        core.RunUnit(cLocale (core.CommandIn(dir, [ "stash"; "pop"; "--index" ])))
 
     // --- Worktrees -----------------------------------------------------------
 
@@ -841,7 +976,9 @@ type Git private (core: ManagedClient) =
                         path
 
                 let spec = sprintf "%s:%s" rev p
-                return! core.Run(core.CommandIn(dir, [ "show"; spec ]))
+                // Untrimmed: a blob's trailing newline(s) must survive for a byte-exact
+                // read-modify-write.
+                return! runUntrimmed (core.CommandIn(dir, [ "show"; spec ]))
         }
 
     /// The value of a config key, or `None` when unset (`config --get <key>`).
@@ -898,7 +1035,13 @@ type Git private (core: ManagedClient) =
             | Error e -> return Error e
             | Ok() ->
                 let args = [ "blame"; "--line-porcelain" ] @ Option.toList rev @ [ "--"; path ]
-                return! core.Parse(core.CommandIn(dir, args), GitParse.parseBlamePorcelain)
+                // Untrimmed feed: a file ending in a blank line has a final `\t` (empty) content
+                // line, and `parseBlamePorcelain` closes a record only on that `\t`-prefixed line —
+                // trimming it (as `core.Parse` does) would silently drop the last blame entry.
+                // Mirrors the jj `FileAnnotate` workaround.
+                match! runUntrimmed (core.CommandIn(dir, args)) with
+                | Error e -> return Error e
+                | Ok out -> return Ok(GitParse.parseBlamePorcelain out)
         }
 
     // --- Sequencer -----------------------------------------------------------
@@ -930,25 +1073,48 @@ type Git private (core: ManagedClient) =
                 if List.isEmpty entries then
                     return! this.Checkout(dir, branch)
                 else
-                    match! this.StashPush(dir, true) with
+                    // `stash push` exits 0 having saved NOTHING when the only dirt is unstashable
+                    // (e.g. a submodule-only change that `status` still reports), so a bare `pop`
+                    // afterwards would splat an UNRELATED pre-existing stash — data loss. Bracket
+                    // the push with the stash-list depth and only pop when it actually saved.
+                    match! this.StashDepth dir with
                     | Error e -> return Error e
-                    | Ok() ->
-                        match! this.Checkout(dir, branch) with
-                        | Ok() -> return! this.StashPop dir
-                        | Error err ->
-                            // A failed checkout is atomic — pop restores the pre-call state.
-                            let! _ = this.StashPop dir
-                            return Error err
+                    | Ok depthBefore ->
+                        match! this.StashPush(dir, true) with
+                        | Error e -> return Error e
+                        | Ok() ->
+                            match! this.StashDepth dir with
+                            | Error e -> return Error e
+                            | Ok depthAfter ->
+                                if depthAfter <= depthBefore then
+                                    // Nothing was stashed — switch as-is rather than pop someone
+                                    // else's entry.
+                                    return! this.Checkout(dir, branch)
+                                else
+                                    // `--index` restores the staged/unstaged split faithfully; a
+                                    // bare `pop` would bring everything back UNSTAGED.
+                                    match! this.Checkout(dir, branch) with
+                                    | Ok() -> return! this.StashPopIndex dir
+                                    | Error err ->
+                                        // A failed checkout is atomic — pop restores the pre-call
+                                        // state. If the pop fails too, the stash is preserved.
+                                        let! _ = this.StashPopIndex dir
+                                        return Error err
         }
 
     /// Harden this client for driving repositories it didn't create: hooks off,
-    /// `GIT_*` redirectors/command-hooks scrubbed, system config skipped, repo-local
-    /// `core.hooksPath`/`fsmonitor`/`sshCommand` pinned via env-config.
+    /// `GIT_*` redirectors/command-hooks/code-execution vectors scrubbed, system config
+    /// skipped, repo-local `core.hooksPath`/`fsmonitor`/`sshCommand` pinned via env-config.
+    ///
+    /// The config pins use the `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n`
+    /// environment mechanism, which requires **git ≥ 2.31**; on an older git those pins are
+    /// silently ignored (the env-var scrubbing still applies).
     member this.Harden() =
         let removed =
             [ "GIT_DIR"
               "GIT_WORK_TREE"
               "GIT_INDEX_FILE"
+              "GIT_COMMON_DIR"
               "GIT_OBJECT_DIRECTORY"
               "GIT_ALTERNATE_OBJECT_DIRECTORIES"
               "GIT_NAMESPACE"
@@ -962,7 +1128,18 @@ type Git private (core: ManagedClient) =
               "GIT_EXTERNAL_DIFF"
               "GIT_PAGER"
               "GIT_EDITOR"
-              "GIT_SEQUENCE_EDITOR" ]
+              "GIT_SEQUENCE_EDITOR"
+              // Code-execution vectors: a proxy program for `git://`, git's own exec dir
+              // (attacker-chosen `git-<x>` sub-commands), and a template dir that seeds
+              // hooks/config on init/clone.
+              "GIT_PROXY_COMMAND"
+              "GIT_EXEC_PATH"
+              "GIT_TEMPLATE_DIR"
+              // Pathspec-mode vars silently change which paths a command matches.
+              "GIT_LITERAL_PATHSPECS"
+              "GIT_GLOB_PATHSPECS"
+              "GIT_NOGLOB_PATHSPECS"
+              "GIT_ICASE_PATHSPECS" ]
 
         let scrubbed =
             removed |> List.fold (fun (g: Git) key -> g.DefaultEnvRemove key) this

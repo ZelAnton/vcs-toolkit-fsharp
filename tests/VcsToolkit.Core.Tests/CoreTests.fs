@@ -56,7 +56,8 @@ type DetectTests() =
     [<Test>]
     member _.DetectsAJjDirectory() =
         withTempDir (fun dir ->
-            Directory.CreateDirectory(Path.Combine(dir, ".jj")) |> ignore
+            // A real jj repo owns a `.jj/repo` store — a bare `.jj` dir is not a valid marker.
+            Directory.CreateDirectory(Path.Combine(dir, ".jj", "repo")) |> ignore
 
             match Detect.detect dir with
             | Some located ->
@@ -68,11 +69,24 @@ type DetectTests() =
     member _.JjWinsOverGitWhenColocated() =
         withTempDir (fun dir ->
             Directory.CreateDirectory(Path.Combine(dir, ".git")) |> ignore
-            Directory.CreateDirectory(Path.Combine(dir, ".jj")) |> ignore
+            Directory.CreateDirectory(Path.Combine(dir, ".jj", "repo")) |> ignore
 
             match Detect.detect dir with
             | Some located -> Assert.That(located.Kind, Is.EqualTo BackendKind.Jj, "jj drives a colocated repo")
             | None -> Assert.Fail "expected to detect the colocated repo")
+
+    [<Test>]
+    member _.StoreLessJjDoesNotShadowGit() =
+        withTempDir (fun dir ->
+            // A stray/empty `.jj` (an aborted `jj init`, or a bare `mkdir .jj`) with NO `.jj/repo`
+            // store must NOT shadow a healthy colocated `.git` — detect falls through to git (M19).
+            Directory.CreateDirectory(Path.Combine(dir, ".git")) |> ignore
+            Directory.CreateDirectory(Path.Combine(dir, ".jj")) |> ignore // no `repo` store
+
+            match Detect.detect dir with
+            | Some located ->
+                Assert.That(located.Kind, Is.EqualTo BackendKind.Git, "a store-less .jj must not shadow .git")
+            | None -> Assert.Fail "expected to detect the git repo")
 
     [<Test>]
     member _.AcceptsAGitlinkFile() =
@@ -232,10 +246,38 @@ type DispatchTests() =
             | Ok v -> Assert.That(v, Is.True, "a non-empty change is dirty")
             | Error e -> Assert.Fail $"has uncommitted failed: {e.Message}"
 
-            let clean = jjRepo [ "log" ] (Reply.Ok "kztuxlro\t38e00654\ttrue\t\n")
+            // An empty, NON-conflicted change: the fallback probes `is_conflicted` (its own
+            // `log -T if(conflict,…)` call), which reports `0` → not dirty.
+            let clean =
+                Repo.FromJj(
+                    "/repo",
+                    "/repo",
+                    Jj.WithRunner(
+                        ScriptedRunner()
+                            .On([ "log"; "-T"; "if(conflict, \"1\", \"0\")" ], Reply.Ok "0\n")
+                            .On([ "log" ], Reply.Ok "kztuxlro\t38e00654\ttrue\t\n")
+                    )
+                )
 
             match! clean.HasUncommittedChanges() with
-            | Ok v -> Assert.That(v, Is.False, "an empty change is clean")
+            | Ok v -> Assert.That(v, Is.False, "an empty, non-conflicted change is clean")
+            | Error e -> Assert.Fail $"has uncommitted failed: {e.Message}"
+
+            // An empty but CONFLICTED change is still uncommitted state (needs resolution) — the
+            // fallback's `is_conflicted` reports `1`, so `HasUncommittedChanges` is true (M18).
+            let conflicted =
+                Repo.FromJj(
+                    "/repo",
+                    "/repo",
+                    Jj.WithRunner(
+                        ScriptedRunner()
+                            .On([ "log"; "-T"; "if(conflict, \"1\", \"0\")" ], Reply.Ok "1\n")
+                            .On([ "log" ], Reply.Ok "kztuxlro\t38e00654\ttrue\t\n")
+                    )
+                )
+
+            match! conflicted.HasUncommittedChanges() with
+            | Ok v -> Assert.That(v, Is.True, "an empty but conflicted change is dirty")
             | Error e -> Assert.Fail $"has uncommitted failed: {e.Message}"
         }
 
@@ -395,4 +437,23 @@ type AssemblyTests() =
                 Assert.That(w1.Branch, Is.EqualTo None, "no bookmark → None")
             | Ok other -> Assert.Fail $"expected two worktrees, got {other.Length}"
             | Error e -> Assert.Fail $"list worktrees failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.JjRemoveWorktreeRefusesMainWorkspace() : Task =
+        task {
+            // Removing the repository's MAIN (default) workspace must be REFUSED — its directory
+            // IS the whole checkout, and the facade deletes the dir itself, so removing it would
+            // wipe `.jj`/`.git` and every file. Resolve "." to the "default" workspace; the guard
+            // must fire before any deletion.
+            let runner =
+                ScriptedRunner()
+                    .On([ "workspace"; "list" ], Reply.Ok "default\te2aa3420\tmain\n")
+                    .On([ "workspace"; "root"; "--name"; "default" ], Reply.Ok "/repo\n")
+
+            let repo = Repo.FromJj("/repo", "/repo", Jj.WithRunner runner)
+
+            match! repo.RemoveWorktree(".", false) with
+            | Error e -> Assert.That(e.Message, Does.Contain "main workspace", "the guard must name the reason")
+            | Ok() -> Assert.Fail "removing the main (default) workspace must be refused"
         }

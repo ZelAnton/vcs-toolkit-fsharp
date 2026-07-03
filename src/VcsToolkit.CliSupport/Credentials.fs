@@ -146,28 +146,65 @@ module Credentials =
     [<Literal>]
     let private GitPasswordVar = "VCS_TOOLKIT_GIT_PASSWORD"
 
+    /// Environment-variable name carrying the expected host for `gitCredentialHelper`'s
+    /// host scoping (empty = unscoped).
+    [<Literal>]
+    let private GitHostVar = "VCS_TOOLKIT_GIT_HOST"
+
+    /// The host (with port, original case) of an `https://` URL — for scoping a credential
+    /// helper to the clone URL's host. `None` for a non-https URL, an empty host, or an IPv6
+    /// literal (`[::1]:443` — git formats its `host=` request idiosyncratically for those, so
+    /// stay unscoped rather than risk withholding a legitimate credential). The port and case
+    /// are KEPT: git's `host=` carries them verbatim and the helper compares byte-for-byte.
+    let httpsHost (url: string) : string option =
+        if not (url.StartsWith("https://", System.StringComparison.Ordinal)) then
+            None
+        else
+            let rest = url.Substring("https://".Length)
+            let authority = rest.Split([| '/'; '?'; '#' |]).[0]
+
+            let hostPort =
+                match authority.LastIndexOf('@') with
+                | i when i >= 0 -> authority.Substring(i + 1)
+                | _ -> authority
+
+            if hostPort = "" || hostPort.StartsWith("[", System.StringComparison.Ordinal) then
+                None
+            else
+                Some hostPort
+
     /// Adapt a synchronous closure into an `ICredentialProvider`. The closure runs
     /// at request time and returns the credential (or `None` to defer to ambient
     /// auth). For async sources (a network vault), implement `ICredentialProvider`.
     let providerFn (f: CredentialRequest -> Result<Credential option, ProcessError>) : ICredentialProvider =
         FnProvider f :> ICredentialProvider
 
-    /// Build a git `credential.helper` invocation that supplies `cred` over HTTPS
-    /// while keeping the secret out of argv. The returned `ConfigArgs` install an
-    /// inline helper that prints the credential read from two environment variables;
-    /// the secret value appears only in `Env`. A leading empty `credential.helper=`
-    /// first clears any inherited helper. The helper answers only git's `get` action,
-    /// so the secret is never written to a credential cache.
-    let gitCredentialHelper (cred: Credential) : GitCredentialHelper =
+    /// Build a git `credential.helper` invocation that supplies `cred` over HTTPS while keeping
+    /// the secret out of argv. The returned `ConfigArgs` install an inline helper that prints
+    /// the credential read from environment variables; the secret value appears only in `Env`.
+    /// A leading empty `credential.helper=` first clears any inherited helper. The helper
+    /// answers only git's `get` action (so the secret is never written to a cache), and releases
+    /// it only when the password is non-empty (else it falls through to ambient auth rather than
+    /// overriding it with an empty credential) AND — when `expectHost` is `Some` — the host in
+    /// git's request matches, so a redirect/submodule to a **different** host during a clone
+    /// never receives the secret. `expectHost = None` leaves it unscoped.
+    let gitCredentialHelper (cred: Credential) (expectHost: string option) : GitCredentialHelper =
         let username = defaultArg cred.Username DefaultGitUsername
-        // Reference the values by env-var NAME inside the snippet, so argv never
-        // carries the secret. Respond only to git's `get` action. The `test -n`
-        // guard means an applied helper with no secret emits nothing and git falls
-        // through to ambient auth rather than an empty credential.
+        // Reference the values by env-var NAME inside the snippet, so argv never carries the
+        // secret. Read git's request (key=value lines, blank-line-terminated) to learn the host,
+        // then gate on: non-empty password, and unscoped-or-matching host.
         let helper =
-            "!f() { test \"$1\" = get && test -n \"$"
+            "!f() { test \"$1\" = get || return; h=; "
+            + "while IFS= read -r l; do case \"$l\" in \"\") break ;; host=*) h=${l#host=} ;; esac; done; "
+            + "test -n \"$"
             + GitPasswordVar
-            + "\" && printf 'username=%s\\npassword=%s\\n' \"$"
+            + "\" || return; "
+            + "test -z \"$"
+            + GitHostVar
+            + "\" || test \"$h\" = \"$"
+            + GitHostVar
+            + "\" || return; "
+            + "printf 'username=%s\\npassword=%s\\n' \"$"
             + GitUsernameVar
             + "\" \"$"
             + GitPasswordVar
@@ -175,5 +212,7 @@ module Credentials =
 
         GitCredentialHelper(
             [ "-c"; "credential.helper="; "-c"; "credential.helper=" + helper ],
-            [ (GitUsernameVar, Secret username); (GitPasswordVar, cred.Secret) ]
+            [ (GitUsernameVar, Secret username)
+              (GitPasswordVar, cred.Secret)
+              (GitHostVar, Secret(defaultArg expectHost "")) ]
         )

@@ -58,6 +58,9 @@ type OperationState =
     | Merge
     /// A git rebase is in progress (a `rebase-merge`/`rebase-apply` dir present).
     | Rebase
+    /// A git `am` (mailbox patch apply) is in progress. Distinct from `Rebase` because it
+    /// aborts with `am --abort`, not `rebase --abort` (M20).
+    | ApplyMailbox
     /// The working copy has an unresolved conflict (chiefly jj, which records conflicts
     /// on the change rather than pausing an operation).
     | Conflict
@@ -69,10 +72,12 @@ type UpstreamTracking =
     {
         /// The upstream tracking branch, e.g. `"origin/main"`.
         Branch: string
-        /// Commits the local branch is ahead of the upstream.
-        Ahead: uint64
-        /// Commits the local branch is behind the upstream.
-        Behind: uint64
+        /// Commits the local branch is ahead of the upstream; `None` when the upstream is set
+        /// but git couldn't count against it (a gone / not-yet-fetched remote) — distinct from
+        /// `Some 0UL`, which is genuinely in sync.
+        Ahead: uint64 option
+        /// Commits the local branch is behind the upstream; `None` when uncountable (see `Ahead`).
+        Behind: uint64 option
     }
 
 /// A one-shot snapshot of the common repository state — branch, upstream tracking,

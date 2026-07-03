@@ -126,8 +126,13 @@ module internal GitBackend =
                             Path.Combine(dir, raw)
 
                     let operation =
+                        // `git am` is checked distinctly from rebase (both use `rebase-apply/`,
+                        // but am marks it `applying`) so an am reports as `ApplyMailbox` and isn't
+                        // mis-aborted with `rebase --abort` (M20).
                         if File.Exists(Path.Combine(gitDir, "MERGE_HEAD")) then
                             OperationState.Merge
+                        elif File.Exists(Path.Combine(gitDir, "rebase-apply", "applying")) then
+                            OperationState.ApplyMailbox
                         elif
                             Directory.Exists(Path.Combine(gitDir, "rebase-merge"))
                             || Directory.Exists(Path.Combine(gitDir, "rebase-apply"))
@@ -137,17 +142,16 @@ module internal GitBackend =
                             OperationState.Clear
 
                     let changeCount = bs.TrackedChanges + bs.Untracked
-                    // Upstream + ahead/behind travel together: git reports the counts
-                    // only when an upstream is set. Bundle them into one UpstreamTracking.
-                    let ahead = bs.Ahead |> Option.defaultValue 0UL
-                    let behind = bs.Behind |> Option.defaultValue 0UL
-
+                    // Upstream + ahead/behind travel together: git reports the counts only when an
+                    // upstream is set. A set-but-GONE upstream (deleted / not-yet-fetched remote)
+                    // keeps `Branch` with `Ahead`/`Behind = None` (uncountable) instead of a
+                    // fabricated `Some 0UL` that would read as a false "in sync" (M17).
                     let tracking =
                         bs.Upstream
                         |> Option.map (fun branch ->
                             { Branch = branch
-                              Ahead = ahead
-                              Behind = behind })
+                              Ahead = bs.Ahead
+                              Behind = bs.Behind })
 
                     return
                         Ok
@@ -205,16 +209,22 @@ module internal GitBackend =
 
     let inProgressState (git: Git) (dir: string) =
         task {
-            // git surfaces an interrupted operation as on-disk state; a merge and a
-            // rebase can't both be live, so report whichever is present.
+            // git surfaces an interrupted operation as on-disk state; at most one is live, so
+            // report whichever is present. `git am` is checked distinctly from rebase (both use
+            // `rebase-apply/`, but am marks it `applying`) so an am isn't mis-aborted with
+            // `rebase --abort` (M20).
             match! git.IsMergeInProgress dir with
             | Error e -> return Error(RepoError.Vcs e)
             | Ok true -> return Ok OperationState.Merge
             | Ok false ->
-                match! git.IsRebaseInProgress dir with
+                match! git.IsAmInProgress dir with
                 | Error e -> return Error(RepoError.Vcs e)
-                | Ok true -> return Ok OperationState.Rebase
-                | Ok false -> return Ok OperationState.Clear
+                | Ok true -> return Ok OperationState.ApplyMailbox
+                | Ok false ->
+                    match! git.IsRebaseInProgress dir with
+                    | Error e -> return Error(RepoError.Vcs e)
+                    | Ok true -> return Ok OperationState.Rebase
+                    | Ok false -> return Ok OperationState.Clear
         }
 
     let tryMerge (git: Git) (dir: string) (source: string) =
@@ -270,6 +280,7 @@ module internal GitBackend =
                         match state with
                         | OperationState.Merge -> return! git.MergeAbort dir
                         | OperationState.Rebase -> return! git.RebaseAbort dir
+                        | OperationState.ApplyMailbox -> return! git.AmAbort dir
                         | _ -> return Ok()
                     }
 

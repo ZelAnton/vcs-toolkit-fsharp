@@ -428,8 +428,8 @@ type SemanticsTests() =
                     return Result.isError r
                 }
 
-            let! a = isErr (glab.Api "-X")
-            let! b = isErr (glab.Api "")
+            let! a = isErr (glab.Api(".", "-X"))
+            let! b = isErr (glab.Api(".", ""))
             let! c = isErr (glab.ReleaseView(".", "--cleanup-tag"))
             let! d = isErr (glab.ReleaseView(".", ""))
 
@@ -442,7 +442,7 @@ type SemanticsTests() =
 
             let ok = scripted [ "api"; "projects/1" ] (Reply.Ok "{}\n")
 
-            match! ok.Api "projects/1" with
+            match! ok.Api(".", "projects/1") with
             | Ok body -> Assert.That(body, Is.EqualTo "{}")
             | Error e -> Assert.Fail $"a valid endpoint must pass: {e}"
         }

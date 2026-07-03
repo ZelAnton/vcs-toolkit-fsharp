@@ -105,12 +105,14 @@ type GitHub private (core: ManagedClient) =
             | Ok code -> return Ok(code = 0)
         }
 
-    /// Raw GitHub REST/GraphQL response body (`gh api <endpoint>`).
-    member _.Api(endpoint: string) =
+    /// Raw GitHub REST/GraphQL response body (`gh api <endpoint>`), run in the bound repo
+    /// `dir` so a relative endpoint's `{owner}/{repo}` placeholder resolves against *that*
+    /// repository's remote rather than whatever repo the process cwd happens to be in.
+    member _.Api(dir: string, endpoint: string) =
         task {
             match checkFlags [ "endpoint", endpoint ] with
             | Error e -> return Error e
-            | Ok() -> return! core.Run(core.Command [ "api"; endpoint ])
+            | Ok() -> return! core.Run(core.CommandIn(dir, [ "api"; endpoint ]))
         }
 
     // --- Repo / lists --------------------------------------------------------
@@ -296,7 +298,15 @@ type GitHub private (core: ManagedClient) =
             // outcome onto the exit code, which can't be reported faithfully — the
             // follow-up `run view`'s `Conclusion` can. `ensureSuccess` surfaces a
             // killed watch as `Timeout` instead of reading a half-finished run.
-            match! core.Output(core.CommandIn(dir, [ "run"; "watch"; string id ])) with
+            //
+            // R5: `gh run watch` re-prints the full job table every few seconds, so over a
+            // multi-hour run its (discarded) stdout would grow to tens of MB in memory. Bound the
+            // capture to the last 256 lines / 256 KiB — we only need the tail's success/kill.
+            let cmd =
+                (core.CommandIn(dir, [ "run"; "watch"; string id ]))
+                    .OutputBuffer(OutputBufferPolicy.Bounded(256).WithMaxBytes(256 * 1024))
+
+            match! core.Output cmd with
             | Error e -> return Error e
             | Ok res ->
                 match ProcessResult.ensureSuccess res with

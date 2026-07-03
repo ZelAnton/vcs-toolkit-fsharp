@@ -1,5 +1,7 @@
 module VcsToolkit.Git.Tests
 
+open System
+open System.IO
 open System.Threading.Tasks
 open NUnit.Framework
 open ProcessKit
@@ -13,6 +15,22 @@ let private tab = string (char 9)
 
 let private scripted (tokens: string list) (reply: Reply) =
     Git.WithRunner(ScriptedRunner().On(tokens, reply))
+
+/// Run `f` in a fresh temp directory, removed afterwards (for on-disk marker probes).
+let private withTempDir (f: string -> unit) =
+    let dir =
+        Path.Combine(Path.GetTempPath(), "vcs-git-test-" + Guid.NewGuid().ToString("N"))
+
+    Directory.CreateDirectory dir |> ignore
+
+    try
+        f dir
+    finally
+        try
+            Directory.Delete(dir, true)
+        with _ ->
+            // Best-effort cleanup; a leftover temp dir is not a test failure.
+            ()
 
 [<TestFixture>]
 type StatusTests() =
@@ -28,6 +46,26 @@ type StatusTests() =
                 Assert.That(entries.Length, Is.EqualTo 2)
                 Assert.That(entries.[0].Code, Is.EqualTo " M")
                 Assert.That(entries.[1].Path, Is.EqualTo "b.rs")
+            | Error e -> Assert.Fail $"status failed: {e}"
+        }
+
+    [<Test>]
+    member _.StatusConsumesRenameSourceInEitherColumn() : Task =
+        task {
+            // A rename's source path is the next NUL record — and the `R` can sit in the WORKTREE
+            // (Y) column (` R`), not just the index column. Missing that left the source record as
+            // a phantom entry with a garbage code/path; here it must be consumed as `OldPath`.
+            let git =
+                scripted [ "status"; "--porcelain=v1"; "-z" ] (Reply.Ok($" R new.rs{nul}old.rs{nul} M other.rs{nul}"))
+
+            match! git.Status "." with
+            | Ok entries ->
+                Assert.That(entries.Length, Is.EqualTo 2, "the source record must be consumed, not a phantom entry")
+                Assert.That(entries.[0].Code, Is.EqualTo " R")
+                Assert.That(entries.[0].Path, Is.EqualTo "new.rs")
+                Assert.That(entries.[0].OldPath, Is.EqualTo(Some "old.rs"))
+                Assert.That(entries.[1].Code, Is.EqualTo " M")
+                Assert.That(entries.[1].Path, Is.EqualTo "other.rs")
             | Error e -> Assert.Fail $"status failed: {e}"
         }
 
@@ -126,6 +164,26 @@ type QueryTests() =
                 Assert.That(lines.[0].AuthorTime, Is.EqualTo 1700000000L)
                 Assert.That(lines.[0].AuthorTz, Is.EqualTo "+0000")
                 Assert.That(lines.[0].Content, Is.EqualTo "let x = 1")
+            | Error e -> Assert.Fail $"blame failed: {e}"
+        }
+
+    [<Test>]
+    member _.BlameKeepsFinalBlankLine() : Task =
+        task {
+            let sha = "0123456789abcdef0123456789abcdef01234567"
+            // A file ending in a BLANK line: its porcelain content line is a bare `\t`, and the
+            // output ends there (no trailing newline). `parseBlamePorcelain` closes a record only
+            // on that `\t` line, so a trimming feed would silently DROP the final entry — the
+            // untrimmed feed must keep both lines.
+            let out = [ sha + " 1 1"; tab + "first"; sha + " 2 2"; tab ] |> String.concat "\n"
+
+            let git = scripted [ "blame"; "--line-porcelain" ] (Reply.Ok out)
+
+            match! git.Blame(".", "f.txt", None) with
+            | Ok lines ->
+                Assert.That(lines.Length, Is.EqualTo 2, "the final blank line must not be dropped")
+                Assert.That(lines.[1].FinalLine, Is.EqualTo 2)
+                Assert.That(lines.[1].Content, Is.EqualTo "")
             | Error e -> Assert.Fail $"blame failed: {e}"
         }
 
@@ -234,6 +292,96 @@ type MutationTests() =
         }
 
     [<Test>]
+    member _.PushRejectsForceAndMultiRefRefspecs() : Task =
+        task {
+            // M16: a `+`-leading (force) or extra `:` (multi-ref) refspec must be refused BEFORE
+            // spawning — a UI/bot smuggling `+main` through a branch name must not silently
+            // force-push over the remote's non-fast-forward history.
+            let git = Git.WithRunner(ScriptedRunner().Fallback(Reply.Ok ""))
+
+            match! git.Push(".", GitPush.Branch "+main") with
+            | Error(ProcessError.Spawn(program, _)) -> Assert.That(program, Is.EqualTo "git")
+            | Error e -> Assert.Fail $"expected a Spawn refusal, got {e}"
+            | Ok() -> Assert.Fail "a `+`-leading (force) refspec must be refused"
+
+            match!
+                git.Push(
+                    ".",
+                    { Remote = "origin"
+                      Refspec = "a:b:c"
+                      SetUpstream = false }
+                )
+            with
+            | Error(ProcessError.Spawn _) -> ()
+            | Error e -> Assert.Fail $"expected a Spawn refusal, got {e}"
+            | Ok() -> Assert.Fail "a multi-`:` refspec must be refused"
+
+            // A legitimate single-`:` `local:remote` still passes the guard.
+            let ok = scripted [ "push"; "origin"; "local:remote" ] (Reply.Ok "")
+
+            match!
+                ok.Push(
+                    ".",
+                    { Remote = "origin"
+                      Refspec = "local:remote"
+                      SetUpstream = false }
+                )
+            with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"a single-colon refspec must pass: {e}"
+        }
+
+    [<Test>]
+    member _.SwitchWithStashSkipsPopWhenNothingSaved() : Task =
+        task {
+            // Data-loss guard: `stash push` can exit 0 having saved NOTHING (e.g. a submodule-only
+            // dirty tree that `status` still reports). If the stash depth is unchanged, the switch
+            // must NOT pop — a bare pop would splat an UNRELATED pre-existing stash. The `Fallback`
+            // fails on any stray `stash pop`, so an errant pop becomes a test failure.
+            let runner =
+                ScriptedRunner()
+                    .On([ "status"; "--porcelain=v1"; "-z" ], Reply.Ok(" M sub" + nul)) // dirty
+                    .On([ "stash"; "list" ], Reply.Ok "stash@{0}: WIP on main\n") // depth 1, both calls
+                    .On([ "stash"; "push" ], Reply.Ok "") // exits 0 having saved nothing
+                    .On([ "checkout" ], Reply.Ok "")
+                    .Fallback(Reply.Fail(1, "unexpected command — a stray stash pop would lose data"))
+
+            let git = Git.WithRunner runner
+
+            match! git.SwitchWithStash(".", "feature") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"switch must succeed without popping when nothing was stashed: {e}"
+        }
+
+    [<Test>]
+    member _.AmInProgressIsDistinctFromRebase() =
+        // M20: `git am` and an apply-backend rebase share the `rebase-apply/` dir, but am marks
+        // it with an `applying` file. `IsAmInProgress` must fire only on that marker and
+        // `IsRebaseInProgress` must NOT — an am aborts with `am --abort`, not `rebase --abort`,
+        // so mislabelling it a rebase would reset HEAD with the wrong safety ref.
+        let boolOf (t: Task<Result<bool, ProcessError>>) =
+            match t.GetAwaiter().GetResult() with
+            | Ok v -> v
+            | Error e -> failwithf "unexpected error: %A" e
+
+        // A `git am` in progress: `rebase-apply/applying` present.
+        withTempDir (fun dir ->
+            let gitDir = Path.Combine(dir, ".git")
+            Directory.CreateDirectory(Path.Combine(gitDir, "rebase-apply")) |> ignore
+            File.WriteAllText(Path.Combine(gitDir, "rebase-apply", "applying"), "")
+            let git = scripted [ "rev-parse"; "--git-dir" ] (Reply.Ok(gitDir + "\n"))
+            Assert.That(boolOf (git.IsAmInProgress dir), Is.True, "an `applying` marker is a git am")
+            Assert.That(boolOf (git.IsRebaseInProgress dir), Is.False, "an am must NOT report as a rebase"))
+
+        // An apply-backend rebase: same dir, NO `applying` marker.
+        withTempDir (fun dir ->
+            let gitDir = Path.Combine(dir, ".git")
+            Directory.CreateDirectory(Path.Combine(gitDir, "rebase-apply")) |> ignore
+            let git = scripted [ "rev-parse"; "--git-dir" ] (Reply.Ok(gitDir + "\n"))
+            Assert.That(boolOf (git.IsAmInProgress dir), Is.False, "no marker → not an am")
+            Assert.That(boolOf (git.IsRebaseInProgress dir), Is.True, "a bare rebase-apply is a rebase"))
+
+    [<Test>]
     member _.MergeCommitBuildsNoFf() : Task =
         task {
             let git = scripted [ "merge"; "--no-ff"; "--no-edit"; "feat" ] (Reply.Ok "")
@@ -256,6 +404,20 @@ type GuardTests() =
             | Error(ProcessError.Spawn(program, _)) -> Assert.That(program, Is.EqualTo "git")
             | Error e -> Assert.Fail $"expected Spawn, got {e}"
             | Ok() -> Assert.Fail "expected the flag-like reference to be refused"
+        }
+
+    [<Test>]
+    member _.CheckoutAppendsDoubleDash() : Task =
+        task {
+            // The trailing `--` is a data-loss guard: without it a `reference` naming a tracked
+            // PATH (not a ref) silently restores that path, discarding unstaged edits. The rule is
+            // scripted WITH `--` and there is no fallback, so a missing `--` yields no match (an
+            // error) rather than a false pass.
+            let git = scripted [ "checkout"; "main"; "--" ] (Reply.Ok "")
+
+            match! git.Checkout(".", "main") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"checkout must append `--`: {e}"
         }
 
     [<Test>]
