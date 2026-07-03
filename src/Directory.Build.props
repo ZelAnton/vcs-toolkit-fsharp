@@ -12,6 +12,7 @@
 		<Copyright>Copyright (c) 2026 Anton Zhelezniakou</Copyright>
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
+		<PackageIcon>icon.png</PackageIcon>
 
 		<PackageProjectUrl>https://github.com/ZelAnton/vcs-toolkit-fsharp</PackageProjectUrl>
 		<RepositoryUrl>https://github.com/ZelAnton/vcs-toolkit-fsharp</RepositoryUrl>
@@ -29,6 +30,7 @@
 	<ItemGroup>
 		<None Include="$(RepoRoot)README.md" Pack="true" PackagePath="\" />
 		<None Include="$(RepoRoot)CHANGELOG.md" Pack="true" PackagePath="\" />
+		<None Include="$(RepoRoot)assets/icon.png" Pack="true" PackagePath="\" Visible="false" />
 	</ItemGroup>
 
 	<ItemGroup>

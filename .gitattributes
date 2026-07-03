@@ -1,6 +1,10 @@
 # Default: normalize line endings to LF in the repository
 * text=auto eol=lf
 
+# Binary assets — never apply EOL/text normalization (keeps the icon byte-exact).
+*.png binary
+*.nupkg binary
+
 # F# sources are LF. F# is whitespace-significant and tab-hostile; keep them LF
 # so the compiler never sees CRLF- or tab-rewritten indentation.
 *.fs   text eol=lf
