@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<AssemblyName>VcsToolkit.Forge</AssemblyName>
+		<PackageId>VcsToolkit.Forge</PackageId>
+		<Description>One PR/MR lifecycle across GitHub, GitLab, and Gitea. Hold one `Forge` handle and run the operations all three forges share — it sends each to whichever CLI (gh / glab / tea) backs the handle and returns plain result types (ForgePr, ForgeIssue, ForgeRelease, ForgeRepo, …) that don't mention which forge produced them. The gh/glab/tea analogue of how VcsToolkit.Core's Repo sits over git and jj. Built on VcsToolkit.GitHub, VcsToolkit.GitLab, and VcsToolkit.Gitea over ProcessKit.</Description>
+		<PackageTags>fsharp;vcs;forge;github;gitlab;gitea;pull-request;merge-request;cli;process</PackageTags>
+		<!-- Cross-project references resolve through assembly search paths (no ProjectReference). -->
+		<AssemblySearchPaths>$(AssemblySearchPaths);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework);$(GitHubDir)bin\$(Configuration)\$(TargetFramework);$(GitLabDir)bin\$(Configuration)\$(TargetFramework);$(GiteaDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
+	</PropertyGroup>
+
+	<!-- F# COMPILE ORDER IS SIGNIFICANT. -->
+	<ItemGroup>
+		<Compile Include="Dto.fs" />
+		<Compile Include="Error.fs" />
+		<Compile Include="GitHubForge.fs" />
+		<Compile Include="GitLabForge.fs" />
+		<Compile Include="GiteaForge.fs" />
+		<Compile Include="Forge.fs" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="FSharp.Core" />
+		<PackageReference Include="ProcessKit" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Reference Include="VcsToolkit.CliSupport" />
+		<Reference Include="VcsToolkit.GitHub" />
+		<Reference Include="VcsToolkit.GitLab" />
+		<Reference Include="VcsToolkit.Gitea" />
+	</ItemGroup>
+
+</Project>

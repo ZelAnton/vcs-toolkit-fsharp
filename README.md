@@ -27,7 +27,7 @@ The toolkit is split into one package per concern, mirroring the Rust workspace.
 | `VcsToolkit.GitLab` | ✅ available | The GitLab (`glab`) CLI client: the lean merge-request lifecycle (list/view/create/merge/ready/close/comment/edit), CI/pipeline status, issues, releases, project view, and the REST/GraphQL escape hatch. Tokens are injected as `GITLAB_TOKEN`, never in argv (the cwd-bound view is still pending). |
 | `VcsToolkit.Gitea` | ✅ available | The Gitea/Forgejo (`tea`) CLI client: the lean pull-request lifecycle (list/view/create/merge/close/comment/edit), issues (list/view/create), and release listing. Authentication is ambient (`tea`'s stored logins); the cwd-bound view is still pending. |
 | `VcsToolkit.Core` | ✅ available | The backend-agnostic `Repo` facade over Git / Jujutsu: `Open` auto-detects git vs jj, then one handle runs whatever both tools support — branch/snapshot reads, changed files & diff stat, partial commits, fetch/push/checkout/rebase, a trace-free merge-conflict probe (`TryMerge`), in-progress merge/rebase state, and worktree management — returning plain result types. Escape hatches (`.Git`/`.Jj`) reach the raw client; the dir-dropped `GitAt`/`JjAt` views and the blocking cleanup helper are still pending. |
-| `VcsToolkit.Forge` | 🚧 planned | The unified forge facade over GitHub / GitLab / Gitea. |
+| `VcsToolkit.Forge` | ✅ available | The unified forge facade over GitHub / GitLab / Gitea: one `Forge` handle runs the PR/MR lifecycle all three share — auth, repo view, PR/MR list/view/create/comment/edit/merge/ready/close/checks, the flat capability map, issues, and releases — returning plain result types that don't mention which forge produced them. `ForgeKind.OfRemoteUrl` classifies the public-SaaS hosts (anti-spoofing); a few ops are `Unsupported` on Gitea (`tea` lacks the command). The gh/glab/tea analogue of `Core`'s `Repo` over git/jj. |
 | `VcsToolkit.Watch` / `VcsToolkit.TestKit` / `VcsToolkit.Mcp` | 🚧 planned | File watcher, test utilities, and the Model Context Protocol server. |
 
 ## Building from source
@@ -55,9 +55,10 @@ to resolve before the first release:
    references use `Reference` + `AssemblySearchPaths` (per the repo conventions)
    rather than `ProjectReference`, `dotnet pack` does not record sibling
    dependencies: the `VcsToolkit.Git` / `VcsToolkit.Jj` / `VcsToolkit.GitHub` /
-   `VcsToolkit.GitLab` / `VcsToolkit.Gitea` / `VcsToolkit.Core` packages do not yet
-   declare their dependency on `VcsToolkit.CliSupport` / `VcsToolkit.Diff` (and `Core`
-   on `VcsToolkit.Git` / `VcsToolkit.Jj`). This must be wired up (e.g. via a
+   `VcsToolkit.GitLab` / `VcsToolkit.Gitea` / `VcsToolkit.Core` / `VcsToolkit.Forge`
+   packages do not yet declare their dependency on `VcsToolkit.CliSupport` /
+   `VcsToolkit.Diff` (and the facades on their backend packages: `Core` on `Git`/`Jj`,
+   `Forge` on `GitHub`/`GitLab`/`Gitea`). This must be wired up (e.g. via a
    pack-time dependency injection, or by revisiting the reference style for the
    packaged libraries) before publishing, or an external consumer of
    `VcsToolkit.Git` would hit a missing-assembly error.
