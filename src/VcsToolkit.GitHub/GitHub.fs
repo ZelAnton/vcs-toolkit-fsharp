@@ -80,8 +80,8 @@ type GitHub private (core: ManagedClient) =
     member this.WithEnvToken(var: string) =
         this.WithCredentials(EnvToken var :> ICredentialProvider)
 
-    /// Binding this client to `dir` is provided by the dir-taking methods directly; a
-    /// cwd-bound view may be added later.
+    // Bind this client to a directory with `At(dir)` (a `GitHubAt` view whose modelled methods
+    // drop the leading `dir` argument); see the `GitHubAt` type below.
 
     // --- Escape hatches / version / auth -------------------------------------
 
@@ -348,3 +348,98 @@ type GitHub private (core: ManagedClient) =
                         GitHubParse.parseRelease
                     )
         }
+
+    /// A view of this client bound to repository `dir`: modelled methods drop their leading
+    /// `dir` argument. The raw `Run`/`RunRaw` hatches stay process-cwd.
+    member this.At(dir: string) : GitHubAt = GitHubAt(this, dir)
+
+/// A view of a `GitHub` client bound to a repository `dir`. Every modelled method drops the
+/// leading `dir` argument and injects the bound one, so `at.PrList()` is `github.PrList dir`
+/// and `at.Api(endpoint)` is `github.Api(dir, endpoint)`. The raw `Run`/`RunRaw` escape hatches
+/// are deliberately NOT rebound: like the client's, they run in the process's current working
+/// directory, not the bound `dir`.
+and [<Sealed>] GitHubAt internal (github: GitHub, dir: string) =
+
+    // --- Escape hatches / version / auth (process-cwd, NOT the bound dir) -----
+
+    /// Run `gh <args>` in the process's current directory (NOT the bound `dir`). Unguarded.
+    member _.Run(args: string seq) = github.Run args
+
+    /// Like `Run` but never errors on a non-zero exit. Process-cwd, NOT the bound `dir`.
+    member _.RunRaw(args: string seq) = github.RunRaw args
+
+    /// Installed GitHub CLI version (`gh --version`).
+    member _.Version() = github.Version()
+
+    /// Whether the user is authenticated (`gh auth status` exits zero).
+    member _.AuthStatus() = github.AuthStatus()
+
+    // --- Modelled methods (dir injected as the first argument) ----------------
+
+    /// Raw GitHub REST/GraphQL response body for the bound `dir` (`gh api <endpoint>`).
+    member _.Api(endpoint: string) = github.Api(dir, endpoint)
+
+    /// The repository for the bound `dir` (`gh repo view --json …`).
+    member _.RepoView() = github.RepoView dir
+
+    /// Pull requests for the bound `dir` (`gh pr list …`).
+    member _.PrList() = github.PrList dir
+
+    /// Pull requests that merge `head` into `baseBranch`, any state.
+    member _.PrListForBranch(head: string, baseBranch: string) =
+        github.PrListForBranch(dir, head, baseBranch)
+
+    /// A single pull request by number (`gh pr view <n> --json …`).
+    member _.PrView(number: uint64) = github.PrView(dir, number)
+
+    /// Issues for the bound `dir` (`gh issue list …`).
+    member _.IssueList() = github.IssueList dir
+
+    /// Open a pull request, returning its URL (`gh pr create`).
+    member _.PrCreate(spec: PrCreate) = github.PrCreate(dir, spec)
+
+    /// Merge a pull request (`gh pr merge <n> …`).
+    member _.PrMerge(number: uint64, merge: PrMerge) = github.PrMerge(dir, number, merge)
+
+    /// Mark a draft pull request as ready for review (`gh pr ready <n>`).
+    member _.PrReady(number: uint64) = github.PrReady(dir, number)
+
+    /// Close a pull request without merging (`gh pr close <n> [--delete-branch]`).
+    member _.PrClose(number: uint64, deleteBranch: bool) =
+        github.PrClose(dir, number, deleteBranch)
+
+    /// The PR's checks (`gh pr checks <n> --json …`).
+    member _.PrChecks(number: uint64) = github.PrChecks(dir, number)
+
+    /// Submit a review (`gh pr review <n> …`).
+    member _.PrReview(number: uint64, action: ReviewAction) = github.PrReview(dir, number, action)
+
+    /// Add a conversation comment, returning its URL (`gh pr comment <n> --body …`).
+    member _.PrComment(number: uint64, body: string) = github.PrComment(dir, number, body)
+
+    /// Edit a pull request's title and/or body (`gh pr edit <n> …`).
+    member _.PrEdit(number: uint64, edit: PrEdit) = github.PrEdit(dir, number, edit)
+
+    /// The PR's submitted reviews and conversation comments (`gh pr view <n> …`).
+    member _.PrFeedback(number: uint64) = github.PrFeedback(dir, number)
+
+    /// Recent workflow runs, newest first (`gh run list …`).
+    member _.RunList(limit: int, branch: string option) = github.RunList(dir, limit, branch)
+
+    /// A single workflow run by id (`gh run view <id> --json …`).
+    member _.RunView(id: uint64) = github.RunView(dir, id)
+
+    /// Block until the run finishes, then return its final state (`gh run watch <id>`).
+    member _.RunWatch(id: uint64) = github.RunWatch(dir, id)
+
+    /// Open an issue, returning its URL (`gh issue create …`).
+    member _.IssueCreate(title: string, body: string) = github.IssueCreate(dir, title, body)
+
+    /// A single issue by number (`gh issue view <n> --json …`).
+    member _.IssueView(number: uint64) = github.IssueView(dir, number)
+
+    /// Releases, newest first (`gh release list …`).
+    member _.ReleaseList() = github.ReleaseList dir
+
+    /// A single release by tag (`gh release view <tag> --json …`).
+    member _.ReleaseView(tag: string) = github.ReleaseView(dir, tag)

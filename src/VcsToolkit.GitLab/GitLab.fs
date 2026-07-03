@@ -243,3 +243,78 @@ type GitLab private (core: ManagedClient) =
                         GitLabParse.parseRelease
                     )
         }
+
+    /// A view of this client bound to repository `dir`: modelled methods drop their leading
+    /// `dir` argument. The raw `Run`/`RunRaw` hatches stay process-cwd.
+    member this.At(dir: string) : GitLabAt = GitLabAt(this, dir)
+
+/// A view of a `GitLab` client bound to a repository `dir`. Every modelled method drops the
+/// leading `dir` argument and injects the bound one, so `at.MrList()` is `gitlab.MrList dir`
+/// and `at.Api(endpoint)` is `gitlab.Api(dir, endpoint)`. The raw `Run`/`RunRaw` escape hatches
+/// are deliberately NOT rebound: like the client's, they run in the process's current working
+/// directory, not the bound `dir`.
+and [<Sealed>] GitLabAt internal (gitlab: GitLab, dir: string) =
+
+    // --- Escape hatches / version / auth (process-cwd, NOT the bound dir) -----
+
+    /// Run `glab <args>` in the process's current directory (NOT the bound `dir`). Unguarded.
+    member _.Run(args: string seq) = gitlab.Run args
+
+    /// Like `Run` but never errors on a non-zero exit. Process-cwd, NOT the bound `dir`.
+    member _.RunRaw(args: string seq) = gitlab.RunRaw args
+
+    /// Installed GitLab CLI version (`glab --version`).
+    member _.Version() = gitlab.Version()
+
+    /// Whether the user is authenticated (`glab auth status` exits zero).
+    member _.AuthStatus() = gitlab.AuthStatus()
+
+    // --- Modelled methods (dir injected as the first argument) ----------------
+
+    /// Raw GitLab REST/GraphQL response body for the bound `dir` (`glab api <endpoint>`).
+    member _.Api(endpoint: string) = gitlab.Api(dir, endpoint)
+
+    /// The project for the bound `dir` (`glab repo view --output json`).
+    member _.RepoView() = gitlab.RepoView dir
+
+    /// Open merge requests for the bound `dir` (`glab mr list …`).
+    member _.MrList() = gitlab.MrList dir
+
+    /// A single merge request by its project-scoped number (`glab mr view <n> …`).
+    member _.MrView(number: uint64) = gitlab.MrView(dir, number)
+
+    /// Open a merge request (`glab mr create`).
+    member _.MrCreate(spec: MrCreate) = gitlab.MrCreate(dir, spec)
+
+    /// Merge a merge request immediately (`glab mr merge <id> …`).
+    member _.MrMerge(number: uint64, strategy: MergeStrategy) = gitlab.MrMerge(dir, number, strategy)
+
+    /// Mark a draft merge request as ready (`glab mr update <id> --ready`).
+    member _.MrReady(number: uint64) = gitlab.MrReady(dir, number)
+
+    /// Close a merge request without merging (`glab mr close <id>`).
+    member _.MrClose(number: uint64) = gitlab.MrClose(dir, number)
+
+    /// Add a comment to a merge request (`glab mr note <id> -m …`).
+    member _.MrComment(number: uint64, body: string) = gitlab.MrComment(dir, number, body)
+
+    /// Edit a merge request's title and/or description (`glab mr update <id> …`).
+    member _.MrEdit(number: uint64, edit: MrEdit) = gitlab.MrEdit(dir, number, edit)
+
+    /// The MR's pipeline status, bucketed (`glab mr view <id> --output json`).
+    member _.MrChecks(number: uint64) = gitlab.MrChecks(dir, number)
+
+    /// Open issues for the bound `dir` (`glab issue list …`).
+    member _.IssueList() = gitlab.IssueList dir
+
+    /// A single issue by its project-scoped id (`glab issue view <n> …`).
+    member _.IssueView(number: uint64) = gitlab.IssueView(dir, number)
+
+    /// Open an issue (`glab issue create …`).
+    member _.IssueCreate(title: string, body: string) = gitlab.IssueCreate(dir, title, body)
+
+    /// Releases for the bound `dir` (`glab release list …`).
+    member _.ReleaseList() = gitlab.ReleaseList dir
+
+    /// A single release by its tag (`glab release view <tag> …`).
+    member _.ReleaseView(tag: string) = gitlab.ReleaseView(dir, tag)

@@ -838,3 +838,220 @@ type Jj private (core: ManagedClient) =
                     let! _ = this.OpRestore(dir, pre)
                     return Error err
         }
+
+    /// A view of this client bound to `dir`: the modelled methods drop their leading `dir`
+    /// argument. `Run`/`RunRaw` stay bound to the process cwd (see `JjAt`).
+    member this.At(dir: string) : JjAt = JjAt(this, dir)
+
+/// A `Jj` client with a working directory bound, so calls drop the leading `dir` argument —
+/// `jj.At(dir).Status()` is `jj.Status dir`. Construct one with `Jj.At` (or, through the
+/// facade, `Repo.JjAt`). Cheap to construct: it only holds the client and the path.
+///
+/// Asymmetry (deliberate, mirroring the Rust `JjAt`): the *modelled* methods are `dir`
+/// forwarders — they inject the bound `dir` as the first argument. The raw `Run`/`RunRaw`
+/// escape hatches are `bare` forwarders — they call `jj.Run`/`jj.RunRaw` unchanged and
+/// therefore run in the **process's current working directory**, NOT the bound `dir`. As on
+/// the client, they are unguarded — never forward untrusted argv.
+and [<Sealed>] JjAt internal (jj: Jj, dir: string) =
+
+    // --- Escape hatches (bare: NOT bound to `dir` — run in the process cwd) ---
+
+    /// Run `jj <args>` in the process's current directory, returning trimmed stdout.
+    member _.Run(args: string seq) = jj.Run args
+
+    /// Like `Run` but never errors on a non-zero exit — returns the captured result.
+    member _.RunRaw(args: string seq) = jj.RunRaw args
+
+    /// Installed Jujutsu version (`jj --version`).
+    member _.Version() = jj.Version()
+
+    /// The installed binary's parsed version, as `JjCapabilities`.
+    member _.Capabilities() = jj.Capabilities()
+
+    /// Clone a git repository into `dest`. Independent of the bound `dir`.
+    member _.GitClone(url: string, dest: string, colocate: bool) = jj.GitClone(url, dest, colocate)
+
+    // --- dir forwarders (the bound `dir` is injected as the first argument) ---
+
+    /// Parsed working-copy changes (`jj diff -r @ --summary`).
+    member _.Status() = jj.Status dir
+
+    /// Raw `jj status` text (human-readable).
+    member _.StatusText() = jj.StatusText dir
+
+    /// Changes matching `revset`, newest first, up to `max` (`jj log`).
+    member _.Log(revset: string, max: int) = jj.Log(dir, revset, max)
+
+    /// The working-copy change (`jj log -r @`).
+    member _.CurrentChange() = jj.CurrentChange dir
+
+    /// Set the working-copy change's description (`jj describe -m`).
+    member _.Describe(message: string) = jj.Describe(dir, message)
+
+    /// Set the description of an arbitrary revision (`jj describe -r <revset> -m`).
+    member _.DescribeRev(revset: string, message: string) = jj.DescribeRev(dir, revset, message)
+
+    /// Start a new change on top of the working copy (`jj new -m`).
+    member _.NewChange(message: string) = jj.NewChange(dir, message)
+
+    /// Local bookmarks (`jj bookmark list`).
+    member _.Bookmarks() = jj.Bookmarks dir
+
+    /// Local *and* remote-tracking bookmarks (`jj bookmark list -a`).
+    member _.BookmarksAll() = jj.BookmarksAll dir
+
+    /// Local bookmarks on the nearest commits reachable from `@`.
+    member _.ReachableBookmarks() = jj.ReachableBookmarks dir
+
+    /// Track a remote bookmark (`jj bookmark track <name>@<remote>`).
+    member _.BookmarkTrack(name: string, remote: string) = jj.BookmarkTrack(dir, name, remote)
+
+    /// Point a bookmark at `revision` (`jj bookmark set <name> -r <revision>`).
+    member _.BookmarkSet(name: string, revision: string) = jj.BookmarkSet(dir, name, revision)
+
+    /// Fetch from the git remote (`jj git fetch`); transient failures are retried.
+    member _.GitFetch() = jj.GitFetch dir
+
+    /// Fetch from a *named* git remote (`jj git fetch --remote <remote>`).
+    member _.GitFetchFrom(remote: string) = jj.GitFetchFrom(dir, remote)
+
+    /// Push to the git remote (`jj git push`, optionally `-b exact:<bookmark>`).
+    member _.GitPush(bookmark: string option) = jj.GitPush(dir, bookmark)
+
+    /// Working-copy root of the current workspace (`jj root`).
+    member _.Root() = jj.Root dir
+
+    /// The local bookmark on the working-copy change `@`, if any.
+    member _.CurrentBookmark() = jj.CurrentBookmark dir
+
+    /// The trunk bookmark (`jj log -r 'trunk()'`); `None` when unresolved.
+    member _.Trunk() = jj.Trunk dir
+
+    /// Create a bookmark at a revision (`bookmark create <name> -r <rev>`).
+    member _.BookmarkCreate(name: string, revision: string) = jj.BookmarkCreate(dir, name, revision)
+
+    /// Rename a bookmark (`bookmark rename <old> <new>`).
+    member _.BookmarkRename(oldName: string, newName: string) =
+        jj.BookmarkRename(dir, oldName, newName)
+
+    /// Delete a bookmark (`bookmark delete exact:<name>`).
+    member _.BookmarkDelete(name: string) = jj.BookmarkDelete(dir, name)
+
+    /// Move a bookmark to a revision (`bookmark move exact:<name> --to <rev>`).
+    member _.BookmarkMove(name: string, toRev: string, allowBackwards: bool) =
+        jj.BookmarkMove(dir, name, toRev, allowBackwards)
+
+    /// Per-file change summary for a range (`diff -r <from>..<to> --summary`).
+    member _.DiffSummary(fromRev: string, toRev: string) = jj.DiffSummary(dir, fromRev, toRev)
+
+    /// Aggregate change stats for a revset (`diff -r <revset> --stat`).
+    member _.DiffStat(revset: string) = jj.DiffStat(dir, revset)
+
+    /// Raw git-format unified diff text for `spec` (`diff -r <spec> --git`).
+    member _.DiffText(spec: DiffSpec) = jj.DiffText(dir, spec)
+
+    /// Parsed per-file unified diff for `spec`.
+    member _.Diff(spec: DiffSpec) = jj.Diff(dir, spec)
+
+    /// Count commits in a revset (`log -r <revset> --no-graph`).
+    member _.CommitCount(revset: string) = jj.CommitCount(dir, revset)
+
+    /// Whether the commit a revset resolves to has a conflict.
+    member _.IsConflicted(revset: string) = jj.IsConflicted(dir, revset)
+
+    /// Whether the working copy has unresolved conflicts.
+    member _.HasWorkingcopyConflict() = jj.HasWorkingcopyConflict dir
+
+    /// Paths with unresolved conflicts in `revset` (`jj resolve --list -r <revset>`).
+    member _.ResolveList(revset: string) = jj.ResolveList(dir, revset)
+
+    /// Run an arbitrary templated `jj log` query and return raw stdout.
+    member _.TemplateQuery(revset: string, template: string, limit: int option) =
+        jj.TemplateQuery(dir, revset, template, limit)
+
+    /// The full description of the commit `revset` resolves to.
+    member _.Description(revset: string) = jj.Description(dir, revset)
+
+    /// How the commit a revset resolves to evolved, newest first, up to `max`.
+    member _.Evolog(revset: string, max: int) = jj.Evolog(dir, revset, max)
+
+    /// Per-line authorship of `path` (`jj file annotate <path> [-r <revset>]`).
+    member _.FileAnnotate(path: string, revset: string option) = jj.FileAnnotate(dir, path, revset)
+
+    /// A file's content at a revision (`jj file show -r <revset> file:"<path>"`).
+    member _.FileShow(revset: string, path: string) = jj.FileShow(dir, revset, path)
+
+    /// Fold working-copy edits into the ancestors that introduced the touched lines.
+    member _.Absorb(from: string option, filesets: JjFileset list) = jj.Absorb(dir, from, filesets)
+
+    /// Split exactly these filesets out of `@` into their own commit.
+    member _.SplitPaths(filesets: JjFileset list, message: string) = jj.SplitPaths(dir, filesets, message)
+
+    /// Duplicate the commits a revset resolves to (`duplicate <revset>`).
+    member _.Duplicate(revset: string) = jj.Duplicate(dir, revset)
+
+    /// Rebase the working copy onto a destination (`rebase -d <onto>`).
+    member _.Rebase(onto: string) = jj.Rebase(dir, onto)
+
+    /// Rebase a whole branch onto a destination (`rebase -b <branch> -d <dest>`).
+    member _.RebaseBranch(branch: string, dest: string) = jj.RebaseBranch(dir, branch, dest)
+
+    /// Move the working copy to a revision (`edit <rev>`).
+    member _.Edit(revset: string) = jj.Edit(dir, revset)
+
+    /// Squash the working copy into a revision (`squash --into <rev>`).
+    member _.SquashInto(into: string, useDestinationMessage: bool) =
+        jj.SquashInto(dir, into, useDestinationMessage)
+
+    /// Finalise a commit from exactly these filesets (`commit -m <message> <filesets>`).
+    member _.CommitPaths(filesets: JjFileset list, message: string) = jj.CommitPaths(dir, filesets, message)
+
+    /// Squash exactly these filesets from one revision into another.
+    member _.SquashPaths(spec: SquashPaths) = jj.SquashPaths(dir, spec)
+
+    /// Set the working copy's sparse patterns to exactly `patterns`.
+    member _.SparseSet(patterns: string list) = jj.SparseSet(dir, patterns)
+
+    /// Create a new change with the given parents (`new -m <msg> <p1> <p2> …`).
+    member _.NewMerge(message: string, parents: string list) = jj.NewMerge(dir, message, parents)
+
+    /// Abandon a revision (`abandon <rev>`).
+    member _.Abandon(revset: string) = jj.Abandon(dir, revset)
+
+    /// Fetch a single bookmark from origin (`git fetch --remote origin -b <branch>`).
+    member _.GitFetchBranch(branch: string) = jj.GitFetchBranch(dir, branch)
+
+    /// Import git refs into jj (`jj git import`) — colocated-repo sync.
+    member _.GitImport() = jj.GitImport dir
+
+    /// The current operation id (`op log --no-graph --limit 1`).
+    member _.OpHead() = jj.OpHead dir
+
+    /// The newest `limit` operations, newest first (`op log --no-graph --limit n`).
+    member _.OpLog(limit: int) = jj.OpLog(dir, limit)
+
+    /// Restore the repo to an operation (`op restore <id>`).
+    member _.OpRestore(opId: string) = jj.OpRestore(dir, opId)
+
+    /// Undo the latest operation (`op undo`).
+    member _.OpUndo() = jj.OpUndo dir
+
+    /// List workspaces (`workspace list`).
+    member _.WorkspaceList() = jj.WorkspaceList dir
+
+    /// Resolve a workspace's root path (`workspace root [--name <name>]`).
+    member _.WorkspaceRoot(name: string option) = jj.WorkspaceRoot(dir, name)
+
+    /// Add a workspace (`workspace add --name <name> -r <base> <path>`).
+    member _.WorkspaceAdd(spec: WorkspaceAdd) = jj.WorkspaceAdd(dir, spec)
+
+    /// Forget a workspace (`workspace forget <name>`).
+    member _.WorkspaceForget(name: string) = jj.WorkspaceForget(dir, name)
+
+    // --- Transaction (hand-written: the closure is generic) ------------------
+
+    /// Bound form of `Jj.Transaction` (with `dir` pre-bound): run `f` with op-log rollback on
+    /// `Error`. The F# `Jj.Transaction` hands its closure the raw `Jj` client, so this forwarder
+    /// re-binds it to `dir` as a `JjAt` before invoking `f` — matching the Rust `JjAt.transaction`.
+    member _.Transaction(f: JjAt -> Task<Result<'T, ProcessError>>) : Task<Result<'T, ProcessError>> =
+        jj.Transaction(dir, (fun (bound: Jj) -> f (JjAt(bound, dir))))

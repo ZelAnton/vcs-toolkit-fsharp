@@ -900,3 +900,47 @@ type HardeningTests() =
                 Assert.That(args |> Seq.exists (fun a -> a.Contains secret), Is.False, "secret must never be in argv")
             | Error e -> Assert.Fail $"pr list (with token) failed: {e}"
         }
+
+[<TestFixture>]
+type AtViewTests() =
+
+    let capturingCmd (reply: Reply) : (Command option ref) * ScriptedRunner =
+        let captured = ref (None: Command option)
+
+        let runner =
+            ScriptedRunner()
+                .When(
+                    (fun (c: Command) ->
+                        captured.Value <- Some c
+                        true),
+                    reply
+                )
+
+        captured, runner
+
+    [<Test>]
+    member _.GitHubAtBindsDirForModelledMethodsButNotRawRun() : Task =
+        task {
+            // `Api` is a MODELLED (dir-bound) method — `at.Api(x)` binds `dir` as the cwd and
+            // produces byte-identical argv.
+            let captured, runner = capturingCmd (Reply.Ok "{}")
+            let gh = GitHub.WithRunner runner
+
+            let! _ = gh.At("/bound/dir").Api "repos/o/r"
+
+            match captured.Value with
+            | Some cmd ->
+                Assert.That(cmd.WorkingDirectory, Is.EqualTo(Some "/bound/dir"), "Api is bound to dir")
+                Assert.That(String.concat " " cmd.Arguments, Is.EqualTo "api repos/o/r")
+            | None -> Assert.Fail "no command captured for Api"
+
+            // The raw `Run` hatch stays process-cwd (WorkingDirectory = None).
+            let captured2, runner2 = capturingCmd (Reply.Ok "")
+            let gh2 = GitHub.WithRunner runner2
+
+            let! _ = gh2.At("/bound/dir").Run [ "auth"; "status" ]
+
+            match captured2.Value with
+            | Some cmd -> Assert.That(cmd.WorkingDirectory, Is.EqualTo None, "the raw Run hatch is NOT bound to dir")
+            | None -> Assert.Fail "no command captured for Run"
+        }

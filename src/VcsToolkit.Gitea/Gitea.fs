@@ -278,3 +278,63 @@ type Gitea private (core: ManagedClient) =
             core.CommandIn(dir, [ "releases"; "list"; "--limit"; "100"; "--output"; "json" ]),
             GiteaParse.parseReleaseList
         )
+
+    /// A view of this client bound to repository `dir`: modelled methods drop their leading
+    /// `dir` argument. The raw `Run`/`RunRaw` hatches stay process-cwd.
+    member this.At(dir: string) : GiteaAt = GiteaAt(this, dir)
+
+/// A view of a `Gitea` client bound to a repository `dir`. Every modelled method drops the
+/// leading `dir` argument and injects the bound one, so `at.PrList()` is `gitea.PrList dir`.
+/// The raw `Run`/`RunRaw` escape hatches are deliberately NOT rebound: like the client's, they
+/// run in the process's current working directory, not the bound `dir`. `tea` has no `api`
+/// escape hatch, so this view has none either.
+and [<Sealed>] GiteaAt internal (gitea: Gitea, dir: string) =
+
+    // --- Escape hatches / version / auth (process-cwd, NOT the bound dir) -----
+
+    /// Run `tea <args>` in the process's current directory (NOT the bound `dir`). Unguarded.
+    member _.Run(args: string seq) = gitea.Run args
+
+    /// Like `Run` but never errors on a non-zero exit. Process-cwd, NOT the bound `dir`.
+    member _.RunRaw(args: string seq) = gitea.RunRaw args
+
+    /// Installed Gitea CLI version (`tea --version`).
+    member _.Version() = gitea.Version()
+
+    /// Whether at least one login is configured (`tea login list --output json`).
+    member _.AuthStatus() = gitea.AuthStatus()
+
+    // --- Modelled methods (dir injected as the first argument) ----------------
+
+    /// Open pull requests for the bound `dir` (`tea pr list …`).
+    member _.PrList() = gitea.PrList dir
+
+    /// A single pull request by number (synthesized via `tea pr list --state all …`).
+    member _.PrView(number: uint64) = gitea.PrView(dir, number)
+
+    /// Open a pull request (`tea pr create`).
+    member _.PrCreate(spec: PrCreate) = gitea.PrCreate(dir, spec)
+
+    /// Merge a pull request (`tea pr merge <n> --style …`).
+    member _.PrMerge(number: uint64, strategy: MergeStrategy) = gitea.PrMerge(dir, number, strategy)
+
+    /// Close a pull request without merging (`tea pr close <n>`).
+    member _.PrClose(number: uint64) = gitea.PrClose(dir, number)
+
+    /// Add a comment to a pull request (`tea comment <index> <body>`).
+    member _.PrComment(number: uint64, body: string) = gitea.PrComment(dir, number, body)
+
+    /// Edit a pull request's title and/or description (`tea pr edit <index> …`).
+    member _.PrEdit(number: uint64, edit: PrEdit) = gitea.PrEdit(dir, number, edit)
+
+    /// Open issues for the bound `dir` (`tea issues list …`).
+    member _.IssueList() = gitea.IssueList dir
+
+    /// A single issue by number (`tea issues <n> --output json`).
+    member _.IssueView(number: uint64) = gitea.IssueView(dir, number)
+
+    /// Open an issue (`tea issues create …`).
+    member _.IssueCreate(title: string, body: string) = gitea.IssueCreate(dir, title, body)
+
+    /// Releases for the bound `dir` (`tea releases list …`).
+    member _.ReleaseList() = gitea.ReleaseList dir

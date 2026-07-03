@@ -14,6 +14,22 @@ let private cr = string (char 13)
 let private scripted (tokens: string list) (reply: Reply) =
     Jj.WithRunner(ScriptedRunner().On(tokens, reply))
 
+/// A runner that records the last `Command` it ran (argv + working directory), always replying
+/// `reply`. For asserting the `at(dir)` view's byte-identical argv + cwd binding.
+let private capturing (reply: Reply) : (Command option ref) * ScriptedRunner =
+    let captured = ref (None: Command option)
+
+    let runner =
+        ScriptedRunner()
+            .When(
+                (fun (cmd: Command) ->
+                    captured.Value <- Some cmd
+                    true),
+                reply
+            )
+
+    captured, runner
+
 // A runner that answers any command with Ok "" — for verifying that a guard
 // refuses BEFORE anything spawns (a refusal returns Error; a leak returns Ok).
 let private permissive () =
@@ -806,3 +822,38 @@ type SemanticsTests() =
 
         Assert.That(Result.isError (RevsetExpr.Create "-evil"), Is.True)
         Assert.That(Result.isError (RevsetExpr.Create ""), Is.True)
+
+[<TestFixture>]
+type AtViewTests() =
+
+    [<Test>]
+    member _.JjAtBindsDirWithByteIdenticalArgv() : Task =
+        task {
+            // A modelled method through the `at(dir)` view produces byte-identical argv to the
+            // dir-taking form (incl. the forced `--color never`) and binds `dir` as the cwd.
+            let captured, runner = capturing (Reply.Ok "")
+            let jj = Jj.WithRunner runner
+
+            let! _ = jj.At("/bound/dir").Status()
+
+            match captured.Value with
+            | Some cmd ->
+                Assert.That(cmd.WorkingDirectory, Is.EqualTo(Some "/bound/dir"), "the view binds dir as cwd")
+                Assert.That(String.concat " " cmd.Arguments, Is.EqualTo "diff -r @ --summary --color never")
+            | None -> Assert.Fail "no command captured"
+        }
+
+    [<Test>]
+    member _.JjAtRawRunStaysProcessCwd() : Task =
+        task {
+            // The raw `Run` hatch runs in the PROCESS cwd (WorkingDirectory = None), NOT the bound
+            // dir — the deliberate `bare`-forwarder asymmetry.
+            let captured, runner = capturing (Reply.Ok "ok\n")
+            let jj = Jj.WithRunner runner
+
+            let! _ = jj.At("/bound/dir").Run [ "root" ]
+
+            match captured.Value with
+            | Some cmd -> Assert.That(cmd.WorkingDirectory, Is.EqualTo None, "the raw Run hatch is NOT bound to dir")
+            | None -> Assert.Fail "no command captured"
+        }

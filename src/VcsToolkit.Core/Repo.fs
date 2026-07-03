@@ -19,9 +19,9 @@ type internal Backend =
 ///
 /// It is a thin common layer: the operations the two tools model too differently (a full
 /// merge, jj's op-restore, range/revset queries) stay on the raw client — reach them via
-/// the `Git` / `Jj` accessors (each `Some` only for its backend). The dir-dropped `GitAt`/
-/// `JjAt` views and the synchronous `cleanupWorktreeBlocking` Drop-guard helper are not
-/// yet ported.
+/// the `Git` / `Jj` accessors (each `Some` only for its backend), or the dir-bound `GitAt` /
+/// `JjAt` views (bound to this handle's `Cwd`). The synchronous `cleanupWorktreeBlocking`
+/// Drop-guard helper is not ported — .NET's `IAsyncDisposable` can `await RemoveWorktree`.
 [<Sealed>]
 type Repo private (root: string, cwd: string, backend: Backend) =
 
@@ -86,6 +86,21 @@ type Repo private (root: string, cwd: string, backend: Backend) =
     member _.Jj =
         match backend with
         | Backend.Jj j -> Some j
+        | Backend.Git _ -> None
+
+    /// The underlying `Git` client bound to this handle's `Cwd` (a `GitAt` view whose modelled
+    /// methods drop `dir`), or `None` when jj-backed. The view is bound to THIS handle's `Cwd`,
+    /// so to work in another worktree re-anchor first: `repo.At(path).GitAt`.
+    member _.GitAt =
+        match backend with
+        | Backend.Git g -> Some(g.At cwd)
+        | Backend.Jj _ -> None
+
+    /// The underlying `Jj` client bound to this handle's `Cwd` (a `JjAt` view whose modelled
+    /// methods drop `dir`), or `None` when git-backed. See `GitAt` for the re-anchor caveat.
+    member _.JjAt =
+        match backend with
+        | Backend.Jj j -> Some(j.At cwd)
         | Backend.Git _ -> None
 
     // --- Refs ----------------------------------------------------------------

@@ -16,6 +16,22 @@ let private tab = string (char 9)
 let private scripted (tokens: string list) (reply: Reply) =
     Git.WithRunner(ScriptedRunner().On(tokens, reply))
 
+/// A runner that records the last `Command` it was asked to run (its argv + working directory),
+/// always replying `reply`. For asserting the `at(dir)` view's byte-identical argv + cwd binding.
+let private capturing (reply: Reply) : (Command option ref) * ScriptedRunner =
+    let captured = ref (None: Command option)
+
+    let runner =
+        ScriptedRunner()
+            .When(
+                (fun (cmd: Command) ->
+                    captured.Value <- Some cmd
+                    true),
+                reply
+            )
+
+    captured, runner
+
 /// Run `f` in a fresh temp directory, removed afterwards (for on-disk marker probes).
 let private withTempDir (f: string -> unit) =
     let dir =
@@ -426,3 +442,42 @@ type GuardTests() =
         Assert.That(RefName.Create "-bad" |> Result.isError)
         Assert.That(RefName.Create "has..dots" |> Result.isError)
         Assert.That(RefName.Create "ends.lock" |> Result.isError)
+
+[<TestFixture>]
+type AtViewTests() =
+
+    [<Test>]
+    member _.GitAtBindsDirWithByteIdenticalArgv() : Task =
+        task {
+            // A modelled method through the `at(dir)` view must produce byte-identical argv to the
+            // dir-taking form AND bind `dir` as the command's working directory.
+            let captured, runner = capturing (Reply.Ok($" M a.rs{nul}"))
+            let git = Git.WithRunner runner
+
+            match! git.At("/bound/dir").Status() with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"GitAt.Status failed: {e}"
+
+            match captured.Value with
+            | Some cmd ->
+                Assert.That(cmd.WorkingDirectory, Is.EqualTo(Some "/bound/dir"), "the view binds dir as cwd")
+                Assert.That(String.concat " " cmd.Arguments, Is.EqualTo "status --porcelain=v1 -z")
+            | None -> Assert.Fail "no command captured"
+        }
+
+    [<Test>]
+    member _.GitAtRawRunStaysProcessCwd() : Task =
+        task {
+            // The raw `Run` hatch is a `bare` forwarder — it runs in the PROCESS cwd
+            // (`WorkingDirectory = None`), NOT the bound dir. This asymmetry is deliberate.
+            let captured, runner = capturing (Reply.Ok "abc\n")
+            let git = Git.WithRunner runner
+
+            let! _ = git.At("/bound/dir").Run [ "rev-parse"; "HEAD" ]
+
+            match captured.Value with
+            | Some cmd ->
+                Assert.That(cmd.WorkingDirectory, Is.EqualTo None, "the raw Run hatch is NOT bound to dir")
+                Assert.That(String.concat " " cmd.Arguments, Is.EqualTo "rev-parse HEAD")
+            | None -> Assert.Fail "no command captured"
+        }

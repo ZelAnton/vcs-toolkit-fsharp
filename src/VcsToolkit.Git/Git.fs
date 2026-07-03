@@ -144,8 +144,8 @@ type Git private (core: ManagedClient) =
     member this.WithEnvToken(var: string) =
         this.WithCredentials(EnvToken var :> ICredentialProvider)
 
-    /// Bind this client to `dir` is provided by the dir-taking methods directly; a
-    /// cwd-bound view may be added later.
+    // Bind this client to a directory with `At(dir)` (a `GitAt` view whose modelled methods
+    // drop the leading `dir` argument); see the `GitAt` type below.
 
     // --- Escape hatches ------------------------------------------------------
 
@@ -847,8 +847,8 @@ type Git private (core: ManagedClient) =
         core.RunUnit(cLocale (core.CommandIn(dir, [ "stash"; "pop" ])))
 
     /// The number of entries in the stash list (`git stash list`) — used by `SwitchWithStash` to
-    /// tell whether a `stash push` actually saved anything.
-    member _.StashDepth(dir: string) =
+    /// tell whether a `stash push` actually saved anything. Internal helper (private in Rust too).
+    member private _.StashDepth(dir: string) =
         task {
             match! core.Run(core.CommandIn(dir, [ "stash"; "list" ])) with
             | Error e -> return Error e
@@ -857,8 +857,8 @@ type Git private (core: ManagedClient) =
 
     /// `git stash pop --index` — restore the top stash **preserving** the staged/unstaged split
     /// (a bare `pop` returns everything unstaged). C-locale so a conflicting pop's `CONFLICT (...)`
-    /// output still feeds `isMergeConflict` (e.g. via `SwitchWithStash`).
-    member _.StashPopIndex(dir: string) =
+    /// output still feeds `isMergeConflict`. Internal helper of `SwitchWithStash` (private in Rust).
+    member private _.StashPopIndex(dir: string) =
         core.RunUnit(cLocale (core.CommandIn(dir, [ "stash"; "pop"; "--index" ])))
 
     // --- Worktrees -----------------------------------------------------------
@@ -1157,3 +1157,272 @@ type Git private (core: ManagedClient) =
 
     /// A hardened real (job-backed) client — `Git.Create().Harden()`.
     static member Hardened() = Git.Create().Harden()
+
+    /// A view of this client bound to `dir`: the modelled methods drop their leading `dir`
+    /// argument. `Run`/`RunRaw` stay bound to the process cwd (see `GitAt`).
+    member this.At(dir: string) : GitAt = GitAt(this, dir)
+
+/// A `Git` client with a working directory bound, so calls drop the leading `dir`
+/// argument — `git.At(dir).Status()` is `git.Status dir`. Construct one with `Git.At`
+/// (or, through the facade, `Repo.GitAt`). Cheap to construct: it only holds the client
+/// and the path.
+///
+/// Asymmetry (deliberate, mirroring the Rust `GitAt`): the *modelled* methods are `dir`
+/// forwarders — they inject the bound `dir` as the first argument. The raw `Run`/`RunRaw`
+/// escape hatches are `bare` forwarders — they call `git.Run`/`git.RunRaw` unchanged and
+/// therefore run in the **process's current working directory**, NOT the bound `dir`. If
+/// you need an ad-hoc command to run in `dir`, pass an explicit `-C <dir>` yourself.
+and [<Sealed>] GitAt internal (git: Git, dir: string) =
+
+    // --- Escape hatches (bare: NOT bound to `dir` — run in the process cwd) ---
+
+    /// Run `git <args>` in the process's current directory, returning trimmed stdout.
+    member _.Run(args: string seq) = git.Run args
+
+    /// Like `Run` but never errors on a non-zero exit — returns the captured result.
+    member _.RunRaw(args: string seq) = git.RunRaw args
+
+    /// Installed Git version (`git --version`).
+    member _.Version() = git.Version()
+
+    /// The installed binary's parsed version, as `GitCapabilities`.
+    member _.Capabilities() = git.Capabilities()
+
+    /// Clone `url` into `dest` (pass an absolute `dest`). Independent of the bound `dir`.
+    member _.CloneRepo(url: string, dest: string, spec: CloneSpec) = git.CloneRepo(url, dest, spec)
+
+    // --- dir forwarders (the bound `dir` is injected as the first argument) ---
+
+    /// Working-tree status (`git status --porcelain=v1 -z`).
+    member _.Status() = git.Status dir
+
+    /// Raw porcelain status text (`git status --porcelain=v1`).
+    member _.StatusText() = git.StatusText dir
+
+    /// Like `Status` but ignoring untracked files.
+    member _.StatusTracked() = git.StatusTracked dir
+
+    /// A combined branch + working-tree snapshot in one spawn.
+    member _.BranchStatus() = git.BranchStatus dir
+
+    /// Paths with unresolved merge conflicts.
+    member _.ConflictedFiles() = git.ConflictedFiles dir
+
+    /// Current branch name, or `None` on a detached HEAD.
+    member _.CurrentBranch() = git.CurrentBranch dir
+
+    /// Local branches, current one flagged.
+    member _.Branches() = git.Branches dir
+
+    /// Up to `max` commits reachable from `revspec`, newest first.
+    member _.Log(revspec: string, max: int) = git.Log(dir, revspec, max)
+
+    /// Resolve a revision to a full hash (`git rev-parse --verify <rev>`).
+    member _.RevParse(rev: string) = git.RevParse(dir, rev)
+
+    /// Resolve a revision to its abbreviated hash (`git rev-parse --short <rev>`).
+    member _.RevParseShort(rev: string) = git.RevParseShort(dir, rev)
+
+    /// Initialise a repository (`git init`).
+    member _.Init() = git.Init dir
+
+    /// Stage `paths` (`git add -- <paths>`).
+    member _.Add(paths: string list) = git.Add(dir, paths)
+
+    /// Commit staged changes (`git commit -m`).
+    member _.Commit(message: string) = git.Commit(dir, message)
+
+    /// Create a branch without switching to it (`git branch <name>`).
+    member _.CreateBranch(name: string) = git.CreateBranch(dir, name)
+
+    /// Switch to a branch or revision (`git checkout <reference> --`).
+    member _.Checkout(reference: string) = git.Checkout(dir, reference)
+
+    /// Check out a commit as a detached HEAD (`git checkout --detach <commit>`).
+    member _.CheckoutDetach(commit: string) = git.CheckoutDetach(dir, commit)
+
+    /// Commit exactly the spec's paths' working-tree content, ignoring the index.
+    member _.CommitPaths(spec: CommitPaths) = git.CommitPaths(dir, spec)
+
+    /// The last commit's full message (`git log -1 --format=%B`).
+    member _.LastCommitMessage() = git.LastCommitMessage dir
+
+    /// Whether `HEAD` is unborn — a fresh repo with no commits yet.
+    member _.IsUnborn() = git.IsUnborn dir
+
+    /// Whether the working tree has no unstaged modifications to tracked files.
+    member _.DiffIsEmpty() = git.DiffIsEmpty dir
+
+    /// The repository's common git directory (stable across linked worktrees).
+    member _.CommonDir() = git.CommonDir dir
+
+    /// This worktree's git directory (`rev-parse --git-dir`).
+    member _.GitDir() = git.GitDir dir
+
+    /// Resolve a revision to a commit hash, peeling tags.
+    member _.ResolveCommit(rev: string) = git.ResolveCommit(dir, rev)
+
+    /// The remote's default branch (short name); `None` when `origin/HEAD` is unset.
+    member _.RemoteHeadBranch() = git.RemoteHeadBranch dir
+
+    /// Whether a local branch exists.
+    member _.BranchExists(name: string) = git.BranchExists(dir, name)
+
+    /// Whether `origin` has `name`, without fetching.
+    member _.RemoteBranchExists(name: string) = git.RemoteBranchExists(dir, name)
+
+    /// A remote's URL (`remote get-url <remote>`).
+    member _.RemoteUrl(remote: string) = git.RemoteUrl(dir, remote)
+
+    /// The current branch's upstream, e.g. `Some "origin/main"`; `None` when unset.
+    member _.Upstream() = git.Upstream dir
+
+    /// Branch names on `remote`, without fetching (`ls-remote --heads <remote>`).
+    member _.RemoteBranches(remote: string) = git.RemoteBranches(dir, remote)
+
+    /// Whether `branch` is fully merged into `target`.
+    member _.IsMerged(branch: string, target: string) = git.IsMerged(dir, branch, target)
+
+    /// Set `branch`'s upstream to `upstream`.
+    member _.SetUpstream(branch: string, upstream: string) = git.SetUpstream(dir, branch, upstream)
+
+    /// Delete a local branch (`branch -d`, or `-D` when `force`).
+    member _.DeleteBranch(name: string, force: bool) = git.DeleteBranch(dir, name, force)
+
+    /// Rename a local branch (`branch -m <old> <new>`).
+    member _.RenameBranch(oldName: string, newName: string) = git.RenameBranch(dir, oldName, newName)
+
+    /// Count commits in a range (`rev-list --count <range>`).
+    member _.RevListCount(range: string) = git.RevListCount(dir, range)
+
+    /// Whether a diff range is empty (`diff --quiet <range>`).
+    member _.DiffRangeIsEmpty(range: string) = git.DiffRangeIsEmpty(dir, range)
+
+    /// Aggregate change stats for a range (`diff --shortstat <range>`).
+    member _.DiffStat(range: string) = git.DiffStat(dir, range)
+
+    /// Raw git-format unified diff text for `spec`.
+    member _.DiffText(spec: DiffSpec) = git.DiffText(dir, spec)
+
+    /// Parsed per-file unified diff for `spec`.
+    member _.Diff(spec: DiffSpec) = git.Diff(dir, spec)
+
+    /// Whether the index has no staged changes (`diff --cached --quiet`).
+    member _.StagedIsEmpty() = git.StagedIsEmpty dir
+
+    /// Whether a rebase is in progress.
+    member _.IsRebaseInProgress() = git.IsRebaseInProgress dir
+
+    /// Whether a merge is in progress (a `MERGE_HEAD` exists under the git dir).
+    member _.IsMergeInProgress() = git.IsMergeInProgress dir
+
+    /// Whether a `git am` (mailbox apply) is in progress.
+    member _.IsAmInProgress() = git.IsAmInProgress dir
+
+    /// Fetch from the default remote, retrying transient failures.
+    member _.Fetch() = git.Fetch dir
+
+    /// Fetch from a named remote.
+    member _.FetchFrom(remote: string) = git.FetchFrom(dir, remote)
+
+    /// Fetch a single branch from `origin` into its remote-tracking ref.
+    member _.FetchRemoteBranch(branch: string) = git.FetchRemoteBranch(dir, branch)
+
+    /// Push to a remote (`push [-u] <remote> <refspec>`).
+    member _.Push(spec: GitPush) = git.Push(dir, spec)
+
+    /// Stage a branch's changes without committing (`merge --squash <branch>`).
+    member _.MergeSquash(branch: string) = git.MergeSquash(dir, branch)
+
+    /// Merge a branch (`merge [--no-ff] [-m <msg> | --no-edit] <branch>`).
+    member _.MergeCommit(spec: MergeCommit) = git.MergeCommit(dir, spec)
+
+    /// Merge a branch but stop before committing.
+    member _.MergeNoCommit(spec: MergeNoCommit) = git.MergeNoCommit(dir, spec)
+
+    /// Abort an in-progress merge (`merge --abort`).
+    member _.MergeAbort() = git.MergeAbort dir
+
+    /// Finish a merge after resolving conflicts (`commit --no-edit`).
+    member _.MergeContinue() = git.MergeContinue dir
+
+    /// Undo an in-progress (or just-staged) merge (`reset --merge`).
+    member _.ResetMerge() = git.ResetMerge dir
+
+    /// Hard-reset the working tree to a revision (`reset --hard <rev>`).
+    member _.ResetHard(rev: string) = git.ResetHard(dir, rev)
+
+    /// Rebase the current branch onto `onto` (`rebase <onto>`).
+    member _.Rebase(onto: string) = git.Rebase(dir, onto)
+
+    /// Abort an in-progress rebase (`rebase --abort`).
+    member _.RebaseAbort() = git.RebaseAbort dir
+
+    /// Abort an in-progress `git am` (`am --abort`).
+    member _.AmAbort() = git.AmAbort dir
+
+    /// Continue a rebase after resolving conflicts (`rebase --continue`).
+    member _.RebaseContinue() = git.RebaseContinue dir
+
+    /// Stash the working tree (`stash push`, `--include-untracked` when asked).
+    member _.StashPush(includeUntracked: bool) = git.StashPush(dir, includeUntracked)
+
+    /// Restore the most recent stash and drop it (`stash pop`).
+    member _.StashPop() = git.StashPop dir
+
+    /// Switch to `branch`, carrying uncommitted changes across via the stash.
+    member _.SwitchWithStash(branch: string) = git.SwitchWithStash(dir, branch)
+
+    /// List worktrees (`worktree list --porcelain`).
+    member _.WorktreeList() = git.WorktreeList dir
+
+    /// Add a worktree.
+    member _.WorktreeAdd(spec: WorktreeAdd) = git.WorktreeAdd(dir, spec)
+
+    /// Remove a worktree (`worktree remove [--force] <path>`).
+    member _.WorktreeRemove(path: string, force: bool) = git.WorktreeRemove(dir, path, force)
+
+    /// Move a worktree (`worktree move <from> <to>`).
+    member _.WorktreeMove(fromPath: string, toPath: string) = git.WorktreeMove(dir, fromPath, toPath)
+
+    /// Prune stale worktree admin entries (`worktree prune`).
+    member _.WorktreePrune() = git.WorktreePrune dir
+
+    /// Create a lightweight tag at `rev` (`tag <name> [<rev>]`).
+    member _.TagCreate(name: string, rev: string option) = git.TagCreate(dir, name, rev)
+
+    /// Create an annotated tag (`tag -a <name> -m <message> [<rev>]`).
+    member _.TagCreateAnnotated(spec: AnnotatedTag) = git.TagCreateAnnotated(dir, spec)
+
+    /// Tag names, sorted by git's default ordering (`tag --list`).
+    member _.TagList() = git.TagList dir
+
+    /// Delete a tag (`tag -d <name>`).
+    member _.TagDelete(name: string) = git.TagDelete(dir, name)
+
+    /// A file's content at a revision (`git show <rev>:<path>`).
+    member _.ShowFile(rev: string, path: string) = git.ShowFile(dir, rev, path)
+
+    /// The value of a config key, or `None` when unset (`config --get <key>`).
+    member _.ConfigGet(key: string) = git.ConfigGet(dir, key)
+
+    /// Set a config key in the repository's local config (`config <key> <value>`).
+    member _.ConfigSet(key: string, value: string) = git.ConfigSet(dir, key, value)
+
+    /// Add a remote (`remote add <name> <url>`).
+    member _.RemoteAdd(name: string, url: string) = git.RemoteAdd(dir, name, url)
+
+    /// Change a remote's URL (`remote set-url <name> <url>`).
+    member _.RemoteSetUrl(name: string, url: string) = git.RemoteSetUrl(dir, name, url)
+
+    /// Per-line authorship of `path` (`blame --line-porcelain [<rev>] -- <path>`).
+    member _.Blame(path: string, rev: string option) = git.Blame(dir, path, rev)
+
+    /// Apply a commit onto the current branch (`cherry-pick <rev>`).
+    member _.CherryPick(rev: string) = git.CherryPick(dir, rev)
+
+    /// Revert a commit with the default message (`revert --no-edit <rev>`).
+    member _.Revert(rev: string) = git.Revert(dir, rev)
+
+    /// Skip the current patch of a paused rebase (`rebase --skip`).
+    member _.RebaseSkip() = git.RebaseSkip dir

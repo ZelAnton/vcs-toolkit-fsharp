@@ -457,3 +457,21 @@ type AssemblyTests() =
             | Error e -> Assert.That(e.Message, Does.Contain "main workspace", "the guard must name the reason")
             | Ok() -> Assert.Fail "removing the main (default) workspace must be refused"
         }
+
+    [<Test>]
+    member _.RepoGitAtAndJjAtMatchTheBackend() : Task =
+        task {
+            // `GitAt` is `Some` on a git repo (`JjAt` `None`); `JjAt` is the mirror on a jj repo.
+            // The returned view forwards to the repo's cwd (dir dropped).
+            let git = gitRepo [ "status"; "--porcelain=v1"; "-z" ] (Reply.Ok "")
+            Assert.That(Option.isSome git.GitAt, "a git repo exposes GitAt")
+            Assert.That(Option.isNone git.JjAt, "a git repo has no JjAt")
+
+            match! git.GitAt.Value.Status() with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"GitAt.Status failed: {e.Message}"
+
+            let jj = jjRepo [ "diff" ] (Reply.Ok "")
+            Assert.That(Option.isSome jj.JjAt, "a jj repo exposes JjAt")
+            Assert.That(Option.isNone jj.GitAt, "a jj repo has no GitAt")
+        }
