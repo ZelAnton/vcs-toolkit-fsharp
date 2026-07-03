@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<AssemblyName>VcsToolkit.Watch</AssemblyName>
+		<PackageId>VcsToolkit.Watch</PackageId>
+		<Description>Filesystem-watch a git/jj repository and emit typed state-change events. A RepoWatcher watches the repo's .git/.jj state dir (and, optionally, the working tree), debounces the write burst a VCS operation makes, re-queries the repo state through VcsToolkit.Core's batched snapshot, and diffs it against the previous state to yield typed RepoEvents. Re-query-and-diff (rather than interpreting raw filesystem events) makes it robust to ref temp-file renames, index.lock churn, and reflog noise. The foundation for prompts, status bars, TUIs, and repo daemons.</Description>
+		<PackageTags>fsharp;vcs;git;jujutsu;jj;watch;filesystem;events;prompt;status</PackageTags>
+		<!-- Cross-project references resolve through assembly search paths (no ProjectReference). -->
+		<AssemblySearchPaths>$(AssemblySearchPaths);$(CoreDir)bin\$(Configuration)\$(TargetFramework);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework);$(DiffDir)bin\$(Configuration)\$(TargetFramework);$(GitDir)bin\$(Configuration)\$(TargetFramework);$(JjDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
+	</PropertyGroup>
+
+	<!-- F# COMPILE ORDER IS SIGNIFICANT. -->
+	<ItemGroup>
+		<Compile Include="Event.fs" />
+		<Compile Include="Error.fs" />
+		<Compile Include="Watch.fs" />
+	</ItemGroup>
+
+	<!-- The pure diff, the debounce loop, and the path helpers are internal; the test
+	     project drives them directly (hermetic pipeline + path tests). -->
+	<ItemGroup>
+		<AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+			<_Parameter1>VcsToolkit.Watch.Tests</_Parameter1>
+		</AssemblyAttribute>
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="FSharp.Core" />
+		<PackageReference Include="ProcessKit" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Reference Include="VcsToolkit.Core" />
+		<Reference Include="VcsToolkit.CliSupport" />
+		<Reference Include="VcsToolkit.Diff" />
+		<Reference Include="VcsToolkit.Git" />
+		<Reference Include="VcsToolkit.Jj" />
+	</ItemGroup>
+
+</Project>
