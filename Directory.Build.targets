@@ -1,0 +1,121 @@
+<Project>
+
+	<!-- Pre-publish inter-package NuGet dependencies.
+
+	     The packaged libraries reference their siblings via <Reference> + AssemblySearchPaths
+	     (the repo convention — never <ProjectReference>; see CLAUDE.md / AGENTS.md). `dotnet pack`
+	     derives NuGet <dependencies> only from the restore graph (the assets file), so it cannot
+	     see those assembly references: a published `VcsToolkit.Git` .nupkg would omit its dependency
+	     on `VcsToolkit.CliSupport` / `VcsToolkit.Diff` and an external consumer would hit a
+	     missing-assembly error.
+
+	     So after `Pack` produces the .nupkg, this target rewrites the packed .nuspec to add each
+	     `VcsToolkit.*` sibling as a NuGet dependency at THIS build's version. The sibling set is
+	     derived from @(Reference) (assembly refs named `VcsToolkit.*`), so it stays in sync with the
+	     references automatically. The build itself (which uses the assembly references) is untouched
+	     — only the packaged .nuspec is edited. No author-signing happens at pack time, so editing the
+	     .nupkg is safe (nuget.org adds its repository signature server-side on push). -->
+
+	<UsingTask TaskName="InjectNuspecDependencies"
+	           TaskFactory="RoslynCodeTaskFactory"
+	           AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+		<ParameterGroup>
+			<OutputDir ParameterType="System.String" Required="true" />
+			<PackageId ParameterType="System.String" Required="true" />
+			<DependencyIds ParameterType="System.String[]" Required="true" />
+			<Version ParameterType="System.String" Required="true" />
+		</ParameterGroup>
+		<Task>
+			<Using Namespace="System" />
+			<Using Namespace="System.IO" />
+			<Using Namespace="System.IO.Compression" />
+			<Using Namespace="System.Linq" />
+			<Using Namespace="System.Xml.Linq" />
+			<Code Type="Fragment" Language="cs"><![CDATA[
+				if (DependencyIds == null || DependencyIds.Length == 0) return true;
+
+				// Resolve the packed .nupkg without reconstructing its exact filename: NuGet
+				// normalizes the version token (`1.2.3.0`->`1.2.3`, drops `+meta`), so match on the
+				// package id and exclude the symbols (.snupkg) package. Prefer an exact name match,
+				// else the newest matching .nupkg.
+				var exact = Path.Combine(OutputDir, PackageId + "." + Version + ".nupkg");
+				var candidates = Directory.Exists(OutputDir)
+					? Directory.GetFiles(OutputDir, PackageId + ".*")
+						.Where(f => f.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase)
+								 && !f.EndsWith(".snupkg", StringComparison.OrdinalIgnoreCase)
+								 // The char right after "PackageId." must be the version's leading digit,
+								 // so packing `VcsToolkit.Mcp` never matches `VcsToolkit.Mcp.Server.*`.
+								 && Path.GetFileName(f).Length > PackageId.Length + 1
+								 && char.IsDigit(Path.GetFileName(f)[PackageId.Length + 1]))
+						.ToArray()
+					: new string[0];
+				var nupkgPath = File.Exists(exact) ? exact
+					: candidates.OrderByDescending(f => File.GetLastWriteTimeUtc(f)).FirstOrDefault();
+				if (nupkgPath == null) { Log.LogError("InjectNuspecDependencies: no .nupkg for " + PackageId + " in " + OutputDir); return false; }
+
+				using (var zip = ZipFile.Open(nupkgPath, ZipArchiveMode.Update))
+				{
+					var entry = zip.Entries.FirstOrDefault(e => e.FullName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase));
+					if (entry == null) { Log.LogError("InjectNuspecDependencies: no .nuspec in " + nupkgPath); return false; }
+
+					XDocument doc;
+					using (var s = entry.Open()) doc = XDocument.Load(s);
+					if (doc.Root == null) { Log.LogError("InjectNuspecDependencies: empty .nuspec in " + nupkgPath); return false; }
+					XNamespace ns = doc.Root.GetDefaultNamespace();
+
+					var meta = doc.Root.Element(ns + "metadata");
+					if (meta == null) { Log.LogError("InjectNuspecDependencies: <metadata> missing in " + nupkgPath); return false; }
+					var deps = meta.Element(ns + "dependencies");
+					if (deps == null) { deps = new XElement(ns + "dependencies"); meta.Add(deps); }
+
+					// Add into every per-framework <group> (there is one net10.0 group here); if the
+					// nuspec has no group, add flat <dependency> children directly under <dependencies>.
+					var groups = deps.Elements(ns + "group").ToList();
+					var targets = groups.Count > 0 ? groups : new System.Collections.Generic.List<XElement> { deps };
+					foreach (var target in targets)
+					{
+						foreach (var id in DependencyIds)
+						{
+							bool present = target.Elements(ns + "dependency")
+								.Any(d => string.Equals((string)d.Attribute("id"), id, StringComparison.OrdinalIgnoreCase));
+							if (present) continue;
+							target.Add(new XElement(ns + "dependency",
+								new XAttribute("id", id),
+								new XAttribute("version", Version)));
+						}
+					}
+
+					// Rewrite the entry in place (delete + recreate to replace its bytes).
+					var name = entry.FullName;
+					entry.Delete();
+					var rewritten = zip.CreateEntry(name);
+					using (var s = rewritten.Open()) doc.Save(s);
+				}
+				Log.LogMessage(MessageImportance.High,
+					"[pack-deps] injected " + string.Join(", ", DependencyIds) + " (" + Version + ") into " + Path.GetFileName(nupkgPath));
+			]]></Code>
+		</Task>
+	</UsingTask>
+
+	<Target Name="_InjectSiblingPackageDependencies"
+	        AfterTargets="Pack"
+	        Condition="'$(IsPackable)' != 'false' and '$(NuspecFile)' == ''">
+		<ItemGroup>
+			<!-- The VcsToolkit.* sibling assembly references become NuGet dependencies. INVARIANT:
+			     every VcsToolkit.* project a *packable* library references must itself be a published
+			     package — else the injected <dependency> points at a package that never reaches
+			     nuget.org. (Today all sibling refs are packable libs; TestKit / Mcp.Server, the only
+			     non-published projects, are referenced by nothing that packs.) -->
+			<_VcsSiblingRef Include="@(Reference)"
+			                Condition="$([System.String]::Copy('%(Reference.Identity)').StartsWith('VcsToolkit.'))" />
+		</ItemGroup>
+
+		<InjectNuspecDependencies
+			Condition="'@(_VcsSiblingRef)' != ''"
+			OutputDir="$(PackageOutputPath)"
+			PackageId="$(PackageId)"
+			DependencyIds="@(_VcsSiblingRef->'%(Identity)')"
+			Version="$(PackageVersion)" />
+	</Target>
+
+</Project>

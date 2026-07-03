@@ -45,30 +45,24 @@ dotnet build VcsToolkit.slnx
 dotnet test  VcsToolkit.slnx
 ```
 
-## Publishing status (not yet release-ready)
+## Publishing status
 
-These packages are **not yet publishable to nuget.org**, for two reasons tracked
-to resolve before the first release:
+**Inter-package dependencies are now declared.** Because cross-project references use
+`Reference` + `AssemblySearchPaths` (per the repo conventions) rather than
+`ProjectReference`, `dotnet pack` cannot see the sibling dependencies. So a post-pack
+target ([`Directory.Build.targets`](Directory.Build.targets)) rewrites each packed
+`.nuspec` to add its `VcsToolkit.*` siblings as NuGet dependencies at the build's version
+— derived from the `@(Reference)` set, so it stays in sync automatically. A consumer of
+`VcsToolkit.Git` now transitively restores `VcsToolkit.CliSupport` / `VcsToolkit.Diff`;
+the facades declare their backends (`Core` → `Git`/`Jj` (+ `CliSupport`/`Diff`), `Forge`
+→ `GitHub`/`GitLab`/`Gitea`, `Watch` → `Core`, `Mcp` → `Core`/`Forge`).
+`VcsToolkit.TestKit` is self-contained (no sibling references).
 
-1. **ProcessKit 2.0.0 is not on nuget.org** (it tops out at 1.3.2 there). Every
-   `VcsToolkit.*` package declares a `ProcessKit (>= 2.0.0)` dependency, so they
-   cannot be installed externally until that version is published upstream.
-2. **Inter-package dependencies are not yet declared.** Because cross-project
-   references use `Reference` + `AssemblySearchPaths` (per the repo conventions)
-   rather than `ProjectReference`, `dotnet pack` does not record sibling
-   dependencies: the `VcsToolkit.Git` / `VcsToolkit.Jj` / `VcsToolkit.GitHub` /
-   `VcsToolkit.GitLab` / `VcsToolkit.Gitea` / `VcsToolkit.Core` / `VcsToolkit.Forge` /
-   `VcsToolkit.Watch` / `VcsToolkit.Mcp`
-   packages do not yet declare their dependency on `VcsToolkit.CliSupport` /
-   `VcsToolkit.Diff` (and the facades on their backend packages: `Core` on `Git`/`Jj`,
-   `Forge` on `GitHub`/`GitLab`/`Gitea`, `Watch` on `Core`, `Mcp` on `Core`/`Forge`).
-   `VcsToolkit.TestKit` is self-contained (no sibling references). This must be wired up (e.g. via a
-   pack-time dependency injection, or by revisiting the reference style for the
-   packaged libraries) before publishing, or an external consumer of
-   `VcsToolkit.Git` would hit a missing-assembly error.
-
-Both are publish-time concerns only — local build, test, and CI (a fresh clone
-restores ProcessKit from the committed `local-packages/` feed) are unaffected.
+**One remaining blocker before the first nuget.org release:** **ProcessKit 2.0.0 is not on
+nuget.org** (it tops out at 1.3.2 there). Every `VcsToolkit.*` package declares a
+`ProcessKit (>= 2.0.0)` dependency, so external consumers cannot restore them until that
+version is published upstream. Local build, test, and CI are unaffected — a fresh clone
+restores ProcessKit 2.0.0 from the committed `local-packages/` feed.
 
 ## Changelog
 
