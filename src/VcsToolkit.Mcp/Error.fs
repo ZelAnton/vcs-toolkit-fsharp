@@ -6,7 +6,8 @@ open VcsToolkit.Forge
 
 /// An error surfaced from a tool call — mapped onto MCP's JSON-RPC error codes by the
 /// server binary: `InvalidParams` is the client's call to fix (a bad argument, a disabled
-/// write, an unsupported forge op), `Internal` is a backend/network failure.
+/// write, an unsupported forge op), `Internal` is a backend/network failure. This type may gain
+/// cases — add a `| _ ->` arm if you match it, so a future case doesn't break your code.
 [<RequireQualifiedAccess>]
 type McpError =
     /// The caller's input/request was refused (invalid-params on the wire).

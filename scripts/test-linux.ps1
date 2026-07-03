@@ -25,7 +25,7 @@
 
 .PARAMETER Filter
     Optional `dotnet test --filter` expression
-    (e.g. "FullyQualifiedName~greet").
+    (e.g. "FullyQualifiedName~TestMethodName").
 
 .PARAMETER Rebuild
     Run `dotnet clean` before the tests.
@@ -34,7 +34,7 @@
     pwsh ./scripts/test-linux.ps1
 
 .EXAMPLE
-    pwsh ./scripts/test-linux.ps1 -Filter "FullyQualifiedName~greet"
+    pwsh ./scripts/test-linux.ps1 -Filter "FullyQualifiedName~TestMethodName"
 #>
 [CmdletBinding()]
 param(

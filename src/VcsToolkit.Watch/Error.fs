@@ -5,7 +5,9 @@ open ProcessKit
 open VcsToolkit.Core
 
 /// An error from setting up or running a `RepoWatcher`: a filesystem-watcher failure plus
-/// the underlying `VcsToolkit.Core` re-query errors.
+/// the underlying `VcsToolkit.Core` re-query errors. This type is extensible (the Rust model is
+/// `#[non_exhaustive]`): add a `| _ ->` arm if you match its cases, so a future case doesn't
+/// break your code.
 [<RequireQualifiedAccess>]
 type WatchError =
     /// The filesystem watcher (`FileSystemWatcher`) failed to start or register a path.

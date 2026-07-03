@@ -165,6 +165,30 @@ type DispatchTests() =
         Assert.That(tea.Supports ForgeOp.ReleaseView, Is.False)
 
     [<Test>]
+    member _.RawClientAccessorsReturnTheBackendClientOnly() =
+        // Each `*Client` escape hatch is `Some` only for its own backend — the `Repo.Git`/`Repo.Jj`
+        // analogue, letting a consumer reach the raw client (e.g. for `gh`-only ops) after building
+        // the handle with a convenience constructor.
+        let gh = ghForge [ "pr"; "list" ] (Reply.Ok "[]")
+        Assert.That(gh.GitHubClient.IsSome, "GitHub-backed → GitHubClient is Some")
+        Assert.That(gh.GitLabClient.IsNone)
+        Assert.That(gh.GiteaClient.IsNone)
+
+        let gl = glForge [ "mr"; "list" ] (Reply.Ok "[]")
+        Assert.That(gl.GitLabClient.IsSome)
+        Assert.That(gl.GitHubClient.IsNone)
+        Assert.That(gl.GiteaClient.IsNone)
+
+        let tea = teaForge [ "pr"; "list" ] (Reply.Ok "[]")
+        Assert.That(tea.GiteaClient.IsSome)
+        Assert.That(tea.GitHubClient.IsNone)
+
+        let unknown = Forge.FromUnknown "."
+        Assert.That(unknown.GitHubClient.IsNone, "Unknown backend → no client")
+        Assert.That(unknown.GitLabClient.IsNone)
+        Assert.That(unknown.GiteaClient.IsNone)
+
+    [<Test>]
     member _.GitHubPrListMapsUnifiedState() : Task =
         task {
             let json =

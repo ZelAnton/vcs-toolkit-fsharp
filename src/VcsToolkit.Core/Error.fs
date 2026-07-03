@@ -6,7 +6,8 @@ open VcsToolkit.CliSupport
 /// An error from a `Repo` operation: a thin wrapper that adds repo-detection and
 /// filesystem failures on top of the underlying `ProcessError` the per-tool clients
 /// return. Prefer the `Is*` classifiers to branch on intent rather than matching the
-/// wrapped error's internals.
+/// wrapped error's internals. This type is extensible (the Rust model is `#[non_exhaustive]`):
+/// add a `| _ ->` arm if you match its cases, so a future case doesn't break your code.
 [<RequireQualifiedAccess>]
 type RepoError =
     /// `Repo.Open` found no `.git`/`.jj` from the start dir up to the filesystem root.

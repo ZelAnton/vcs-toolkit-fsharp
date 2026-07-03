@@ -110,6 +110,32 @@ type Forge private (cwd: string, backend: Backend) =
     /// A sibling handle bound to `dir`, sharing this handle's client.
     member _.At(dir: string) = Forge(dir, backend)
 
+    /// The underlying `GitHub` client, or `None` when another forge backs this handle — an escape
+    /// hatch to `gh`-only operations off the forge-agnostic surface (Actions runs, `prReview`/
+    /// `prFeedback`, the `api` REST/GraphQL hatch, `prMerge` auto-merge/delete-branch). Carries the
+    /// token when this handle was built via `GitHubWithToken`/`FromGitHub`. Pass `Cwd` as `dir`.
+    /// (The `Repo.Git`/`Repo.Jj` analogue for the forge facade; named `*Client` because the bare
+    /// `GitHub`/`GitLab`/`Gitea` names are the handle's constructors.)
+    member _.GitHubClient =
+        match backend with
+        | Backend.GitHub c -> Some c
+        | _ -> None
+
+    /// The underlying `GitLab` client, or `None` when another forge backs this handle — the
+    /// escape hatch to `glab`-only operations (see `GitHubClient`). Carries the token when built
+    /// via `GitLabWithToken`/`FromGitLab`.
+    member _.GitLabClient =
+        match backend with
+        | Backend.GitLab c -> Some c
+        | _ -> None
+
+    /// The underlying `Gitea`/Forgejo (`tea`) client, or `None` when another forge backs this
+    /// handle — the escape hatch to `tea`-only operations (see `GitHubClient`).
+    member _.GiteaClient =
+        match backend with
+        | Backend.Gitea c -> Some c
+        | _ -> None
+
     /// Whether this handle's backend supports `op`. The capability-varying operations
     /// (`ForgeOp`) are all present on GitHub and GitLab; Gitea (`tea`) supports **none**
     /// of them, and an `Unknown` handle (no CLI) supports nothing — so this agrees with

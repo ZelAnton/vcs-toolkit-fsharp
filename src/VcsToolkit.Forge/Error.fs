@@ -32,7 +32,9 @@ module private ForgeErrorMarkers =
 
 /// An error from a `Forge` operation: the underlying `ProcessError` the wrapper clients
 /// return, plus `Unsupported` (an operation a forge's CLI does not provide) and
-/// `InvalidInput` (caller input refused before any spawn).
+/// `InvalidInput` (caller input refused before any spawn). This type is extensible (the Rust
+/// model is `#[non_exhaustive]`): prefer the `Is*` classifiers, and add a `| _ ->` arm if you
+/// match its cases, so a future case doesn't break your code.
 [<RequireQualifiedAccess>]
 type ForgeError =
     /// An underlying GitHub/GitLab/Gitea (i.e. ProcessKit) error, carried verbatim.

@@ -28,6 +28,6 @@ A named volume (`VcsToolkit-nuget`) caches NuGet packages between runs.
 Useful switches:
 
 ```pwsh
-pwsh ./scripts/test-linux.ps1 -Filter "FullyQualifiedName~greet"
+pwsh ./scripts/test-linux.ps1 -Filter "FullyQualifiedName~TestMethodName"
 pwsh ./scripts/test-linux.ps1 -Configuration Debug -Rebuild
 ```
