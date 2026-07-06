@@ -124,7 +124,8 @@ let private buildTools () : ResizeArray<Tool> =
 /// A tool result carrying one text block (an error result sets `IsError`).
 let private textResult (text: string) (isError: bool) : CallToolResult =
     let content = ResizeArray<ContentBlock>()
-    content.Add(TextContentBlock(Text = text, Type = "text") :> ContentBlock)
+    // `TextContentBlock.Type` is fixed to "text" in the SDK (no longer settable).
+    content.Add(TextContentBlock(Text = text) :> ContentBlock)
 
     if isError then
         CallToolResult(Content = content, IsError = Nullable true)
@@ -146,24 +147,23 @@ let private runServer (server: VcsMcpServer) : Task =
 
     let callHandler =
         McpRequestHandler<CallToolRequestParams, CallToolResult>(fun ctx _ct ->
-            match ctx.Params with
-            | null -> ValueTask<CallToolResult>(textResult "missing call parameters" true)
-            | p ->
-                let name = p.Name
+            // `ctx.Params` is non-nullable in the SDK (a call-tool request always carries params).
+            let p = ctx.Params
+            let name = p.Name
 
-                let argsElem =
-                    match p.Arguments with
-                    | null -> JsonDocument.Parse("{}").RootElement
-                    | dict -> JsonSerializer.SerializeToElement dict
+            let argsElem =
+                match p.Arguments with
+                | null -> JsonDocument.Parse("{}").RootElement
+                | dict -> JsonSerializer.SerializeToElement dict
 
-                let work =
-                    task {
-                        match! Catalog.callTool server name argsElem with
-                        | Ok json -> return textResult json false
-                        | Error e -> return textResult e.Message true
-                    }
+            let work =
+                task {
+                    match! Catalog.callTool server name argsElem with
+                    | Ok json -> return textResult json false
+                    | Error e -> return textResult e.Message true
+                }
 
-                ValueTask<CallToolResult>(work))
+            ValueTask<CallToolResult>(work))
 
     builder.Services
         .AddMcpServer(fun options ->
