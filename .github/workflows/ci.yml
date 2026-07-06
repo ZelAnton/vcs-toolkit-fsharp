@@ -68,12 +68,17 @@ jobs:
 
       # Cache the global NuGet package folder across runs. Keyed on the central
       # version files so the cache invalidates only when dependencies change.
+      # The `v2` namespace deliberately abandons every pre-existing cache: ProcessKit 2.0.0
+      # moved from a vendored pre-release (bundled under local-packages/) to the published
+      # nuget.org package. The two share the version number but differ in API, so an older
+      # cache holding the vendored 2.0.0 would shadow the published one (NuGet treats a
+      # version as immutable and never re-downloads it) and break the build.
       - name: Cache NuGet packages
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('Directory.Packages.props', 'nuget.config', 'global.json') }}
-          restore-keys: ${{ runner.os }}-nuget-
+          key: ${{ runner.os }}-nuget-v2-${{ hashFiles('Directory.Packages.props', 'nuget.config', 'global.json') }}
+          restore-keys: ${{ runner.os }}-nuget-v2-
 
       - name: Restore
         run: dotnet restore
