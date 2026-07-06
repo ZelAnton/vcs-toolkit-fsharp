@@ -84,13 +84,15 @@ type Git private (core: ManagedClient) =
     /// read-modify-write must be byte-exact, and a diff's trailing blank context line keeps the
     /// last hunk's `@@` count valid on re-parse/re-apply.
     let runUntrimmed (cmd: Command) : System.Threading.Tasks.Task<Result<string, ProcessError>> =
+        // Capture as bytes and decode, not via the string verb: the latter reconstructs stdout from
+        // lines and drops the trailing newline, which would defeat byte-exactness.
         task {
-            match! core.Output cmd with
+            match! core.OutputBytes cmd with
             | Error e -> return Error e
             | Ok res ->
                 match ProcessResult.ensureSuccess res with
                 | Error e -> return Error e
-                | Ok ok -> return Ok ok.Stdout
+                | Ok ok -> return Ok(System.Text.Encoding.UTF8.GetString ok.Stdout)
         }
 
     /// Scrub the inherited repo-**redirector** environment variables on **every** command

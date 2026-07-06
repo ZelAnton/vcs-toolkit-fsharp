@@ -176,6 +176,16 @@ type ManagedClient private (cfg: ManagedConfig) =
             | Ok prepared -> return! Runner.outputString cfg.Runner cfg.Cancel prepared
         }
 
+    /// Capture the full `ProcessResult` with stdout as **raw bytes** — byte-exact, unlike `Output`,
+    /// whose string capture reconstructs from lines and drops the trailing newline. For blob/diff
+    /// content that must round-trip verbatim. Credential injection applied; no lock-retry.
+    member this.OutputBytes(cmd: Command) : Task<Result<ProcessResult<byte[]>, ProcessError>> =
+        task {
+            match! this.Prepare cmd with
+            | Error e -> return Error e
+            | Ok prepared -> return! Runner.outputBytes cfg.Runner cfg.Cancel prepared
+        }
+
     /// Read the exit code as a yes/no (0 -> true, 1 -> false), with credential injection and lock-retry.
     member this.Probe(cmd: Command) : Task<Result<bool, ProcessError>> =
         task {

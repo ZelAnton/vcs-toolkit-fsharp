@@ -841,7 +841,7 @@ type HardeningTests() =
         task {
             // A signal kill has no faithful exit code — it must surface as an Error,
             // NOT be silently read as "not authenticated" (regression guard).
-            let gh = scripted [ "auth"; "status" ] (Reply.Signalled None)
+            let gh = scripted [ "auth"; "status" ] (Reply.Signalled 9)
 
             let! r = gh.AuthStatus()
             Assert.That(Result.isError r, Is.True, "an abnormal termination must error, not read false")
@@ -900,7 +900,7 @@ type HardeningTests() =
     member _.RunWatchAbnormalWatchErrorsWithoutViewing() : Task =
         task {
             // Same safety property for an abnormal (signal) termination.
-            let gh = scripted [ "run"; "watch"; "42" ] (Reply.Signalled None)
+            let gh = scripted [ "run"; "watch"; "42" ] (Reply.Signalled 9)
 
             let! r = gh.RunWatch(".", 42UL)
             Assert.That(Result.isError r, Is.True, "an abnormally-terminated watch must error, not view")

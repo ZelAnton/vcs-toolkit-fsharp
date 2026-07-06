@@ -28,11 +28,13 @@
 		<PackageVersion Include="NUnit3TestAdapter" Version="6.2.0" />
 	</ItemGroup>
 
-	<!-- Production dependency: the process-execution layer every CLI wrapper drives.
-	     Resolved from the local feed (see nuget.config) because the 2.0.0 API ships
-	     only from the sibling ProcessKit-fSharp solution. -->
+	<!-- Production dependency: the process-execution layer every CLI wrapper drives
+	     (restored from nuget.org). ProcessKit.Testing is its split-out test doubles
+	     (ScriptedRunner/Reply) — a TEST-only dependency, restored from the local feed until
+	     it is published to nuget.org (see nuget.config). -->
 	<ItemGroup>
 		<PackageVersion Include="ProcessKit" Version="2.0.0" />
+		<PackageVersion Include="ProcessKit.Testing" Version="2.0.0" />
 	</ItemGroup>
 
 	<!-- VcsToolkit.Mcp dependencies: clean F#→JSON for tool results, and the Model Context

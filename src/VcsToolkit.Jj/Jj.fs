@@ -106,13 +106,15 @@ type Jj private (core: ManagedClient) =
     /// read-modify-write must be byte-exact, and a diff's trailing blank context line keeps the
     /// last hunk's `@@` count valid on re-parse/re-apply.
     let runUntrimmed (cmd: Command) : System.Threading.Tasks.Task<Result<string, ProcessError>> =
+        // Capture as bytes and decode, not via the string verb: the latter reconstructs stdout from
+        // lines and drops the trailing newline, which would defeat byte-exactness.
         task {
-            match! core.Output cmd with
+            match! core.OutputBytes cmd with
             | Error e -> return Error e
             | Ok res ->
                 match ProcessResult.ensureSuccess res with
                 | Error e -> return Error e
-                | Ok ok -> return Ok ok.Stdout
+                | Ok ok -> return Ok(System.Text.Encoding.UTF8.GetString ok.Stdout)
         }
 
     /// Create a client driving the real job-backed runner.
@@ -487,17 +489,17 @@ type Jj private (core: ManagedClient) =
             @ [ "-T"; JjParse.ANNOTATE_TEMPLATE; "--color"; "never"; "--"; path ]
 
         task {
-            // Parse the raw (un-trimmed) stdout via `Output` rather than `Parse`: the
-            // latter feeds the parser `TrimEnd`-ed stdout, which would strip the final
-            // line's trailing `\r` that `parseAnnotate` is documented to preserve for a
-            // CRLF-terminated source file. Rust's `core.parse` feeds raw stdout, so this
-            // keeps byte-for-byte parity for the last line.
-            match! core.Output(core.CommandIn(dir, args)) with
+            // Parse raw bytes, not the string verb (`Output`): the latter reconstructs stdout
+            // from a line buffer, stripping every trailing `\r` (full CRLF→LF normalization) and
+            // the final newline — which would destroy the `\r` that `parseAnnotate` is documented
+            // to preserve for a CRLF-terminated source line. Rust's `core.parse` feeds raw stdout,
+            // so this keeps byte-for-byte parity for the last line.
+            match! core.OutputBytes(core.CommandIn(dir, args)) with
             | Error e -> return Error e
             | Ok res ->
                 match ProcessResult.ensureSuccess res with
                 | Error e -> return Error e
-                | Ok ok -> return Ok(JjParse.parseAnnotate ok.Stdout)
+                | Ok ok -> return Ok(JjParse.parseAnnotate (System.Text.Encoding.UTF8.GetString ok.Stdout))
         }
 
     /// A file's content at a revision (`jj file show -r <revset> file:"<path>"` — the

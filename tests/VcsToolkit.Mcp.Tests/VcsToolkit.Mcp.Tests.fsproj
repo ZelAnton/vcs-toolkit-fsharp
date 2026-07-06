@@ -16,6 +16,7 @@
 		<PackageReference Include="NUnit" />
 		<PackageReference Include="NUnit3TestAdapter" />
 		<PackageReference Include="ProcessKit" />
+		<PackageReference Include="ProcessKit.Testing" />
 		<!-- The Mcp library serializes via FSharp.SystemTextJson; the test process needs its
 		     assembly at runtime (a transitive package dep isn't pulled through a bare Reference). -->
 		<PackageReference Include="FSharp.SystemTextJson" />

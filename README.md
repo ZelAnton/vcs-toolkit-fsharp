@@ -58,11 +58,13 @@ the facades declare their backends (`Core` → `Git`/`Jj` (+ `CliSupport`/`Diff`
 → `GitHub`/`GitLab`/`Gitea`, `Watch` → `Core`, `Mcp` → `Core`/`Forge`).
 `VcsToolkit.TestKit` is self-contained (no sibling references).
 
-**One remaining blocker before the first nuget.org release:** **ProcessKit 2.0.0 is not on
-nuget.org** (it tops out at 1.3.2 there). Every `VcsToolkit.*` package declares a
-`ProcessKit (>= 2.0.0)` dependency, so external consumers cannot restore them until that
-version is published upstream. Local build, test, and CI are unaffected — a fresh clone
-restores ProcessKit 2.0.0 from the committed `local-packages/` feed.
+**ProcessKit 2.0.0 is now on nuget.org**, so a consumer of any `VcsToolkit.*` package restores
+its `ProcessKit (>= 2.0.0)` runtime dependency cleanly — the packages are ready to publish. The
+only vendored dependency left is **`ProcessKit.Testing`** (the split-out `ScriptedRunner` / `Reply`
+test doubles), which is not yet on nuget.org; it is a **test-only** dependency restored from the
+committed `local-packages/` feed, so it never reaches the published `VcsToolkit.*` packages and
+does not affect consumers. (Publish `ProcessKit.Testing` to nuget.org and this vendored copy plus
+the `local` feed in `nuget.config` can be dropped.)
 
 ## Changelog
 

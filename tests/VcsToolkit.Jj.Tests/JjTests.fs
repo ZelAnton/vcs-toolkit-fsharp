@@ -527,6 +527,24 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.FileAnnotatePreservesCrThroughByteCapture() : Task =
+        task {
+            // A CRLF-terminated source line: the `\r` in each annotate row's content must survive
+            // end-to-end. FileAnnotate captures raw bytes, not the line-normalizing string verb —
+            // which strips every `\r` and would silently corrupt a CRLF file's annotation.
+            let annotate =
+                scripted
+                    [ "file"; "annotate"; "-r"; "@-"; "--"; "src/a.rs" ]
+                    (Reply.Ok $"kz{tab}fn main() {{{cr}\nkz{tab}}}{cr}\n")
+
+            match! annotate.FileAnnotate(".", "src/a.rs", Some "@-") with
+            | Ok lines ->
+                Assert.That(lines.Length, Is.EqualTo 2)
+                Assert.That(lines.[0].Content, Is.EqualTo $"fn main() {{{cr}", "the CRLF `\\r` survives byte capture")
+            | Error e -> Assert.Fail $"file_annotate failed: {e}"
+        }
+
+    [<Test>]
     member _.DescriptionBuildsSingleCommitQuery() : Task =
         task {
             let jj =

@@ -520,7 +520,7 @@ type SemanticsTests() =
     member _.AuthStatusErrorsOnAbnormalTermination() : Task =
         task {
             // A signal kill has no exit code — it must surface as an error, not "false".
-            let tea = scripted [ "login"; "list"; "--output"; "json" ] (Reply.Signalled None)
+            let tea = scripted [ "login"; "list"; "--output"; "json" ] (Reply.Signalled 9)
 
             let! r = tea.AuthStatus()
             Assert.That(Result.isError r, Is.True, "an abnormal termination must error, not read false")
