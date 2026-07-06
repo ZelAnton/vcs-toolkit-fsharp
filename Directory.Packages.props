@@ -39,7 +39,7 @@
 	     Protocol server SDK (+ its Hosting glue) for the vcs-mcp binary. -->
 	<ItemGroup>
 		<PackageVersion Include="FSharp.SystemTextJson" Version="1.4.36" />
-		<PackageVersion Include="ModelContextProtocol" Version="0.4.0-preview.3" />
+		<PackageVersion Include="ModelContextProtocol" Version="1.4.0" />
 		<PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.9" />
 	</ItemGroup>
 </Project>
