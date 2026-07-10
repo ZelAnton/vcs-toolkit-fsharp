@@ -147,11 +147,7 @@ module internal Args =
                     // "effectively none" either way.
                     let clamped = min bytes (uint64 Int32.MaxValue)
 
-                    outputBudget <-
-                        (if bytes > 0UL then
-                             Some(int clamped)
-                         else
-                             None)
+                    outputBudget <- (if bytes > 0UL then Some(int clamped) else None)
 
                     rest <- tl
                 | false, _ ->
