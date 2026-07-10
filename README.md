@@ -34,10 +34,9 @@ The toolkit is split into one package per concern, mirroring the Rust workspace.
 
 ## Building from source
 
-`VcsToolkit` consumes ProcessKit 2.0.0, whose published feed currently tops out at
-1.3.2, so the 2.0.0 `.nupkg` is vendored under [`local-packages/`](local-packages)
-and exposed through a local NuGet source in [`nuget.config`](nuget.config). No extra
-setup is needed — restore picks it up automatically.
+`VcsToolkit` restores every dependency — ProcessKit (the runtime process-execution
+layer) and, for the test projects, its split-out `ProcessKit.Testing` doubles — from
+nuget.org. No extra feeds or setup are needed.
 
 ```sh
 dotnet tool restore        # restores Fantomas (the F# formatter)
@@ -58,13 +57,12 @@ the facades declare their backends (`Core` → `Git`/`Jj` (+ `CliSupport`/`Diff`
 → `GitHub`/`GitLab`/`Gitea`, `Watch` → `Core`, `Mcp` → `Core`/`Forge`).
 `VcsToolkit.TestKit` is self-contained (no sibling references).
 
-**ProcessKit 2.0.0 is now on nuget.org**, so a consumer of any `VcsToolkit.*` package restores
-its `ProcessKit (>= 2.0.0)` runtime dependency cleanly — the packages are ready to publish. The
-only vendored dependency left is **`ProcessKit.Testing`** (the split-out `ScriptedRunner` / `Reply`
-test doubles), which is not yet on nuget.org; it is a **test-only** dependency restored from the
-committed `local-packages/` feed, so it never reaches the published `VcsToolkit.*` packages and
-does not affect consumers. (Publish `ProcessKit.Testing` to nuget.org and this vendored copy plus
-the `local` feed in `nuget.config` can be dropped.)
+**ProcessKit and `ProcessKit.Testing` are both on nuget.org** (pinned at 2.2.0), so a consumer of
+any `VcsToolkit.*` package restores its `ProcessKit (>= 2.2.0)` runtime dependency cleanly — the
+packages are ready to publish. The split-out `ScriptedRunner` / `Reply` test doubles now restore
+from the published **`ProcessKit.Testing`** package too — a **test-only** dependency that never
+reaches the published `VcsToolkit.*` packages, so it does not affect consumers. Nothing is
+vendored and there is no local NuGet feed.
 
 ## Changelog
 

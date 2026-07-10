@@ -19,12 +19,6 @@ project.lock.json
 project.fragment.lock.json
 artifacts/
 
-# Vendored local feed: ProcessKit 2.0.0 ships only from the sibling solution, not
-# nuget.org, so its .nupkg is committed here to keep restore self-contained on a
-# fresh clone / CI. Negation must come after the `*.nupkg` rule above (last match wins).
-!local-packages/
-!local-packages/*.nupkg
-
 # Release pipeline scratch file — written by .github/workflows/release.yml
 release-notes.md
 
