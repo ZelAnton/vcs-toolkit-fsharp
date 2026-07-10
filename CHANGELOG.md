@@ -27,4 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `VcsToolkit.Forge`: the best-effort `ForgePr.Draft`, `ForgeRepo.Private`, `ForgeRelease.Draft`, and `ForgeRelease.Prerelease` fields change type from `bool` to `bool option`. `Some` now carries a value the backend actually reported and `None` means it does not surface the field, so an unreported draft/visibility is no longer collapsed into a confirmed `false`: `None` for a GitHub/Gitea PR draft, a GitLab release draft/pre-release, and an absent GitLab project visibility; `Some` elsewhere.
 
+### Fixed
+- `GitLab`'s `MrCreate`/`MrEdit`/`IssueCreate`/`MrComment` now refuse a body/description of exactly `"-"` before spawning `glab`, instead of hanging on glab's own stdin/`$EDITOR` sentinel prompt.
+
 [Unreleased]: https://github.com/ZelAnton/vcs-toolkit-fsharp/commits/main
