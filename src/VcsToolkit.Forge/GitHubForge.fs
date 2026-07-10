@@ -29,8 +29,9 @@ module internal GitHubForge =
           SourceBranch = pr.HeadRefName
           TargetBranch = pr.BaseRefName
           Url = pr.Url
-          // gh's lean `--json` fields don't include `isDraft`, so it's `false` here.
-          Draft = false }
+          // gh's lean `--json` fields don't include `isDraft`, so the draft state is
+          // unreported here → None (not a confirmed `Some false`).
+          Draft = None }
 
     let private mapIssue (i: VcsToolkit.GitHub.Issue) : ForgeIssue =
         { Number = i.Number
@@ -46,15 +47,17 @@ module internal GitHubForge =
           // gh reports an empty `publishedAt`/`body` for a draft/lean list — surface None.
           PublishedAt = strOpt r.PublishedAt
           Body = strOpt r.Body
-          Draft = r.IsDraft
-          Prerelease = r.IsPrerelease }
+          // gh's release surface carries both flags on list and view → Some.
+          Draft = Some r.IsDraft
+          Prerelease = Some r.IsPrerelease }
 
     let private mapRepo (r: VcsToolkit.GitHub.Repo) : ForgeRepo =
         { Name = r.Name
           Owner = r.Owner
           DefaultBranch = r.DefaultBranch
           Url = r.Url
-          Private = r.IsPrivate }
+          // gh's repo surface carries `isPrivate` → a confirmed verdict, Some.
+          Private = Some r.IsPrivate }
 
     /// Fold gh's per-check buckets into one coarse status: any fail/cancel ⇒ Failing;
     /// else any pending ⇒ Pending; else any pass ⇒ Passing; else — if there are only

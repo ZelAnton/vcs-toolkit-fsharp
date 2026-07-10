@@ -29,7 +29,8 @@ module internal GitLabForge =
           SourceBranch = mr.SourceBranch
           TargetBranch = mr.TargetBranch
           Url = mr.Url
-          Draft = mr.Draft }
+          // GitLab's MR surface carries `draft` → a confirmed verdict, Some.
+          Draft = Some mr.Draft }
 
     let private mapIssue (i: VcsToolkit.GitLab.Issue) : ForgeIssue =
         { Number = i.Number
@@ -44,9 +45,10 @@ module internal GitLabForge =
           Url = r.Url
           PublishedAt = strOpt r.PublishedAt
           Body = strOpt r.Description
-          // GitLab has no draft/pre-release concept on a release.
-          Draft = false
-          Prerelease = false }
+          // GitLab has no draft/pre-release concept on a release → unknown, None (not a
+          // fabricated `Some false`).
+          Draft = None
+          Prerelease = None }
 
     let private mapProject (p: VcsToolkit.GitLab.Repo) : ForgeRepo =
         // GitLab has no separate "owner" — everything before the last `/` in the
@@ -60,12 +62,13 @@ module internal GitLabForge =
           Owner = owner
           DefaultBranch = p.DefaultBranch
           Url = p.Url
-          // Conservative: only claim privacy when the visibility is *known* and not
-          // "public". An absent visibility (`None`) is unknown → `false` (public).
+          // Only report privacy when glab actually returned a visibility: a known value
+          // maps to `Some (v <> "public")`, an absent one to `None` (unknown) — never a
+          // fabricated `Some false` that reads as a confirmed public repo.
           Private =
             match p.Visibility with
-            | Some v -> v <> "public"
-            | None -> false }
+            | Some v -> Some(v <> "public")
+            | None -> None }
 
     let private mapCi (c: VcsToolkit.GitLab.CiStatus) : CiStatus =
         match c with

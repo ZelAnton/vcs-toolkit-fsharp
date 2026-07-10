@@ -1,6 +1,7 @@
 module VcsToolkit.CliSupport.Tests
 
 open System
+open System.Threading
 open System.Threading.Tasks
 open NUnit.Framework
 open ProcessKit
@@ -110,7 +111,7 @@ type RetryTests() =
             let calls = ref 0
 
             let! out =
-                Retry.retryAsync policy isLockContention (fun () ->
+                Retry.retryAsync policy isLockContention CancellationToken.None (fun () ->
                     task {
                         let n = calls.Value
                         calls.Value <- n + 1
@@ -131,7 +132,7 @@ type RetryTests() =
             let calls = ref 0
 
             let! out =
-                Retry.retryAsync policy isLockContention (fun () ->
+                Retry.retryAsync policy isLockContention CancellationToken.None (fun () ->
                     task {
                         calls.Value <- calls.Value + 1
                         return Error(exit "git" 1 "real, deterministic failure")
@@ -148,7 +149,7 @@ type RetryTests() =
             let calls = ref 0
 
             let! out =
-                Retry.retryAsync policy isLockContention (fun () ->
+                Retry.retryAsync policy isLockContention CancellationToken.None (fun () ->
                     task {
                         calls.Value <- calls.Value + 1
                         return Error(exit "git" 128 "index.lock': File exists")
@@ -156,6 +157,46 @@ type RetryTests() =
 
             Assert.That(Result.isError out)
             Assert.That(calls.Value, Is.EqualTo 4, "all attempts used")
+        }
+
+    [<Test>]
+    member _.CancellationDuringBackoffStopsRetryImmediately() : Task =
+        task {
+            // A backoff long enough that "sleeps it out" vs. "cancels immediately" is
+            // unmistakable in the elapsed-time assertion below.
+            let policy =
+                RetryPolicy.None.WithAttempts(4).WithBaseBackoff(TimeSpan.FromSeconds 30.0)
+
+            let lockErr = exit "git" 128 "Unable to create '/r/.git/index.lock': File exists"
+            let calls = ref 0
+            use cts = new CancellationTokenSource()
+            // Cancelled up front: the first attempt must still run (observed only around the
+            // backoff sleep), but the sleep before attempt 2 must fail fast on the already-fired
+            // token rather than actually sleeping — deterministic, no timing race.
+            cts.Cancel()
+
+            let sw = System.Diagnostics.Stopwatch.StartNew()
+
+            let! out =
+                Retry.retryAsync policy isLockContention cts.Token (fun () ->
+                    task {
+                        calls.Value <- calls.Value + 1
+                        return Error lockErr
+                    })
+
+            sw.Stop()
+
+            match out with
+            | Error(ProcessError.Cancelled program) -> Assert.That(program, Is.EqualTo "git")
+            | _ -> Assert.Fail $"expected a Cancelled error, got {out}"
+
+            Assert.That(calls.Value, Is.EqualTo 1, "cancelled during backoff -> no second attempt")
+
+            Assert.That(
+                sw.Elapsed,
+                Is.LessThan(TimeSpan.FromSeconds 5.0),
+                "cancellation must not sleep out the remaining backoff"
+            )
         }
 
 [<TestFixture>]

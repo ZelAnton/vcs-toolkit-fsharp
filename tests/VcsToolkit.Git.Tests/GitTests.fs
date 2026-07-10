@@ -293,6 +293,39 @@ type QueryTests() =
             | Error e -> Assert.Fail $"diff_stat failed: {e}"
         }
 
+    [<Test>]
+    member _.RemoteBranchExistsBuildsLsRemoteHeadsRef() : Task =
+        task {
+            let git =
+                scripted
+                    [ "ls-remote"; "origin"; "refs/heads/feature/T-010_fix" ]
+                    (Reply.Ok "abc123\trefs/heads/feature/T-010_fix\n")
+
+            match! git.RemoteBranchExists(".", "feature/T-010_fix") with
+            | Ok exists -> Assert.That(exists)
+            | Error e -> Assert.Fail $"remote_branch_exists failed: {e}"
+        }
+
+    [<Test>]
+    member _.RemoteBranchExistsRejectsEmptyGlobAndControlNames() : Task =
+        task {
+            // T-002: an empty name, or one carrying a glob (`*?[:`), a space, or a control
+            // character, must be refused BEFORE `ls-remote` spawns — the guard fails before any
+            // spawn, so the fallback reply (which would otherwise report a false "exists") is
+            // never reached.
+            let git =
+                Git.WithRunner(ScriptedRunner().Fallback(Reply.Ok "abc123\trefs/heads/x\n"))
+
+            let bad =
+                [ ""; "feature/*"; "feature/?"; "feature/[a]"; "a:b"; "two words"; "bad\nname" ]
+
+            for name in bad do
+                match! git.RemoteBranchExists(".", name) with
+                | Error(ProcessError.Spawn(program, _)) -> Assert.That(program, Is.EqualTo "git")
+                | Error e -> Assert.Fail $"expected a Spawn refusal for \"{name}\", got {e}"
+                | Ok _ -> Assert.Fail $"expected \"{name}\" to be refused"
+        }
+
 [<TestFixture>]
 type MutationTests() =
 
@@ -345,6 +378,40 @@ type MutationTests() =
             with
             | Ok() -> ()
             | Error e -> Assert.Fail $"a single-colon refspec must pass: {e}"
+        }
+
+    [<Test>]
+    member _.FetchBranchBuildsRefspec() : Task =
+        task {
+            let git =
+                scripted
+                    [ "fetch"
+                      "--quiet"
+                      "origin"
+                      "refs/heads/feature/T-010_fix:refs/remotes/origin/feature/T-010_fix" ]
+                    (Reply.Ok "")
+
+            match! git.FetchBranch(".", "feature/T-010_fix") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"fetch_branch failed: {e}"
+        }
+
+    [<Test>]
+    member _.FetchBranchRejectsEmptyGlobAndControlNames() : Task =
+        task {
+            // T-002: an empty branch name, or one carrying a glob (`*?[:`), a space, or a control
+            // character, would turn the fetch refspec into a glob (fan-out across every matching
+            // ref) or otherwise break it — refused BEFORE `fetch` spawns.
+            let git = Git.WithRunner(ScriptedRunner().Fallback(Reply.Ok ""))
+
+            let bad =
+                [ ""; "feature/*"; "feature/?"; "feature/[a]"; "a:b"; "two words"; "bad\nname" ]
+
+            for name in bad do
+                match! git.FetchBranch(".", name) with
+                | Error(ProcessError.Spawn(program, _)) -> Assert.That(program, Is.EqualTo "git")
+                | Error e -> Assert.Fail $"expected a Spawn refusal for \"{name}\", got {e}"
+                | Ok() -> Assert.Fail $"expected \"{name}\" to be refused"
         }
 
     [<Test>]

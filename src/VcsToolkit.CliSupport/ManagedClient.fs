@@ -153,7 +153,8 @@ type ManagedClient private (cfg: ManagedConfig) =
             | Error e -> return Error e
             | Ok prepared ->
                 return!
-                    Retry.retryAsync cfg.Retry isLockContention (fun () -> Runner.run cfg.Runner cfg.Cancel prepared)
+                    Retry.retryAsync cfg.Retry isLockContention cfg.Cancel (fun () ->
+                        Runner.run cfg.Runner cfg.Cancel prepared)
         }
 
     /// Like `Run`, discarding the output.
@@ -163,7 +164,7 @@ type ManagedClient private (cfg: ManagedConfig) =
             | Error e -> return Error e
             | Ok prepared ->
                 return!
-                    Retry.retryAsync cfg.Retry isLockContention (fun () ->
+                    Retry.retryAsync cfg.Retry isLockContention cfg.Cancel (fun () ->
                         Runner.runUnit cfg.Runner cfg.Cancel prepared)
         }
 
@@ -193,7 +194,8 @@ type ManagedClient private (cfg: ManagedConfig) =
             | Error e -> return Error e
             | Ok prepared ->
                 return!
-                    Retry.retryAsync cfg.Retry isLockContention (fun () -> Runner.probe cfg.Runner cfg.Cancel prepared)
+                    Retry.retryAsync cfg.Retry isLockContention cfg.Cancel (fun () ->
+                        Runner.probe cfg.Runner cfg.Cancel prepared)
         }
 
     /// The raw exit code, with credential injection and lock-retry.
@@ -203,7 +205,7 @@ type ManagedClient private (cfg: ManagedConfig) =
             | Error e -> return Error e
             | Ok prepared ->
                 return!
-                    Retry.retryAsync cfg.Retry isLockContention (fun () ->
+                    Retry.retryAsync cfg.Retry isLockContention cfg.Cancel (fun () ->
                         Runner.exitCode cfg.Runner cfg.Cancel prepared)
         }
 

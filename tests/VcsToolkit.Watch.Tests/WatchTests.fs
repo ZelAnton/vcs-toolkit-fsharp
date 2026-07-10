@@ -247,6 +247,51 @@ type PathTests() =
             | Ok dirs -> Assert.That(dirs.Length, Is.EqualTo 1, "self-reference deduped")
             | Error e -> Assert.Fail $"stateDirs failed: {e.Message}")
 
+    [<Test>]
+    member _.ColocatedJjAndGitWatchesBothStateDirs() =
+        withTemp (fun scratch ->
+            let root = Path.Combine(scratch, "colocated")
+            Directory.CreateDirectory root |> ignore
+            let jjDir = Path.Combine(root, ".jj")
+            let gitDir = Path.Combine(root, ".git")
+            Directory.CreateDirectory jjDir |> ignore
+            Directory.CreateDirectory gitDir |> ignore
+
+            match Paths.stateDirs BackendKind.Jj root with
+            | Ok dirs ->
+                Assert.That(dirs.Length, Is.EqualTo 2, "both .jj and .git are watched")
+                Assert.That(List.exists (Paths.pathsEqual jjDir) dirs, Is.True, ".jj is watched")
+                Assert.That(List.exists (Paths.pathsEqual gitDir) dirs, Is.True, ".git is watched")
+            | Error e -> Assert.Fail $"stateDirs failed: {e.Message}")
+
+    [<Test>]
+    member _.PureJjRepoWatchesOnlyDotJj() =
+        withTemp (fun scratch ->
+            let root = Path.Combine(scratch, "pure-jj")
+            Directory.CreateDirectory root |> ignore
+            let jjDir = Path.Combine(root, ".jj")
+            Directory.CreateDirectory jjDir |> ignore
+
+            match Paths.stateDirs BackendKind.Jj root with
+            | Ok dirs ->
+                Assert.That(dirs.Length, Is.EqualTo 1, "no .git next to .jj")
+                Assert.That(List.exists (Paths.pathsEqual jjDir) dirs, Is.True)
+            | Error e -> Assert.Fail $"stateDirs failed: {e.Message}")
+
+    [<Test>]
+    member _.PureGitRepoBehaviourIsUnchanged() =
+        withTemp (fun scratch ->
+            let root = Path.Combine(scratch, "pure-git")
+            Directory.CreateDirectory root |> ignore
+            let gitDir = Path.Combine(root, ".git")
+            Directory.CreateDirectory gitDir |> ignore
+
+            match Paths.stateDirs BackendKind.Git root with
+            | Ok dirs ->
+                Assert.That(dirs.Length, Is.EqualTo 1, "no commondir, no colocation logic for git backend")
+                Assert.That(List.exists (Paths.pathsEqual gitDir) dirs, Is.True)
+            | Error e -> Assert.Fail $"stateDirs failed: {e.Message}")
+
 // ---------------------------------------------------------------------------
 // Stats counters
 // ---------------------------------------------------------------------------

@@ -448,6 +448,66 @@ type SemanticsTests() =
         }
 
     [<Test>]
+    member _.DashSentinelBodyIsRejectedBeforeSpawning() : Task =
+        task {
+            // glab treats a body/description of exactly "-" as its own
+            // stdin/$EDITOR sentinel; a headless call must refuse it before
+            // spawning rather than hang.
+            let glab = permissive ()
+
+            let isErr (t: Task<Result<'T, ProcessError>>) =
+                task {
+                    let! r = t
+                    return Result.isError r
+                }
+
+            let! a = isErr (glab.MrCreate(".", MrCreate.Create("T", "-")))
+            let! b = isErr (glab.MrEdit(".", 7UL, MrEdit.Create().WithBody("-")))
+            let! c = isErr (glab.IssueCreate(".", "Title", "-"))
+            let! d = isErr (glab.MrComment(".", 7UL, "-"))
+
+            for flag, name in [ a, "mr create"; b, "mr edit"; c, "issue create"; d, "mr comment" ] do
+                Assert.That(flag, Is.True, $"{name} with body \"-\" must be refused before spawning")
+
+            // MrEdit with a title but no body must NOT be rejected by the dash check.
+            let glab2, args = capturing (Reply.Ok "")
+
+            match! glab2.MrEdit(".", 7UL, MrEdit.Create().WithTitle("New")) with
+            | Ok() -> assertArgs [ "mr"; "update"; "7"; "--title"; "New"; "--yes" ] args
+            | Error e -> Assert.Fail $"mr edit with title-only must not be affected by the dash check: {e}"
+        }
+
+    [<Test>]
+    member _.DashContainingOrEmptyBodyPassesThroughUnchanged() : Task =
+        task {
+            // A value that merely contains a dash, or is empty, is not the glab
+            // sentinel and must pass through byte-for-byte, unaffected argv.
+            let create, createArgs = capturing (Reply.Ok "u\n")
+
+            match! create.MrCreate(".", MrCreate.Create("T", "-x")) with
+            | Ok _ -> assertArgs [ "mr"; "create"; "--title"; "T"; "--description"; "-x"; "--yes" ] createArgs
+            | Error e -> Assert.Fail $"mr create with \"-x\" body must pass through: {e}"
+
+            let edit, editArgs = capturing (Reply.Ok "")
+
+            match! edit.MrEdit(".", 7UL, MrEdit.Create().WithBody("a-b")) with
+            | Ok() -> assertArgs [ "mr"; "update"; "7"; "--description"; "a-b"; "--yes" ] editArgs
+            | Error e -> Assert.Fail $"mr edit with \"a-b\" body must pass through: {e}"
+
+            let issue, issueArgs = capturing (Reply.Ok "u\n")
+
+            match! issue.IssueCreate(".", "Title", "") with
+            | Ok _ -> assertArgs [ "issue"; "create"; "--title"; "Title"; "--description"; ""; "--yes" ] issueArgs
+            | Error e -> Assert.Fail $"issue create with an empty body must pass through: {e}"
+
+            let comment, commentArgs = capturing (Reply.Ok "u\n")
+
+            match! comment.MrComment(".", 7UL, "a-b") with
+            | Ok _ -> assertArgs [ "mr"; "note"; "7"; "-m"; "a-b" ] commentArgs
+            | Error e -> Assert.Fail $"mr comment with \"a-b\" body must pass through: {e}"
+        }
+
+    [<Test>]
     member _.TokenIsNeverPlacedInArgv() : Task =
         task {
             let secret = "glpat-supersecrettoken"

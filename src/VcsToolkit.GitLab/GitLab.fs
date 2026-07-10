@@ -22,6 +22,25 @@ module private GitLabHelpers =
         | Some e -> Error e
         | None -> Ok()
 
+    /// Refuse a body/description value equal to exactly `-` before spawning: glab
+    /// treats a bare `-` as its own sentinel meaning "read from stdin / open
+    /// $EDITOR", not the literal string, and a headless call would hang waiting
+    /// for input that never arrives (glab has no timeout on this prompt). A value
+    /// that merely contains a dash (`"-x"`, `"a-b"`) or is empty passes through
+    /// byte-for-byte.
+    let rejectDashSentinel (what: string) (value: string) : Result<unit, ProcessError> =
+        if value = "-" then
+            Error(
+                ProcessError.Spawn(
+                    BINARY,
+                    sprintf
+                        "%s is \"-\", which glab treats as its own stdin/editor sentinel — refusing to pass it as a literal value"
+                        what
+                )
+            )
+        else
+            Ok()
+
 /// The real GitLab client: typed async methods that run the real `glab`, ask it for
 /// `--output json`, and deserialize the result. `GitLab.Create()` uses the job-backed
 /// runner; `GitLab.WithRunner` injects a fake one for tests. Wraps a `ManagedClient`.
@@ -132,16 +151,21 @@ type GitLab private (core: ManagedClient) =
     /// Open a merge request, returning the command's output (the MR URL on success)
     /// (`glab mr create`). See `MrCreate`. `--yes` skips glab's submission prompt.
     member _.MrCreate(dir: string, spec: MrCreate) =
-        let args =
-            [ "mr"; "create"; "--title"; spec.Title; "--description"; spec.Body; "--yes" ]
-            @ (match spec.Source with
-               | Some s -> [ "--source-branch"; s ]
-               | None -> [])
-            @ (match spec.Target with
-               | Some t -> [ "--target-branch"; t ]
-               | None -> [])
+        task {
+            match rejectDashSentinel "body" spec.Body with
+            | Error e -> return Error e
+            | Ok() ->
+                let args =
+                    [ "mr"; "create"; "--title"; spec.Title; "--description"; spec.Body; "--yes" ]
+                    @ (match spec.Source with
+                       | Some s -> [ "--source-branch"; s ]
+                       | None -> [])
+                    @ (match spec.Target with
+                       | Some t -> [ "--target-branch"; t ]
+                       | None -> [])
 
-        core.Run(core.CommandIn(dir, args))
+                return! core.Run(core.CommandIn(dir, args))
+        }
 
     // --- MR lifecycle --------------------------------------------------------
 
@@ -168,7 +192,11 @@ type GitLab private (core: ManagedClient) =
     /// Add a comment to a merge request, returning the command's output
     /// (`glab mr note <id> -m <message>`).
     member _.MrComment(dir: string, number: uint64, body: string) =
-        core.Run(core.CommandIn(dir, [ "mr"; "note"; string number; "-m"; body ]))
+        task {
+            match rejectDashSentinel "body" body with
+            | Error e -> return Error e
+            | Ok() -> return! core.Run(core.CommandIn(dir, [ "mr"; "note"; string number; "-m"; body ]))
+        }
 
     /// Edit a merge request's title and/or description (`glab mr update <id>
     /// [--title …] [--description …] --yes`). At least one of `Title`/`Body` must be
@@ -179,17 +207,25 @@ type GitLab private (core: ManagedClient) =
             | None, None ->
                 return Error(ProcessError.Spawn(BINARY, "mr update requires at least a title or a body to change"))
             | _ ->
-                let args =
-                    [ "mr"; "update"; string number ]
-                    @ (match edit.Title with
-                       | Some t -> [ "--title"; t ]
-                       | None -> [])
-                    @ (match edit.Body with
-                       | Some b -> [ "--description"; b ]
-                       | None -> [])
-                    @ [ "--yes" ]
+                let dashCheck =
+                    match edit.Body with
+                    | Some b -> rejectDashSentinel "body" b
+                    | None -> Ok()
 
-                return! core.RunUnit(core.CommandIn(dir, args))
+                match dashCheck with
+                | Error e -> return Error e
+                | Ok() ->
+                    let args =
+                        [ "mr"; "update"; string number ]
+                        @ (match edit.Title with
+                           | Some t -> [ "--title"; t ]
+                           | None -> [])
+                        @ (match edit.Body with
+                           | Some b -> [ "--description"; b ]
+                           | None -> [])
+                        @ [ "--yes" ]
+
+                    return! core.RunUnit(core.CommandIn(dir, args))
         }
 
     /// The MR's pipeline status, bucketed (`glab mr view <id> --output json`, reading
@@ -221,7 +257,15 @@ type GitLab private (core: ManagedClient) =
     /// Open an issue, returning the command's output (the issue URL on success)
     /// (`glab issue create --title <t> --description <d> --yes`).
     member _.IssueCreate(dir: string, title: string, body: string) =
-        core.Run(core.CommandIn(dir, [ "issue"; "create"; "--title"; title; "--description"; body; "--yes" ]))
+        task {
+            match rejectDashSentinel "body" body with
+            | Error e -> return Error e
+            | Ok() ->
+                return!
+                    core.Run(
+                        core.CommandIn(dir, [ "issue"; "create"; "--title"; title; "--description"; body; "--yes" ])
+                    )
+        }
 
     /// Releases for `dir` (`glab release list --per-page 100 --output json`).
     /// Up to 100 (the GitLab API per-page max).

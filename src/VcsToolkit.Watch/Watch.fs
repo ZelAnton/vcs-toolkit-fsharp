@@ -207,14 +207,37 @@ module internal Paths =
             None
 
     /// The directories to watch for a backend, deduplicated. Normally one (the state dir);
-    /// a linked git worktree adds its shared git dir (where branch create/delete lands).
+    /// a linked git worktree adds its shared git dir (where branch create/delete lands). A
+    /// **colocated** jj repository (`.jj` *and* `.git` side by side in `root`) additionally
+    /// watches the resolved git state dir (and its shared dir, if it's itself a linked
+    /// worktree) — git-side ref writes (`refs/heads/*`, branch create/delete) land there and
+    /// would otherwise go unnoticed.
     let stateDirs (kind: BackendKind) (root: string) : Result<string list, WatchError> =
+        // Append `dir`'s shared commondir (worktree case) to `paths`, deduped.
+        let addShared (paths: string list) (dir: string) : string list =
+            match commonDir dir with
+            | Some shared when not (List.exists (pathsEqual shared) paths) -> paths @ [ shared ]
+            | _ -> paths
+
         match stateDir kind root with
         | Error e -> Error e
         | Ok sd ->
-            match commonDir sd with
-            | Some shared when not (pathsEqual shared sd) -> Ok [ sd; shared ]
-            | _ -> Ok [ sd ]
+            let baseDirs = addShared [ sd ] sd
+
+            match kind with
+            | BackendKind.Jj when Path.Exists(Path.Combine(root, ".git")) ->
+                // colocated: also watch the git-side state dir (gitlink/commondir-resolved).
+                match stateDir BackendKind.Git root with
+                | Error e -> Error e
+                | Ok gitSd ->
+                    let withGit =
+                        if List.exists (pathsEqual gitSd) baseDirs then
+                            baseDirs
+                        else
+                            baseDirs @ [ gitSd ]
+
+                    Ok(addShared withGit gitSd)
+            | _ -> Ok baseDirs
 
 /// The debounce → ceiling → re-query → diff pipeline, plus the FileSystemWatcher bridge.
 module internal Loop =

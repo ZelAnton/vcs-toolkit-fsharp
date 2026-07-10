@@ -1,6 +1,7 @@
 namespace VcsToolkit.CliSupport
 
 open System
+open System.Threading
 open System.Threading.Tasks
 open ProcessKit
 
@@ -101,9 +102,20 @@ module Retry =
     /// attempts left, sleeping the (jittered, exponential) backoff between tries. The
     /// op is re-invoked from scratch each attempt, so it must be idempotent for the
     /// errors `shouldRetry` selects. Returns the first `Ok`, or the last `Error`.
+    ///
+    /// The first attempt always runs, regardless of `ct`'s state going in — `ct` is
+    /// only observed around the backoff sleep *between* attempts. A cancellation that
+    /// fires during that sleep aborts immediately (it does not wait out the rest of
+    /// the delay) and does NOT start another attempt; it is reported as
+    /// `ProcessError.Cancelled`, mirroring the shape the ProcessKit runner itself uses
+    /// for a cancelled run. `retryAsync` has no direct line to the program name being
+    /// retried, so it reuses the `Program` carried by the last `ProcessError` seen
+    /// (falling back to `""` on the — practically unreachable, since every case that
+    /// reaches here came from a real process error — chance it carries none).
     let retryAsync
         (policy: RetryPolicy)
         (shouldRetry: ProcessError -> bool)
+        (ct: CancellationToken)
         (op: unit -> Task<Result<'T, ProcessError>>)
         : Task<Result<'T, ProcessError>> =
         let attempts = max 1 policy.Attempts
@@ -119,9 +131,15 @@ module Retry =
                         let delay = backoffFor policy (attempt - 1)
 
                         if delay > TimeSpan.Zero then
-                            do! Task.Delay delay
-
-                        return! attemptLoop (attempt + 1)
+                            try
+                                do! Task.Delay(delay, ct)
+                                return! attemptLoop (attempt + 1)
+                            with :? OperationCanceledException ->
+                                // Cancelled mid-backoff: stop here rather than sleeping out the
+                                // remainder or starting another attempt.
+                                return Error(ProcessError.Cancelled(err.Program |> Option.defaultValue ""))
+                        else
+                            return! attemptLoop (attempt + 1)
             }
 
         attemptLoop 1

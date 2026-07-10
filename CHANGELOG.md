@@ -25,4 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `VcsToolkit.Gitea`: the Gitea/Forgejo (`tea`) CLI client (`Gitea`) ported from the Rust `vcs-gitea` crate — the lean pull-request lifecycle (`prList`/`prView`/`prCreate`/`prMerge`/`prClose`/`prComment`/`prEdit`), issues (`issueList`/`issueView`/`issueCreate`), and release listing (`releaseList`) — with the option types (`PrCreate`, `PrEdit`, `MergeStrategy`), the DTOs (`PullRequest`, `Issue`, `Release`) parsed from tea's all-strings print-table (and the typed issue-detail object), and `authStatus` via the configured logins. Authentication is ambient (`tea`'s stored logins); `prView` is synthesized by listing and filtering.
 - Packaging: every published package ships a NuGet package icon, and each package declares its inter-package `VcsToolkit.*` dependencies (so restoring one package pulls in the siblings it needs).
 
+### Changed
+- `VcsToolkit.Forge`: the best-effort `ForgePr.Draft`, `ForgeRepo.Private`, `ForgeRelease.Draft`, and `ForgeRelease.Prerelease` fields change type from `bool` to `bool option`. `Some` now carries a value the backend actually reported and `None` means it does not surface the field, so an unreported draft/visibility is no longer collapsed into a confirmed `false`: `None` for a GitHub/Gitea PR draft, a GitLab release draft/pre-release, and an absent GitLab project visibility; `Some` elsewhere.
+- `VcsToolkit.CliSupport`'s `Retry.retryAsync` now takes a `CancellationToken` (a new required parameter between `shouldRetry` and `op`) and observes it around the backoff sleep between attempts — a cancellation firing mid-backoff aborts the retry immediately (instead of sleeping out the remaining delay) and does not start another attempt, surfacing as `ProcessError.Cancelled`; `ManagedClient`'s retry paths now propagate their configured cancellation token through this backoff.
+
+### Fixed
+- `GitLab`'s `MrCreate`/`MrEdit`/`IssueCreate`/`MrComment` now refuse a body/description of exactly `"-"` before spawning `glab`, instead of hanging on glab's own stdin/`$EDITOR` sentinel prompt.
+
 [Unreleased]: https://github.com/ZelAnton/vcs-toolkit-fsharp/commits/main
