@@ -26,7 +26,8 @@ module internal GiteaForge =
           SourceBranch = pr.HeadBranch
           TargetBranch = pr.BaseBranch
           Url = pr.Url
-          Draft = false }
+          // tea's lean PR surface has no draft column → unreported, None.
+          Draft = None }
 
     let private mapIssue (i: VcsToolkit.Gitea.Issue) : ForgeIssue =
         { Number = i.Number
@@ -46,8 +47,9 @@ module internal GiteaForge =
           PublishedAt = strOpt r.PublishedAt
           // `tea` has no release body/notes column.
           Body = Option.None
-          Draft = r.Draft
-          Prerelease = r.Prerelease }
+          // tea's release `Status` column carries draft/prerelease → Some.
+          Draft = Some r.Draft
+          Prerelease = Some r.Prerelease }
 
     // --- operations ----------------------------------------------------------
 
