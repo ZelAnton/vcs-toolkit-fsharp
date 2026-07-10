@@ -594,6 +594,21 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.BookmarkTrackRejectsGlobLikeRemote() : Task =
+        task {
+            // The positional `exact:<name>@<remote>` target `exact:`-prefixes the whole token,
+            // but jj still splits on `@` and glob-matches the remote segment positionally — a
+            // glob metacharacter in `remote` must be refused before spawning, not passed through.
+            let jj = permissive ()
+
+            for badRemote in [ "up*"; "up?stream"; "[up]stream"; "upstream]" ] do
+                match! jj.BookmarkTrack(".", "feat", badRemote) with
+                | Ok() -> Assert.Fail $"expected bookmark_track to reject glob-like remote \"{badRemote}\""
+                | Error(ProcessError.Spawn _) -> ()
+                | Error e -> Assert.Fail $"expected a Spawn error for remote \"{badRemote}\", got: {e}"
+        }
+
+    [<Test>]
     member _.WorkspaceAddBuildsNameBasePath() : Task =
         task {
             let jj =
