@@ -218,7 +218,7 @@ type DispatchTests() =
             | Ok [ pr ] ->
                 Assert.That(pr.Number, Is.EqualTo 7UL, "GitLab iid → number")
                 Assert.That(pr.State, Is.EqualTo ForgePrState.Open, "GitLab 'opened' → Open")
-                Assert.That(pr.Draft, Is.True, "GitLab reports draft on the lean surface")
+                Assert.That(pr.Draft, Is.EqualTo(Some true), "GitLab reports draft on the lean surface → Some")
             | Ok other -> Assert.Fail $"expected one MR, got {other.Length}"
             | Error e -> Assert.Fail $"mr list failed: {e.Message}"
         }
@@ -346,7 +346,7 @@ type DispatchTests() =
             | Ok repo ->
                 Assert.That(repo.Name, Is.EqualTo "cli")
                 Assert.That(repo.Owner, Is.EqualTo "group/sub", "owner is the namespace before the last /")
-                Assert.That(repo.Private, Is.False, "absent visibility → not private (conservative)")
+                Assert.That(repo.Private, Is.EqualTo None, "absent visibility → unknown (None), never a false 'public'")
             | Error err -> Assert.Fail $"repo view failed: {err.Message}"
         }
 
@@ -403,4 +403,192 @@ type DispatchTests() =
                 Assert.That(caps.PrChecks, Is.False, "tea has no checks command")
                 Assert.That(caps.PrCreate, Is.True)
             | Error e -> Assert.Fail $"capabilities failed: {e.Message}"
+        }
+
+// ---------------------------------------------------------------------------
+// Optional-field contract: `None` (backend didn't report) vs a confirmed
+// `Some false`/`Some true`, isolated per backend and per field.
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type OptionalFieldTests() =
+
+    // --- ForgePr.Draft — Some only where the backend surfaces it, else None ---
+
+    [<Test>]
+    member _.GitHubPrDraftIsNoneWhenUnreported() : Task =
+        task {
+            // gh's lean PR `--json` carries no `isDraft` → the draft state is unknown, None.
+            let json =
+                """[{"number":1,"title":"t","state":"OPEN","headRefName":"f","baseRefName":"main","url":"u"}]"""
+
+            let forge = ghForge [ "pr"; "list"; "--json" ] (Reply.Ok json)
+
+            match! forge.PrList() with
+            | Ok [ pr ] -> Assert.That(pr.Draft, Is.EqualTo None, "GitHub PR draft is unreported → None")
+            | Ok other -> Assert.Fail $"expected one PR, got {other.Length}"
+            | Error e -> Assert.Fail $"pr list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabMrDraftIsConfirmedBothWays() : Task =
+        task {
+            // GitLab carries `draft` on its MR surface → a confirmed Some, both values.
+            let draftJson =
+                """[{"iid":1,"title":"t","state":"opened","source_branch":"s","target_branch":"main","web_url":"u","draft":true}]"""
+
+            let draftForge = glForge [ "mr"; "list" ] (Reply.Ok draftJson)
+
+            match! draftForge.PrList() with
+            | Ok [ pr ] -> Assert.That(pr.Draft, Is.EqualTo(Some true), "draft:true → Some true")
+            | Ok other -> Assert.Fail $"expected one MR, got {other.Length}"
+            | Error e -> Assert.Fail $"mr list failed: {e.Message}"
+
+            let readyJson =
+                """[{"iid":1,"title":"t","state":"opened","source_branch":"s","target_branch":"main","web_url":"u","draft":false}]"""
+
+            let readyForge = glForge [ "mr"; "list" ] (Reply.Ok readyJson)
+
+            match! readyForge.PrList() with
+            | Ok [ pr ] ->
+                Assert.That(pr.Draft, Is.EqualTo(Some false), "draft:false → confirmed Some false, distinct from None")
+            | Ok other -> Assert.Fail $"expected one MR, got {other.Length}"
+            | Error e -> Assert.Fail $"mr list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaPrDraftIsNoneWhenUnreported() : Task =
+        task {
+            // tea's lean PR surface has no draft column → None.
+            let json =
+                """[{"index":"1","title":"t","state":"open","head":"f","base":"main","url":"u"}]"""
+
+            let forge = teaForge [ "pr"; "list"; "--fields" ] (Reply.Ok json)
+
+            match! forge.PrList() with
+            | Ok [ pr ] -> Assert.That(pr.Draft, Is.EqualTo None, "Gitea PR draft is unreported → None")
+            | Ok other -> Assert.Fail $"expected one PR, got {other.Length}"
+            | Error e -> Assert.Fail $"pr list failed: {e.Message}"
+        }
+
+    // --- ForgeRepo.Private — Some when visibility known, None when absent ---
+
+    [<Test>]
+    member _.GitHubRepoPrivateIsConfirmedBothWays() : Task =
+        task {
+            // gh's repo surface carries `isPrivate` → a confirmed Some, both values.
+            let privateJson =
+                """{"name":"r","owner":{"login":"o"},"url":"u","isPrivate":true,"defaultBranchRef":{"name":"main"}}"""
+
+            let privateForge = ghForge [ "repo"; "view" ] (Reply.Ok privateJson)
+
+            match! privateForge.RepoView() with
+            | Ok repo -> Assert.That(repo.Private, Is.EqualTo(Some true), "isPrivate:true → Some true")
+            | Error e -> Assert.Fail $"repo view failed: {e.Message}"
+
+            let publicJson =
+                """{"name":"r","owner":{"login":"o"},"url":"u","isPrivate":false,"defaultBranchRef":{"name":"main"}}"""
+
+            let publicForge = ghForge [ "repo"; "view" ] (Reply.Ok publicJson)
+
+            match! publicForge.RepoView() with
+            | Ok repo -> Assert.That(repo.Private, Is.EqualTo(Some false), "isPrivate:false → confirmed Some false")
+            | Error e -> Assert.Fail $"repo view failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabRepoPrivateReflectsVisibilityElseNone() : Task =
+        task {
+            // Known visibility → Some (private iff not "public"); absent → None (unknown).
+            let privateJson =
+                """{"name":"cli","path_with_namespace":"g/cli","default_branch":"main","web_url":"u","visibility":"private"}"""
+
+            let privateForge =
+                glForge [ "repo"; "view"; "--output"; "json" ] (Reply.Ok privateJson)
+
+            match! privateForge.RepoView() with
+            | Ok repo -> Assert.That(repo.Private, Is.EqualTo(Some true), "visibility private → Some true")
+            | Error e -> Assert.Fail $"repo view failed: {e.Message}"
+
+            let publicJson =
+                """{"name":"cli","path_with_namespace":"g/cli","default_branch":"main","web_url":"u","visibility":"public"}"""
+
+            let publicForge =
+                glForge [ "repo"; "view"; "--output"; "json" ] (Reply.Ok publicJson)
+
+            match! publicForge.RepoView() with
+            | Ok repo -> Assert.That(repo.Private, Is.EqualTo(Some false), "visibility public → confirmed Some false")
+            | Error e -> Assert.Fail $"repo view failed: {e.Message}"
+
+            let unknownJson =
+                """{"name":"cli","path_with_namespace":"g/cli","default_branch":"main","web_url":"u"}"""
+
+            let unknownForge =
+                glForge [ "repo"; "view"; "--output"; "json" ] (Reply.Ok unknownJson)
+
+            match! unknownForge.RepoView() with
+            | Ok repo ->
+                Assert.That(repo.Private, Is.EqualTo None, "absent visibility → None (unknown), not Some false")
+            | Error e -> Assert.Fail $"repo view failed: {e.Message}"
+        }
+
+    // --- ForgeRelease.Draft / Prerelease — Some where the backend has the concept ---
+
+    [<Test>]
+    member _.GitHubReleaseFlagsAreConfirmed() : Task =
+        task {
+            // gh's release surface carries isDraft/isPrerelease → Some, distinguishing a
+            // confirmed `Some false` from an absent-concept None.
+            let json =
+                """[{"tagName":"v1","name":"1","isDraft":true,"isPrerelease":false,"publishedAt":"t"}]"""
+
+            let forge = ghForge [ "release"; "list" ] (Reply.Ok json)
+
+            match! forge.ReleaseList() with
+            | Ok [ rel ] ->
+                Assert.That(rel.Draft, Is.EqualTo(Some true), "gh isDraft:true → Some true")
+                Assert.That(rel.Prerelease, Is.EqualTo(Some false), "gh isPrerelease:false → confirmed Some false")
+            | Ok other -> Assert.Fail $"expected one release, got {other.Length}"
+            | Error e -> Assert.Fail $"release list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabReleaseFlagsAreNone() : Task =
+        task {
+            // GitLab releases have no draft/pre-release concept → both None (never Some false).
+            let json = """[{"tag_name":"v1","name":"One","description":"notes"}]"""
+            let forge = glForge [ "release"; "list" ] (Reply.Ok json)
+
+            match! forge.ReleaseList() with
+            | Ok [ rel ] ->
+                Assert.That(rel.Draft, Is.EqualTo None, "GitLab has no release draft → None")
+                Assert.That(rel.Prerelease, Is.EqualTo None, "GitLab has no pre-release → None")
+            | Ok other -> Assert.Fail $"expected one release, got {other.Length}"
+            | Error e -> Assert.Fail $"release list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaReleaseFlagsAreConfirmed() : Task =
+        task {
+            // tea's release `Status` column drives both flags → Some, and the complementary
+            // flag is a confirmed `Some false`, not None.
+            let draftJson = """[{"tag-_name":"v1","title":"One","status":"draft"}]"""
+            let draftForge = teaForge [ "releases"; "list" ] (Reply.Ok draftJson)
+
+            match! draftForge.ReleaseList() with
+            | Ok [ rel ] ->
+                Assert.That(rel.Draft, Is.EqualTo(Some true), "status draft → Some true")
+                Assert.That(rel.Prerelease, Is.EqualTo(Some false), "status draft → prerelease confirmed Some false")
+            | Ok other -> Assert.Fail $"expected one release, got {other.Length}"
+            | Error e -> Assert.Fail $"release list failed: {e.Message}"
+
+            let preJson = """[{"tag-_name":"v2","title":"RC","status":"prerelease"}]"""
+            let preForge = teaForge [ "releases"; "list" ] (Reply.Ok preJson)
+
+            match! preForge.ReleaseList() with
+            | Ok [ rel ] ->
+                Assert.That(rel.Prerelease, Is.EqualTo(Some true), "status prerelease → Some true")
+                Assert.That(rel.Draft, Is.EqualTo(Some false), "status prerelease → draft confirmed Some false")
+            | Ok other -> Assert.Fail $"expected one release, got {other.Length}"
+            | Error e -> Assert.Fail $"release list failed: {e.Message}"
         }

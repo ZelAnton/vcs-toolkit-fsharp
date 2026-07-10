@@ -33,6 +33,29 @@ module private JjHelpers =
     /// exactly the one ref the caller named.
     let exact (name: string) : string = "exact:" + name
 
+    /// `exact:<name>@<remote>` (`BookmarkTrack`'s positional target) parses `exact:` as a
+    /// string-pattern prefix on the whole `<name>@<remote>` token, but jj still splits that
+    /// token on `@` and matches the remote segment positionally — a glob metacharacter in
+    /// `remote` (verified on 0.42) is still glob-matched and can fan the track across every
+    /// matching remote, or (with `exact:` misapplied to just the remote) silently track
+    /// nothing. There is no `exact:`-on-remote form, so refuse `* ? [ ]` in `remote` outright
+    /// before spawning, instead.
+    let rejectGlobLike (program: string) (what: string) (value: string) : Result<unit, ProcessError> =
+        let hasGlobChar = value |> Seq.exists (fun ch -> "*?[]".IndexOf(ch) >= 0)
+
+        if hasGlobChar then
+            Error(
+                ProcessError.Spawn(
+                    program,
+                    sprintf
+                        "%s \"%s\" contains a glob metacharacter (one of `* ? [ ]`) — refusing to pass it as a remote name"
+                        what
+                        value
+                )
+            )
+        else
+            Ok()
+
     /// R7: whether `dest` is one a clone could have *created* — absent, unreadable, or an empty
     /// directory — vs a non-empty pre-existing dir (the caller's data, which jj/git refuses to
     /// clone into). Captured **before** the clone so a failure cleans only its own partial output.
@@ -246,10 +269,13 @@ type Jj private (core: ManagedClient) =
             match checkFlags [ "bookmark name", name ] with
             | Error e -> return Error e
             | Ok() ->
-                // `exact:` on the whole `name@remote` token stops a `*`/pattern name from
-                // tracking every remote bookmark at once.
-                let target = sprintf "exact:%s@%s" name remote
-                return! core.RunUnit(cmdIn dir [ "bookmark"; "track"; target ])
+                match rejectGlobLike BINARY "remote" remote with
+                | Error e -> return Error e
+                | Ok() ->
+                    // `exact:` on the whole `name@remote` token stops a `*`/pattern name from
+                    // tracking every remote bookmark at once.
+                    let target = sprintf "exact:%s@%s" name remote
+                    return! core.RunUnit(cmdIn dir [ "bookmark"; "track"; target ])
         }
 
     /// Point a bookmark at `revision` (`jj bookmark set <name> -r <revision>`).

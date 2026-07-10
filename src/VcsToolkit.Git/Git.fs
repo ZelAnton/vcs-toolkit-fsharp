@@ -68,6 +68,31 @@ module private GitHelpers =
         | Some e -> Error e
         | None -> Ok()
 
+    /// A branch/ref name interpolated into a refspec (`FetchBranch`, `RemoteBranchExists`)
+    /// without going through `checkFlags`. Empty, or a name containing a control character or
+    /// any of the refspec/glob metacharacters `" *?[:"`, is refused before git spawns: any of
+    /// them either breaks the refspec outright or turns it into a glob — an `ls-remote`/fetch
+    /// fan-out across every matching ref instead of the single named one.
+    let checkRefspecName (what: string) (name: string) : Result<unit, ProcessError> =
+        let forbidden = set [ ' '; '*'; '?'; '['; ':' ]
+
+        let bad =
+            name = ""
+            || name |> Seq.exists (fun c -> Char.IsControl c || Set.contains c forbidden)
+
+        if bad then
+            Error(
+                ProcessError.Spawn(
+                    BINARY,
+                    sprintf
+                        "%s \"%s\" is empty or contains a glob/control metacharacter — refusing to build a refspec from it"
+                        what
+                        name
+                )
+            )
+        else
+            Ok()
+
 /// The real Git client: typed async methods that run the real `git`, parse its
 /// output, and return structured values. `Git.Create()` uses the job-backed runner;
 /// `Git.WithRunner` injects a fake one for tests. Wraps a `ManagedClient` (enable
@@ -435,20 +460,23 @@ type Git private (core: ManagedClient) =
     /// Whether `origin` has `name`, without fetching.
     member this.RemoteBranchExists(dir: string, name: string) =
         task {
-            let refname = sprintf "refs/heads/%s" name
-
-            match! this.RemoteCredentials None with
+            match checkRefspecName "branch name" name with
             | Error e -> return Error e
-            | Ok(pre, envs) ->
-                let args = pre @ [ "ls-remote"; "origin"; refname ]
+            | Ok() ->
+                let refname = sprintf "refs/heads/%s" name
 
-                let cmd =
-                    (core.CommandIn(dir, args)).Env("GIT_TERMINAL_PROMPT", "0").Timeout(TimeSpan.FromSeconds 10.0)
-                    |> applySecretEnv envs
-
-                match! core.Output cmd with
+                match! this.RemoteCredentials None with
                 | Error e -> return Error e
-                | Ok res -> return Ok(res.Code = Some 0 && res.Stdout.Trim() <> "")
+                | Ok(pre, envs) ->
+                    let args = pre @ [ "ls-remote"; "origin"; refname ]
+
+                    let cmd =
+                        (core.CommandIn(dir, args)).Env("GIT_TERMINAL_PROMPT", "0").Timeout(TimeSpan.FromSeconds 10.0)
+                        |> applySecretEnv envs
+
+                    match! core.Output cmd with
+                    | Error e -> return Error e
+                    | Ok res -> return Ok(res.Code = Some 0 && res.Stdout.Trim() <> "")
         }
 
     // --- Branches ------------------------------------------------------------
@@ -667,8 +695,11 @@ type Git private (core: ManagedClient) =
 
     /// Fetch a single branch from `origin` into its remote-tracking ref.
     member this.FetchBranch(dir: string, branch: string) =
-        let refspec = sprintf "refs/heads/%s:refs/remotes/origin/%s" branch branch
-        this.RunFetch(dir, [ "origin"; refspec ])
+        match checkRefspecName "branch name" branch with
+        | Error e -> task { return Error e }
+        | Ok() ->
+            let refspec = sprintf "refs/heads/%s:refs/remotes/origin/%s" branch branch
+            this.RunFetch(dir, [ "origin"; refspec ])
 
     /// Push to a remote (`push [-u] <remote> <refspec>`).
     member this.Push(dir: string, spec: GitPush) =
