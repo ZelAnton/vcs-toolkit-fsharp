@@ -197,6 +197,6 @@ let main argv =
             1
         | Ok repo ->
             let forge = (resolveForge repo args.Forge args.Timeout).GetAwaiter().GetResult()
-            use server = new VcsMcpServer(repo, forge, args.Writes)
+            use server = new VcsMcpServer(repo, forge, args.Writes, args.OutputBudget)
             (runServer server).GetAwaiter().GetResult()
             0

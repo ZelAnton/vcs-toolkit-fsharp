@@ -1,6 +1,7 @@
 namespace VcsToolkit.Mcp
 
 open System
+open System.Text
 open System.Threading
 open System.Threading.Tasks
 open VcsToolkit.Core
@@ -19,12 +20,38 @@ module internal ServerHelpers =
         | other ->
             Error(McpError.InvalidParams(sprintf "unknown merge strategy %A (expected merge, squash, or rebase)" other))
 
+    /// Truncate `content` to at most `budgetBytes` UTF-8 bytes, snapped to a full
+    /// character boundary, appending an explicit `[truncated: showing N of M bytes]`
+    /// marker when truncation occurs. `None`, or `Some b` with `b <= 0`, disables
+    /// truncation entirely — content passes through byte-for-byte unchanged.
+    let applyOutputBudget (budgetBytes: int option) (content: string) : string =
+        match budgetBytes with
+        | None -> content
+        | Some b when b <= 0 -> content
+        | Some b ->
+            let totalBytes = Encoding.UTF8.GetByteCount content
+
+            if totalBytes <= b then
+                content
+            else
+                // Decode only the first `b` bytes back to chars. With `flush = false` the
+                // decoder silently holds back a trailing incomplete multi-byte sequence
+                // instead of throwing, so this always snaps to a full UTF-8 character
+                // boundary rather than splitting one mid-codepoint.
+                let fullBytes = Encoding.UTF8.GetBytes content
+                let decoder = Encoding.UTF8.GetDecoder()
+                let charBuf = Array.zeroCreate<char> b
+                let charCount = decoder.GetChars(fullBytes, 0, b, charBuf, 0, false)
+                let kept = String(charBuf, 0, charCount)
+                let keptBytes = Encoding.UTF8.GetByteCount kept
+                kept + sprintf "\n[truncated: showing %d of %d bytes]" keptBytes totalBytes
+
 /// An MCP server over a single repository (and, optionally, its forge). Call its tool
 /// methods — each returns the tool's JSON result string, or an `McpError`. Read tools are
 /// always available; mutating tools are gated by the `writes` policy (and repo mutations
 /// serialize on a per-repo lock).
 [<Sealed>]
-type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate) =
+type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudget: int option) =
 
     // Serializes the repo-mutating tools: an MCP host can dispatch tool calls concurrently,
     // so without this two repo mutations (e.g. `repo_try_merge`'s materialize-then-rollback
@@ -40,6 +67,10 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate) =
 
     /// The write gate.
     member _.Writes = writes
+
+    /// The output-size budget (bytes) applied to large-content read tools; `None` means
+    /// no limit.
+    member _.OutputBudget = outputBudget
 
     // --- gating helpers ----------------------------------------------------
 
@@ -152,10 +183,18 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate) =
     member this.RepoWorktrees() =
         this.ReadRepo(fun () -> repo.ListWorktrees())
 
-    /// The content of `path` as it exists at `rev`, untrimmed. `rev` is passed through
-    /// as-is — git accepts a commit-ish, jj a revset; not cross-backend syntax-portable.
+    /// The content of `path` as it exists at `rev`, untrimmed up to the server's output
+    /// budget (`--output-budget`; a byte count). Content within the budget is returned
+    /// byte-for-byte unchanged; content beyond it is truncated with a trailing
+    /// `[truncated: showing N of M bytes]` marker. `rev` is passed through as-is — git
+    /// accepts a commit-ish, jj a revset; not cross-backend syntax-portable.
     member this.RepoShowFile(rev: string, path: string) =
-        this.ReadRepo(fun () -> repo.ShowFile(rev, path))
+        this.ReadRepo(fun () ->
+            task {
+                match! repo.ShowFile(rev, path) with
+                | Error e -> return Error e
+                | Ok content -> return Ok(applyOutputBudget outputBudget content)
+            })
 
     // --- repo: mutations (gated) -------------------------------------------
 
