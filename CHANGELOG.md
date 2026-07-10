@@ -32,5 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - `GitLab`'s `MrCreate`/`MrEdit`/`IssueCreate`/`MrComment` now refuse a body/description of exactly `"-"` before spawning `glab`, instead of hanging on glab's own stdin/`$EDITOR` sentinel prompt.
+- `Git.Upstream` no longer collapses a detached `HEAD` or a directory outside a repository into a false "no upstream configured" (`Ok None`); it now checks that `HEAD` is an attached branch first and surfaces those cases (and any `rev-parse @{u}` failure other than the documented "no upstream" exit code) as `Error`.
+- `VcsToolkit.Jj`'s `JjFileset.Path` no longer unconditionally rewrites `\` to `/`: on non-Windows platforms a backslash is a legitimate filename byte, so it is now preserved and escaped as `\\` (instead of being silently turned into `/`, mismatching the real file, or left unbalanced at the end of the path); the `\`→`/` normalisation still applies only on Windows.
 
 [Unreleased]: https://github.com/ZelAnton/vcs-toolkit-fsharp/commits/main
