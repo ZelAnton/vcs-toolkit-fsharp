@@ -59,6 +59,35 @@ module internal GiteaForge =
             return ofForge r
         }
 
+    /// Fail-open version probe for `Capabilities`: the parsed CLI version, or `None` when
+    /// the `--version` probe failed or didn't parse (never blocks capability reporting).
+    let detectVersion (tea: VcsToolkit.Gitea.Gitea) =
+        task {
+            match! tea.Capabilities() with
+            | Ok caps -> return Some caps.Version
+            | Error _ -> return None
+        }
+
+    /// Version-gate a typed operation: refuse `op` up front with a structural
+    /// `UnsupportedVersion` when the detected tea version is confirmed below the wrapper's
+    /// floor. A version that can't be probed or parsed falls through (fail-open) — the gate
+    /// only ever blocks a *confirmed* too-old CLI, never fails a call that would otherwise run.
+    let ensureVersion (tea: VcsToolkit.Gitea.Gitea) (op: string) =
+        task {
+            match! tea.Capabilities() with
+            | Ok caps when not caps.IsSupported ->
+                return
+                    Error(
+                        ForgeError.UnsupportedVersion(
+                            ForgeKind.Gitea,
+                            op,
+                            caps.Version,
+                            VcsToolkit.Gitea.GiteaCapabilities.MinimumSupported
+                        )
+                    )
+            | _ -> return Ok()
+        }
+
     let prList (tea: VcsToolkit.Gitea.Gitea) (dir: string) =
         task {
             match! tea.PrList dir with

@@ -1,5 +1,8 @@
 namespace VcsToolkit.GitLab
 
+open ProcessKit
+open VcsToolkit.Diff
+
 /// Toolkit-wide constants for the GitLab wrapper.
 [<AutoOpen>]
 module internal Constants =
@@ -13,6 +16,14 @@ module internal Constants =
     /// `<tag>`, guarded with `rejectFlagLike`; guard any future bare positional likewise.
     [<Literal>]
     let BINARY = "glab"
+
+    /// The oldest `glab` this wrapper's typed `--output json`/flag surface is written
+    /// against (the modern glab 1.x line). Version-gated operations refuse a CLI below
+    /// this floor up front rather than driving it into a raw failure.
+    let MIN_SUPPORTED_VERSION: Version =
+        { Major = 1UL
+          Minor = 0UL
+          Patch = 0UL }
 
 /// How `mrMerge` merges the MR. GitLab's default is a merge commit; `Squash`/`Rebase`
 /// add the corresponding flag.
@@ -81,3 +92,29 @@ type MrEdit =
 
     /// Set the new description (`--description`).
     member this.WithBody(body: string) = { this with Body = Some body }
+
+/// What the installed `glab` binary supports, probed via `GitLab.Capabilities`.
+type GitLabCapabilities =
+    {
+        /// The binary's parsed version.
+        Version: Version
+    }
+
+    /// Whether the binary meets the supported floor (see `MIN_SUPPORTED_VERSION`).
+    member this.IsSupported = this.Version >= MIN_SUPPORTED_VERSION
+
+    /// Error unless `IsSupported` — a structural refusal carrying the found-vs-required
+    /// versions, not a raw CLI failure.
+    member this.EnsureSupported() : Result<unit, ProcessError> =
+        if this.IsSupported then
+            Ok()
+        else
+            Error(
+                ProcessError.Spawn(
+                    BINARY,
+                    sprintf "VcsToolkit.GitLab requires glab >= %O, found %O" MIN_SUPPORTED_VERSION this.Version
+                )
+            )
+
+    /// The minimum `glab` version this wrapper supports.
+    static member MinimumSupported: Version = MIN_SUPPORTED_VERSION

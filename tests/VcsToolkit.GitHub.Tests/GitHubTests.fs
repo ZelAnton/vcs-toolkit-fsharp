@@ -964,3 +964,69 @@ type AtViewTests() =
             | Some cmd -> Assert.That(cmd.WorkingDirectory, Is.EqualTo None, "the raw Run hatch is NOT bound to dir")
             | None -> Assert.Fail "no command captured for Run"
         }
+
+// ---------------------------------------------------------------------------
+// CLI version parsing + Capabilities floor
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type VersionTests() =
+
+    [<Test>]
+    member _.ParsesLeadingSemverTokenFromBanner() =
+        // A real `gh --version` banner → the leading semver token; trailers are tolerated.
+        match GitHubParse.parseVersion "gh version 2.40.0 (2023-11-30)\nhttps://github.com/cli/cli" with
+        | Some v ->
+            Assert.That(v.Major, Is.EqualTo 2UL)
+            Assert.That(v.Minor, Is.EqualTo 40UL)
+            Assert.That(v.Patch, Is.EqualTo 0UL)
+        | None -> Assert.Fail "a standard gh version banner must parse"
+
+    [<Test>]
+    member _.UnrecognisedVersionDegradesToNone() =
+        // No `N.N[.N]` token → explicit None ("unknown"), never a throw.
+        Assert.That(GitHubParse.parseVersion "gh (dev build, no version)", Is.EqualTo None)
+        Assert.That(GitHubParse.parseVersion "", Is.EqualTo None)
+
+    [<Test>]
+    member _.CapabilitiesReportsSupportedVersion() : Task =
+        task {
+            let gh = scripted [ "--version" ] (Reply.Ok "gh version 2.40.0\n")
+
+            match! gh.Capabilities() with
+            | Ok caps ->
+                Assert.That(caps.Version.ToString(), Is.EqualTo "2.40.0")
+                Assert.That(caps.IsSupported, Is.True, "gh 2.40 meets the 2.0 floor")
+
+                match caps.EnsureSupported() with
+                | Ok() -> ()
+                | Error e -> Assert.Fail $"EnsureSupported must pass at/above the floor: {e}"
+            | Error e -> Assert.Fail $"capabilities failed: {e}"
+        }
+
+    [<Test>]
+    member _.CapabilitiesFlagsBelowFloor() : Task =
+        task {
+            // A pre-2.0 gh is below the floor → not supported, EnsureSupported errors.
+            let gh = scripted [ "--version" ] (Reply.Ok "gh version 1.14.0\n")
+
+            match! gh.Capabilities() with
+            | Ok caps ->
+                Assert.That(caps.IsSupported, Is.False, "gh 1.14 is below the 2.0 floor")
+
+                match caps.EnsureSupported() with
+                | Error _ -> ()
+                | Ok() -> Assert.Fail "EnsureSupported must error below the floor"
+            | Error e -> Assert.Fail $"capabilities failed: {e}"
+        }
+
+    [<Test>]
+    member _.CapabilitiesErrorsOnUnrecognisedBanner() : Task =
+        task {
+            // An unrecognisable banner is a predictable Parse error, not a throw.
+            let gh = scripted [ "--version" ] (Reply.Ok "gh (dev build)\n")
+
+            match! gh.Capabilities() with
+            | Error _ -> ()
+            | Ok _ -> Assert.Fail "an unrecognisable version banner must be an Error"
+        }

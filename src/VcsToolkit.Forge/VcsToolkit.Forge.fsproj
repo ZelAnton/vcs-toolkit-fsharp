@@ -7,7 +7,7 @@
 		<Description>One PR/MR lifecycle across GitHub, GitLab, and Gitea. Hold one `Forge` handle and run the operations all three forges share — it sends each to whichever CLI (gh / glab / tea) backs the handle and returns plain result types (ForgePr, ForgeIssue, ForgeRelease, ForgeRepo, …) that don't mention which forge produced them. The gh/glab/tea analogue of how VcsToolkit.Core's Repo sits over git and jj. Built on VcsToolkit.GitHub, VcsToolkit.GitLab, and VcsToolkit.Gitea over ProcessKit.</Description>
 		<PackageTags>fsharp;vcs;forge;github;gitlab;gitea;pull-request;merge-request;cli;process</PackageTags>
 		<!-- Cross-project references resolve through assembly search paths (no ProjectReference). -->
-		<AssemblySearchPaths>$(AssemblySearchPaths);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework);$(GitHubDir)bin\$(Configuration)\$(TargetFramework);$(GitLabDir)bin\$(Configuration)\$(TargetFramework);$(GiteaDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
+		<AssemblySearchPaths>$(AssemblySearchPaths);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework);$(DiffDir)bin\$(Configuration)\$(TargetFramework);$(GitHubDir)bin\$(Configuration)\$(TargetFramework);$(GitLabDir)bin\$(Configuration)\$(TargetFramework);$(GiteaDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
 	</PropertyGroup>
 
 	<!-- F# COMPILE ORDER IS SIGNIFICANT. -->
@@ -27,6 +27,7 @@
 
 	<ItemGroup>
 		<Reference Include="VcsToolkit.CliSupport" />
+		<Reference Include="VcsToolkit.Diff" />
 		<Reference Include="VcsToolkit.GitHub" />
 		<Reference Include="VcsToolkit.GitLab" />
 		<Reference Include="VcsToolkit.Gitea" />

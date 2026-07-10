@@ -45,6 +45,15 @@ type ForgeError =
     /// The caller's input was refused by the facade before any CLI spawn — e.g. `prEdit`
     /// with both `Title` and `Body` `None`. Carries a short message naming what was wrong.
     | InvalidInput of string
+    /// A version-gated operation was refused up front because the installed forge CLI is
+    /// older than the wrapper's minimum supported version — a structural refusal (no CLI
+    /// spawn for the operation), not a raw CLI failure. Carries the forge, the operation
+    /// name, and the `found` vs `minimum` versions.
+    | UnsupportedVersion of
+        forge: ForgeKind *
+        operation: string *
+        found: VcsToolkit.Diff.Version *
+        minimum: VcsToolkit.Diff.Version
 
     /// Lowercased `stdout`+`stderr` of an underlying non-zero `Exit` — the CLI's message
     /// body, for marker classification. `None` for non-`Exit` errors and the facade's own
@@ -103,6 +112,8 @@ type ForgeError =
         | ForgeError.Forge e -> e.Message
         | ForgeError.Unsupported(forge, operation) -> sprintf "%s does not support `%s`" forge.AsString operation
         | ForgeError.InvalidInput msg -> msg
+        | ForgeError.UnsupportedVersion(forge, operation, found, minimum) ->
+            sprintf "%s `%s` requires the CLI at version %O or newer, found %O" forge.AsString operation minimum found
 
 /// Lift a `Result<_, ProcessError>` from a wrapper client into the facade's Result.
 /// Auto-opened so the backend adapters use it unqualified.

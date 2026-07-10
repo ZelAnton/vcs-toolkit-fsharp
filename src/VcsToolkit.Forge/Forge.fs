@@ -1,5 +1,7 @@
 namespace VcsToolkit.Forge
 
+open System.Threading.Tasks
+
 /// The per-CLI client behind a `Forge`. `Unknown` carries no client — the remote URL
 /// didn't classify as a known forge, so no CLI can be picked; the handle exists only to
 /// surface the all-`false` capability map. Clients are reference types, so a sibling
@@ -15,7 +17,7 @@ type internal Backend =
 [<AutoOpen>]
 module private ForgeCaps =
 
-    /// The "what the CLI ships" map for GitHub (`authed` set later from the probe).
+    /// The "what the CLI ships" map for GitHub (`authed`/`version`/`kind` overlaid later).
     let staticGitHubCaps: ForgeCapabilities =
         { PrCreate = true
           PrComment = true
@@ -23,7 +25,9 @@ module private ForgeCaps =
           PrChecks = true
           PrMerge = true
           IssueCreate = true
-          Authed = false }
+          Authed = false
+          Version = None
+          Kind = ForgeKind.Unknown }
 
     /// GitLab ships the same command set as GitHub on the lean surface.
     let staticGitLabCaps: ForgeCapabilities = staticGitHubCaps
@@ -33,14 +37,50 @@ module private ForgeCaps =
         { staticGitHubCaps with
             PrChecks = false }
 
-    /// Intersect a static "ships the command" map with the auth probe: when authed, the
-    /// static map with `Authed = true`; when not, the all-`false` shape (every op is
-    /// reported unavailable while the CLI isn't authenticated).
-    let applyAuth (staticCaps: ForgeCapabilities) (authed: bool) : ForgeCapabilities =
-        if authed then
-            { staticCaps with Authed = true }
-        else
-            ForgeCapabilities.AllFalse
+    /// Intersect a static "ships the command" map with the auth probe, then overlay the
+    /// detected `version` and backend `kind`. When authed → the static map with
+    /// `Authed = true`; when not → the all-`false` shape. The version and kind are reported
+    /// either way — they describe the installed CLI, not the session.
+    let applyAuth
+        (staticCaps: ForgeCapabilities)
+        (kind: ForgeKind)
+        (version: VcsToolkit.Diff.Version option)
+        (authed: bool)
+        : ForgeCapabilities =
+        let baseCaps =
+            if authed then
+                { staticCaps with Authed = true }
+            else
+                ForgeCapabilities.AllFalse
+
+        { baseCaps with
+            Version = version
+            Kind = kind }
+
+/// Version-gate for the mutating operations: run the backend's `ensureVersion` pre-check
+/// and only dispatch `run` when the CLI meets the wrapper's floor (or its version can't be
+/// confirmed too old — the gate fails open). The inert `Unknown` backend passes straight
+/// through to `run`, which returns its own `Unsupported` without any spawn.
+[<AutoOpen>]
+module private VersionGate =
+
+    let gated
+        (backend: Backend)
+        (op: string)
+        (run: unit -> Task<Result<'T, ForgeError>>)
+        : Task<Result<'T, ForgeError>> =
+        task {
+            let! gate =
+                match backend with
+                | Backend.GitHub c -> GitHubForge.ensureVersion c op
+                | Backend.GitLab c -> GitLabForge.ensureVersion c op
+                | Backend.Gitea c -> GiteaForge.ensureVersion c op
+                | Backend.Unknown -> task { return Ok() }
+
+            match gate with
+            | Error e -> return Error e
+            | Ok() -> return! run ()
+        }
 
 /// A cwd-bound, forge-agnostic handle: one PR/MR lifecycle across GitHub, GitLab, and
 /// Gitea. Operations run against the bound directory (`Cwd`); the CLI infers the
@@ -168,23 +208,32 @@ type Forge private (cwd: string, backend: Backend) =
         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "repoView")) }
 
     /// The forge's flat capability map — the intersection of "the CLI ships this command"
-    /// and "the CLI is authenticated". Spawns the auth probe exactly once. The `Unknown`
-    /// handle's map is the all-`false` shape.
+    /// and "the CLI is authenticated", plus the detected CLI version and backend kind.
+    /// Spawns the auth probe, and (on an authenticated CLI) a `--version` probe. The
+    /// version/kind are reported independently of auth; a `--version` banner that doesn't
+    /// parse degrades to `Version = None` without failing the call. The `Unknown` handle's
+    /// map is the all-`false` shape (`Version = None`, `Kind = Unknown`), spawning nothing.
     member _.Capabilities() =
         task {
             match backend with
             | Backend.GitHub c ->
                 match! GitHubForge.authStatus c with
                 | Error e -> return Error e
-                | Ok authed -> return Ok(applyAuth staticGitHubCaps authed)
+                | Ok authed ->
+                    let! version = GitHubForge.detectVersion c
+                    return Ok(applyAuth staticGitHubCaps ForgeKind.GitHub version authed)
             | Backend.GitLab c ->
                 match! GitLabForge.authStatus c with
                 | Error e -> return Error e
-                | Ok authed -> return Ok(applyAuth staticGitLabCaps authed)
+                | Ok authed ->
+                    let! version = GitLabForge.detectVersion c
+                    return Ok(applyAuth staticGitLabCaps ForgeKind.GitLab version authed)
             | Backend.Gitea c ->
                 match! GiteaForge.authStatus c with
                 | Error e -> return Error e
-                | Ok authed -> return Ok(applyAuth staticGiteaCaps authed)
+                | Ok authed ->
+                    let! version = GiteaForge.detectVersion c
+                    return Ok(applyAuth staticGiteaCaps ForgeKind.Gitea version authed)
             | Backend.Unknown -> return Ok ForgeCapabilities.AllFalse
         }
 
@@ -207,13 +256,15 @@ type Forge private (cwd: string, backend: Backend) =
         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prView")) }
 
     /// Open a PR/MR (see `PrCreate`), returning the CLI's success output — a URL on
-    /// GitHub/GitLab; `tea` prints a textual summary (no URL).
+    /// GitHub/GitLab; `tea` prints a textual summary (no URL). Version-gated: refused with
+    /// `UnsupportedVersion` before spawning if the CLI is below the wrapper's floor.
     member _.PrCreate(spec: PrCreate) =
-        match backend with
-        | Backend.GitHub c -> GitHubForge.prCreate c cwd spec
-        | Backend.GitLab c -> GitLabForge.prCreate c cwd spec
-        | Backend.Gitea c -> GiteaForge.prCreate c cwd spec
-        | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prCreate")) }
+        gated backend "prCreate" (fun () ->
+            match backend with
+            | Backend.GitHub c -> GitHubForge.prCreate c cwd spec
+            | Backend.GitLab c -> GitLabForge.prCreate c cwd spec
+            | Backend.Gitea c -> GiteaForge.prCreate c cwd spec
+            | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prCreate")) })
 
     /// Post a comment to an existing PR/MR. An empty (or whitespace-only) body is rejected
     /// with `InvalidInput` before any CLI spawn. Note: on Gitea the body is a positional,
@@ -231,26 +282,32 @@ type Forge private (cwd: string, backend: Backend) =
         }
 
     /// Edit a PR/MR's title and/or body (see `PrEdit`). At least one of `Title`/`Body`
-    /// must be `Some` — both-`None` is rejected before any CLI is spawned.
+    /// must be `Some` — both-`None` is rejected before any CLI is spawned. Version-gated
+    /// once the input passes: refused with `UnsupportedVersion` before spawning if the CLI
+    /// is below the wrapper's floor.
     member _.PrEdit(number: uint64, edit: PrEdit) =
         task {
             if edit.Title.IsNone && edit.Body.IsNone then
                 return Error(ForgeError.InvalidInput "prEdit: at least one of title or body must be set")
             else
-                match backend with
-                | Backend.GitHub c -> return! GitHubForge.prEdit c cwd number edit
-                | Backend.GitLab c -> return! GitLabForge.prEdit c cwd number edit
-                | Backend.Gitea c -> return! GiteaForge.prEdit c cwd number edit
-                | Backend.Unknown -> return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prEdit"))
+                return!
+                    gated backend "prEdit" (fun () ->
+                        match backend with
+                        | Backend.GitHub c -> GitHubForge.prEdit c cwd number edit
+                        | Backend.GitLab c -> GitLabForge.prEdit c cwd number edit
+                        | Backend.Gitea c -> GiteaForge.prEdit c cwd number edit
+                        | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prEdit")) })
         }
 
-    /// Merge a PR/MR with the given `MergeStrategy`.
+    /// Merge a PR/MR with the given `MergeStrategy`. Version-gated: refused with
+    /// `UnsupportedVersion` before spawning if the CLI is below the wrapper's floor.
     member _.PrMerge(number: uint64, strategy: MergeStrategy) =
-        match backend with
-        | Backend.GitHub c -> GitHubForge.prMerge c cwd number strategy
-        | Backend.GitLab c -> GitLabForge.prMerge c cwd number strategy
-        | Backend.Gitea c -> GiteaForge.prMerge c cwd number strategy
-        | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prMerge")) }
+        gated backend "prMerge" (fun () ->
+            match backend with
+            | Backend.GitHub c -> GitHubForge.prMerge c cwd number strategy
+            | Backend.GitLab c -> GitLabForge.prMerge c cwd number strategy
+            | Backend.Gitea c -> GiteaForge.prMerge c cwd number strategy
+            | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prMerge")) })
 
     /// Mark a draft PR/MR as ready for review. **`Unsupported` on Gitea** (`tea` has no
     /// draft toggle — a Gitea draft is a `WIP:` title prefix, edited via the raw client).
@@ -298,13 +355,15 @@ type Forge private (cwd: string, backend: Backend) =
         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "issueView")) }
 
     /// Open an issue, returning the CLI's success output — a URL on GitHub/GitLab; `tea`
-    /// prints a textual summary whose final line is the URL.
+    /// prints a textual summary whose final line is the URL. Version-gated: refused with
+    /// `UnsupportedVersion` before spawning if the CLI is below the wrapper's floor.
     member _.IssueCreate(title: string, body: string) =
-        match backend with
-        | Backend.GitHub c -> GitHubForge.issueCreate c cwd title body
-        | Backend.GitLab c -> GitLabForge.issueCreate c cwd title body
-        | Backend.Gitea c -> GiteaForge.issueCreate c cwd title body
-        | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "issueCreate")) }
+        gated backend "issueCreate" (fun () ->
+            match backend with
+            | Backend.GitHub c -> GitHubForge.issueCreate c cwd title body
+            | Backend.GitLab c -> GitLabForge.issueCreate c cwd title body
+            | Backend.Gitea c -> GiteaForge.issueCreate c cwd title body
+            | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "issueCreate")) })
 
     /// Releases for the bound directory, newest first (up to 100).
     member _.ReleaseList() =

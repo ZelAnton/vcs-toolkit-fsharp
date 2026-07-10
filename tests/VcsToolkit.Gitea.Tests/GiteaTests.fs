@@ -549,3 +549,69 @@ type SemanticsTests() =
             | Ok _ -> assertArgs [ "comment"; "7"; "nice work" ] args
             | Error e -> Assert.Fail $"pr comment failed: {e}"
         }
+
+// ---------------------------------------------------------------------------
+// CLI version parsing + Capabilities floor
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type VersionTests() =
+
+    [<Test>]
+    member _.ParsesLeadingSemverTokenFromBanner() =
+        // A real `tea --version` banner → the leading semver token.
+        match GiteaParse.parseVersion "tea version 0.9.2\ncommit abc123" with
+        | Some v ->
+            Assert.That(v.Major, Is.EqualTo 0UL)
+            Assert.That(v.Minor, Is.EqualTo 9UL)
+            Assert.That(v.Patch, Is.EqualTo 2UL)
+        | None -> Assert.Fail "a standard tea version banner must parse"
+
+    [<Test>]
+    member _.UnrecognisedVersionDegradesToNone() =
+        // No `N.N[.N]` token → explicit None ("unknown"), never a throw.
+        Assert.That(GiteaParse.parseVersion "tea (dev build, no version)", Is.EqualTo None)
+        Assert.That(GiteaParse.parseVersion "", Is.EqualTo None)
+
+    [<Test>]
+    member _.CapabilitiesReportsSupportedVersion() : Task =
+        task {
+            let tea = scripted [ "--version" ] (Reply.Ok "tea version 0.9.2\n")
+
+            match! tea.Capabilities() with
+            | Ok caps ->
+                Assert.That(caps.Version.ToString(), Is.EqualTo "0.9.2")
+                Assert.That(caps.IsSupported, Is.True, "tea 0.9.2 meets the 0.9 floor")
+
+                match caps.EnsureSupported() with
+                | Ok() -> ()
+                | Error e -> Assert.Fail $"EnsureSupported must pass at/above the floor: {e}"
+            | Error e -> Assert.Fail $"capabilities failed: {e}"
+        }
+
+    [<Test>]
+    member _.CapabilitiesFlagsBelowFloor() : Task =
+        task {
+            // A pre-0.9 tea is below the floor → not supported, EnsureSupported errors.
+            let tea = scripted [ "--version" ] (Reply.Ok "tea version 0.8.0\n")
+
+            match! tea.Capabilities() with
+            | Ok caps ->
+                Assert.That(caps.IsSupported, Is.False, "tea 0.8 is below the 0.9 floor")
+
+                match caps.EnsureSupported() with
+                | Error _ -> ()
+                | Ok() -> Assert.Fail "EnsureSupported must error below the floor"
+            | Error e -> Assert.Fail $"capabilities failed: {e}"
+        }
+
+    [<Test>]
+    member _.CapabilitiesErrorsOnUnrecognisedBanner() : Task =
+        task {
+            // An unrecognisable banner is a predictable Parse error, not a throw.
+            let tea = scripted [ "--version" ] (Reply.Ok "tea (dev build)\n")
+
+            match! tea.Capabilities() with
+            | Error _ -> ()
+            | Ok _ -> Assert.Fail "an unrecognisable version banner must be an Error"
+        }

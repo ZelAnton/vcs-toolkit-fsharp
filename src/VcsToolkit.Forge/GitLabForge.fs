@@ -85,6 +85,35 @@ module internal GitLabForge =
             return ofForge r
         }
 
+    /// Fail-open version probe for `Capabilities`: the parsed CLI version, or `None` when
+    /// the `--version` probe failed or didn't parse (never blocks capability reporting).
+    let detectVersion (glab: VcsToolkit.GitLab.GitLab) =
+        task {
+            match! glab.Capabilities() with
+            | Ok caps -> return Some caps.Version
+            | Error _ -> return None
+        }
+
+    /// Version-gate a typed operation: refuse `op` up front with a structural
+    /// `UnsupportedVersion` when the detected glab version is confirmed below the wrapper's
+    /// floor. A version that can't be probed or parsed falls through (fail-open) — the gate
+    /// only ever blocks a *confirmed* too-old CLI, never fails a call that would otherwise run.
+    let ensureVersion (glab: VcsToolkit.GitLab.GitLab) (op: string) =
+        task {
+            match! glab.Capabilities() with
+            | Ok caps when not caps.IsSupported ->
+                return
+                    Error(
+                        ForgeError.UnsupportedVersion(
+                            ForgeKind.GitLab,
+                            op,
+                            caps.Version,
+                            VcsToolkit.GitLab.GitLabCapabilities.MinimumSupported
+                        )
+                    )
+            | _ -> return Ok()
+        }
+
     let repoView (glab: VcsToolkit.GitLab.GitLab) (dir: string) =
         task {
             match! glab.RepoView dir with

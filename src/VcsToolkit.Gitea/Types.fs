@@ -1,5 +1,8 @@
 namespace VcsToolkit.Gitea
 
+open ProcessKit
+open VcsToolkit.Diff
+
 /// Toolkit-wide constants for the Gitea wrapper.
 [<AutoOpen>]
 module internal Constants =
@@ -12,6 +15,15 @@ module internal Constants =
     /// <n> <body>` takes it as a bare positional, so it is guarded with `rejectFlagLike`.
     [<Literal>]
     let BINARY = "tea"
+
+    /// The oldest `tea` this wrapper's typed `--output json`/`--fields` surface is written
+    /// against (the 0.9.x line where the print-table JSON output stabilised). Version-gated
+    /// operations refuse a CLI below this floor up front rather than driving it into a raw
+    /// failure.
+    let MIN_SUPPORTED_VERSION: Version =
+        { Major = 0UL
+          Minor = 9UL
+          Patch = 0UL }
 
     /// `--fields` column set for `tea pr list` (every value comes back as a JSON string).
     [<Literal>]
@@ -99,3 +111,29 @@ type PrEdit =
 
     /// Set the new description (`--description`).
     member this.WithBody(body: string) = { this with Body = Some body }
+
+/// What the installed `tea` binary supports, probed via `Gitea.Capabilities`.
+type GiteaCapabilities =
+    {
+        /// The binary's parsed version.
+        Version: Version
+    }
+
+    /// Whether the binary meets the supported floor (see `MIN_SUPPORTED_VERSION`).
+    member this.IsSupported = this.Version >= MIN_SUPPORTED_VERSION
+
+    /// Error unless `IsSupported` — a structural refusal carrying the found-vs-required
+    /// versions, not a raw CLI failure.
+    member this.EnsureSupported() : Result<unit, ProcessError> =
+        if this.IsSupported then
+            Ok()
+        else
+            Error(
+                ProcessError.Spawn(
+                    BINARY,
+                    sprintf "VcsToolkit.Gitea requires tea >= %O, found %O" MIN_SUPPORTED_VERSION this.Version
+                )
+            )
+
+    /// The minimum `tea` version this wrapper supports.
+    static member MinimumSupported: Version = MIN_SUPPORTED_VERSION

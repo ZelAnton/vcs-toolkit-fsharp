@@ -96,6 +96,20 @@ type GitHub private (core: ManagedClient) =
     /// Installed GitHub CLI version (`gh --version`).
     member _.Version() = core.Run(core.Command [ "--version" ])
 
+    /// The installed binary's parsed version, as `GitHubCapabilities`. An unrecognisable
+    /// `gh --version` banner is a `Parse` error (never a throw) — the predictable
+    /// degradation for a non-standard version string.
+    member this.Capabilities() =
+        task {
+            match! this.Version() with
+            | Error e -> return Error e
+            | Ok raw ->
+                match GitHubParse.parseVersion raw with
+                | Some v -> return Ok { Version = v }
+                | None ->
+                    return Error(ProcessError.Parse(BINARY, sprintf "unrecognisable `gh --version` output: \"%s\"" raw))
+        }
+
     /// Whether the user is authenticated (`gh auth status` exits zero). Any non-zero
     /// exit reads as `false`; only a spawn failure or timeout errors.
     member _.AuthStatus() =
@@ -370,6 +384,9 @@ and [<Sealed>] GitHubAt internal (github: GitHub, dir: string) =
 
     /// Installed GitHub CLI version (`gh --version`).
     member _.Version() = github.Version()
+
+    /// The installed binary's parsed version, as `GitHubCapabilities`.
+    member _.Capabilities() = github.Capabilities()
 
     /// Whether the user is authenticated (`gh auth status` exits zero).
     member _.AuthStatus() = github.AuthStatus()

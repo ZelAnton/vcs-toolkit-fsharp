@@ -2,6 +2,7 @@ namespace VcsToolkit.GitHub
 
 open ProcessKit
 open VcsToolkit.CliSupport
+open VcsToolkit.Diff
 
 /// Toolkit-wide constants for the GitHub wrapper.
 [<AutoOpen>]
@@ -10,6 +11,14 @@ module internal Constants =
     /// Name of the underlying CLI binary this crate drives.
     [<Literal>]
     let BINARY = "gh"
+
+    /// The oldest `gh` this wrapper's typed `--json`/flag surface is written against
+    /// (`--json` field selection is a gh 2.0 feature). Version-gated operations refuse a
+    /// CLI below this floor up front rather than driving it into a raw failure.
+    let MIN_SUPPORTED_VERSION: Version =
+        { Major = 2UL
+          Minor = 0UL
+          Patch = 0UL }
 
     /// `--json` field set for a pull request (`pr list`/`pr view`).
     [<Literal>]
@@ -182,3 +191,29 @@ type ReviewAction private (kind: ReviewKind, body: string option) =
 
     /// Attach or replace the body — mainly to give an `Approve` a message.
     member _.WithBody(body: string) = ReviewAction(kind, Some body)
+
+/// What the installed `gh` binary supports, probed via `GitHub.Capabilities`.
+type GitHubCapabilities =
+    {
+        /// The binary's parsed version.
+        Version: Version
+    }
+
+    /// Whether the binary meets the supported floor (see `MIN_SUPPORTED_VERSION`).
+    member this.IsSupported = this.Version >= MIN_SUPPORTED_VERSION
+
+    /// Error unless `IsSupported` — a structural refusal carrying the found-vs-required
+    /// versions, not a raw CLI failure.
+    member this.EnsureSupported() : Result<unit, ProcessError> =
+        if this.IsSupported then
+            Ok()
+        else
+            Error(
+                ProcessError.Spawn(
+                    BINARY,
+                    sprintf "VcsToolkit.GitHub requires gh >= %O, found %O" MIN_SUPPORTED_VERSION this.Version
+                )
+            )
+
+    /// The minimum `gh` version this wrapper supports.
+    static member MinimumSupported: Version = MIN_SUPPORTED_VERSION

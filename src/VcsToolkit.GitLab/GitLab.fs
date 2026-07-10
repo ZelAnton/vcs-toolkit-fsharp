@@ -105,6 +105,21 @@ type GitLab private (core: ManagedClient) =
     /// Installed GitLab CLI version (`glab --version`).
     member _.Version() = core.Run(core.Command [ "--version" ])
 
+    /// The installed binary's parsed version, as `GitLabCapabilities`. An unrecognisable
+    /// `glab --version` banner is a `Parse` error (never a throw) — the predictable
+    /// degradation for a non-standard version string.
+    member this.Capabilities() =
+        task {
+            match! this.Version() with
+            | Error e -> return Error e
+            | Ok raw ->
+                match GitLabParse.parseVersion raw with
+                | Some v -> return Ok { Version = v }
+                | None ->
+                    return
+                        Error(ProcessError.Parse(BINARY, sprintf "unrecognisable `glab --version` output: \"%s\"" raw))
+        }
+
     /// Whether the user is authenticated (`glab auth status` exits zero). Any non-zero
     /// exit reads as `false`; only a spawn failure or timeout errors.
     ///
@@ -309,6 +324,9 @@ and [<Sealed>] GitLabAt internal (gitlab: GitLab, dir: string) =
 
     /// Installed GitLab CLI version (`glab --version`).
     member _.Version() = gitlab.Version()
+
+    /// The installed binary's parsed version, as `GitLabCapabilities`.
+    member _.Capabilities() = gitlab.Capabilities()
 
     /// Whether the user is authenticated (`glab auth status` exits zero).
     member _.AuthStatus() = gitlab.AuthStatus()

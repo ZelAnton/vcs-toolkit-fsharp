@@ -4,6 +4,7 @@ open System
 open System.Globalization
 open System.Text.Json
 open VcsToolkit.CliSupport
+open VcsToolkit.Diff
 
 // `tea --output json` is NOT the Gitea REST shape. Its *list* commands serialize
 // tea's print-table: a JSON array of string-maps whose keys are snake-cased column
@@ -186,3 +187,7 @@ module internal GiteaParse =
                 Ok(root.GetArrayLength() > 0)
             else
                 Error "expected a JSON array of logins")
+
+    /// Parse `tea --version` output into the shared `Version`; `None` when no `N.N[.N]`
+    /// token is present (an unrecognised/empty banner degrades to "unknown", never a throw).
+    let parseVersion (raw: string) : Version option = parseDottedVersion raw

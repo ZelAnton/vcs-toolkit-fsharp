@@ -336,9 +336,16 @@ type ForgeCapabilities =
         /// when this is `false`. **Best-effort for GitLab:** `glab auth status` can exit
         /// `0` while unauthenticated (gitlab-org/cli#911), so a `true` means "probably".
         Authed: bool
+        /// The detected forge CLI version, or `None` when it wasn't probed (the `Unknown`
+        /// handle) or the `--version` banner didn't parse. Reported independently of
+        /// `Authed` — it describes the installed binary, not the session.
+        Version: VcsToolkit.Diff.Version option
+        /// Which forge CLI this map describes (`Unknown` for the CLI-less handle). Mirrors
+        /// the handle's `Forge.Kind`, so a `ForgeCapabilities` value is self-describing.
+        Kind: ForgeKind
     }
 
-    /// The all-`false` shape, for the `Unknown` case.
+    /// The all-`false` shape, for the `Unknown` case (no CLI, no version).
     static member AllFalse =
         { PrCreate = false
           PrComment = false
@@ -346,4 +353,6 @@ type ForgeCapabilities =
           PrChecks = false
           PrMerge = false
           IssueCreate = false
-          Authed = false }
+          Authed = false
+          Version = None
+          Kind = ForgeKind.Unknown }

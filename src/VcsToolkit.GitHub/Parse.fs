@@ -2,6 +2,7 @@ namespace VcsToolkit.GitHub
 
 open System.Text.Json
 open VcsToolkit.CliSupport
+open VcsToolkit.Diff
 
 /// A pull request (`gh pr list/view --json number,title,state,headRefName,baseRefName,url`).
 type PullRequest =
@@ -300,3 +301,7 @@ module internal GitHubParse =
     let parseRepo = Json.parseObject toRepo
     /// Parse a `gh pr view --json reviews,comments` object, flattening nested authors.
     let parseFeedback = Json.parseObject toFeedback
+
+    /// Parse `gh --version` output into the shared `Version`; `None` when no `N.N[.N]`
+    /// token is present (an unrecognised/empty banner degrades to "unknown", never a throw).
+    let parseVersion (raw: string) : Version option = parseDottedVersion raw

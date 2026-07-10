@@ -375,33 +375,67 @@ type DispatchTests() =
     [<Test>]
     member _.CapabilitiesIntersectWithAuth() : Task =
         task {
-            // Authed GitHub → the full ships-the-command map, all true.
-            let authed = ghForge [ "auth"; "status" ] (Reply.Exit 0)
+            // Authed GitHub → the full ships-the-command map, all true; version + kind surfaced.
+            let authed =
+                Forge.FromGitHub(
+                    ".",
+                    VcsToolkit.GitHub.GitHub.WithRunner(
+                        ScriptedRunner()
+                            .On([ "--version" ], Reply.Ok "gh version 2.40.0\n")
+                            .On([ "auth"; "status" ], Reply.Exit 0)
+                    )
+                )
 
             match! authed.Capabilities() with
             | Ok caps ->
                 Assert.That(caps.Authed, Is.True)
                 Assert.That(caps.PrCreate, Is.True)
                 Assert.That(caps.PrChecks, Is.True)
+                Assert.That(caps.Kind, Is.EqualTo ForgeKind.GitHub)
+                Assert.That(caps.Version |> Option.map (fun v -> v.ToString()), Is.EqualTo(Some "2.40.0"))
             | Error e -> Assert.Fail $"capabilities failed: {e.Message}"
 
-            // Unauthenticated → every per-op flag zeroed.
-            let unauthed = ghForge [ "auth"; "status" ] (Reply.Exit 1)
+            // Unauthenticated → every per-op flag zeroed, but the version/kind still reported.
+            let unauthed =
+                Forge.FromGitHub(
+                    ".",
+                    VcsToolkit.GitHub.GitHub.WithRunner(
+                        ScriptedRunner()
+                            .On([ "--version" ], Reply.Ok "gh version 2.40.0\n")
+                            .On([ "auth"; "status" ], Reply.Exit 1)
+                    )
+                )
 
             match! unauthed.Capabilities() with
             | Ok caps ->
                 Assert.That(caps.Authed, Is.False)
                 Assert.That(caps.PrCreate, Is.False)
+                Assert.That(caps.Kind, Is.EqualTo ForgeKind.GitHub, "backend kind reported even when unauthed")
+
+                Assert.That(
+                    caps.Version |> Option.map (fun v -> v.ToString()),
+                    Is.EqualTo(Some "2.40.0"),
+                    "the CLI version is reported independently of auth"
+                )
             | Error e -> Assert.Fail $"capabilities failed: {e.Message}"
 
             // Gitea's static map has no checks command.
-            let tea = teaForge [ "login"; "list" ] (Reply.Ok """[{"name":"g"}]""")
+            let tea =
+                Forge.FromGitea(
+                    ".",
+                    VcsToolkit.Gitea.Gitea.WithRunner(
+                        ScriptedRunner()
+                            .On([ "--version" ], Reply.Ok "tea version 0.9.2\n")
+                            .On([ "login"; "list" ], Reply.Ok """[{"name":"g"}]""")
+                    )
+                )
 
             match! tea.Capabilities() with
             | Ok caps ->
                 Assert.That(caps.Authed, Is.True)
                 Assert.That(caps.PrChecks, Is.False, "tea has no checks command")
                 Assert.That(caps.PrCreate, Is.True)
+                Assert.That(caps.Kind, Is.EqualTo ForgeKind.Gitea)
             | Error e -> Assert.Fail $"capabilities failed: {e.Message}"
         }
 
@@ -591,4 +625,93 @@ type OptionalFieldTests() =
                 Assert.That(rel.Draft, Is.EqualTo(Some false), "status prerelease → draft confirmed Some false")
             | Ok other -> Assert.Fail $"expected one release, got {other.Length}"
             | Error e -> Assert.Fail $"release list failed: {e.Message}"
+        }
+
+// ---------------------------------------------------------------------------
+// Version gate on mutating operations + version/kind in Capabilities
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type VersionGateTests() =
+
+    // A GitHub-backed forge that answers `gh --version` with `banner` and any *other*
+    // command (the gated op itself) via `Fallback` — so a permitted op succeeds.
+    let ghForgeVersioned (banner: string) =
+        Forge.FromGitHub(
+            ".",
+            VcsToolkit.GitHub.GitHub.WithRunner(
+                ScriptedRunner()
+                    .On([ "--version" ], Reply.Ok banner)
+                    .Fallback(Reply.Ok "https://github.com/o/r/pull/1\n")
+            )
+        )
+
+    [<Test>]
+    member _.GatedWriteRefusedBelowFloorWithoutSpawningTheOp() : Task =
+        task {
+            // ONLY `--version` is scripted (no fallback): an empty ScriptedRunner RAISES on any
+            // other spawn, so reaching UnsupportedVersion proves the op itself never spawned.
+            let forge =
+                Forge.FromGitHub(
+                    ".",
+                    VcsToolkit.GitHub.GitHub.WithRunner(
+                        ScriptedRunner().On([ "--version" ], Reply.Ok "gh version 1.14.0\n")
+                    )
+                )
+
+            match! forge.PrCreate(PrCreate.Create("t", "b")) with
+            | Error(ForgeError.UnsupportedVersion(kind, op, found, minimum)) ->
+                Assert.That(kind, Is.EqualTo ForgeKind.GitHub)
+                Assert.That(op, Is.EqualTo "prCreate")
+                Assert.That(found.ToString(), Is.EqualTo "1.14.0")
+                Assert.That(minimum.ToString(), Is.EqualTo "2.0.0")
+            | Error e -> Assert.Fail $"expected UnsupportedVersion, got: {e.Message}"
+            | Ok _ -> Assert.Fail "a below-floor CLI must be refused before spawning the op"
+        }
+
+    [<Test>]
+    member _.GatedWriteAllowedOnSupportedVersion() : Task =
+        task {
+            // gh 2.40 meets the floor → the op dispatches, returning the CLI's output unchanged.
+            let forge = ghForgeVersioned "gh version 2.40.0\n"
+
+            match! forge.PrCreate(PrCreate.Create("t", "b")) with
+            | Ok out -> Assert.That(out, Does.Contain "pull/1")
+            | Error e -> Assert.Fail $"a supported CLI must dispatch the op: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GatedWriteFailsOpenOnUnrecognisedVersion() : Task =
+        task {
+            // An unparseable `--version` can't *confirm* the CLI is too old → the op still runs
+            // (fail-open): the gate only ever blocks a confirmed below-floor version.
+            let forge = ghForgeVersioned "gh (dev build, no version)\n"
+
+            match! forge.PrCreate(PrCreate.Create("t", "b")) with
+            | Ok out -> Assert.That(out, Does.Contain "pull/1", "an unrecognised version must not block the op")
+            | Error e -> Assert.Fail $"fail-open expected, got: {e.Message}"
+        }
+
+    [<Test>]
+    member _.UnknownHandleGatedWriteStaysUnsupportedWithoutProbing() : Task =
+        task {
+            // The inert Unknown handle has no CLI: a gated op returns Unsupported (not
+            // UnsupportedVersion) and spawns nothing — no version probe on an absent CLI.
+            let forge = Forge.FromUnknown "."
+
+            match! forge.PrCreate(PrCreate.Create("t", "b")) with
+            | Error e -> Assert.That(e.IsUnsupported, Is.True, "Unknown backend → Unsupported, never a version probe")
+            | Ok _ -> Assert.Fail "Unknown prCreate must be Unsupported"
+        }
+
+    [<Test>]
+    member _.UnknownCapabilitiesHaveNoVersion() : Task =
+        task {
+            let forge = Forge.FromUnknown "."
+
+            match! forge.Capabilities() with
+            | Ok caps ->
+                Assert.That(caps.Version, Is.EqualTo None, "no CLI → no version")
+                Assert.That(caps.Kind, Is.EqualTo ForgeKind.Unknown)
+            | Error e -> Assert.Fail $"capabilities failed: {e.Message}"
         }

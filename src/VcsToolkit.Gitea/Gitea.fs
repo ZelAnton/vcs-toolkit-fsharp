@@ -84,6 +84,21 @@ type Gitea private (core: ManagedClient) =
     /// Installed Gitea CLI version (`tea --version`).
     member _.Version() = core.Run(core.Command [ "--version" ])
 
+    /// The installed binary's parsed version, as `GiteaCapabilities`. An unrecognisable
+    /// `tea --version` banner is a `Parse` error (never a throw) — the predictable
+    /// degradation for a non-standard version string.
+    member this.Capabilities() =
+        task {
+            match! this.Version() with
+            | Error e -> return Error e
+            | Ok raw ->
+                match GiteaParse.parseVersion raw with
+                | Some v -> return Ok { Version = v }
+                | None ->
+                    return
+                        Error(ProcessError.Parse(BINARY, sprintf "unrecognisable `tea --version` output: \"%s\"" raw))
+        }
+
     /// Whether at least one login is configured (`tea login list --output json` is a
     /// non-empty array). `tea` has no per-instance `auth status`, so this is the closest
     /// "are we logged in" signal. A non-zero exit (e.g. no config file yet) reads as
@@ -300,6 +315,9 @@ and [<Sealed>] GiteaAt internal (gitea: Gitea, dir: string) =
 
     /// Installed Gitea CLI version (`tea --version`).
     member _.Version() = gitea.Version()
+
+    /// The installed binary's parsed version, as `GiteaCapabilities`.
+    member _.Capabilities() = gitea.Capabilities()
 
     /// Whether at least one login is configured (`tea login list --output json`).
     member _.AuthStatus() = gitea.AuthStatus()

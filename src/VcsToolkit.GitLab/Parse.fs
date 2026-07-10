@@ -2,6 +2,7 @@ namespace VcsToolkit.GitLab
 
 open System.Text.Json
 open VcsToolkit.CliSupport
+open VcsToolkit.Diff
 
 /// A merge request (`glab mr list/view --output json`). The fields are GitLab's REST
 /// `MergeRequest` object, which `glab` passes through unchanged.
@@ -180,3 +181,7 @@ module internal GitLabParse =
     /// Parse the CI/pipeline status out of a `glab mr view <id> --output json` object.
     let parseCiStatus =
         Json.parseObject (fun el -> CiStatus.OfGitLab(pipelineStatus el))
+
+    /// Parse `glab --version` output into the shared `Version`; `None` when no `N.N[.N]`
+    /// token is present (an unrecognised/empty banner degrades to "unknown", never a throw).
+    let parseVersion (raw: string) : Version option = parseDottedVersion raw

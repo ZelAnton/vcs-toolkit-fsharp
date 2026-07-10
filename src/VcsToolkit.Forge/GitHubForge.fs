@@ -93,6 +93,35 @@ module internal GitHubForge =
             return ofForge r
         }
 
+    /// Fail-open version probe for `Capabilities`: the parsed CLI version, or `None` when
+    /// the `--version` probe failed or didn't parse (never blocks capability reporting).
+    let detectVersion (gh: VcsToolkit.GitHub.GitHub) =
+        task {
+            match! gh.Capabilities() with
+            | Ok caps -> return Some caps.Version
+            | Error _ -> return None
+        }
+
+    /// Version-gate a typed operation: refuse `op` up front with a structural
+    /// `UnsupportedVersion` when the detected gh version is confirmed below the wrapper's
+    /// floor. A version that can't be probed or parsed falls through (fail-open) — the gate
+    /// only ever blocks a *confirmed* too-old CLI, never fails a call that would otherwise run.
+    let ensureVersion (gh: VcsToolkit.GitHub.GitHub) (op: string) =
+        task {
+            match! gh.Capabilities() with
+            | Ok caps when not caps.IsSupported ->
+                return
+                    Error(
+                        ForgeError.UnsupportedVersion(
+                            ForgeKind.GitHub,
+                            op,
+                            caps.Version,
+                            VcsToolkit.GitHub.GitHubCapabilities.MinimumSupported
+                        )
+                    )
+            | _ -> return Ok()
+        }
+
     let repoView (gh: VcsToolkit.GitHub.GitHub) (dir: string) =
         task {
             match! gh.RepoView dir with

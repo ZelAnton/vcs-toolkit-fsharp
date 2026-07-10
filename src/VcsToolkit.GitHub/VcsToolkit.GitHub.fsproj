@@ -7,7 +7,7 @@
 		<Description>Automate GitHub by driving the gh CLI: typed async methods that run real gh, ask it for --json, and deserialize structured values. Pull requests (list/view/create/merge/edit/review/checks/feedback), issues, Actions runs (list/view/watch), releases, and the REST/GraphQL escape hatch. Tokens are injected as GH_TOKEN, never in argv. Built on ProcessKit.</Description>
 		<PackageTags>fsharp;vcs;github;gh;cli;process;automation;pull-request;actions</PackageTags>
 		<!-- Cross-project references resolve through assembly search paths (no ProjectReference). -->
-		<AssemblySearchPaths>$(AssemblySearchPaths);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
+		<AssemblySearchPaths>$(AssemblySearchPaths);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework);$(DiffDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
 	</PropertyGroup>
 
 	<!-- F# COMPILE ORDER IS SIGNIFICANT. -->
@@ -29,6 +29,7 @@
 
 	<ItemGroup>
 		<Reference Include="VcsToolkit.CliSupport" />
+		<Reference Include="VcsToolkit.Diff" />
 	</ItemGroup>
 
 </Project>

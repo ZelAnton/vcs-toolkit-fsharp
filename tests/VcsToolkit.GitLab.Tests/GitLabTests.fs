@@ -519,3 +519,69 @@ type SemanticsTests() =
                 Assert.That(args |> Seq.exists (fun a -> a.Contains secret), Is.False, "secret must never be in argv")
             | Error e -> Assert.Fail $"mr list (with token) failed: {e}"
         }
+
+// ---------------------------------------------------------------------------
+// CLI version parsing + Capabilities floor
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type VersionTests() =
+
+    [<Test>]
+    member _.ParsesLeadingSemverTokenFromBanner() =
+        // A real `glab --version` banner → the leading semver token.
+        match GitLabParse.parseVersion "glab 1.36.0 (2024-01-15)" with
+        | Some v ->
+            Assert.That(v.Major, Is.EqualTo 1UL)
+            Assert.That(v.Minor, Is.EqualTo 36UL)
+            Assert.That(v.Patch, Is.EqualTo 0UL)
+        | None -> Assert.Fail "a standard glab version banner must parse"
+
+    [<Test>]
+    member _.UnrecognisedVersionDegradesToNone() =
+        // No `N.N[.N]` token → explicit None ("unknown"), never a throw.
+        Assert.That(GitLabParse.parseVersion "glab (dev build, no version)", Is.EqualTo None)
+        Assert.That(GitLabParse.parseVersion "", Is.EqualTo None)
+
+    [<Test>]
+    member _.CapabilitiesReportsSupportedVersion() : Task =
+        task {
+            let glab = scripted [ "--version" ] (Reply.Ok "glab 1.36.0\n")
+
+            match! glab.Capabilities() with
+            | Ok caps ->
+                Assert.That(caps.Version.ToString(), Is.EqualTo "1.36.0")
+                Assert.That(caps.IsSupported, Is.True, "glab 1.36 meets the 1.0 floor")
+
+                match caps.EnsureSupported() with
+                | Ok() -> ()
+                | Error e -> Assert.Fail $"EnsureSupported must pass at/above the floor: {e}"
+            | Error e -> Assert.Fail $"capabilities failed: {e}"
+        }
+
+    [<Test>]
+    member _.CapabilitiesFlagsBelowFloor() : Task =
+        task {
+            // A pre-1.0 glab is below the floor → not supported, EnsureSupported errors.
+            let glab = scripted [ "--version" ] (Reply.Ok "glab 0.9.0\n")
+
+            match! glab.Capabilities() with
+            | Ok caps ->
+                Assert.That(caps.IsSupported, Is.False, "glab 0.9 is below the 1.0 floor")
+
+                match caps.EnsureSupported() with
+                | Error _ -> ()
+                | Ok() -> Assert.Fail "EnsureSupported must error below the floor"
+            | Error e -> Assert.Fail $"capabilities failed: {e}"
+        }
+
+    [<Test>]
+    member _.CapabilitiesErrorsOnUnrecognisedBanner() : Task =
+        task {
+            // An unrecognisable banner is a predictable Parse error, not a throw.
+            let glab = scripted [ "--version" ] (Reply.Ok "glab (dev build)\n")
+
+            match! glab.Capabilities() with
+            | Error _ -> ()
+            | Ok _ -> Assert.Fail "an unrecognisable version banner must be an Error"
+        }
