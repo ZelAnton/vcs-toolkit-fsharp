@@ -372,6 +372,18 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.NewChildStartsUndescribedChildOfParent() : Task =
+        task {
+            // Unlike `NewMerge`/`NewChange`, `NewChild` carries no `-m`: the resulting
+            // change is left undescribed, and `parent` itself is untouched.
+            let jj = scripted [ "new"; "feat" ] (Reply.Ok "")
+
+            match! jj.NewChild(".", "feat") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"new_child failed: {e}"
+        }
+
+    [<Test>]
     member _.IsConflictedReadsTemplateFlag() : Task =
         task {
             let yes = scripted [ "log" ] (Reply.Ok "1\n")
@@ -817,6 +829,7 @@ type SemanticsTests() =
             let! l = isErr (jj.NewMerge(".", "m", [ "@"; "--ignore-working-copy" ]))
             let! m = isErr (jj.GitClone("-evil", "/d", false))
             let! n = isErr (jj.Edit(".", ""))
+            let! o = isErr (jj.NewChild(".", "-evil"))
 
             for flag, name in
                 [ a, "bookmark_create"
@@ -832,7 +845,8 @@ type SemanticsTests() =
                   k, "workspace_forget"
                   l, "new_merge parent"
                   m, "git_clone"
-                  n, "empty edit" ] do
+                  n, "empty edit"
+                  o, "new_child parent" ] do
                 Assert.That(flag, Is.True, $"{name} must be refused")
 
             // …and a legitimate value still passes through.
