@@ -53,13 +53,27 @@ type JjFileset private (value: string) =
     member _.Value = value
     override _.ToString() = value
 
-    /// Wrap a repo-relative `path` as an exact-path fileset. Backslash separators
-    /// are normalised to `/` first — jj filesets are forward-slash and
-    /// repo-root-relative, so a Windows caller's `src\a.rs` would otherwise become
-    /// a literal-backslash filename that matches nothing — then `"` is escaped for
-    /// the `file:"…"` string literal.
+    /// Wrap a repo-relative `path` as an exact-path fileset. On Windows, backslash
+    /// separators are normalised to `/` first — jj filesets are forward-slash, so a
+    /// Windows caller's `src\a.rs` would otherwise become a literal-backslash
+    /// filename that matches nothing — then `"` is escaped for the `file:"…"`
+    /// string literal. On non-Windows platforms `\` is a legitimate filename byte,
+    /// so it is left alone and instead escaped as `\\` (before `"` is escaped, so
+    /// the two escapes don't double up), producing a valid string literal without
+    /// mangling the path.
+    // NOTE: this crate uses the `file:` fileset prefix (matching an exact path
+    // relative to the invocation cwd), whereas the sibling Rust implementation
+    // uses `root-file:` (explicitly repo-root-relative). This doc comment's
+    // "repo-root-relative" wording assumes callers invoke jj from the repo root;
+    // left as-is here since switching prefixes is a separate behavioural change
+    // from the escaping fix and wasn't clearly warranted.
     static member Path(path: string) =
-        let escaped = path.Replace(char 92, '/').Replace("\"", "\\\"")
+        let escaped =
+            if System.OperatingSystem.IsWindows() then
+                path.Replace(char 92, '/').Replace("\"", "\\\"")
+            else
+                path.Replace("\\", "\\\\").Replace("\"", "\\\"")
+
         JjFileset(sprintf "file:\"%s\"" escaped)
 
 /// Options for `workspaceAdd` (`jj workspace add`).
