@@ -287,6 +287,15 @@ module internal JjBackend =
             return ofVcs r
         }
 
+    /// Start new work on top of `reference` without modifying it (`jj new <reference>`),
+    /// creating an undescribed child change. Unlike `checkout` (`jj edit`), `reference`'s
+    /// commit is left untouched — the new change is stacked on top of it.
+    let newChild (jj: Jj) (dir: string) (reference: string) =
+        task {
+            let! r = jj.NewChild(dir, reference)
+            return ofVcs r
+        }
+
     let rebase (jj: Jj) (dir: string) (onto: string) =
         task {
             let! r = jj.Rebase(dir, onto)

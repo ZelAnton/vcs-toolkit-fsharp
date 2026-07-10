@@ -207,6 +207,11 @@ module internal GitBackend =
             return ofVcs r
         }
 
+    /// Start new work on top of `reference` without modifying it. On git this is
+    /// literally `checkout`: the next commit naturally appends on top of `reference`
+    /// rather than rewriting it (git has no "detached child change" concept to reach for).
+    let newChild (git: Git) (dir: string) (reference: string) = checkout git dir reference
+
     let rebase (git: Git) (dir: string) (onto: string) =
         task {
             let! r = git.Rebase(dir, onto)

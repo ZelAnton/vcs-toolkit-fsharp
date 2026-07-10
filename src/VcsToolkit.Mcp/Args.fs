@@ -14,6 +14,9 @@ type internal McpArgs =
         Writes: WriteGate
         /// Per-command deadline; `None` means no timeout (`--timeout 0`).
         Timeout: TimeSpan option
+        /// Output-size budget (bytes) for large-content read tools (`repo_show_file` today);
+        /// `None` means no limit (`--output-budget 0`).
+        OutputBudget: int option
     }
 
 /// Command-line parsing for the `vcs-mcp` binary.
@@ -23,6 +26,12 @@ module internal Args =
     /// Default per-command timeout (seconds): a generous ceiling so a stalled fetch/forge
     /// call can't hang a request forever. Override with `--timeout`; `--timeout 0` disables.
     let defaultTimeoutSecs = 120.0
+
+    /// Default output-size budget (bytes) for large-content read tools (`repo_show_file`
+    /// today): generous enough that ordinary source files pass through untouched, but bounds
+    /// a pathological huge-file read from blowing out the caller's context. Override with
+    /// `--output-budget`; `--output-budget 0` disables the cap entirely.
+    let defaultOutputBudgetBytes = 200_000
 
     /// The `--help` text.
     let usage =
@@ -41,6 +50,9 @@ module internal Args =
                                        separated; repeatable). Read tools are always\n\
                                        available. --allow-write wins when both are given.\n\
              --timeout <seconds>       Per-command timeout (default: 120; 0 disables)\n\
+             --output-budget <bytes>   Truncate large read-tool output (e.g. repo_show_file)\n\
+                                       past N bytes, appending a truncation marker\n\
+                                       (default: 200000; 0 disables)\n\
              -h, --help                Print this help\n\
          \n\
          The server speaks MCP over stdio; point an agent harness at it via a `mcpServers`\n\
@@ -62,6 +74,7 @@ module internal Args =
         let mutable allowWrite = false
         let mutable allowTools = Set.empty
         let mutable timeout = Some(TimeSpan.FromSeconds defaultTimeoutSecs)
+        let mutable outputBudget = Some defaultOutputBudgetBytes
         let mutable rest = argv
         let mutable helpRequested = false
         let mutable error = None
@@ -126,6 +139,20 @@ module internal Args =
                     rest <- tl
                 | false, _ -> error <- Some(sprintf "invalid --timeout %A (expected a whole number of seconds)" value)
             | "--timeout" :: [] -> error <- Some "--timeout needs a value (whole seconds)"
+            | "--output-budget" :: value :: tl ->
+                match UInt64.TryParse value with
+                | true, bytes ->
+                    // 0 disables; otherwise clamp to Int32.MaxValue (a byte budget lives in an
+                    // `int`) so an absurd value can't overflow — a huge budget means
+                    // "effectively none" either way.
+                    let clamped = min bytes (uint64 Int32.MaxValue)
+
+                    outputBudget <- (if bytes > 0UL then Some(int clamped) else None)
+
+                    rest <- tl
+                | false, _ ->
+                    error <- Some(sprintf "invalid --output-budget %A (expected a whole number of bytes)" value)
+            | "--output-budget" :: [] -> error <- Some "--output-budget needs a value (whole bytes)"
             | other :: _ -> error <- Some(sprintf "unknown argument: %s (try --help)" other)
             | [] -> ()
 
@@ -148,5 +175,6 @@ module internal Args =
                         { Repo = repo
                           Forge = forge
                           Writes = writes
-                          Timeout = timeout }
+                          Timeout = timeout
+                          OutputBudget = outputBudget }
                 )

@@ -370,6 +370,30 @@ type DispatchTests() =
             | Ok content -> Assert.Fail $"expected an error, got content {content}"
         }
 
+    [<Test>]
+    member _.GitNewChildIsEquivalentToCheckout() : Task =
+        task {
+            // On git, NewChild is exactly `checkout <reference> --` — the next commit
+            // naturally appends on top, so there is no separate "new child" primitive.
+            let repo = gitRepo [ "checkout"; "feat"; "--" ] (Reply.Ok "")
+
+            match! repo.NewChild "feat" with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"new child failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.JjNewChildRunsNewNotEdit() : Task =
+        task {
+            // On jj, NewChild maps to `jj new <reference>` — a fresh undescribed child
+            // change stacked on `reference`, NOT `jj edit` (which would rewrite it).
+            let repo = jjRepo [ "new"; "feat" ] (Reply.Ok "")
+
+            match! repo.NewChild "feat" with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"new child failed: {e.Message}"
+        }
+
 // ---------------------------------------------------------------------------
 // The intricate assemblies: snapshot, tryMerge outcomes/rollback, worktrees
 // ---------------------------------------------------------------------------

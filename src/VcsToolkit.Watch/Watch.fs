@@ -35,6 +35,14 @@ module internal Constants =
     /// Bounded output channel: a slow consumer applies backpressure (the loop pauses
     /// re-querying), and pending filesystem signals coalesce into one catch-up query.
     let outputCapacity = 64
+    /// How many consecutive **transient** re-query failures (per settled burst) are
+    /// retried with backoff before the failure is treated as terminal.
+    let maxTransientRetries = 5
+    /// Backoff before the first retry; doubles each further attempt (capped at
+    /// `maxTransientRetryDelay`), so a run of transient failures doesn't busy-loop.
+    let transientRetryBaseDelay = TimeSpan.FromMilliseconds 200.0
+    /// Upper clamp on a single retry's backoff delay.
+    let maxTransientRetryDelay = TimeSpan.FromSeconds 5.0
 
 /// What the last skipped re-query failed on (see `WatcherStats.LastError`).
 [<RequireQualifiedAccess>]
@@ -298,8 +306,12 @@ module internal Loop =
         }
 
     /// Re-query the settled state (`Snapshot` + `LocalBranches`), bounded by the configured
-    /// deadline. Returns `Choice1Of2 (snapshot, branches)` on success, or `Choice2Of2 kind`
-    /// on a skip (query error / timeout).
+    /// deadline. Returns `Choice1Of2 (snapshot, branches)` on success, or
+    /// `Choice2Of2 (kind, error)` on a skip (query error / timeout) — `error` is the
+    /// underlying `WatchError` (a `Vcs` wrapping the `RepoError` for a query failure, or an
+    /// `Io (TimeoutException ...)` for a deadline overrun), carried alongside `kind` so the
+    /// caller can classify it via `WatchError.IsTransient` instead of losing that
+    /// information down to just the `WatcherErrorKind` tag.
     ///
     /// **Timeout is best-effort on .NET:** it stops the loop *waiting*, but cannot kill the
     /// in-flight git/jj process (the `Core.Snapshot` API takes no `CancellationToken`). The
@@ -309,15 +321,15 @@ module internal Loop =
         (repo: Repo)
         (config: LoopConfig)
         (ct: CancellationToken)
-        : Task<Choice<RepoSnapshot * string list, WatcherErrorKind>> =
+        : Task<Choice<RepoSnapshot * string list, WatcherErrorKind * WatchError>> =
         task {
             let work =
                 task {
                     match! repo.Snapshot() with
-                    | Error _ -> return Choice2Of2 WatcherErrorKind.Snapshot
+                    | Error e -> return Choice2Of2(WatcherErrorKind.Snapshot, WatchError.Vcs e)
                     | Ok snapshot ->
                         match! repo.LocalBranches() with
-                        | Error _ -> return Choice2Of2 WatcherErrorKind.Branches
+                        | Error e -> return Choice2Of2(WatcherErrorKind.Branches, WatchError.Vcs e)
                         | Ok branches -> return Choice1Of2(snapshot, branches)
                 }
 
@@ -336,14 +348,75 @@ module internal Loop =
                 let! winner = Task.WhenAny(work :> Task, timeoutTask)
 
                 if Object.ReferenceEquals(winner, timeoutTask) then
-                    return Choice2Of2 WatcherErrorKind.Timeout
+                    return
+                        Choice2Of2(
+                            WatcherErrorKind.Timeout,
+                            WatchError.Io(TimeoutException "re-query exceeded the configured requery timeout")
+                        )
                 else
                     timeoutCts.Cancel() // stop the timer; work already completed
                     return! work
         }
 
+    /// Re-query with a bounded **transient**-retry backoff: `requeryOnce` is retried (delay
+    /// doubling each attempt, capped at `maxTransientRetryDelay`) while it keeps failing
+    /// with a transient error (`WatchError.IsTransient`), up to `maxTransientRetries`
+    /// attempts. `stats.NoteSkip` is updated for every failed attempt — transient or
+    /// terminal — so `WatcherStats` reflects each one, not just the final outcome; bumping
+    /// `stats`'s `Requeries` counter for the settled burst as a whole stays the caller's
+    /// job (a retry is still one settled burst, not a fresh re-query). Returns
+    /// `Choice1Of2` on eventual success, or `Choice2Of2 error` once the failure is
+    /// terminal — not transient, or the retry budget ran out. `ct` cancellation aborts a
+    /// pending backoff wait immediately (propagates as `OperationCanceledException` to the
+    /// caller, same as everywhere else in the loop).
+    let requeryWithRetry
+        (repo: Repo)
+        (config: LoopConfig)
+        (stats: StatsInner)
+        (ct: CancellationToken)
+        : Task<Choice<RepoSnapshot * string list, WatchError>> =
+        task {
+            let mutable attempt = 0
+            let mutable result = None
+
+            while result.IsNone do
+                let! outcome = requeryOnce repo config ct
+
+                match outcome with
+                | Choice1Of2 ok -> result <- Some(Choice1Of2 ok)
+                | Choice2Of2(kind, err) ->
+                    stats.NoteSkip kind
+
+                    if err.IsTransient && attempt < maxTransientRetries then
+                        attempt <- attempt + 1
+
+                        let delayMs =
+                            min
+                                maxTransientRetryDelay.TotalMilliseconds
+                                (transientRetryBaseDelay.TotalMilliseconds * (2.0 ** float (attempt - 1)))
+
+                        do! Task.Delay(TimeSpan.FromMilliseconds delayMs, ct)
+                    else
+                        result <- Some(Choice2Of2 err)
+
+            return result.Value
+        }
+
     /// The background loop: coalesce a burst of filesystem signals, re-query the settled
     /// state, diff against the previous, and emit a `RepoChange` when anything changed.
+    ///
+    /// A re-query failure is classified via `WatchError.IsTransient`
+    /// (`requeryWithRetry`/`requeryOnce`): a **transient** failure (e.g. a momentarily held
+    /// lock, or a re-query timeout) is retried in place with a bounded backoff — the loop
+    /// does not return to waiting on `raw` for this — and `watchLoop` keeps running
+    /// afterwards, unaffected. A **terminal** failure (not transient, or the retry budget
+    /// ran out) is signalled to the consumer *once*, consistently, by closing `out` with an
+    /// error:
+    /// `out.Writer.Complete(WatcherTerminated error)`. `RepoWatcher.Recv()` re-raises that
+    /// (it arrives as `ChannelClosedException.InnerException`), so a caller's `Recv()` call
+    /// throws instead of quietly yielding `None` — distinguishing "the watch broke" from
+    /// "the watcher was disposed" (still `None`, via the unconditional `TryComplete` in the
+    /// `finally` below). Either way, `running <- false` stops the loop; it never spins.
     let watchLoop
         (repo: Repo)
         (raw: Channel<unit>)
@@ -374,10 +447,14 @@ module internal Loop =
                                 running <- false
                             else
                                 stats.NoteRequery()
-                                let! outcome = requeryOnce repo config ct
+                                let! outcome = requeryWithRetry repo config stats ct
 
                                 match outcome with
-                                | Choice2Of2 kind -> stats.NoteSkip kind
+                                | Choice2Of2 error ->
+                                    // Terminal: not transient, or the transient-retry budget
+                                    // ran out. Signal the consumer and stop — never spin.
+                                    out.Writer.Complete(WatcherTerminated error)
+                                    running <- false
                                 | Choice1Of2(snapshot, branches) ->
                                     let next = WatchState.fromSnapshot snapshot branches
                                     let events = Diff.diff prev next
@@ -603,16 +680,20 @@ and [<Sealed>] RepoWatcher
     /// Start watching `repo` with the defaults (state dir only, 250 ms debounce).
     static member Watch(repo: Repo) : Task<Result<RepoWatcher, WatchError>> = RepoWatcher.Builder(repo).Build()
 
-    /// Await the next settled change. Returns `None` once the watcher is disposed or its
-    /// background task ends.
+    /// Await the next settled change. Returns `None` once the watcher is disposed and its
+    /// background loop ends cleanly. If instead the loop stopped after a **terminal**
+    /// re-query failure (see `Loop.watchLoop`), this throws `ChannelClosedException` whose
+    /// `InnerException` is `WatcherTerminated error` — so a caller can distinguish "the
+    /// watch broke" from an ordinary disposal by catching that case explicitly (or reading
+    /// `InnerException`) rather than treating every `Recv()` failure as shutdown.
     member _.Recv() : Task<RepoChange option> =
         task {
             try
                 let! change = out.Reader.ReadAsync()
                 current <- change.Snapshot
                 return Some change
-            with :? ChannelClosedException ->
-                // the loop ended (disposed / task done) — no more changes.
+            with :? ChannelClosedException as e when isNull e.InnerException ->
+                // the loop ended cleanly (disposed / task done) — no more changes.
                 return None
         }
 

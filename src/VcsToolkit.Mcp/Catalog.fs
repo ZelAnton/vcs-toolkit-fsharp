@@ -143,7 +143,7 @@ module internal Catalog =
           read "repo_worktrees" "Attached worktrees (git) / workspaces (jj)." []
           read
               "repo_show_file"
-              "The content of a file as it exists at a revision (untrimmed). `rev` is passed through as-is to the backend — a git commit-ish or a jj revset; the two syntaxes are NOT cross-backend portable."
+              "The content of a file as it exists at a revision, untrimmed up to the server's output budget (--output-budget; default 200000 bytes, 0 disables). Content beyond the budget is truncated with a trailing '[truncated: showing N of M bytes]' marker. `rev` is passed through as-is to the backend — a git commit-ish or a jj revset; the two syntaxes are NOT cross-backend portable."
               [ { Name = "rev"
                   JsonType = "string"
                   Description = "The revision (git: commit-ish) or revset (jj) to read the file at."
