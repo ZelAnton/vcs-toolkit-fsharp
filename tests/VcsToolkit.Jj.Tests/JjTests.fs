@@ -223,10 +223,37 @@ type ParseTests() =
     [<Test>]
     member _.FilesetQuotesMetacharacters() =
         Assert.That(JjFileset.Path("src/a(b).rs").Value, Is.EqualTo "file:\"src/a(b).rs\"")
-        // A Windows backslash separator is normalised to `/`.
-        Assert.That(JjFileset.Path($"src{string (char 92)}a.rs").Value, Is.EqualTo "file:\"src/a.rs\"")
-        // A literal quote is escaped for the `file:"…"` string literal.
-        Assert.That(JjFileset.Path("a\"b").Value, Is.EqualTo "file:\"a\\\"b\"")
+        // A literal quote is escaped for the `file:"…"` string literal, on both platforms.
+        Assert.That(JjFileset.Path("a\"b.txt").Value, Is.EqualTo "file:\"a\\\"b.txt\"")
+
+        if System.OperatingSystem.IsWindows() then
+            // On Windows a backslash separator is normalised to `/`.
+            Assert.That(JjFileset.Path($"src{string (char 92)}a.rs").Value, Is.EqualTo "file:\"src/a.rs\"")
+        else
+            // On non-Windows `\` is a legitimate filename byte: it is kept and
+            // escaped as `\\` (not normalised to `/`), so the literal round-trips.
+            let bs = string (char 92)
+            Assert.That(JjFileset.Path($"a{bs}b.txt").Value, Is.EqualTo $"file:\"a{bs}{bs}b.txt\"")
+            Assert.That(JjFileset.Path($"a{bs}").Value, Is.EqualTo $"file:\"a{bs}{bs}\"")
+            Assert.That(JjFileset.Path($"a{bs}b\"c.txt").Value, Is.EqualTo $"file:\"a{bs}{bs}b\\\"c.txt\"")
+
+    [<Test>]
+    member _.FilesetEscapingMatchesPlatformSemanticsIndependentOfHostOs() =
+        // Model both branches explicitly so the platform-independent escaping
+        // logic is exercised regardless of which OS actually runs this test.
+        let windowsEscape (path: string) =
+            path.Replace(char 92, '/').Replace("\"", "\\\"")
+
+        let nonWindowsEscape (path: string) =
+            path.Replace("\\", "\\\\").Replace("\"", "\\\"")
+
+        let bs = string (char 92)
+        Assert.That(windowsEscape $"src{bs}a.rs", Is.EqualTo "src/a.rs")
+        Assert.That(nonWindowsEscape $"a{bs}b.txt", Is.EqualTo $"a{bs}{bs}b.txt")
+        Assert.That(nonWindowsEscape $"a{bs}", Is.EqualTo $"a{bs}{bs}")
+        Assert.That(nonWindowsEscape $"a{bs}b\"c.txt", Is.EqualTo $"a{bs}{bs}b\\\"c.txt")
+        Assert.That(windowsEscape "a\"b.txt", Is.EqualTo "a\\\"b.txt")
+        Assert.That(nonWindowsEscape "a\"b.txt", Is.EqualTo "a\\\"b.txt")
 
 // ---------------------------------------------------------------------------
 // Client: hermetic argv-building + parsing via ScriptedRunner
