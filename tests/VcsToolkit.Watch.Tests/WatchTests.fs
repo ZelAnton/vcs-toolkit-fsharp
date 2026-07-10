@@ -342,6 +342,50 @@ let private scriptedRunner (head: string) =
 let private scriptedJj (head: string) =
     Repo.FromJj("/r", "/r", Jj.WithRunner(scriptedRunner head))
 
+/// Whether `pattern` appears as an ordered (non-contiguous) subsequence of `args` — the
+/// same relaxed matching `ScriptedRunner.On` uses, so a `When` predicate matches the same
+/// shorthand arg list even though the real jj CLI wrapper interleaves extra flags (e.g.
+/// `--no-graph`, `-T <template>`) that a strict list-equality check would miss.
+let private isOrderedSubsequence (pattern: string list) (args: string list) =
+    let rec go pattern args =
+        match pattern, args with
+        | [], _ -> true
+        | _, [] -> false
+        | p :: ptail, a :: atail -> if p = a then go ptail atail else go pattern atail
+
+    go pattern args
+
+/// A jj runner whose snapshot `log` command fails with a **transient** process error
+/// (`ProcessError.Spawn` — a momentary spawn hiccup) the first `failCount` calls, then
+/// succeeds and reads `head`. `ScriptedRunner` tries rules in registration order and stops
+/// at the first match, so the stateful `When` (registered first) wins while its predicate
+/// still returns `true`; once the call count exceeds `failCount` it falls through to the
+/// unconditional `On` fallback.
+let private transientThenOkRunner (head: string) (failCount: int) =
+    let mutable calls = 0
+
+    ScriptedRunner()
+        .When(
+            (fun (cmd: Command) ->
+                let isSnapshotQuery =
+                    isOrderedSubsequence [ "log"; "-r"; "@"; "--limit"; "1" ] (List.ofSeq cmd.Arguments)
+
+                if isSnapshotQuery then
+                    calls <- calls + 1
+
+                isSnapshotQuery && calls <= failCount),
+            Reply.Error(ProcessError.Spawn("jj", "transient spawn failure"))
+        )
+        .On([ "log"; "-r"; "@"; "--limit"; "1" ], Reply.Ok $"{head}\t1\t0\n")
+        .On([ "log"; "heads(::@ & bookmarks())" ], Reply.Ok "main\txyz\n")
+        .On([ "bookmark"; "list" ], Reply.Ok "main\tabc\n")
+
+/// A jj runner whose snapshot `log` command always fails with a plain non-zero exit — a
+/// **non-transient** `ProcessError.Exit`, modelling an unrecoverable failure (e.g. the
+/// `.jj` state directory having been removed underneath the watch).
+let private terminalFailureRunner () =
+    ScriptedRunner().On([ "log"; "-r"; "@"; "--limit"; "1" ], Reply.Fail(1, "state directory gone"))
+
 let private fastConfig: LoopConfig =
     { Debounce = TimeSpan.FromMilliseconds 20.0
       MaxWait = TimeSpan.FromMilliseconds 60.0
@@ -424,6 +468,98 @@ type PipelineTests() =
             Assert.That(snap.LastError, Is.EqualTo(Some WatcherErrorKind.Snapshot))
             Assert.That(snap.Changes, Is.EqualTo 0UL)
             cts.Cancel()
+        }
+
+    [<Test>]
+    member _.TransientRequeryFailureRetriesWithBackoffAndRecovers() : Task =
+        task {
+            // The snapshot command fails transiently twice, then succeeds — the loop must
+            // ride that out with a bounded backoff instead of treating it as terminal.
+            let raw, out = channels ()
+            let stats = StatsInner()
+            use cts = new CancellationTokenSource()
+            let repo = Repo.FromJj("/r", "/r", Jj.WithRunner(transientThenOkRunner "bbbb" 2))
+            let _loop = Loop.watchLoop repo raw out baseState fastConfig stats cts.Token
+            raw.Writer.TryWrite(()) |> ignore
+
+            // Generous bound: two retry backoffs (≈200ms + 400ms) plus settle/debounce.
+            use readCts = new CancellationTokenSource(TimeSpan.FromSeconds 10.0)
+            let! change = out.Reader.ReadAsync readCts.Token
+
+            Assert.That(
+                (change.Events = [ RepoEvent.HeadMoved(From = Some "aaaa", To = Some "bbbb") ]),
+                Is.True,
+                "the loop retried past the transient failures and eventually emitted the change"
+            )
+
+            let snap = stats.Snapshot()
+            Assert.That(snap.Skipped >= 2UL, Is.True, "each transient attempt was counted as a skip")
+            Assert.That(snap.LastError, Is.EqualTo(Some WatcherErrorKind.Snapshot))
+            Assert.That(snap.Changes, Is.EqualTo 1UL)
+
+            Assert.That(
+                out.Reader.Completion.IsCompleted,
+                Is.False,
+                "the output channel stays open — a transient failure never terminates the loop"
+            )
+
+            cts.Cancel()
+        }
+
+    [<Test>]
+    member _.TerminalRequeryFailureClosesTheOutputChannelWithAnError() : Task =
+        task {
+            // The snapshot command always fails non-transiently — the loop must signal the
+            // consumer with a terminal error (not just skip-and-continue) and then stop.
+            let raw, out = channels ()
+            let stats = StatsInner()
+            use cts = new CancellationTokenSource()
+            let repo = Repo.FromJj("/r", "/r", Jj.WithRunner(terminalFailureRunner ()))
+
+            let baselineSnapshot: RepoSnapshot =
+                { Head = Some "aaaa"
+                  Branch = Some "main"
+                  Tracking = None
+                  Dirty = false
+                  ChangeCount = 0UL
+                  Conflicted = false
+                  Operation = OperationState.Clear }
+
+            let loopTask = Loop.watchLoop repo raw out baseState fastConfig stats cts.Token
+
+            use watcher =
+                new RepoWatcher(out, baselineSnapshot, stats, ResizeArray<FileSystemWatcher>(), cts, loopTask)
+
+            raw.Writer.TryWrite(()) |> ignore
+
+            let recvTask = watcher.Recv()
+            let! winner = Task.WhenAny(recvTask :> Task, Task.Delay(TimeSpan.FromSeconds 5.0))
+
+            Assert.That(
+                Object.ReferenceEquals(winner, recvTask),
+                Is.True,
+                "Recv should surface the terminal failure promptly"
+            )
+
+            try
+                let! _ = recvTask
+                Assert.Fail "expected Recv to throw once the loop signals a terminal failure"
+            with :? ChannelClosedException as e ->
+                match e.InnerException with
+                | :? WatcherTerminated as terminal ->
+                    match terminal :> exn with
+                    | WatcherTerminated err ->
+                        Assert.That(err.IsTransient, Is.False, "a plain exit failure is not transient")
+                    | _ -> Assert.Fail "unreachable"
+                | other -> Assert.Fail $"expected the ChannelClosedException to wrap WatcherTerminated, got {other}"
+
+            let snap = stats.Snapshot()
+            Assert.That(snap.Skipped >= 1UL, Is.True, "the failed re-query was counted before the terminal signal")
+            Assert.That(snap.LastError, Is.EqualTo(Some WatcherErrorKind.Snapshot))
+
+            // The loop stops after signalling — it never spins on a terminal failure.
+            do! Task.Delay 100
+            Assert.That(loopTask.IsCompleted, Is.True, "the loop must not keep running after a terminal signal")
         }
 
     [<Test>]
