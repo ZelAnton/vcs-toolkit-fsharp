@@ -24,4 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `VcsToolkit.Gitea`: the Gitea/Forgejo (`tea`) CLI client (`Gitea`) ported from the Rust `vcs-gitea` crate — the lean pull-request lifecycle (`prList`/`prView`/`prCreate`/`prMerge`/`prClose`/`prComment`/`prEdit`), issues (`issueList`/`issueView`/`issueCreate`), and release listing (`releaseList`) — with the option types (`PrCreate`, `PrEdit`, `MergeStrategy`), the DTOs (`PullRequest`, `Issue`, `Release`) parsed from tea's all-strings print-table (and the typed issue-detail object), and `authStatus` via the configured logins. Authentication is ambient (`tea`'s stored logins); `prView` is synthesized by listing and filtering.
 - Packaging: every published package ships a NuGet package icon, and each package declares its inter-package `VcsToolkit.*` dependencies (so restoring one package pulls in the siblings it needs).
 
+### Fixed
+- `GitLab`'s `MrCreate`/`MrEdit`/`IssueCreate`/`MrComment` now refuse a body/description of exactly `"-"` before spawning `glab`, instead of hanging on glab's own stdin/`$EDITOR` sentinel prompt.
+
 [Unreleased]: https://github.com/ZelAnton/vcs-toolkit-fsharp/commits/main
