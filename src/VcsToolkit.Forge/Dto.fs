@@ -170,9 +170,10 @@ type ForgePr =
         TargetBranch: string
         /// Web URL.
         Url: string
-        /// Whether the PR/MR is a draft. **Best-effort**: only GitLab reports it on the
-        /// lean surface; GitHub and Gitea report `false` here.
-        Draft: bool
+        /// Whether the PR/MR is a draft, or `None` when the backend doesn't report it on
+        /// its lean surface. Only GitLab carries `draft` there (`Some`); GitHub and Gitea
+        /// don't expose it, so it is `None` — never conflated with a confirmed `Some false`.
+        Draft: bool option
     }
 
 /// A repository (GitHub) / project (GitLab), unified. (Gitea's `tea` has no current-repo
@@ -187,9 +188,10 @@ type ForgeRepo =
         DefaultBranch: string
         /// Web URL.
         Url: string
-        /// Whether the repository is private/non-public. **Conservative when unknown:** an
-        /// absent visibility maps to `false` (public) — never told private without proof.
-        Private: bool
+        /// Whether the repository is private/non-public, or `None` when the backend
+        /// doesn't report visibility. `Some true`/`Some false` is a confirmed verdict; an
+        /// absent visibility is `None` (unknown) — never conflated with a public repo.
+        Private: bool option
     }
 
 /// The normalised state of a `ForgeIssue`. An unknown state reads as `Open` — a state we
@@ -233,12 +235,12 @@ type ForgeRelease =
         /// Release notes (markdown). `None` when the backend doesn't carry them — always
         /// on Gitea, and on GitHub's lean `releaseList`.
         Body: string option
-        /// Whether this is an unpublished draft. **Best-effort:** GitHub/Gitea report it;
-        /// GitLab has no draft concept, so it is always `false` there.
-        Draft: bool
-        /// Whether this is a pre-release. **Best-effort:** GitHub/Gitea report it; GitLab
-        /// has no pre-release concept, so it is always `false` there.
-        Prerelease: bool
+        /// Whether this is an unpublished draft, or `None` when the backend has no draft
+        /// concept. GitHub/Gitea report it (`Some`); GitLab has no release draft, so `None`.
+        Draft: bool option
+        /// Whether this is a pre-release, or `None` when the backend has no pre-release
+        /// concept. GitHub/Gitea report it (`Some`); GitLab has none, so `None`.
+        Prerelease: bool option
     }
 
 /// The coarse CI status for a PR/MR, bucketed into the four states a caller acts on.
