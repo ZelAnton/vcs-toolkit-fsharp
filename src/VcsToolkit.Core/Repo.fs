@@ -339,3 +339,14 @@ type Repo private (root: string, cwd: string, backend: Backend) =
         match backend with
         | Backend.Git g -> GitBackend.removeWorktree g cwd path force
         | Backend.Jj j -> JjBackend.removeWorktree j cwd path force
+
+    // --- File content ----------------------------------------------------------
+
+    /// The content of `path` as it exists at `rev`, untrimmed (trailing newlines survive,
+    /// for a byte-exact read-modify-write). `rev` is passed through as-is to the
+    /// underlying client — git accepts a commit-ish, jj a revset; the two syntaxes are NOT
+    /// interchangeable, so this is not a cross-backend-portable revision string.
+    member _.ShowFile(rev: string, path: string) =
+        match backend with
+        | Backend.Git g -> GitBackend.showFile g cwd rev path
+        | Backend.Jj j -> JjBackend.showFile j cwd rev path

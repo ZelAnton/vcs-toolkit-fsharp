@@ -141,6 +141,17 @@ module internal Catalog =
           read "repo_current_branch" "The current branch/bookmark (null when detached/unset)." []
           read "repo_conflicts" "Paths with unresolved merge conflicts (repo-relative, '/'-separated)." []
           read "repo_worktrees" "Attached worktrees (git) / workspaces (jj)." []
+          read
+              "repo_show_file"
+              "The content of a file as it exists at a revision (untrimmed). `rev` is passed through as-is to the backend — a git commit-ish or a jj revset; the two syntaxes are NOT cross-backend portable."
+              [ { Name = "rev"
+                  JsonType = "string"
+                  Description = "The revision (git: commit-ish) or revset (jj) to read the file at."
+                  Required = true }
+                { Name = "path"
+                  JsonType = "string"
+                  Description = "Repo-relative path of the file to read."
+                  Required = true } ]
 
           // repo_try_merge is write-gated (a real, rolled-back trial merge) but non-destructive/idempotent.
           { Name = "repo_try_merge"
@@ -340,6 +351,8 @@ module internal Catalog =
         | "repo_current_branch" -> server.RepoCurrentBranch()
         | "repo_conflicts" -> server.RepoConflicts()
         | "repo_worktrees" -> server.RepoWorktrees()
+        | "repo_show_file" ->
+            bind (reqStr args "rev") (fun rev -> bind (reqStr args "path") (fun path -> server.RepoShowFile(rev, path)))
         | "repo_try_merge" -> bind (reqStr args "source") server.RepoTryMerge
         | "repo_commit" ->
             bind (reqStrArray args "paths") (fun paths ->

@@ -152,6 +152,11 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate) =
     member this.RepoWorktrees() =
         this.ReadRepo(fun () -> repo.ListWorktrees())
 
+    /// The content of `path` as it exists at `rev`, untrimmed. `rev` is passed through
+    /// as-is — git accepts a commit-ish, jj a revset; not cross-backend syntax-portable.
+    member this.RepoShowFile(rev: string, path: string) =
+        this.ReadRepo(fun () -> repo.ShowFile(rev, path))
+
     // --- repo: mutations (gated) -------------------------------------------
 
     /// Probe whether merging `source` into the current work would conflict (rolled back).

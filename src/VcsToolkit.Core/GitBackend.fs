@@ -367,3 +367,10 @@ module internal GitBackend =
             let! r = git.WorktreeRemove(dir, path, force)
             return ofVcs r
         }
+
+    /// The content of `path` as it exists at `rev` (`show <rev>:<path>`), untrimmed.
+    let showFile (git: Git) (dir: string) (rev: string) (path: string) =
+        task {
+            let! r = git.ShowFile(dir, rev, path)
+            return ofVcs r
+        }

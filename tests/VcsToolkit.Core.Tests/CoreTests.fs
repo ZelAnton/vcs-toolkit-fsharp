@@ -325,6 +325,51 @@ type DispatchTests() =
             | Error e -> Assert.Fail $"try merge failed: {e.Message}"
         }
 
+    [<Test>]
+    member _.GitShowFileReturnsBlobContentUntrimmed() : Task =
+        task {
+            // `show <rev>:<path>`; the trailing newline must survive untrimmed.
+            let repo = gitRepo [ "show"; "abc123:file.txt" ] (Reply.Ok "hello world\n")
+
+            match! repo.ShowFile("abc123", "file.txt") with
+            | Ok content -> Assert.That(content, Is.EqualTo "hello world\n")
+            | Error e -> Assert.Fail $"show file failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitShowFileSurfacesAMissingRevisionAsError() : Task =
+        task {
+            let repo =
+                gitRepo [ "show"; "deadbeef:missing.txt" ] (Reply.Fail(128, "fatal: invalid object name 'deadbeef'"))
+
+            match! repo.ShowFile("deadbeef", "missing.txt") with
+            | Error _ -> ()
+            | Ok content -> Assert.Fail $"expected an error, got content {content}"
+        }
+
+    [<Test>]
+    member _.JjShowFileReturnsBlobContentUntrimmed() : Task =
+        task {
+            // `file show -r <revset> file:"<path>"`; the trailing newline must survive untrimmed.
+            let repo =
+                jjRepo [ "file"; "show"; "-r"; "@"; "file:\"file.txt\"" ] (Reply.Ok "hello world\n")
+
+            match! repo.ShowFile("@", "file.txt") with
+            | Ok content -> Assert.That(content, Is.EqualTo "hello world\n")
+            | Error e -> Assert.Fail $"show file failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.JjShowFileSurfacesAMissingPathAsError() : Task =
+        task {
+            let repo =
+                jjRepo [ "file"; "show"; "-r"; "@"; "file:\"missing.txt\"" ] (Reply.Fail(1, "Error: No such path"))
+
+            match! repo.ShowFile("@", "missing.txt") with
+            | Error _ -> ()
+            | Ok content -> Assert.Fail $"expected an error, got content {content}"
+        }
+
 // ---------------------------------------------------------------------------
 // The intricate assemblies: snapshot, tryMerge outcomes/rollback, worktrees
 // ---------------------------------------------------------------------------

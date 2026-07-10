@@ -491,3 +491,11 @@ module internal JjBackend =
                             let! r = jj.WorkspaceForget(dir, name)
                             return ofVcs r
         }
+
+    /// The content of `path` as it exists at `revset` (`file show -r <revset> <path>`),
+    /// untrimmed.
+    let showFile (jj: Jj) (dir: string) (revset: string) (path: string) =
+        task {
+            let! r = jj.FileShow(dir, revset, path)
+            return ofVcs r
+        }
