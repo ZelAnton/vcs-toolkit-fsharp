@@ -267,12 +267,27 @@ type Repo private (root: string, cwd: string, backend: Backend) =
     /// change — so a following `CommitPaths` (or any edit) **rewrites that commit in place** (new
     /// change-id, replaced description), silently amending a possibly-already-pushed commit rather
     /// than adding a new one. Backend-agnostic "start fresh work on top of `main`" code must not
-    /// rely on `Checkout` alone; for append-on-top on both backends, start a new child change
-    /// explicitly — on jj that is `jj new <reference>` via the raw `.Jj` client.
+    /// rely on `Checkout` alone — use `NewChild` instead, which maps to `jj new <reference>` on
+    /// jj and is equivalent to this method on git.
     member _.Checkout(reference: string) =
         match backend with
         | Backend.Git g -> GitBackend.checkout g cwd reference
         | Backend.Jj j -> JjBackend.checkout j cwd reference
+
+    /// Start new work on top of `reference` **without modifying it** (git `checkout
+    /// <reference> --`; jj `new <reference>`) — the backend-agnostic answer to the
+    /// append-on-top caveat called out on `Checkout`. On **git**, this is exactly
+    /// `Checkout`: switching the working copy to `reference` and letting the next commit
+    /// append naturally is already non-destructive on git. On **jj**, this is *not*
+    /// `Checkout` — it runs `jj new <reference>`, which creates a fresh, undescribed
+    /// **child** change stacked on top of `reference` and leaves `reference`'s own commit
+    /// untouched (unlike `jj edit`, which makes `reference` itself the working-copy
+    /// change and rewrites it in place). Use this whenever "start fresh work on top of
+    /// `main`" must behave the same way on both backends.
+    member _.NewChild(reference: string) =
+        match backend with
+        | Backend.Git g -> GitBackend.newChild g cwd reference
+        | Backend.Jj j -> JjBackend.newChild j cwd reference
 
     /// Rebase the current work onto `onto` (git `rebase` / jj `rebase -d`).
     member _.Rebase(onto: string) =

@@ -553,6 +553,16 @@ type Jj private (core: ManagedClient) =
             | Ok() -> return! core.RunUnit(cmdIn dir [ "edit"; revset ])
         }
 
+    /// Start a new, undescribed change as a child of `parent` (`new <parent>`) —
+    /// unlike `Edit`, `parent` itself is left untouched; the new change is a fresh
+    /// commit stacked on top of it.
+    member _.NewChild(dir: string, parent: string) =
+        task {
+            match checkFlags [ "parent", parent ] with
+            | Error e -> return Error e
+            | Ok() -> return! core.RunUnit(cmdIn dir [ "new"; parent ])
+        }
+
     /// Squash the working copy into a revision (`squash --into <rev>`). When
     /// `useDestinationMessage`, keep the destination's description instead of
     /// combining the two.
@@ -1026,6 +1036,9 @@ and [<Sealed>] JjAt internal (jj: Jj, dir: string) =
 
     /// Move the working copy to a revision (`edit <rev>`).
     member _.Edit(revset: string) = jj.Edit(dir, revset)
+
+    /// Start a new, undescribed change as a child of `parent` (`new <parent>`).
+    member _.NewChild(parent: string) = jj.NewChild(dir, parent)
 
     /// Squash the working copy into a revision (`squash --into <rev>`).
     member _.SquashInto(into: string, useDestinationMessage: bool) =

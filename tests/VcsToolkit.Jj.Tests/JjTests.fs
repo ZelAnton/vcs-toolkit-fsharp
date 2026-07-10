@@ -223,10 +223,37 @@ type ParseTests() =
     [<Test>]
     member _.FilesetQuotesMetacharacters() =
         Assert.That(JjFileset.Path("src/a(b).rs").Value, Is.EqualTo "file:\"src/a(b).rs\"")
-        // A Windows backslash separator is normalised to `/`.
-        Assert.That(JjFileset.Path($"src{string (char 92)}a.rs").Value, Is.EqualTo "file:\"src/a.rs\"")
-        // A literal quote is escaped for the `file:"…"` string literal.
-        Assert.That(JjFileset.Path("a\"b").Value, Is.EqualTo "file:\"a\\\"b\"")
+        // A literal quote is escaped for the `file:"…"` string literal, on both platforms.
+        Assert.That(JjFileset.Path("a\"b.txt").Value, Is.EqualTo "file:\"a\\\"b.txt\"")
+
+        if System.OperatingSystem.IsWindows() then
+            // On Windows a backslash separator is normalised to `/`.
+            Assert.That(JjFileset.Path($"src{string (char 92)}a.rs").Value, Is.EqualTo "file:\"src/a.rs\"")
+        else
+            // On non-Windows `\` is a legitimate filename byte: it is kept and
+            // escaped as `\\` (not normalised to `/`), so the literal round-trips.
+            let bs = string (char 92)
+            Assert.That(JjFileset.Path($"a{bs}b.txt").Value, Is.EqualTo $"file:\"a{bs}{bs}b.txt\"")
+            Assert.That(JjFileset.Path($"a{bs}").Value, Is.EqualTo $"file:\"a{bs}{bs}\"")
+            Assert.That(JjFileset.Path($"a{bs}b\"c.txt").Value, Is.EqualTo $"file:\"a{bs}{bs}b\\\"c.txt\"")
+
+    [<Test>]
+    member _.FilesetEscapingMatchesPlatformSemanticsIndependentOfHostOs() =
+        // Model both branches explicitly so the platform-independent escaping
+        // logic is exercised regardless of which OS actually runs this test.
+        let windowsEscape (path: string) =
+            path.Replace(char 92, '/').Replace("\"", "\\\"")
+
+        let nonWindowsEscape (path: string) =
+            path.Replace("\\", "\\\\").Replace("\"", "\\\"")
+
+        let bs = string (char 92)
+        Assert.That(windowsEscape $"src{bs}a.rs", Is.EqualTo "src/a.rs")
+        Assert.That(nonWindowsEscape $"a{bs}b.txt", Is.EqualTo $"a{bs}{bs}b.txt")
+        Assert.That(nonWindowsEscape $"a{bs}", Is.EqualTo $"a{bs}{bs}")
+        Assert.That(nonWindowsEscape $"a{bs}b\"c.txt", Is.EqualTo $"a{bs}{bs}b\\\"c.txt")
+        Assert.That(windowsEscape "a\"b.txt", Is.EqualTo "a\\\"b.txt")
+        Assert.That(nonWindowsEscape "a\"b.txt", Is.EqualTo "a\\\"b.txt")
 
 // ---------------------------------------------------------------------------
 // Client: hermetic argv-building + parsing via ScriptedRunner
@@ -369,6 +396,18 @@ type ClientTests() =
             match! jj.NewMerge(".", "m", [ "p1"; "p2" ]) with
             | Ok() -> ()
             | Error e -> Assert.Fail $"new_merge failed: {e}"
+        }
+
+    [<Test>]
+    member _.NewChildStartsUndescribedChildOfParent() : Task =
+        task {
+            // Unlike `NewMerge`/`NewChange`, `NewChild` carries no `-m`: the resulting
+            // change is left undescribed, and `parent` itself is untouched.
+            let jj = scripted [ "new"; "feat" ] (Reply.Ok "")
+
+            match! jj.NewChild(".", "feat") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"new_child failed: {e}"
         }
 
     [<Test>]
@@ -817,6 +856,7 @@ type SemanticsTests() =
             let! l = isErr (jj.NewMerge(".", "m", [ "@"; "--ignore-working-copy" ]))
             let! m = isErr (jj.GitClone("-evil", "/d", false))
             let! n = isErr (jj.Edit(".", ""))
+            let! o = isErr (jj.NewChild(".", "-evil"))
 
             for flag, name in
                 [ a, "bookmark_create"
@@ -832,7 +872,8 @@ type SemanticsTests() =
                   k, "workspace_forget"
                   l, "new_merge parent"
                   m, "git_clone"
-                  n, "empty edit" ] do
+                  n, "empty edit"
+                  o, "new_child parent" ] do
                 Assert.That(flag, Is.True, $"{name} must be refused")
 
             // …and a legitimate value still passes through.

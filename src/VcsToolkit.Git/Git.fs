@@ -405,22 +405,36 @@ type Git private (core: ManagedClient) =
         }
 
     /// The current branch's upstream, e.g. `Some "origin/main"`; `None` when unset.
+    /// Requires HEAD to be an attached branch (`symbolic-ref` first): detached HEAD, a
+    /// directory outside a repository, or any other `symbolic-ref` failure surfaces as
+    /// `Error`, not a false "no upstream". Only on an attached branch does `@{u}`'s
+    /// exit code 128 — which git also uses for those same failure modes — get mapped
+    /// to `Ok None`; any other non-zero code or no-code outcome (e.g. timeout) is
+    /// still a real `Error`.
     member _.Upstream(dir: string) =
         task {
-            match!
-                core.Output(core.CommandIn(dir, [ "rev-parse"; "--abbrev-ref"; "--symbolic-full-name"; "@{u}" ]))
-            with
+            match! core.Output(core.CommandIn(dir, [ "symbolic-ref"; "--quiet"; "--short"; "HEAD" ])) with
             | Error e -> return Error e
-            | Ok res ->
-                match res.Code with
-                | Some 0 ->
-                    let name = res.Stdout.Trim()
-                    return Ok(if name <> "" then Some name else None)
-                | Some _ -> return Ok None // any non-zero exit => no upstream configured
-                | None ->
-                    match ProcessResult.ensureSuccess res with
+            | Ok symRes ->
+                match ProcessResult.ensureSuccess symRes with
+                | Error e -> return Error e
+                | Ok _ ->
+                    match!
+                        core.Output(
+                            core.CommandIn(dir, [ "rev-parse"; "--abbrev-ref"; "--symbolic-full-name"; "@{u}" ])
+                        )
+                    with
                     | Error e -> return Error e
-                    | Ok _ -> return Ok None
+                    | Ok res ->
+                        match res.Code with
+                        | Some 0 ->
+                            let name = res.Stdout.Trim()
+                            return Ok(if name <> "" then Some name else None)
+                        | Some 128 -> return Ok None // no upstream configured for the current branch
+                        | _ ->
+                            match ProcessResult.ensureSuccess res with
+                            | Error e -> return Error e
+                            | Ok _ -> return Ok None
         }
 
     // --- Remote credentials --------------------------------------------------

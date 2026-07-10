@@ -54,3 +54,16 @@ type WatchError =
         | WatchError.Notify e -> sprintf "filesystem watch failed: %s" e.Message
         | WatchError.Vcs e -> e.Message
         | WatchError.Io e -> e.Message
+
+/// Raised as the `Exception` a `RepoWatcher`'s output channel is closed with
+/// (`ChannelWriter.Complete`) when the background loop hits a **terminal** re-query
+/// failure — not transient (`WatchError.IsTransient` is `false`), or a transient failure
+/// that exhausted its retry budget. `RepoWatcher.Recv()` re-raises this (wrapped in the
+/// `ChannelClosedException` the runtime throws for a completed-with-error channel) rather
+/// than returning `None`, so a consumer can distinguish "the watch broke" from "the
+/// watcher was disposed" (which still yields `None`). See `Loop.watchLoop`.
+exception WatcherTerminated of error: WatchError with
+    override this.Message =
+        match this :> exn with
+        | WatcherTerminated e -> sprintf "the repository watcher stopped: %s" e.Message
+        | _ -> "the repository watcher stopped"
