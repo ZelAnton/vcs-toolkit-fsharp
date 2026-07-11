@@ -154,12 +154,17 @@ module Credentials =
     /// The host (with port, original case) of an `https://` URL — for scoping a credential
     /// helper to the clone URL's host. `None` for a non-https URL, an empty host, or an IPv6
     /// literal (`[::1]:443` — git formats its `host=` request idiosyncratically for those, so
-    /// stay unscoped rather than risk withholding a legitimate credential). The port and case
-    /// are KEPT: git's `host=` carries them verbatim and the helper compares byte-for-byte.
+    /// stay unscoped rather than risk withholding a legitimate credential). The scheme is
+    /// matched case-INsensitively (git/curl accept `HTTPS://` etc.), so a mixed-case scheme on
+    /// an externally-supplied clone URL cannot silently defeat host scoping. The host's port and
+    /// case, by contrast, are KEPT: git's `host=` carries them verbatim and the helper compares
+    /// byte-for-byte, so only the scheme comparison is case-insensitive.
     let httpsHost (url: string) : string option =
-        if not (url.StartsWith("https://", System.StringComparison.Ordinal)) then
+        if not (url.StartsWith("https://", System.StringComparison.OrdinalIgnoreCase)) then
             None
         else
+            // "https://" is 8 ASCII chars and OrdinalIgnoreCase is a 1:1 char mapping, so the
+            // matched prefix is exactly this length; Substring past it preserves the host bytes.
             let rest = url.Substring("https://".Length)
             let authority = rest.Split([| '/'; '?'; '#' |]).[0]
 
