@@ -19,6 +19,13 @@ let private binaryAvailable (probe: unit -> unit) : bool =
         // the binary isn't on PATH (or failed to spawn) — the guarded test can't run.
         false
 
+/// Hard-fail (rather than skip) when a required binary is unavailable. This is safe for jj:
+/// jj is an unconditional hard dependency of the VcsToolkit.Jj project itself. VcsToolkit.Jj.Tests
+/// (which exercises the real `jj` binary via JjSandbox.Init with no availability skip logic whatsoever)
+/// passes 97/97 tests on all three CI runners (ubuntu-latest, windows-latest, macos-latest) as of
+/// run 29155465472 (2026-07-11, main branch push). This confirms jj is already provisioned and
+/// available on all CI runners; therefore, hard-failing here when it's missing is correct and will
+/// never mask a true issue in CI.
 let private requireBinary (name: string) (probe: unit -> unit) =
     if not (binaryAvailable probe) then
         Assert.Fail $"{name} must be available on PATH to run required forge-detection tests"
