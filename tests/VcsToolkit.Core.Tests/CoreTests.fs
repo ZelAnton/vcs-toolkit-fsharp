@@ -185,8 +185,11 @@ type TypeTests() =
 
     [<Test>]
     member _.RepoErrorClassifiersFalseForFacadeVariants() =
-        // The facade's own io/detection variants are never a vcs/transient/not-found error.
+        // The facade's own input/io/detection variants are never a vcs/transient/not-found error.
+        let invalidInput = RepoError.InvalidInput "bad path"
         let io = RepoError.Io "disk full"
+        Assert.That(invalidInput.IsTransient, Is.False)
+        Assert.That(invalidInput.IsNotFound, Is.False)
         Assert.That(io.IsTransient, Is.False)
         Assert.That(io.IsTransientFetchError, Is.False)
         Assert.That(io.IsNothingToCommit, Is.False)
@@ -197,6 +200,7 @@ type TypeTests() =
     member _.RepoErrorMessageIncludesContext() =
         Assert.That((RepoError.NotARepository "/x").Message, Does.Contain "/x")
         Assert.That((RepoError.WorktreeNotFound "/wt").Message, Does.Contain "/wt")
+        Assert.That((RepoError.InvalidInput "bad path").Message, Is.EqualTo "bad path")
         Assert.That((RepoError.Io "disk full").Message, Is.EqualTo "disk full")
 
 // ---------------------------------------------------------------------------
@@ -315,7 +319,8 @@ type DispatchTests() =
                 Repo.FromJj("/repo", "/repo", Jj.WithRunner(ScriptedRunner().Fallback(Reply.Ok "")))
 
             match! repo.CommitPaths([], "msg") with
-            | Error _ -> ()
+            | Error(RepoError.InvalidInput message) -> Assert.That(message, Does.Contain "at least one path")
+            | Error e -> Assert.Fail $"expected InvalidInput, got: {e.Message}"
             | Ok() -> Assert.Fail "an empty path set must be refused before spawning"
         }
 
@@ -387,7 +392,8 @@ type DispatchTests() =
                 Repo.FromJj("/repo", "/repo", Jj.WithRunner(ScriptedRunner().Fallback(Reply.Ok "")))
 
             match! repo.LogPaths("@", 5, []) with
-            | Error _ -> ()
+            | Error(RepoError.InvalidInput message) -> Assert.That(message, Does.Contain "at least one path")
+            | Error e -> Assert.Fail $"expected InvalidInput, got: {e.Message}"
             | Ok _ -> Assert.Fail "an empty path set must be refused before spawning"
         }
 
@@ -731,7 +737,9 @@ type AssemblyTests() =
             let repo = Repo.FromJj("/repo", "/repo", Jj.WithRunner runner)
 
             match! repo.RemoveWorktree(".", false) with
-            | Error e -> Assert.That(e.Message, Does.Contain "main workspace", "the guard must name the reason")
+            | Error(RepoError.InvalidInput message) ->
+                Assert.That(message, Does.Contain "main workspace", "the guard must name the reason")
+            | Error e -> Assert.Fail $"expected InvalidInput, got: {e.Message}"
             | Ok() -> Assert.Fail "removing the main (default) workspace must be refused"
         }
 

@@ -14,6 +14,8 @@ type RepoError =
     | NotARepository of dir: string
     /// A worktree/workspace lookup by path matched no attached worktree.
     | WorktreeNotFound of path: string
+    /// The caller supplied input that the facade refuses before invoking a backend command.
+    | InvalidInput of message: string
     /// A filesystem operation failed (e.g. removing a workspace directory).
     | Io of message: string
     /// The requested action is not supported for the repository's current in-progress state
@@ -64,7 +66,8 @@ type RepoError =
     /// would-block / resource-busy) — delegates to `ProcessError.isTransient`. Narrower
     /// than `IsTransientFetchError` (which also treats a timeout and the network markers
     /// as retryable); use this to retry *any* operation past a momentary io hiccup. The
-    /// facade's own `Io`/`NotARepository`/`WorktreeNotFound` variants are never transient.
+    /// facade's own `InvalidInput`/`Io`/`NotARepository`/`WorktreeNotFound` variants are never
+    /// transient.
     member this.IsTransient =
         match this with
         | RepoError.Vcs e -> ProcessError.isTransient e
@@ -73,7 +76,8 @@ type RepoError =
     /// Whether the underlying CLI binary (`git`/`jj`) **wasn't found** — a setup problem
     /// (the tool isn't installed or isn't on `PATH`), not a repository or usage error.
     /// Lets a caller surface a "please install git/jj" hint instead of a raw spawn
-    /// failure. The facade's own `Io`/`NotARepository`/`WorktreeNotFound` are never this.
+    /// failure. The facade's own `InvalidInput`/`Io`/`NotARepository`/`WorktreeNotFound` are
+    /// never this.
     member this.IsNotFound =
         match this with
         | RepoError.Vcs e -> ProcessError.isNotFound e
@@ -84,6 +88,7 @@ type RepoError =
         match this with
         | RepoError.NotARepository dir -> sprintf "no git or jj repository found at or above %s" dir
         | RepoError.WorktreeNotFound path -> sprintf "no worktree found at %s" path
+        | RepoError.InvalidInput message -> message
         | RepoError.Io message -> message
         | RepoError.Unsupported operation -> sprintf "unsupported operation: %s" operation
         | RepoError.Vcs e -> e.Message

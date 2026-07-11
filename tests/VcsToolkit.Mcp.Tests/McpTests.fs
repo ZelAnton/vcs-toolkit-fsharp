@@ -176,6 +176,21 @@ type ArgsTests() =
 // ---------------------------------------------------------------------------
 
 [<TestFixture>]
+type ErrorMappingTests() =
+
+    [<Test>]
+    member _.CoreInvalidInputMapsToInvalidParams() =
+        match coreErr (RepoError.InvalidInput "paths cannot be empty") with
+        | McpError.InvalidParams message -> Assert.That(message, Is.EqualTo "paths cannot be empty")
+        | McpError.Internal message -> Assert.Fail $"expected invalid params, got internal: {message}"
+
+    [<Test>]
+    member _.CoreIoMapsToInternal() =
+        match coreErr (RepoError.Io "directory delete failed") with
+        | McpError.Internal message -> Assert.That(message, Is.EqualTo "directory delete failed")
+        | McpError.InvalidParams message -> Assert.Fail $"expected internal, got invalid params: {message}"
+
+[<TestFixture>]
 type ToolTests() =
 
     [<Test>]

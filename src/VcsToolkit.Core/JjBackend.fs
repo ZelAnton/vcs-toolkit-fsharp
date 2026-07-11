@@ -561,7 +561,7 @@ module internal JjBackend =
                 if name = DEFAULT_WORKSPACE || ownsStore then
                     return
                         Error(
-                            RepoError.Io
+                            RepoError.InvalidInput
                                 "refusing to remove the repository's main workspace (its directory is the main working copy and owns the object store)"
                         )
                 else
@@ -577,7 +577,7 @@ module internal JjBackend =
                                 | Ok change when not change.Empty ->
                                     return
                                         Error(
-                                            RepoError.Io
+                                            RepoError.InvalidInput
                                                 "worktree has uncommitted changes; pass force = true to remove it (the changes are snapshotted in jj's op log and recoverable)"
                                         )
                                 | Ok _ -> return Ok()
