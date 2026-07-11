@@ -357,29 +357,41 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
     member this.ForgeIssueCreate(title: string, body: string) =
         this.WithForgeWrite "forge_issue_create" (fun f ->
             task {
-                match! f.IssueCreate(title, body) with
-                | Error e -> return Error(forgeErr e)
-                | Ok out -> return Ok(Json.ok {| output = out |})
+                match guardArgvField "title" title with
+                | Error e -> return Error e
+                | Ok() ->
+                    match guardArgvField "body" body with
+                    | Error e -> return Error e
+                    | Ok() ->
+                        match! f.IssueCreate(title, body) with
+                        | Error e -> return Error(forgeErr e)
+                        | Ok out -> return Ok(Json.ok {| output = out |})
             })
 
     /// Open a pull/merge request, returning the CLI's output (the URL on success).
     member this.ForgePrCreate(title: string, body: string, source: string option, target: string option) =
         this.WithForgeWrite "forge_pr_create" (fun f ->
             task {
-                let spec =
-                    PrCreate.Create(title, body)
-                    |> fun s ->
-                        match source with
-                        | Some x -> s.WithSource x
-                        | Option.None -> s
-                    |> fun s ->
-                        match target with
-                        | Some x -> s.WithTarget x
-                        | Option.None -> s
+                match guardArgvField "title" title with
+                | Error e -> return Error e
+                | Ok() ->
+                    match guardArgvField "body" body with
+                    | Error e -> return Error e
+                    | Ok() ->
+                        let spec =
+                            PrCreate.Create(title, body)
+                            |> fun s ->
+                                match source with
+                                | Some x -> s.WithSource x
+                                | Option.None -> s
+                            |> fun s ->
+                                match target with
+                                | Some x -> s.WithTarget x
+                                | Option.None -> s
 
-                match! f.PrCreate spec with
-                | Error e -> return Error(forgeErr e)
-                | Ok out -> return Ok(Json.ok {| output = out |})
+                        match! f.PrCreate spec with
+                        | Error e -> return Error(forgeErr e)
+                        | Ok out -> return Ok(Json.ok {| output = out |})
             })
 
     /// Merge a pull/merge request with a strategy (`merge`/`squash`/`rebase`), optionally with

@@ -384,6 +384,94 @@ type ToolTests() =
             | Error e -> Assert.Fail $"repo_info failed: {e.Message}"
         }
 
+    [<Test>]
+    member _.ForgeIssueCreateRejectsDashLeadingTitleWithoutSpawning() : Task =
+        task {
+            // The guard fires before any spawn, so a fallback that would fail loudly is never
+            // reached — proving the refusal precedes the forge call.
+            let runner =
+                ScriptedRunner().Fallback(Reply.Fail(1, "must not spawn — refusal must precede it"))
+
+            let server = gitServerWithForge runner WriteGate.All
+
+            match! server.ForgeIssueCreate("-title", "body") with
+            | Error(McpError.InvalidParams _) -> ()
+            | Error e -> Assert.Fail $"expected invalid params, got: {e.Message}"
+            | Ok _ -> Assert.Fail "a dash-leading title must be refused"
+        }
+
+    [<Test>]
+    member _.ForgeIssueCreateRejectsDashLeadingBodyWithoutSpawning() : Task =
+        task {
+            let runner =
+                ScriptedRunner().Fallback(Reply.Fail(1, "must not spawn — refusal must precede it"))
+
+            let server = gitServerWithForge runner WriteGate.All
+
+            match! server.ForgeIssueCreate("title", "-body") with
+            | Error(McpError.InvalidParams _) -> ()
+            | Error e -> Assert.Fail $"expected invalid params, got: {e.Message}"
+            | Ok _ -> Assert.Fail "a dash-leading body must be refused"
+        }
+
+    [<Test>]
+    member _.ForgeIssueCreateAcceptsNonDashTitleAndBody() : Task =
+        task {
+            let server =
+                gitServerWithForge
+                    (ScriptedRunner()
+                        .On([ "--version" ], Reply.Ok "gh version 2.40.0\n")
+                        .On([ "issue"; "create" ], Reply.Ok "https://x/1\n"))
+                    WriteGate.All
+
+            match! server.ForgeIssueCreate("fine title", "fine body") with
+            | Ok json -> Assert.That(json, Does.Contain "https://x/1")
+            | Error e -> Assert.Fail $"forge_issue_create failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.ForgePrCreateRejectsDashLeadingTitleWithoutSpawning() : Task =
+        task {
+            let runner =
+                ScriptedRunner().Fallback(Reply.Fail(1, "must not spawn — refusal must precede it"))
+
+            let server = gitServerWithForge runner WriteGate.All
+
+            match! server.ForgePrCreate("-title", "body", Option.None, Option.None) with
+            | Error(McpError.InvalidParams _) -> ()
+            | Error e -> Assert.Fail $"expected invalid params, got: {e.Message}"
+            | Ok _ -> Assert.Fail "a dash-leading title must be refused"
+        }
+
+    [<Test>]
+    member _.ForgePrCreateRejectsDashLeadingBodyWithoutSpawning() : Task =
+        task {
+            let runner =
+                ScriptedRunner().Fallback(Reply.Fail(1, "must not spawn — refusal must precede it"))
+
+            let server = gitServerWithForge runner WriteGate.All
+
+            match! server.ForgePrCreate("title", "-body", Option.None, Option.None) with
+            | Error(McpError.InvalidParams _) -> ()
+            | Error e -> Assert.Fail $"expected invalid params, got: {e.Message}"
+            | Ok _ -> Assert.Fail "a dash-leading body must be refused"
+        }
+
+    [<Test>]
+    member _.ForgePrCreateAcceptsNonDashTitleAndBody() : Task =
+        task {
+            let server =
+                gitServerWithForge
+                    (ScriptedRunner()
+                        .On([ "--version" ], Reply.Ok "gh version 2.40.0\n")
+                        .On([ "pr"; "create" ], Reply.Ok "https://x/2\n"))
+                    WriteGate.All
+
+            match! server.ForgePrCreate("fine title", "fine body", Option.None, Option.None) with
+            | Ok json -> Assert.That(json, Does.Contain "https://x/2")
+            | Error e -> Assert.Fail $"forge_pr_create failed: {e.Message}"
+        }
+
 // ---------------------------------------------------------------------------
 // repo_show_file output-budget truncation
 // ---------------------------------------------------------------------------
