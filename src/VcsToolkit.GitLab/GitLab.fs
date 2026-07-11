@@ -96,12 +96,22 @@ type GitLab private (core: ManagedClient) =
 
     // --- Escape hatches / version / auth -------------------------------------
 
-    /// Run `glab <args>` in the current directory, returning trimmed stdout. Unguarded
-    /// — never forward untrusted argv (glab aliases and `glab api` can reach code execution).
+    /// Run `glab <args>` in the process's current directory, returning trimmed stdout. Unguarded
+    /// — never forward untrusted argv (glab aliases and `glab api` can reach code execution). For
+    /// an ad-hoc command scoped to a repository, use the `dir`-taking overload (`Run(dir, args)`)
+    /// or a bound view's `at(dir).Run(args)`.
     member _.Run(args: string seq) = core.Run(core.Command args)
+
+    /// Run `glab <args>` in `dir`, returning trimmed stdout — the `dir`-bound counterpart of
+    /// `Run(args)` (which runs in the process cwd). Backs `GitLabAt.Run`. Equally unguarded.
+    member _.Run(dir: string, args: string seq) = core.Run(core.CommandIn(dir, args))
 
     /// Like `Run` but never errors on a non-zero exit — returns the captured result.
     member _.RunRaw(args: string seq) = core.Output(core.Command args)
+
+    /// Like `Run(dir, args)` but never errors on a non-zero exit — returns the captured
+    /// result. Backs `GitLabAt.RunRaw`.
+    member _.RunRaw(dir: string, args: string seq) = core.Output(core.CommandIn(dir, args))
 
     /// Installed GitLab CLI version (`glab --version`).
     member _.Version() = core.Run(core.Command [ "--version" ])
@@ -323,23 +333,24 @@ type GitLab private (core: ManagedClient) =
         }
 
     /// A view of this client bound to repository `dir`: modelled methods drop their leading
-    /// `dir` argument. The raw `Run`/`RunRaw` hatches stay process-cwd.
+    /// `dir` argument, and the raw `Run`/`RunRaw` hatches run in the bound `dir` too.
     member this.At(dir: string) : GitLabAt = GitLabAt(this, dir)
 
 /// A view of a `GitLab` client bound to a repository `dir`. Every modelled method drops the
 /// leading `dir` argument and injects the bound one, so `at.MrList()` is `gitlab.MrList dir`
 /// and `at.Api(endpoint)` is `gitlab.Api(dir, endpoint)`. The raw `Run`/`RunRaw` escape hatches
-/// are deliberately NOT rebound: like the client's, they run in the process's current working
-/// directory, not the bound `dir`.
+/// also run in the bound `dir` (forwarding to `gitlab.Run(dir, …)`/`gitlab.RunRaw(dir, …)`); for
+/// a raw command that must run in the process's current directory instead, call `Run`/`RunRaw`
+/// on the unbound `GitLab` client.
 and [<Sealed>] GitLabAt internal (gitlab: GitLab, dir: string) =
 
-    // --- Escape hatches / version / auth (process-cwd, NOT the bound dir) -----
+    // --- Escape hatches / version / auth (Run/RunRaw bound to `dir`) ----------
 
-    /// Run `glab <args>` in the process's current directory (NOT the bound `dir`). Unguarded.
-    member _.Run(args: string seq) = gitlab.Run args
+    /// Run `glab <args>` in the bound `dir`. Unguarded.
+    member _.Run(args: string seq) = gitlab.Run(dir, args)
 
-    /// Like `Run` but never errors on a non-zero exit. Process-cwd, NOT the bound `dir`.
-    member _.RunRaw(args: string seq) = gitlab.RunRaw args
+    /// Like `Run` but never errors on a non-zero exit — returns the captured result.
+    member _.RunRaw(args: string seq) = gitlab.RunRaw(dir, args)
 
     /// Installed GitLab CLI version (`glab --version`).
     member _.Version() = gitlab.Version()

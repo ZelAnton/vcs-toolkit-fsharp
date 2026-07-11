@@ -983,7 +983,7 @@ type AtViewTests() =
         captured, runner
 
     [<Test>]
-    member _.GitHubAtBindsDirForModelledMethodsButNotRawRun() : Task =
+    member _.GitHubAtBindsDirForModelledMethodsAndRawRun() : Task =
         task {
             // `Api` is a MODELLED (dir-bound) method — `at.Api(x)` binds `dir` as the cwd and
             // produces byte-identical argv.
@@ -998,15 +998,26 @@ type AtViewTests() =
                 Assert.That(String.concat " " cmd.Arguments, Is.EqualTo "api repos/o/r")
             | None -> Assert.Fail "no command captured for Api"
 
-            // The raw `Run` hatch stays process-cwd (WorkingDirectory = None).
+            // The raw `Run` hatch on the bound view now runs in the bound `dir` too.
             let captured2, runner2 = capturingCmd (Reply.Ok "")
             let gh2 = GitHub.WithRunner runner2
 
             let! _ = gh2.At("/bound/dir").Run [ "auth"; "status" ]
 
             match captured2.Value with
-            | Some cmd -> Assert.That(cmd.WorkingDirectory, Is.EqualTo None, "the raw Run hatch is NOT bound to dir")
+            | Some cmd ->
+                Assert.That(cmd.WorkingDirectory, Is.EqualTo(Some "/bound/dir"), "the raw Run hatch binds dir")
             | None -> Assert.Fail "no command captured for Run"
+
+            // The unbound client's raw `Run` still runs in the process cwd.
+            let captured3, runner3 = capturingCmd (Reply.Ok "")
+            let gh3 = GitHub.WithRunner runner3
+
+            let! _ = gh3.Run [ "auth"; "status" ]
+
+            match captured3.Value with
+            | Some cmd -> Assert.That(cmd.WorkingDirectory, Is.EqualTo None, "the unbound raw Run is NOT bound to dir")
+            | None -> Assert.Fail "no command captured for unbound Run"
         }
 
 // ---------------------------------------------------------------------------

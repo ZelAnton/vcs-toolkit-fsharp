@@ -258,12 +258,22 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
 
     // --- Escape hatches / version --------------------------------------------
 
-    /// Run `jj <args>` in the current directory, returning trimmed stdout. Unguarded
-    /// — never forward untrusted argv (jj's `--config`/aliases can reach code execution).
+    /// Run `jj <args>` in the process's current directory, returning trimmed stdout. Unguarded
+    /// — never forward untrusted argv (jj's `--config`/aliases can reach code execution). For an
+    /// ad-hoc command scoped to a repository, use the `dir`-taking overload (`Run(dir, args)`)
+    /// or a bound view's `at(dir).Run(args)`.
     member _.Run(args: string seq) = core.Run(core.Command args)
+
+    /// Run `jj <args>` in `dir`, returning trimmed stdout — the `dir`-bound counterpart of
+    /// `Run(args)` (which runs in the process cwd). Backs `JjAt.Run`. Equally unguarded.
+    member _.Run(dir: string, args: string seq) = core.Run(core.CommandIn(dir, args))
 
     /// Like `Run` but never errors on a non-zero exit — returns the captured result.
     member _.RunRaw(args: string seq) = core.Output(core.Command args)
+
+    /// Like `Run(dir, args)` but never errors on a non-zero exit — returns the captured
+    /// result. Backs `JjAt.RunRaw`.
+    member _.RunRaw(dir: string, args: string seq) = core.Output(core.CommandIn(dir, args))
 
     /// Installed Jujutsu version (`jj --version`).
     member _.Version() = core.Run(core.Command [ "--version" ])
@@ -1083,27 +1093,27 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
         }
 
     /// A view of this client bound to `dir`: the modelled methods drop their leading `dir`
-    /// argument. `Run`/`RunRaw` stay bound to the process cwd (see `JjAt`).
+    /// argument, and the raw `Run`/`RunRaw` hatches run in the bound `dir` too (see `JjAt`).
     member this.At(dir: string) : JjAt = JjAt(this, dir)
 
 /// A `Jj` client with a working directory bound, so calls drop the leading `dir` argument —
 /// `jj.At(dir).Status()` is `jj.Status dir`. Construct one with `Jj.At` (or, through the
 /// facade, `Repo.JjAt`). Cheap to construct: it only holds the client and the path.
 ///
-/// Asymmetry (deliberate, mirroring the Rust `JjAt`): the *modelled* methods are `dir`
-/// forwarders — they inject the bound `dir` as the first argument. The raw `Run`/`RunRaw`
-/// escape hatches are `bare` forwarders — they call `jj.Run`/`jj.RunRaw` unchanged and
-/// therefore run in the **process's current working directory**, NOT the bound `dir`. As on
-/// the client, they are unguarded — never forward untrusted argv.
+/// Every method — the *modelled* `dir` forwarders AND the raw `Run`/`RunRaw` escape hatches —
+/// runs in the bound `dir`: the modelled methods inject it as their leading argument, and the
+/// hatches forward to `jj.Run(dir, …)`/`jj.RunRaw(dir, …)`. For a raw command that must run in
+/// the process's current directory instead, call `Run`/`RunRaw` on the unbound `Jj` client. As
+/// on the client, the hatches are unguarded — never forward untrusted argv.
 and [<Sealed>] JjAt internal (jj: Jj, dir: string) =
 
-    // --- Escape hatches (bare: NOT bound to `dir` — run in the process cwd) ---
+    // --- Escape hatches (bound to `dir`) -------------------------------------
 
-    /// Run `jj <args>` in the process's current directory, returning trimmed stdout.
-    member _.Run(args: string seq) = jj.Run args
+    /// Run `jj <args>` in the bound `dir`, returning trimmed stdout.
+    member _.Run(args: string seq) = jj.Run(dir, args)
 
     /// Like `Run` but never errors on a non-zero exit — returns the captured result.
-    member _.RunRaw(args: string seq) = jj.RunRaw args
+    member _.RunRaw(args: string seq) = jj.RunRaw(dir, args)
 
     /// Installed Jujutsu version (`jj --version`).
     member _.Version() = jj.Version()

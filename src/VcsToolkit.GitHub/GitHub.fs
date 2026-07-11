@@ -115,13 +115,22 @@ type GitHub private (core: ManagedClient) =
 
     // --- Escape hatches / version / auth -------------------------------------
 
-    /// Run `gh <args>` in the current directory, returning trimmed stdout. Unguarded
-    /// — never forward untrusted argv (gh aliases/extensions and `gh api` can reach
-    /// code execution).
+    /// Run `gh <args>` in the process's current directory, returning trimmed stdout. Unguarded
+    /// — never forward untrusted argv (gh aliases/extensions and `gh api` can reach code
+    /// execution). For an ad-hoc command scoped to a repository, use the `dir`-taking overload
+    /// (`Run(dir, args)`) or a bound view's `at(dir).Run(args)`.
     member _.Run(args: string seq) = core.Run(core.Command args)
+
+    /// Run `gh <args>` in `dir`, returning trimmed stdout — the `dir`-bound counterpart of
+    /// `Run(args)` (which runs in the process cwd). Backs `GitHubAt.Run`. Equally unguarded.
+    member _.Run(dir: string, args: string seq) = core.Run(core.CommandIn(dir, args))
 
     /// Like `Run` but never errors on a non-zero exit — returns the captured result.
     member _.RunRaw(args: string seq) = core.Output(core.Command args)
+
+    /// Like `Run(dir, args)` but never errors on a non-zero exit — returns the captured
+    /// result. Backs `GitHubAt.RunRaw`.
+    member _.RunRaw(dir: string, args: string seq) = core.Output(core.CommandIn(dir, args))
 
     /// Installed GitHub CLI version (`gh --version`).
     member _.Version() = core.Run(core.Command [ "--version" ])
@@ -426,23 +435,24 @@ type GitHub private (core: ManagedClient) =
         }
 
     /// A view of this client bound to repository `dir`: modelled methods drop their leading
-    /// `dir` argument. The raw `Run`/`RunRaw` hatches stay process-cwd.
+    /// `dir` argument, and the raw `Run`/`RunRaw` hatches run in the bound `dir` too.
     member this.At(dir: string) : GitHubAt = GitHubAt(this, dir)
 
 /// A view of a `GitHub` client bound to a repository `dir`. Every modelled method drops the
 /// leading `dir` argument and injects the bound one, so `at.PrList()` is `github.PrList dir`
 /// and `at.Api(endpoint)` is `github.Api(dir, endpoint)`. The raw `Run`/`RunRaw` escape hatches
-/// are deliberately NOT rebound: like the client's, they run in the process's current working
-/// directory, not the bound `dir`.
+/// also run in the bound `dir` (forwarding to `github.Run(dir, …)`/`github.RunRaw(dir, …)`); for
+/// a raw command that must run in the process's current directory instead, call `Run`/`RunRaw`
+/// on the unbound `GitHub` client.
 and [<Sealed>] GitHubAt internal (github: GitHub, dir: string) =
 
-    // --- Escape hatches / version / auth (process-cwd, NOT the bound dir) -----
+    // --- Escape hatches / version / auth (Run/RunRaw bound to `dir`) ----------
 
-    /// Run `gh <args>` in the process's current directory (NOT the bound `dir`). Unguarded.
-    member _.Run(args: string seq) = github.Run args
+    /// Run `gh <args>` in the bound `dir`. Unguarded.
+    member _.Run(args: string seq) = github.Run(dir, args)
 
-    /// Like `Run` but never errors on a non-zero exit. Process-cwd, NOT the bound `dir`.
-    member _.RunRaw(args: string seq) = github.RunRaw args
+    /// Like `Run` but never errors on a non-zero exit — returns the captured result.
+    member _.RunRaw(args: string seq) = github.RunRaw(dir, args)
 
     /// Installed GitHub CLI version (`gh --version`).
     member _.Version() = github.Version()

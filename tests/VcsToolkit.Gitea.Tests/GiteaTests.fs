@@ -626,3 +626,64 @@ type VersionTests() =
             | Error _ -> ()
             | Ok _ -> Assert.Fail "an unrecognisable version banner must be an Error"
         }
+
+[<TestFixture>]
+type AtViewTests() =
+
+    // Records the full Command (argv + working directory), for asserting the `at(dir)` view's
+    // cwd binding — the plain `capturing` above only keeps argv.
+    let capturingCmd (reply: Reply) : (Command option ref) * ScriptedRunner =
+        let captured = ref (None: Command option)
+
+        let runner =
+            ScriptedRunner()
+                .When(
+                    (fun (c: Command) ->
+                        captured.Value <- Some c
+                        true),
+                    reply
+                )
+
+        captured, runner
+
+    [<Test>]
+    member _.GiteaAtRawRunBindsDir() : Task =
+        task {
+            // The raw `Run`/`RunRaw` hatches on the bound view run in the bound `dir`
+            // (WorkingDirectory = Some dir), like the modelled methods — not the process cwd.
+            let captured, runner = capturingCmd (Reply.Ok "ok\n")
+            let tea = Gitea.WithRunner runner
+
+            let! _ = tea.At("/bound/dir").Run [ "login"; "list" ]
+
+            match captured.Value with
+            | Some cmd ->
+                Assert.That(cmd.WorkingDirectory, Is.EqualTo(Some "/bound/dir"), "the raw Run hatch binds dir")
+                Assert.That(String.concat " " cmd.Arguments, Is.EqualTo "login list")
+            | None -> Assert.Fail "no command captured for Run"
+
+            let capturedRaw, runnerRaw = capturingCmd (Reply.Ok "")
+            let teaRaw = Gitea.WithRunner runnerRaw
+
+            let! _ = teaRaw.At("/bound/dir").RunRaw [ "version" ]
+
+            match capturedRaw.Value with
+            | Some cmd ->
+                Assert.That(cmd.WorkingDirectory, Is.EqualTo(Some "/bound/dir"), "the raw RunRaw hatch binds dir")
+            | None -> Assert.Fail "no command captured for RunRaw"
+        }
+
+    [<Test>]
+    member _.GiteaUnboundRawRunStaysProcessCwd() : Task =
+        task {
+            // The unbound client's raw `Run` still runs in the process cwd (WorkingDirectory =
+            // None) — the `dir`-bound form lives only on the `at(dir)` view / `Run(dir, …)`.
+            let captured, runner = capturingCmd (Reply.Ok "ok\n")
+            let tea = Gitea.WithRunner runner
+
+            let! _ = tea.Run [ "login"; "list" ]
+
+            match captured.Value with
+            | Some cmd -> Assert.That(cmd.WorkingDirectory, Is.EqualTo None, "the unbound raw Run is NOT bound to dir")
+            | None -> Assert.Fail "no command captured"
+        }

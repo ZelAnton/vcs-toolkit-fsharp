@@ -275,11 +275,21 @@ type Git private (core: ManagedClient) =
 
     // --- Escape hatches ------------------------------------------------------
 
-    /// Run `git <args>` in the current directory, returning trimmed stdout.
+    /// Run `git <args>` in the process's current directory, returning trimmed stdout. For an
+    /// ad-hoc command scoped to a repository, use the `dir`-taking overload (`Run(dir, args)`)
+    /// or a bound view's `at(dir).Run(args)`.
     member _.Run(args: string seq) = core.Run(core.Command args)
+
+    /// Run `git <args>` in `dir`, returning trimmed stdout — the `dir`-bound counterpart of
+    /// `Run(args)` (which runs in the process cwd). Backs `GitAt.Run`.
+    member _.Run(dir: string, args: string seq) = core.Run(core.CommandIn(dir, args))
 
     /// Like `Run` but never errors on a non-zero exit — returns the captured result.
     member _.RunRaw(args: string seq) = core.Output(core.Command args)
+
+    /// Like `Run(dir, args)` but never errors on a non-zero exit — returns the captured
+    /// result. Backs `GitAt.RunRaw`.
+    member _.RunRaw(dir: string, args: string seq) = core.Output(core.CommandIn(dir, args))
 
     /// Installed Git version (`git --version`).
     member _.Version() = core.Run(core.Command [ "--version" ])
@@ -1544,7 +1554,7 @@ type Git private (core: ManagedClient) =
     static member Hardened() = Git.Create().Harden()
 
     /// A view of this client bound to `dir`: the modelled methods drop their leading `dir`
-    /// argument. `Run`/`RunRaw` stay bound to the process cwd (see `GitAt`).
+    /// argument, and the raw `Run`/`RunRaw` hatches run in the bound `dir` too (see `GitAt`).
     member this.At(dir: string) : GitAt = GitAt(this, dir)
 
 /// A `Git` client with a working directory bound, so calls drop the leading `dir`
@@ -1552,20 +1562,19 @@ type Git private (core: ManagedClient) =
 /// (or, through the facade, `Repo.GitAt`). Cheap to construct: it only holds the client
 /// and the path.
 ///
-/// Asymmetry (deliberate, mirroring the Rust `GitAt`): the *modelled* methods are `dir`
-/// forwarders — they inject the bound `dir` as the first argument. The raw `Run`/`RunRaw`
-/// escape hatches are `bare` forwarders — they call `git.Run`/`git.RunRaw` unchanged and
-/// therefore run in the **process's current working directory**, NOT the bound `dir`. If
-/// you need an ad-hoc command to run in `dir`, pass an explicit `-C <dir>` yourself.
+/// Every method — the *modelled* `dir` forwarders AND the raw `Run`/`RunRaw` escape hatches —
+/// runs in the bound `dir`: the modelled methods inject it as their leading argument, and the
+/// hatches forward to `git.Run(dir, …)`/`git.RunRaw(dir, …)`. For a raw command that must run
+/// in the process's current directory instead, call `Run`/`RunRaw` on the unbound `Git` client.
 and [<Sealed>] GitAt internal (git: Git, dir: string) =
 
-    // --- Escape hatches (bare: NOT bound to `dir` — run in the process cwd) ---
+    // --- Escape hatches (bound to `dir`) -------------------------------------
 
-    /// Run `git <args>` in the process's current directory, returning trimmed stdout.
-    member _.Run(args: string seq) = git.Run args
+    /// Run `git <args>` in the bound `dir`, returning trimmed stdout.
+    member _.Run(args: string seq) = git.Run(dir, args)
 
     /// Like `Run` but never errors on a non-zero exit — returns the captured result.
-    member _.RunRaw(args: string seq) = git.RunRaw args
+    member _.RunRaw(args: string seq) = git.RunRaw(dir, args)
 
     /// Installed Git version (`git --version`).
     member _.Version() = git.Version()

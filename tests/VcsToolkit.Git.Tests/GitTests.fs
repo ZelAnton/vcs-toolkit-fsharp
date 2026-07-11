@@ -879,10 +879,10 @@ type AtViewTests() =
         }
 
     [<Test>]
-    member _.GitAtRawRunStaysProcessCwd() : Task =
+    member _.GitAtRawRunBindsDir() : Task =
         task {
-            // The raw `Run` hatch is a `bare` forwarder — it runs in the PROCESS cwd
-            // (`WorkingDirectory = None`), NOT the bound dir. This asymmetry is deliberate.
+            // The raw `Run`/`RunRaw` hatches on the bound view run in the bound `dir`
+            // (`WorkingDirectory = Some dir`), like the modelled methods — not the process cwd.
             let captured, runner = capturing (Reply.Ok "abc\n")
             let git = Git.WithRunner runner
 
@@ -890,8 +890,34 @@ type AtViewTests() =
 
             match captured.Value with
             | Some cmd ->
-                Assert.That(cmd.WorkingDirectory, Is.EqualTo None, "the raw Run hatch is NOT bound to dir")
+                Assert.That(cmd.WorkingDirectory, Is.EqualTo(Some "/bound/dir"), "the raw Run hatch binds dir")
                 Assert.That(String.concat " " cmd.Arguments, Is.EqualTo "rev-parse HEAD")
+            | None -> Assert.Fail "no command captured"
+
+            let capturedRaw, runnerRaw = capturing (Reply.Ok "")
+            let gitRaw = Git.WithRunner runnerRaw
+
+            let! _ = gitRaw.At("/bound/dir").RunRaw [ "status" ]
+
+            match capturedRaw.Value with
+            | Some cmd ->
+                Assert.That(cmd.WorkingDirectory, Is.EqualTo(Some "/bound/dir"), "the raw RunRaw hatch binds dir")
+            | None -> Assert.Fail "no command captured for RunRaw"
+        }
+
+    [<Test>]
+    member _.GitUnboundRawRunStaysProcessCwd() : Task =
+        task {
+            // The unbound client's raw `Run` still runs in the process cwd (`WorkingDirectory =
+            // None`) — the `dir`-bound form lives only on the `at(dir)` view / the `Run(dir, …)`
+            // overload.
+            let captured, runner = capturing (Reply.Ok "abc\n")
+            let git = Git.WithRunner runner
+
+            let! _ = git.Run [ "rev-parse"; "HEAD" ]
+
+            match captured.Value with
+            | Some cmd -> Assert.That(cmd.WorkingDirectory, Is.EqualTo None, "the unbound raw Run is NOT bound to dir")
             | None -> Assert.Fail "no command captured"
         }
 

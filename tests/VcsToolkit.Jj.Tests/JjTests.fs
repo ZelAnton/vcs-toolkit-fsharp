@@ -1264,17 +1264,43 @@ type AtViewTests() =
         }
 
     [<Test>]
-    member _.JjAtRawRunStaysProcessCwd() : Task =
+    member _.JjAtRawRunBindsDir() : Task =
         task {
-            // The raw `Run` hatch runs in the PROCESS cwd (WorkingDirectory = None), NOT the bound
-            // dir — the deliberate `bare`-forwarder asymmetry.
+            // The raw `Run`/`RunRaw` hatches on the bound view run in the bound `dir`
+            // (WorkingDirectory = Some dir), like the modelled methods — not the process cwd.
             let captured, runner = capturing (Reply.Ok "ok\n")
             let jj = Jj.WithRunner runner
 
             let! _ = jj.At("/bound/dir").Run [ "root" ]
 
             match captured.Value with
-            | Some cmd -> Assert.That(cmd.WorkingDirectory, Is.EqualTo None, "the raw Run hatch is NOT bound to dir")
+            | Some cmd ->
+                Assert.That(cmd.WorkingDirectory, Is.EqualTo(Some "/bound/dir"), "the raw Run hatch binds dir")
+            | None -> Assert.Fail "no command captured"
+
+            let capturedRaw, runnerRaw = capturing (Reply.Ok "")
+            let jjRaw = Jj.WithRunner runnerRaw
+
+            let! _ = jjRaw.At("/bound/dir").RunRaw [ "status" ]
+
+            match capturedRaw.Value with
+            | Some cmd ->
+                Assert.That(cmd.WorkingDirectory, Is.EqualTo(Some "/bound/dir"), "the raw RunRaw hatch binds dir")
+            | None -> Assert.Fail "no command captured for RunRaw"
+        }
+
+    [<Test>]
+    member _.JjUnboundRawRunStaysProcessCwd() : Task =
+        task {
+            // The unbound client's raw `Run` still runs in the process cwd (WorkingDirectory =
+            // None) — the `dir`-bound form lives only on the `at(dir)` view / `Run(dir, …)`.
+            let captured, runner = capturing (Reply.Ok "ok\n")
+            let jj = Jj.WithRunner runner
+
+            let! _ = jj.Run [ "root" ]
+
+            match captured.Value with
+            | Some cmd -> Assert.That(cmd.WorkingDirectory, Is.EqualTo None, "the unbound raw Run is NOT bound to dir")
             | None -> Assert.Fail "no command captured"
         }
 
