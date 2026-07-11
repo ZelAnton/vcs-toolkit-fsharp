@@ -186,6 +186,28 @@ module internal GitBackend =
             return ofVcs r
         }
 
+    /// Map a git-typed `Commit` (hash/short-hash/author/date/subject) into the facade DTO. Author
+    /// and date are always present on git.
+    let private commitFromGit (c: VcsToolkit.Git.Commit) : VcsToolkit.Core.Commit =
+        { Id = c.Hash
+          Description = c.Subject
+          Author = Some c.Author
+          Date = Some c.Date }
+
+    let log (git: Git) (dir: string) (revspec: string) (max: int) =
+        task {
+            match! git.Log(dir, revspec, max) with
+            | Error e -> return Error(RepoError.Vcs e)
+            | Ok commits -> return Ok(commits |> List.map commitFromGit)
+        }
+
+    let logPaths (git: Git) (dir: string) (revspec: string) (max: int) (paths: string list) =
+        task {
+            match! git.LogPaths(dir, revspec, max, paths) with
+            | Error e -> return Error(RepoError.Vcs e)
+            | Ok commits -> return Ok(commits |> List.map commitFromGit)
+        }
+
     let fetch (git: Git) (dir: string) =
         task {
             let! r = git.Fetch dir

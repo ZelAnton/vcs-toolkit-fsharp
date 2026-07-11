@@ -218,6 +218,19 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
                 | Ok content -> return Ok(applyOutputBudget outputBudget content)
             })
 
+    /// Recent history: up to `max` commits reachable from `revspecOrRevset` (git revspec / jj
+    /// revset), most-recent-first. `author`/`date` are null on jj (its typed log surfaces neither).
+    member this.RepoLog(revspecOrRevset: string, max: uint64) =
+        // The facade's log takes an int count; clamp the wire's non-negative integer to Int32 so an
+        // absurdly large value can't overflow into a negative or otherwise wrong cap.
+        let capped =
+            if max > uint64 Int32.MaxValue then
+                Int32.MaxValue
+            else
+                int max
+
+        this.ReadRepo(fun () -> repo.Log(revspecOrRevset, capped))
+
     // --- repo: mutations (gated) -------------------------------------------
 
     /// Probe whether merging `source` into the current work would conflict (rolled back).

@@ -568,6 +568,39 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.LogPathsScopesToFilesetsLiterally() : Task =
+        task {
+            // A glob metacharacter proves the fileset is exact-path (`file:"…"`), matched literally
+            // rather than expanded as a fileset operator. The path-scoping filesets append after the
+            // `-r <revset> -n<max> --no-graph -T <template>` prefix and drive a scoped `jj log`.
+            let changeRow = $"kztuxlro{tab}38e00654{tab}false{tab}touched src\n"
+
+            let jj =
+                scripted [ "log"; "-r"; "main..@"; "-n20"; "--no-graph"; "file:\"src/*.rs\"" ] (Reply.Ok changeRow)
+
+            match! jj.LogPaths(".", "main..@", 20, [ JjFileset.Path "src/*.rs" ]) with
+            | Ok changes ->
+                Assert.That(changes.Length, Is.EqualTo 1)
+                Assert.That(changes.[0].ChangeId, Is.EqualTo "kztuxlro")
+                Assert.That(changes.[0].Description, Is.EqualTo "touched src")
+            | Error e -> Assert.Fail $"LogPaths failed: {e}"
+        }
+
+    [<Test>]
+    member _.LogPathsRefusesEmptyFilesetsBeforeSpawning() : Task =
+        task {
+            // A fileset-less `jj log -r <revset>` is unrestricted history; the refusal precedes any
+            // spawn, so the loud fallback is never reached.
+            let jj =
+                Jj.WithRunner(ScriptedRunner().Fallback(Reply.Fail(1, "must not spawn — refusal must precede it")))
+
+            match! jj.LogPaths(".", "@", 5, []) with
+            | Error(ProcessError.Spawn(program, _)) -> Assert.That(program, Is.EqualTo "jj")
+            | Error e -> Assert.Fail $"expected a Spawn refusal, got {e}"
+            | Ok _ -> Assert.Fail "an empty fileset set must be refused before spawning"
+        }
+
+    [<Test>]
     member _.SquashPathsBuildsArgs() : Task =
         task {
             let jj =

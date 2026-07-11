@@ -152,6 +152,18 @@ module internal Catalog =
                   JsonType = "string"
                   Description = "Repo-relative path of the file to read."
                   Required = true } ]
+          read
+              "repo_log"
+              "Recent history: up to `max` commits reachable from `revspec_or_revset` (a git revspec, e.g. \"HEAD\", or a jj revset, e.g. \"@\"), most-recent-first. `author`/`date` are null on jj — its typed log doesn't currently surface authorship or a timestamp."
+              [ { Name = "revspec_or_revset"
+                  JsonType = "string"
+                  Description =
+                    "The revspec (git) / revset (jj) to list history from, e.g. \"HEAD\" (git) or \"@\" (jj)."
+                  Required = true }
+                { Name = "max"
+                  JsonType = "integer"
+                  Description = "Maximum number of commits to return."
+                  Required = true } ]
 
           // repo_try_merge is write-gated (a real, rolled-back trial merge) but non-destructive/idempotent.
           { Name = "repo_try_merge"
@@ -365,6 +377,9 @@ module internal Catalog =
         | "repo_worktrees" -> server.RepoWorktrees()
         | "repo_show_file" ->
             bind (reqStr args "rev") (fun rev -> bind (reqStr args "path") (fun path -> server.RepoShowFile(rev, path)))
+        | "repo_log" ->
+            bind (reqStr args "revspec_or_revset") (fun rev ->
+                bind (reqU64 args "max") (fun max -> server.RepoLog(rev, max)))
         | "repo_try_merge" -> bind (reqStr args "source") server.RepoTryMerge
         | "repo_commit" ->
             bind (reqStrArray args "paths") (fun paths ->

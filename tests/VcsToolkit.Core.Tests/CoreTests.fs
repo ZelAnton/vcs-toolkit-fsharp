@@ -319,6 +319,78 @@ type DispatchTests() =
         }
 
     [<Test>]
+    member _.GitLogPathsReturnsUnifiedCommitScopedToPaths() : Task =
+        task {
+            // A git-backed path-scoped log maps git's typed commit onto the unified `Commit` DTO,
+            // author/date filled. The scripted tokens include the literal path, so a match proves
+            // the pathspec was passed.
+            let us = string (char 0x1f)
+            let nul = string (char 0)
+
+            let row = $"abc123{us}abc{us}Ada{us}2026-05-31T10:00:00+00:00{us}Add feature{nul}"
+
+            let repo = gitRepo [ "log"; "HEAD"; "--"; "src/a.fs" ] (Reply.Ok row)
+
+            match! repo.LogPaths("HEAD", 50, [ "src/a.fs" ]) with
+            | Ok commits ->
+                Assert.That(commits.Length, Is.EqualTo 1)
+                Assert.That(commits.[0].Id, Is.EqualTo "abc123")
+                Assert.That(commits.[0].Description, Is.EqualTo "Add feature")
+                Assert.That(commits.[0].Author, Is.EqualTo(Some "Ada"), "author is filled on git")
+                Assert.That(commits.[0].Date, Is.EqualTo(Some "2026-05-31T10:00:00+00:00"), "date is filled on git")
+            | Error e -> Assert.Fail $"LogPaths failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.JjLogReturnsUnifiedCommitWithNoAuthorOrDate() : Task =
+        task {
+            // A jj-backed log maps jj's typed change onto the unified `Commit` DTO — author/date are
+            // `None` (jj's typed log carries neither).
+            let repo =
+                jjRepo [ "log"; "-r"; "@" ] (Reply.Ok $"kztuxlro{tab}38e00654{tab}false{tab}feat: stuff\n")
+
+            match! repo.Log("@", 10) with
+            | Ok commits ->
+                Assert.That(commits.Length, Is.EqualTo 1)
+                Assert.That(commits.[0].Id, Is.EqualTo "38e00654", "the id is jj's commit id")
+                Assert.That(commits.[0].Description, Is.EqualTo "feat: stuff")
+                Assert.That(commits.[0].Author, Is.EqualTo(None: string option), "author is None on jj")
+                Assert.That(commits.[0].Date, Is.EqualTo(None: string option), "date is None on jj")
+            | Error e -> Assert.Fail $"Log failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.JjLogPathsScopesToFilesets() : Task =
+        task {
+            // A jj-backed path-scoped log converts the plain path to an exact-path `file:"…"`
+            // fileset; a scripted match on that token proves the conversion.
+            let repo =
+                jjRepo
+                    [ "log"; "-r"; "@"; "file:\"src/a.fs\"" ]
+                    (Reply.Ok $"kztuxlro{tab}38e00654{tab}false{tab}scoped\n")
+
+            match! repo.LogPaths("@", 10, [ "src/a.fs" ]) with
+            | Ok commits ->
+                Assert.That(commits.Length, Is.EqualTo 1)
+                Assert.That(commits.[0].Id, Is.EqualTo "38e00654")
+                Assert.That(commits.[0].Description, Is.EqualTo "scoped")
+            | Error e -> Assert.Fail $"LogPaths failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.LogPathsRefusesAnEmptyPathSet() : Task =
+        task {
+            // The empty-set guard fires before any spawn — a path-less scope would degrade to an
+            // unrestricted log on both backends, the opposite of "scoped to these paths".
+            let repo =
+                Repo.FromJj("/repo", "/repo", Jj.WithRunner(ScriptedRunner().Fallback(Reply.Ok "")))
+
+            match! repo.LogPaths("@", 5, []) with
+            | Error _ -> ()
+            | Ok _ -> Assert.Fail "an empty path set must be refused before spawning"
+        }
+
+    [<Test>]
     member _.JjTryMergeCleanRollsBack() : Task =
         task {
             // op head → new_merge → is_conflicted(false) → divergence probe → op restore. A

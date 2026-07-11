@@ -254,6 +254,31 @@ module internal JjBackend =
             return ofVcs r
         }
 
+    /// Map a jj-typed `Change` (change-id/commit-id/empty/description) into the facade DTO. jj's
+    /// typed log surfaces no authorship or timestamp, so `Author`/`Date` are `None` (see the
+    /// `Commit` DTO docs) rather than a fabricated value.
+    let private commitFromChange (c: Change) : VcsToolkit.Core.Commit =
+        { Id = c.CommitId
+          Description = c.Description
+          Author = None
+          Date = None }
+
+    let log (jj: Jj) (dir: string) (revset: string) (max: int) =
+        task {
+            match! jj.Log(dir, revset, max) with
+            | Error e -> return Error(RepoError.Vcs e)
+            | Ok changes -> return Ok(changes |> List.map commitFromChange)
+        }
+
+    let logPaths (jj: Jj) (dir: string) (revset: string) (max: int) (paths: string list) =
+        task {
+            let filesets = paths |> List.map JjFileset.Path
+
+            match! jj.LogPaths(dir, revset, max, filesets) with
+            | Error e -> return Error(RepoError.Vcs e)
+            | Ok changes -> return Ok(changes |> List.map commitFromChange)
+        }
+
     let fetch (jj: Jj) (dir: string) =
         task {
             let! r = jj.GitFetch dir

@@ -312,6 +312,34 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
             JjParse.parseChanges
         )
 
+    /// Like `Log`, but scoped to changes that touched `filesets` (`jj log -r <revset> -n<max>
+    /// --no-graph -T … <filesets>`) — e.g. "who changed this module". `filesets` are exact-path
+    /// `JjFileset`s (`file:"…"`), so a path metacharacter is matched literally rather than parsed
+    /// as a fileset operator; they append after the template as jj's own path-scoping arguments (no
+    /// argv-chunking is needed — jj, unlike `git log`, filters by revset/fileset natively rather
+    /// than expanding paths into argv the way pathspec chunking guards against). An empty `filesets`
+    /// is refused **before spawning**: a fileset-less `jj log -r <revset>` is UNRESTRICTED history,
+    /// the opposite of "scoped to these paths" (mirrors `CommitPaths`/`SplitPaths`).
+    member _.LogPaths(dir: string, revset: string, max: int, filesets: JjFileset list) =
+        task {
+            if List.isEmpty filesets then
+                return
+                    Error(
+                        ProcessError.Spawn(
+                            BINARY,
+                            "LogPaths requires at least one fileset — an empty set would log unrestricted history, not history scoped to the named paths"
+                        )
+                    )
+            else
+                let n = sprintf "-n%d" max
+
+                let args =
+                    [ "log"; "-r"; revset; n; "--no-graph"; "-T"; JjParse.CHANGE_TEMPLATE ]
+                    @ (filesets |> List.map (fun f -> f.Value))
+
+                return! core.Parse(cmdInRead dir args, JjParse.parseChanges)
+        }
+
     /// The working-copy change (`jj log -r @`).
     member this.CurrentChange(dir: string) =
         task {
@@ -1096,6 +1124,9 @@ and [<Sealed>] JjAt internal (jj: Jj, dir: string) =
 
     /// Changes matching `revset`, newest first, up to `max` (`jj log`).
     member _.Log(revset: string, max: int) = jj.Log(dir, revset, max)
+
+    /// Like `Log`, but scoped to changes that touched `filesets`.
+    member _.LogPaths(revset: string, max: int, filesets: JjFileset list) = jj.LogPaths(dir, revset, max, filesets)
 
     /// The working-copy change (`jj log -r @`).
     member _.CurrentChange() = jj.CurrentChange dir

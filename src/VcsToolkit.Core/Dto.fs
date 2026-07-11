@@ -36,6 +36,25 @@ type FileChange =
         Kind: ChangeKind
     }
 
+/// One commit/change from the repository history — the honest least common denominator between
+/// git's typed `git log` (hash/short-hash/author/date/subject) and jj's typed `jj log`
+/// (change-id/commit-id/empty/description). See `Repo.Log`/`Repo.LogPaths`.
+///
+/// `Author`/`Date` are `Some` only on git: jj's typed log doesn't currently surface authorship or a
+/// timestamp (its template renders only the id/empty/description columns), so this DTO leaves them
+/// `None` on jj rather than fabricating a value.
+type Commit =
+    {
+        /// The commit's identifying hash: git's full object id (`%H`) / jj's (already-short) commit id.
+        Id: string
+        /// Commit message: git's subject line (`%s`) / jj's first description line.
+        Description: string
+        /// Author name (git `%an`); `None` on jj (see the type docs).
+        Author: string option
+        /// Author date, strict ISO-8601 on git (`%aI`); `None` on jj (see the type docs).
+        Date: string option
+    }
+
 /// One attached worktree (git) / workspace (jj).
 type WorktreeInfo =
     {

@@ -625,6 +625,200 @@ type PathTransportTests() =
             | Ok() -> Assert.Fail "a path with an embedded NUL must be refused before spawning"
         }
 
+/// T-023: path-scoped `LogPaths` — `--literal-pathspecs` on the direct and the chunked path
+/// (glob metacharacters matched literally), the argv-budget guards, and the large-path-set
+/// fallback that chunks the pathspecs across several `git log` calls and restores git's own
+/// order via a pathless `--format=%H` oracle.
+[<TestFixture>]
+type LogPathsTests() =
+
+    // A commit record row in `parseLog`'s unit-separated framing.
+    let commitRow (hash: string) (subject: string) =
+        $"{hash}{us}{hash.Substring(0, 3)}{us}Auth{us}2026-01-01T00:00:00+00:00{us}{subject}{nul}"
+
+    // A runner that records every command it is asked to run (in call order), then serves the
+    // first matching rule added by `rules`. The recording predicate returns `false` so it never
+    // matches — it only observes — and real `On`/`When` rules downstream reply.
+    let recording (rules: ScriptedRunner -> ScriptedRunner) : ResizeArray<Command> * ScriptedRunner =
+        let calls = ResizeArray<Command>()
+
+        let runner =
+            rules (
+                ScriptedRunner()
+                    .When(
+                        (fun (cmd: Command) ->
+                            calls.Add cmd
+                            false),
+                        Reply.Ok ""
+                    )
+            )
+
+        calls, runner
+
+    [<Test>]
+    member _.LogPathsScopesToPathsWithLiteralPathspecsOnTheDirectPath() : Task =
+        task {
+            // A glob metacharacter in the path proves `--literal-pathspecs` is applied on the
+            // single-call (direct) path: it must appear verbatim after `--`, not expand as a glob.
+            let captured, runner = capturing (Reply.Ok(commitRow "abc123" "Add feature"))
+            let git = Git.WithRunner runner
+
+            match! git.LogPaths(".", "HEAD", 50, [ "src/*.fs" ]) with
+            | Ok commits ->
+                Assert.That(commits.Length, Is.EqualTo 1)
+                Assert.That(commits.[0].Hash, Is.EqualTo "abc123")
+                Assert.That(commits.[0].Subject, Is.EqualTo "Add feature")
+
+                match captured.Value with
+                | Some cmd ->
+                    Assert.That(
+                        String.concat " " cmd.Arguments,
+                        Is.EqualTo
+                            "--literal-pathspecs log HEAD -n50 -z --format=%H%x1f%h%x1f%an%x1f%aI%x1f%s -- src/*.fs",
+                        "the direct path must carry --literal-pathspecs and pass the glob path literally after --"
+                    )
+                | None -> Assert.Fail "no command captured"
+            | Error e -> Assert.Fail $"LogPaths failed: {e}"
+        }
+
+    [<Test>]
+    member _.LogPathsRefusesEmptyPathSetBeforeSpawning() : Task =
+        task {
+            // A fileset-less scope would degrade to an unrestricted log; the refusal precedes any
+            // spawn, so the loud fallback is never reached.
+            let git =
+                Git.WithRunner(ScriptedRunner().Fallback(Reply.Fail(1, "must not spawn — refusal must precede it")))
+
+            match! git.LogPaths(".", "HEAD", 5, []) with
+            | Error(ProcessError.Spawn(program, _)) -> Assert.That(program, Is.EqualTo "git")
+            | Error e -> Assert.Fail $"expected a Spawn refusal, got {e}"
+            | Ok _ -> Assert.Fail "an empty path set must be refused before spawning"
+        }
+
+    [<Test>]
+    member _.LogPathsRefusesIndividuallyOversizedPathBeforeSpawning() : Task =
+        task {
+            // `git log` has no NUL-safe transport, so a single path that alone exceeds the argv
+            // budget can never be transmitted — reject it up front rather than as a doomed chunk.
+            let git =
+                Git.WithRunner(ScriptedRunner().Fallback(Reply.Fail(1, "must not spawn — refusal must precede it")))
+
+            let huge = String('z', 30000)
+
+            match! git.LogPaths(".", "HEAD", 5, [ huge ]) with
+            | Error(ProcessError.Spawn(program, _)) -> Assert.That(program, Is.EqualTo "git")
+            | Error e -> Assert.Fail $"expected a Spawn refusal, got {e}"
+            | Ok _ -> Assert.Fail "an individually oversized path must be refused before spawning"
+        }
+
+    [<Test>]
+    member _.LogPathsChunksDedupesAndReordersByOracleOrderWithLiteralPathspecs() : Task =
+        task {
+            // Two paths, each ~20000 chars, so their combined argv length exceeds the 30000-char
+            // budget and `chunkPathspecs` puts each in its own singleton chunk. One carries a glob
+            // metacharacter to prove --literal-pathspecs is applied on the chunked path too.
+            let pathA = "a" + String('*', 19999) // 20000 chars, with a glob metacharacter
+            let pathB = String('b', 20000)
+
+            // Chunk over pathA returns aaa1 (newest) then the shared ccc1; chunk over pathB returns
+            // bbb1 then the same shared ccc1 (which must be deduped). The pathless oracle dictates
+            // the true single-call order: bbb1, aaa1, ccc1.
+            let chunkAOut = commitRow "aaa1" "newest-a" + commitRow "ccc1" "shared-c"
+            let chunkBOut = commitRow "bbb1" "mid-b" + commitRow "ccc1" "shared-c"
+            let oracleOut = $"bbb1{nul}aaa1{nul}ccc1{nul}"
+
+            let calls, runner =
+                recording (fun r ->
+                    r
+                        .On([ "rev-parse" ], Reply.Ok "resolvedhead\n")
+                        .When((fun cmd -> Seq.contains pathA cmd.Arguments), Reply.Ok chunkAOut)
+                        .When((fun cmd -> Seq.contains pathB cmd.Arguments), Reply.Ok chunkBOut)
+                        .On([ "--format=%H" ], Reply.Ok oracleOut)
+                        .Fallback(Reply.Fail(99, "unmatched command")))
+
+            let git = Git.WithRunner runner
+
+            match! git.LogPaths(".", "HEAD", 5, [ pathA; pathB ]) with
+            | Ok commits ->
+                Assert.That(
+                    String.concat "," (commits |> List.map (fun c -> c.Hash)),
+                    Is.EqualTo "bbb1,aaa1,ccc1",
+                    "merged chunks must be deduped and reordered into git's native (oracle) order"
+                )
+
+                // Every pathspec-bearing chunk call must carry --literal-pathspecs (glob literalness
+                // on the chunked path), and the revspec must be the once-resolved id, not "HEAD".
+                let chunkCalls =
+                    calls
+                    |> Seq.filter (fun cmd -> Seq.contains "--literal-pathspecs" cmd.Arguments)
+                    |> Seq.toList
+
+                Assert.That(chunkCalls.Length, Is.EqualTo 2, "each of the two singleton chunks is its own call")
+
+                for cmd in chunkCalls do
+                    Assert.That(
+                        Seq.contains "resolvedhead" cmd.Arguments,
+                        Is.True,
+                        "each chunk must reuse the once-resolved revspec, not re-resolve HEAD"
+                    )
+
+                    Assert.That(
+                        Seq.contains "HEAD" cmd.Arguments,
+                        Is.False,
+                        "the symbolic revspec must not leak into a chunk call"
+                    )
+            | Error e -> Assert.Fail $"LogPaths failed: {e}"
+        }
+
+    [<Test>]
+    member _.LogPathsSingleCallAndChunkedCallAgreeOnOrder() : Task =
+        task {
+            // The single-call fast path returns git's order directly; the chunked path must
+            // reconstruct that same order from the oracle. Drive both to the same three commits and
+            // assert identical output — a regression guard on the reorder logic.
+            let expected = "bbb1,aaa1,ccc1"
+
+            let hashes (commits: Commit list) =
+                String.concat "," (commits |> List.map (fun c -> c.Hash))
+
+            // Single call: one path, one invocation, git's own order verbatim.
+            let singleOut =
+                commitRow "bbb1" "newest" + commitRow "aaa1" "mid" + commitRow "ccc1" "oldest"
+
+            let singleGit = Git.WithRunner(ScriptedRunner().Fallback(Reply.Ok singleOut))
+
+            match! singleGit.LogPaths(".", "HEAD", 5, [ "one.fs" ]) with
+            | Ok commits -> Assert.That(hashes commits, Is.EqualTo expected)
+            | Error e -> Assert.Fail $"single-call LogPaths failed: {e}"
+
+            // Chunked call: two over-budget paths, merged and reordered by the oracle to the same order.
+            let pathA = String('a', 20000)
+            let pathB = String('b', 20000)
+            let chunkAOut = commitRow "aaa1" "mid"
+            let chunkBOut = commitRow "bbb1" "newest" + commitRow "ccc1" "oldest"
+            let oracleOut = $"bbb1{nul}aaa1{nul}ccc1{nul}"
+
+            let _, runner =
+                recording (fun r ->
+                    r
+                        .On([ "rev-parse" ], Reply.Ok "resolvedhead\n")
+                        .When((fun cmd -> Seq.contains pathA cmd.Arguments), Reply.Ok chunkAOut)
+                        .When((fun cmd -> Seq.contains pathB cmd.Arguments), Reply.Ok chunkBOut)
+                        .On([ "--format=%H" ], Reply.Ok oracleOut)
+                        .Fallback(Reply.Fail(99, "unmatched command")))
+
+            let chunkedGit = Git.WithRunner runner
+
+            match! chunkedGit.LogPaths(".", "HEAD", 5, [ pathA; pathB ]) with
+            | Ok commits ->
+                Assert.That(
+                    hashes commits,
+                    Is.EqualTo expected,
+                    "the chunked path must reproduce the single-call order"
+                )
+            | Error e -> Assert.Fail $"chunked LogPaths failed: {e}"
+        }
+
 [<TestFixture>]
 type GuardTests() =
 

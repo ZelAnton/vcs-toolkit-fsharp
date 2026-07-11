@@ -213,6 +213,36 @@ type Repo private (root: string, cwd: string, backend: Backend) =
         | Backend.Git g -> GitBackend.snapshot g cwd
         | Backend.Jj j -> JjBackend.snapshot j cwd
 
+    /// Recent history: up to `max` commits reachable from `revspecOrRevset` (a git revspec, e.g.
+    /// `"HEAD"` or `"main..HEAD"`; a jj revset, e.g. `"@"`), most-recent-first (git `log`'s default
+    /// order / jj `log`'s order). Backend nuance: `Commit.Author`/`Commit.Date` are `Some` only on
+    /// git — jj's typed log surfaces no authorship or timestamp, so they are `None` there.
+    member _.Log(revspecOrRevset: string, max: int) =
+        match backend with
+        | Backend.Git g -> GitBackend.log g cwd revspecOrRevset max
+        | Backend.Jj j -> JjBackend.log j cwd revspecOrRevset max
+
+    /// Like `Log`, but scoped to commits that touched `paths` (repo-relative) — e.g. "who changed
+    /// this module". `paths` must be non-empty: an empty set is refused up front, because a
+    /// path-less scope would degrade to `Log`'s **unrestricted** history on both backends (git's
+    /// `-- ` with no pathspec, jj's bare `-r <revset>`), the opposite of "scoped to these paths".
+    /// On git the paths become `--literal-pathspecs` pathspecs (glob metacharacters matched
+    /// literally, argv-budget chunking transparent); on jj they become exact-path `file:"…"`
+    /// filesets. Same `Commit` DTO and author/date backend nuance as `Log`.
+    member _.LogPaths(revspecOrRevset: string, max: int, paths: string list) =
+        task {
+            if List.isEmpty paths then
+                return
+                    Error(
+                        RepoError.Io
+                            "logPaths requires at least one path: an empty set would log unrestricted history, not history scoped to the named paths"
+                    )
+            else
+                match backend with
+                | Backend.Git g -> return! GitBackend.logPaths g cwd revspecOrRevset max paths
+                | Backend.Jj j -> return! JjBackend.logPaths j cwd revspecOrRevset max paths
+        }
+
     // --- Mutations -----------------------------------------------------------
 
     /// Commit exactly `paths` with `message` (git `commit --only`, jj `commit <filesets>`).
