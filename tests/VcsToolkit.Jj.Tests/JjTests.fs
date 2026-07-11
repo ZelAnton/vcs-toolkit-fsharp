@@ -278,7 +278,13 @@ type ClientTests() =
     [<Test>]
     member _.StatusParsesDiffSummary() : Task =
         task {
-            let jj = scripted [ "diff"; "-r"; "@"; "--summary" ] (Reply.Ok "M a.rs\nA b.rs\n")
+            // `Status` resolves the workspace root first, then runs the summary query from it.
+            let jj =
+                Jj.WithRunner(
+                    ScriptedRunner()
+                        .On([ "root" ], Reply.Ok "/repo\n")
+                        .On([ "diff"; "-r"; "@"; "--summary" ], Reply.Ok "M a.rs\nA b.rs\n")
+                )
 
             match! jj.Status "." with
             | Ok entries ->
@@ -286,6 +292,100 @@ type ClientTests() =
                 Assert.That(entries.[0].Status = 'M')
                 Assert.That(entries.[1].Path, Is.EqualTo "b.rs")
             | Error e -> Assert.Fail $"status failed: {e}"
+        }
+
+    [<Test>]
+    member _.StatusRunsFromResolvedRootRegardlessOfCallerDir() : Task =
+        task {
+            // The core criterion: `diff --summary` runs FROM the resolved workspace root, not
+            // from whatever `dir` the caller passed — proven by capturing that command's cwd for
+            // both a root-dir call and a subdirectory-dir call and finding it pinned to "/repo"
+            // either way, with both calls agreeing on the same repo-relative paths.
+            let captured = ref (None: Command option)
+
+            let recordDiffCommand (cmd: Command) =
+                let args = cmd.Arguments |> Seq.toList
+
+                if List.truncate 4 args = [ "diff"; "-r"; "@"; "--summary" ] then
+                    captured.Value <- Some cmd
+
+                true
+
+            let runner =
+                ScriptedRunner().On([ "root" ], Reply.Ok "/repo\n").When(recordDiffCommand, Reply.Ok "M sub/file.rs\n")
+
+            let jj = Jj.WithRunner runner
+
+            let! fromRoot = jj.Status "/repo"
+            let cwdFromRoot = captured.Value |> Option.bind (fun c -> c.WorkingDirectory)
+            captured.Value <- None
+
+            let! fromSub = jj.Status "/repo/sub"
+            let cwdFromSub = captured.Value |> Option.bind (fun c -> c.WorkingDirectory)
+
+            Assert.That(cwdFromRoot, Is.EqualTo(Some "/repo"), "called from the root dir: still runs from the root")
+
+            Assert.That(
+                cwdFromSub,
+                Is.EqualTo(Some "/repo"),
+                "called from a subdirectory dir: runs from the root, NOT the subdirectory"
+            )
+
+            match fromRoot, fromSub with
+            | Ok a, Ok b -> Assert.That((a = b), Is.True, "same repo-relative paths regardless of the caller's dir")
+            | _ -> Assert.Fail "expected both calls to succeed"
+        }
+
+    [<Test>]
+    member _.StatusRejectsPathEscapingWorkspaceRoot() : Task =
+        task {
+            // Defensive backstop: a `..`-carrying path from `diff --summary` is rejected as an
+            // error instead of silently propagated raw.
+            let jj =
+                Jj.WithRunner(
+                    ScriptedRunner()
+                        .On([ "root" ], Reply.Ok "/repo\n")
+                        .On([ "diff"; "-r"; "@"; "--summary" ], Reply.Ok "M ../outside.rs\n")
+                )
+
+            let! result = jj.Status "/repo"
+            Assert.That(Result.isError result, Is.True, "an escaping path must be rejected, not propagated raw")
+        }
+
+    [<Test>]
+    member _.StatusRejectsOldPathEscapingWorkspaceRoot() : Task =
+        task {
+            // The rejection covers OldPath too (rename/copy), not just Path.
+            let jj =
+                Jj.WithRunner(
+                    ScriptedRunner()
+                        .On([ "root" ], Reply.Ok "/repo\n")
+                        .On([ "diff"; "-r"; "@"; "--summary" ], Reply.Ok "R {../old.rs => new.rs}\n")
+                )
+
+            let! result = jj.Status "/repo"
+            Assert.That(Result.isError result, Is.True, "an escaping OldPath must be rejected too")
+        }
+
+    [<Test>]
+    member _.DiffSummaryRunsFromResolvedRootAndNormalisesRenameOldPath() : Task =
+        task {
+            // Mirrors `Status`: resolves the workspace root and runs the range query from
+            // there, including a rename/copy's `OldPath`.
+            let jj =
+                Jj.WithRunner(
+                    ScriptedRunner()
+                        .On([ "root" ], Reply.Ok "/repo\n")
+                        .On([ "diff"; "-r"; "(@-)..(@)"; "--summary" ], Reply.Ok "R sub/{old.rs => new.rs}\n")
+                )
+
+            match! jj.DiffSummary("/repo/sub", "@-", "@") with
+            | Ok [ entry ] ->
+                Assert.That(entry.Status = 'R')
+                Assert.That(entry.Path, Is.EqualTo "sub/new.rs")
+                Assert.That(entry.OldPath, Is.EqualTo(Some "sub/old.rs"))
+            | Ok other -> Assert.Fail $"expected one entry, got {other.Length}"
+            | Error e -> Assert.Fail $"diff_summary failed: {e}"
         }
 
     [<Test>]
@@ -903,16 +1003,34 @@ type AtViewTests() =
     [<Test>]
     member _.JjAtBindsDirWithByteIdenticalArgv() : Task =
         task {
-            // A modelled method through the `at(dir)` view produces byte-identical argv to the
-            // dir-taking form (incl. the forced `--color never`) and binds `dir` as the cwd.
-            let captured, runner = capturing (Reply.Ok "")
+            // A modelled method through the `at(dir)` view resolves the workspace root for the
+            // bound dir first, then runs the query from that resolved root — byte-identical argv
+            // to the dir-taking form (incl. the forced `--color never`). Here `/bound/dir` IS its
+            // own resolved root, so the diff command's cwd still equals it.
+            let captured = ref (None: Command option)
+
+            let runner =
+                ScriptedRunner()
+                    .On([ "root" ], Reply.Ok "/bound/dir\n")
+                    .When(
+                        (fun (cmd: Command) ->
+                            captured.Value <- Some cmd
+                            true),
+                        Reply.Ok ""
+                    )
+
             let jj = Jj.WithRunner runner
 
             let! _ = jj.At("/bound/dir").Status()
 
             match captured.Value with
             | Some cmd ->
-                Assert.That(cmd.WorkingDirectory, Is.EqualTo(Some "/bound/dir"), "the view binds dir as cwd")
+                Assert.That(
+                    cmd.WorkingDirectory,
+                    Is.EqualTo(Some "/bound/dir"),
+                    "the diff query runs from the resolved workspace root"
+                )
+
                 Assert.That(String.concat " " cmd.Arguments, Is.EqualTo "diff -r @ --summary --color never")
             | None -> Assert.Fail "no command captured"
         }

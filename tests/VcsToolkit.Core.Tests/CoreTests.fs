@@ -27,9 +27,12 @@ let private withTempDir (f: string -> unit) =
             // Best-effort temp cleanup; a locked/again-deleted dir must not fail the test.
             ()
 
-// A jj-backed Repo over a runner scripted to reply to `tokens` with `reply`.
+// A jj-backed Repo over a runner scripted to reply to `tokens` with `reply`. Also
+// scripts `jj root` to echo back the fixed "/repo" cwd every jjRepo test uses, since
+// `Jj.Status`/`Jj.DiffSummary` resolve the workspace root before querying — a no-op
+// rule for tests that never reach that query.
 let private jjRepo (tokens: string list) (reply: Reply) =
-    Repo.FromJj("/repo", "/repo", Jj.WithRunner(ScriptedRunner().On(tokens, reply)))
+    Repo.FromJj("/repo", "/repo", Jj.WithRunner(ScriptedRunner().On([ "root" ], Reply.Ok "/repo\n").On(tokens, reply)))
 
 // A git-backed Repo over a runner scripted to reply to `tokens` with `reply`.
 let private gitRepo (tokens: string list) (reply: Reply) =
@@ -405,10 +408,12 @@ type AssemblyTests() =
     member _.JjSnapshotAssemblesDirtyState() : Task =
         task {
             // template (@ head/empty/conflict) → reachable bookmark → change count (dirty).
+            // The count spawn resolves the workspace root first (`Jj.Status`), hence `root`.
             let runner =
                 ScriptedRunner()
                     .On([ "log"; "-r"; "@"; "--limit"; "1" ], Reply.Ok "abc123def\t0\t0\n") // empty="0" ⇒ dirty
                     .On([ "log"; "heads(::@ & bookmarks())" ], Reply.Ok "main\txyz\n")
+                    .On([ "root" ], Reply.Ok "/repo\n")
                     .On([ "diff"; "-r"; "@"; "--summary" ], Reply.Ok "M a.rs\nA b.rs\n")
 
             let repo = Repo.FromJj("/repo", "/repo", Jj.WithRunner runner)

@@ -95,6 +95,31 @@ module private JjHelpers =
     [<Literal>]
     let WorkspaceRootsConcurrency = 8
 
+    /// Whether a forward-slash-normalised path carries a literal `..` segment — i.e.
+    /// escapes whatever root it was resolved relative to.
+    let private escapesRoot (path: string) : bool =
+        path.Split('/') |> Array.exists (fun seg -> seg = "..")
+
+    /// Reject any `ChangedPath` whose `Path`/`OldPath` carries a `..` segment, instead
+    /// of silently propagating a raw escape past the workspace-root normalisation.
+    /// `Status`/`DiffSummary` already run the underlying `jj diff --summary` FROM the
+    /// resolved workspace root (so a normal file can never escape it), so tripping this
+    /// is a defensive backstop against unexpected jj output, not the primary safeguard.
+    let rejectEscapingPaths (entries: ChangedPath list) : Result<ChangedPath list, ProcessError> =
+        let escaping =
+            entries
+            |> List.tryFind (fun e -> escapesRoot e.Path || (e.OldPath |> Option.exists escapesRoot))
+
+        match escaping with
+        | Some e ->
+            Error(
+                ProcessError.Parse(
+                    BINARY,
+                    sprintf "jj diff --summary reported a path escaping the workspace root: \"%s\"" e.Path
+                )
+            )
+        | None -> Ok entries
+
 /// The real Jujutsu client: typed async methods that run the real `jj`, parse its
 /// templated output, and return structured values. `Jj.Create()` uses the
 /// job-backed runner; `Jj.WithRunner` injects a fake one for tests. Wraps a
@@ -194,8 +219,20 @@ type Jj private (core: ManagedClient) =
     // --- Changes -------------------------------------------------------------
 
     /// Parsed working-copy changes — the files changed in `@` (`jj diff -r @ --summary`).
-    member _.Status(dir: string) =
-        core.Parse(cmdIn dir [ "diff"; "-r"; "@"; "--summary" ], JjParse.parseDiffSummary)
+    /// Resolves `dir`'s workspace root first (`Root`) and runs the query FROM it — not
+    /// from `dir` itself — so the returned paths are workspace-root-relative regardless
+    /// of which subdirectory `dir` names, matching the facade's repo-relative promise
+    /// for the same DTO on the git backend. A reported path that still carries a `..`
+    /// segment is rejected as an error rather than propagated raw (see `rejectEscapingPaths`).
+    member this.Status(dir: string) =
+        task {
+            match! this.Root dir with
+            | Error e -> return Error e
+            | Ok root ->
+                match! core.Parse(cmdIn (root.Trim()) [ "diff"; "-r"; "@"; "--summary" ], JjParse.parseDiffSummary) with
+                | Error e -> return Error e
+                | Ok entries -> return rejectEscapingPaths entries
+        }
 
     /// Raw `jj status` text (human-readable) — the unparsed counterpart of `Status`.
     member _.StatusText(dir: string) = core.Run(cmdIn dir [ "status" ])
@@ -328,7 +365,7 @@ type Jj private (core: ManagedClient) =
     // --- Discovery / identity ------------------------------------------------
 
     /// Working-copy root of the current workspace (`jj root`).
-    member _.Root(dir: string) = core.Run(cmdIn dir [ "root" ])
+    member _.Root(dir: string) : Task<Result<string, ProcessError>> = core.Run(cmdIn dir [ "root" ])
 
     /// The local bookmark on the working-copy change `@`, if exactly one (or the
     /// first of several); `None` when `@` carries no bookmark.
@@ -375,12 +412,25 @@ type Jj private (core: ManagedClient) =
 
     // --- Diff / query / state ------------------------------------------------
 
-    /// Per-file change summary for a range (`diff -r <from>..<to> --summary`).
-    member _.DiffSummary(dir: string, fromRev: string, toRev: string) =
-        // Parenthesise each endpoint so a compound revset (e.g. `x | y`) keeps its
-        // meaning inside the `..` range instead of binding by operator precedence.
-        let range = sprintf "(%s)..(%s)" fromRev toRev
-        core.Parse(cmdIn dir [ "diff"; "-r"; range; "--summary" ], JjParse.parseDiffSummary)
+    /// Per-file change summary for a range (`diff -r <from>..<to> --summary`). Like
+    /// `Status`, resolves `dir`'s workspace root and runs the query FROM it (including
+    /// `OldPath` for a rename/copy), so paths are workspace-root-relative regardless of
+    /// which subdirectory `dir` names, and an escaping `..` path is rejected as an error.
+    member this.DiffSummary(dir: string, fromRev: string, toRev: string) =
+        task {
+            match! this.Root dir with
+            | Error e -> return Error e
+            | Ok root ->
+                // Parenthesise each endpoint so a compound revset (e.g. `x | y`) keeps its
+                // meaning inside the `..` range instead of binding by operator precedence.
+                let range = sprintf "(%s)..(%s)" fromRev toRev
+
+                match!
+                    core.Parse(cmdIn (root.Trim()) [ "diff"; "-r"; range; "--summary" ], JjParse.parseDiffSummary)
+                with
+                | Error e -> return Error e
+                | Ok entries -> return rejectEscapingPaths entries
+        }
 
     /// Aggregate change stats for a revset (`diff -r <revset> --stat`).
     member _.DiffStat(dir: string, revset: string) =

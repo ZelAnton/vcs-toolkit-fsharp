@@ -344,6 +344,16 @@ type Git private (core: ManagedClient) =
             | Error e -> return Error e
         }
 
+    /// This repository's empty-tree object id, in its **actual** object format — SHA-1's
+    /// well-known `4b825dc…`, or the 64-hex equivalent under
+    /// `extensions.objectFormat=sha256`. Computed via `git hash-object -t tree --stdin`
+    /// fed empty stdin: `--stdin` (not `-w`) only hashes, it writes nothing to the object
+    /// database. Unlike the hardcoded `EMPTY_TREE` constant, this resolves correctly
+    /// regardless of the repository's object format — use it (not the constant) wherever
+    /// "the empty tree of this repository" is meant, e.g. as the unborn-`HEAD` diff target.
+    member _.EmptyTreeOid(dir: string) =
+        core.Run((core.CommandIn(dir, [ "hash-object"; "-t"; "tree"; "--stdin" ])).Stdin(Stdin.Empty))
+
     /// Whether the working tree has no unstaged modifications to tracked files.
     member _.DiffIsEmpty(dir: string) =
         core.Probe(core.CommandIn(dir, [ "diff"; "--quiet" ]))
@@ -603,9 +613,11 @@ type Git private (core: ManagedClient) =
             | DiffSpec.WorkingTree ->
                 match! this.IsUnborn dir with
                 | Error e -> return Error e
-                | Ok unborn ->
-                    let target = if unborn then EMPTY_TREE else "HEAD"
-                    return! runUntrimmed (core.CommandIn(dir, args target))
+                | Ok false -> return! runUntrimmed (core.CommandIn(dir, args "HEAD"))
+                | Ok true ->
+                    match! this.EmptyTreeOid dir with
+                    | Error e -> return Error e
+                    | Ok emptyTree -> return! runUntrimmed (core.CommandIn(dir, args emptyTree))
             | DiffSpec.Rev rev ->
                 match checkFlags [ "revision", rev ] with
                 | Error e -> return Error e
@@ -1296,6 +1308,9 @@ and [<Sealed>] GitAt internal (git: Git, dir: string) =
 
     /// Whether `HEAD` is unborn — a fresh repo with no commits yet.
     member _.IsUnborn() = git.IsUnborn dir
+
+    /// This repository's empty-tree object id, in its actual object format.
+    member _.EmptyTreeOid() = git.EmptyTreeOid dir
 
     /// Whether the working tree has no unstaged modifications to tracked files.
     member _.DiffIsEmpty() = git.DiffIsEmpty dir

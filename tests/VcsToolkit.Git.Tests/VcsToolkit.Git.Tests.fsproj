@@ -10,6 +10,7 @@
 		<Compile Include="GitTests.fs" />
 		<Compile Include="ConflictTests.fs" />
 		<Compile Include="UpstreamIntegrationTests.fs" />
+		<Compile Include="EmptyTreeOidIntegrationTests.fs" />
 	</ItemGroup>
 
 	<ItemGroup>
