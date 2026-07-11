@@ -185,7 +185,8 @@ type Forge private (cwd: string, backend: Backend) =
     member this.Supports(op: ForgeOp) =
         match this.Kind, op with
         | ForgeKind.Unknown, _ -> false
-        | ForgeKind.Gitea, (ForgeOp.RepoView | ForgeOp.PrMarkReady | ForgeOp.PrChecks | ForgeOp.ReleaseView) -> false
+        | ForgeKind.Gitea,
+          (ForgeOp.RepoView | ForgeOp.PrMarkReady | ForgeOp.PrChecks | ForgeOp.ReleaseView | ForgeOp.PrDiff) -> false
         | _ -> true
 
     // --- Auth / repo ---------------------------------------------------------
