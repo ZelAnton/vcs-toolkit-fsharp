@@ -122,12 +122,15 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
                 | Ok f -> return! action f
         }
 
-    /// Gate a forge tool that mutates the LOCAL working copy (i.e. `forge_pr_checkout`,
-    /// which switches the working tree to a PR/MR branch): check the write gate, resolve the
-    /// forge, then hold the per-repo write lock for the action's duration. Unlike the
-    /// remote-only forge writes, this touches the same working tree the `repo_*` mutations
-    /// do, so it must serialize on that lock the way `repo_checkout` does — otherwise a
-    /// concurrent `repo_commit`/`repo_checkout` could interleave with the branch switch.
+    /// Gate a forge tool that mutates the LOCAL working copy (i.e. `forge_pr_checkout`, which
+    /// switches the working tree to a PR/MR branch, and `forge_pr_merge`, which can delete the
+    /// local branch and switch the checkout via `--delete-branch`): check the write gate,
+    /// resolve the forge, then hold the per-repo write lock for the action's duration. Unlike
+    /// the remote-only forge writes (`forge_pr_create`, `forge_pr_close`,
+    /// `forge_pr_mark_ready`, `forge_pr_comment`, `forge_pr_edit`, `forge_issue_create`, ...),
+    /// this touches the same working tree the `repo_*` mutations do, so it must serialize on
+    /// that lock the way `repo_checkout` does — otherwise a concurrent
+    /// `repo_commit`/`repo_checkout` could interleave with the branch switch.
     member private this.WithForgeRepoWrite (tool: string) (action: Forge -> Task<Result<string, McpError>>) =
         task {
             match this.RequireWrite tool with
@@ -380,9 +383,12 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
             })
 
     /// Merge a pull/merge request with a strategy (`merge`/`squash`/`rebase`), optionally with
-    /// auto-merge / delete-branch (GitHub only — refused as `Unsupported` on GitLab/Gitea).
+    /// auto-merge / delete-branch (GitHub only — refused as `Unsupported` on GitLab/Gitea). With
+    /// `DeleteBranch = true` this can delete the local branch and switch the checkout, so it
+    /// holds the per-repo write lock unconditionally (see `WithForgeRepoWrite`) rather than only
+    /// when `deleteBranch` is set — simpler, and avoids a lock decision that races the branch.
     member this.ForgePrMerge(number: uint64, strategy: string, auto: bool, deleteBranch: bool) =
-        this.WithForgeWrite "forge_pr_merge" (fun f ->
+        this.WithForgeRepoWrite "forge_pr_merge" (fun f ->
             task {
                 match parseStrategy strategy with
                 | Error e -> return Error e
