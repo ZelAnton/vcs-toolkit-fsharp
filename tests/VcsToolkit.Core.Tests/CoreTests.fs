@@ -735,6 +735,74 @@ type AssemblyTests() =
         }
 
     [<Test>]
+    member _.JjWorkspaceProbeFailureIsNotMisreportedAsWorktreeNotFound() : Task =
+        task {
+            // Two registered workspaces; "default"'s root resolves (but doesn't match the
+            // queried path) while "ws1"'s `workspace root --name` probe itself FAILS. The
+            // queried path matches neither, so a naive fold would report the same
+            // `WorktreeNotFound` as a genuine miss — masking that jj couldn't even resolve
+            // "ws1". The facade must surface a distinct, diagnosable error naming "ws1"
+            // instead.
+            let runner =
+                ScriptedRunner()
+                    .On([ "workspace"; "list" ], Reply.Ok "default\te2aa3420\tmain\nws1\t12345678\t\n")
+                    .On([ "workspace"; "root"; "--name"; "default" ], Reply.Ok "/repo\n")
+                    .On([ "workspace"; "root"; "--name"; "ws1" ], Reply.Fail(1, "internal error: object not found"))
+
+            let repo = Repo.FromJj("/repo", "/repo", Jj.WithRunner runner)
+
+            match! repo.RemoveWorktree("/some/other/path", false) with
+            | Ok() -> Assert.Fail "expected the probe failure to surface as an error"
+            | Error(RepoError.WorktreeNotFound _) ->
+                Assert.Fail
+                    "a failed workspace-root probe must not collapse into the same result as a genuine not-found miss"
+            | Error e -> Assert.That(e.Message, Does.Contain "ws1", "the diagnostic must name the unresolved workspace")
+        }
+
+    [<Test>]
+    member _.JjCreateWorktreeRollbackSurfacesForgetFailureAlongsideBookmarkError() : Task =
+        task {
+            // `WorkspaceAdd` succeeds, `BookmarkCreate` fails, and the rollback's
+            // `WorkspaceForget` ALSO fails. Both reasons must reach the caller — the
+            // original `BookmarkCreate` failure must not be lost, and the failed rollback
+            // must not be silently swallowed (the pre-fix code discarded the `WorkspaceForget`
+            // result entirely via `let! _ = ...`).
+            let runner =
+                ScriptedRunner()
+                    .On(
+                        [ "workspace"
+                          "add"
+                          "--name"
+                          "feature"
+                          "-r"
+                          "main"
+                          "wt"
+                          "--color"
+                          "never" ],
+                        Reply.Ok ""
+                    )
+                    .On([ "bookmark"; "create"; "feature"; "-r"; "feature@" ], Reply.Fail(1, "bookmark already exists"))
+                    .On([ "workspace"; "forget"; "feature" ], Reply.Fail(1, "no such workspace: feature"))
+
+            let repo = Repo.FromJj("/repo", "/repo", Jj.WithRunner runner)
+
+            match! repo.CreateWorktree("wt", "feature", "main") with
+            | Ok _ -> Assert.Fail "expected the BookmarkCreate failure to surface"
+            | Error e ->
+                Assert.That(
+                    e.Message,
+                    Does.Contain "bookmark already exists",
+                    "the original BookmarkCreate failure must not be lost"
+                )
+
+                Assert.That(
+                    e.Message,
+                    Does.Contain "no such workspace",
+                    "the failed rollback WorkspaceForget must be surfaced, not swallowed"
+                )
+        }
+
+    [<Test>]
     member _.RepoGitAtAndJjAtMatchTheBackend() : Task =
         task {
             // `GitAt` is `Some` on a git repo (`JjAt` `None`); `JjAt` is the mirror on a jj repo.

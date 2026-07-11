@@ -94,9 +94,10 @@ module internal JjBackend =
             | Ok workspaces ->
                 let names = workspaces |> List.map (fun ws -> ws.Name)
                 let! roots = jj.WorkspaceRoots(dir, names)
+                let paired = zipTruncating workspaces roots
 
                 let found =
-                    zipTruncating workspaces roots
+                    paired
                     |> List.tryPick (fun (ws, root) ->
                         match root with
                         | Error _ -> None
@@ -108,7 +109,37 @@ module internal JjBackend =
 
                 match found with
                 | Some name -> return Ok name
-                | None -> return Error(RepoError.WorktreeNotFound path)
+                | None ->
+                    // A genuine miss (every registered workspace resolved, none matched
+                    // `path`) is `WorktreeNotFound`. A *failed* per-name probe collapsing
+                    // into the same `None` via `Error _ -> None` above would otherwise
+                    // masquerade as the same not-found result — surface it separately,
+                    // naming the workspaces whose `workspace root --name` failed, so a
+                    // real jj/probe failure isn't misreported as a missing worktree.
+                    let failed =
+                        paired
+                        |> List.choose (fun (ws, root) ->
+                            match root with
+                            | Error e -> Some(ws.Name, e.Message)
+                            | Ok _ -> None)
+
+                    if List.isEmpty failed then
+                        return Error(RepoError.WorktreeNotFound path)
+                    else
+                        let detail =
+                            failed
+                            |> List.map (fun (name, msg) -> sprintf "%s (%s)" name msg)
+                            |> String.concat "; "
+
+                        return
+                            Error(
+                                RepoError.Io(
+                                    sprintf
+                                        "failed to resolve workspace root while looking up worktree %s: %s"
+                                        path
+                                        detail
+                                )
+                            )
         }
 
     let currentBranch (jj: Jj) (dir: string) =
@@ -464,17 +495,43 @@ module internal JjBackend =
                 | Error e ->
                     // The two steps aren't atomic. Roll back so a failed call doesn't leak
                     // a half-made worktree: remove the dir only if we created it, forget
-                    // the workspace best-effort, then surface the original error.
-                    if not preexisting && Directory.Exists absPath then
-                        try
-                            Directory.Delete(absPath, true)
-                        with _ ->
-                            // Best-effort rollback cleanup; a failed delete must not mask
-                            // the original bookmark error we are about to surface.
-                            ()
+                    // the workspace, then surface the original error — composed with any
+                    // rollback-step failure rather than swallowing it, so a broken rollback
+                    // isn't silently mistaken for a clean one.
+                    let dirCleanupFailure =
+                        if not preexisting && Directory.Exists absPath then
+                            try
+                                Directory.Delete(absPath, true)
+                                None
+                            with ex ->
+                                Some(
+                                    sprintf
+                                        "failed to remove partially-created worktree directory %s: %s"
+                                        absPath
+                                        ex.Message
+                                )
+                        else
+                            None
 
-                    let! _ = jj.WorkspaceForget(dir, wsName)
-                    return Error(RepoError.Vcs e)
+                    let! forgetResult = jj.WorkspaceForget(dir, wsName)
+
+                    let forgetFailure =
+                        match forgetResult with
+                        | Ok() -> None
+                        | Error fe -> Some(sprintf "failed to forget workspace %s: %s" wsName fe.Message)
+
+                    match [ dirCleanupFailure; forgetFailure ] |> List.choose id with
+                    | [] -> return Error(RepoError.Vcs e)
+                    | cleanupFailures ->
+                        return
+                            Error(
+                                RepoError.Io(
+                                    sprintf
+                                        "failed to create worktree: BookmarkCreate failed (%s); rollback cleanup also failed: %s"
+                                        e.Message
+                                        (String.concat "; " cleanupFailures)
+                                )
+                            )
         }
 
     /// jj's initial workspace — its directory is the repository's main working copy, so it
