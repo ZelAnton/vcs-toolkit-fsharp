@@ -35,8 +35,8 @@ type Repo private (root: string, cwd: string, backend: Backend) =
                 Ok(Path.GetFullPath dir)
             with ex ->
                 // `GetFullPath` throws on an invalid path (bad chars / too long); report
-                // it as an Io failure rather than letting it escape.
-                Error(RepoError.Io ex.Message)
+                // the caller's invalid input rather than letting it escape.
+                Error(RepoError.InvalidInput ex.Message)
 
         match absResult with
         | Error e -> Error e
@@ -234,7 +234,7 @@ type Repo private (root: string, cwd: string, backend: Backend) =
             if List.isEmpty paths then
                 return
                     Error(
-                        RepoError.Io
+                        RepoError.InvalidInput
                             "logPaths requires at least one path: an empty set would log unrestricted history, not history scoped to the named paths"
                     )
             else
@@ -254,7 +254,7 @@ type Repo private (root: string, cwd: string, backend: Backend) =
             if List.isEmpty paths then
                 return
                     Error(
-                        RepoError.Io
+                        RepoError.InvalidInput
                             "commitPaths requires at least one path: an empty set would error on git but commit the entire working copy on jj"
                     )
             else

@@ -28,14 +28,12 @@ type McpError =
 [<AutoOpen>]
 module internal ErrorMapping =
 
-    /// Map a `VcsToolkit.Core` error into an MCP error. The facade reports a refused *input*
-    /// (e.g. `CommitPaths` with an empty path set) as a `RepoError.Io` with a descriptive
-    /// message — that's the client's call to fix, so surface it as invalid-params rather than
-    /// internal. (The F# `RepoError.Io` has no `io.kind()` to inspect, so all `Io` map to
-    /// invalid-params; genuine filesystem failures during detection are rare here.)
+    /// Map a `VcsToolkit.Core` error into an MCP error. A facade refusal of caller input
+    /// (e.g. `CommitPaths` with an empty path set) is invalid-params; actual filesystem and
+    /// backend failures are internal errors.
     let coreErr (e: RepoError) : McpError =
         match e with
-        | RepoError.Io _ -> McpError.InvalidParams e.Message
+        | RepoError.InvalidInput _ -> McpError.InvalidParams e.Message
         | _ -> McpError.Internal e.Message
 
     /// Map a `VcsToolkit.Forge` error into an MCP error — an `Unsupported` op or an
