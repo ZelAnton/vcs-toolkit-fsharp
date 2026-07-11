@@ -165,6 +165,37 @@ module private GitHelpers =
         else
             Ok()
 
+    /// The self-contained time budget `Git.MergeAbortDetached`/`IsMergeInProgressDetached` give
+    /// their cleanup (the merge-in-progress probe + `merge --abort`). It runs on a *fresh*
+    /// cancellation token carrying this timeout — never the (possibly already-fired) token of
+    /// the operation whose failure/cancellation triggered the cleanup — so a cancelled or
+    /// timed-out `tryMerge` probe is still cleaned up. Mirrors `Jj.RollbackCleanupTimeout`
+    /// (`src/VcsToolkit.Jj/Jj.fs`).
+    let MergeAbortCleanupTimeout = TimeSpan.FromSeconds 30.0
+
+    /// Build `git merge --abort` in the C locale (`cLocale`, matching every other
+    /// classifier-read command) — the one argv shared by the token-inheriting `MergeAbort` and
+    /// the detached `MergeAbortDetached`, so the two forms can never drift apart.
+    let mergeAbortCommand (core: ManagedClient) (dir: string) : Command =
+        cLocale (core.CommandIn(dir, [ "merge"; "--abort" ]))
+
+    /// `git rev-parse --git-dir` resolved to an absolute path, run via the given `core` — the
+    /// shared basis for `Git.ResolvedGitDir` (token-inheriting) and the detached
+    /// merge-in-progress probe, so both resolve the git dir identically.
+    let resolvedGitDirVia (core: ManagedClient) (dir: string) =
+        task {
+            match! core.Run(core.CommandIn(dir, [ "rev-parse"; "--git-dir" ])) with
+            | Error e -> return Error e
+            | Ok gitDir ->
+                let resolved =
+                    if Path.IsPathRooted gitDir then
+                        gitDir
+                    else
+                        Path.Combine(dir, gitDir)
+
+                return Ok resolved
+        }
+
 /// The real Git client: typed async methods that run the real `git`, parse its
 /// output, and return structured values. `Git.Create()` uses the job-backed runner;
 /// `Git.WithRunner` injects a fake one for tests. Wraps a `ManagedClient` (enable
@@ -915,19 +946,7 @@ type Git private (core: ManagedClient) =
         core.Probe(core.CommandIn(dir, [ "diff"; "--cached"; "--quiet" ]))
 
     /// `git_dir` resolved to an absolute path.
-    member private _.ResolvedGitDir(dir: string) =
-        task {
-            match! core.Run(core.CommandIn(dir, [ "rev-parse"; "--git-dir" ])) with
-            | Error e -> return Error e
-            | Ok gitDir ->
-                let resolved =
-                    if Path.IsPathRooted gitDir then
-                        gitDir
-                    else
-                        Path.Combine(dir, gitDir)
-
-                return Ok resolved
-        }
+    member private _.ResolvedGitDir(dir: string) = resolvedGitDirVia core dir
 
     /// Whether a rebase is in progress. `rebase-merge/` is a merge-backend rebase;
     /// `rebase-apply/` is shared by an apply-backend rebase AND `git am` — but `git am` marks
@@ -961,6 +980,24 @@ type Git private (core: ManagedClient) =
     member this.IsMergeInProgress(dir: string) =
         task {
             match! this.ResolvedGitDir dir with
+            | Error e -> return Error e
+            | Ok g -> return Ok(File.Exists(Path.Combine(g, "MERGE_HEAD")))
+        }
+
+    /// Whether a merge is in progress (a `MERGE_HEAD` exists under the git dir), probed on a
+    /// **fresh** cancellation budget (`MergeAbortCleanupTimeout`) instead of this client's own
+    /// cancellation token — the detached counterpart of `IsMergeInProgress`, for a cleanup path
+    /// that must still probe even when the operation whose failure triggered the cleanup has
+    /// already been cancelled or timed out (`GitBackend.tryMerge`'s three cleanup branches).
+    /// Mirrors `Jj.RollbackTo`'s fresh-budget cleanup client.
+    member _.IsMergeInProgressDetached(dir: string) =
+        task {
+            use cts = new Threading.CancellationTokenSource(MergeAbortCleanupTimeout)
+
+            let cleanupCore =
+                (core.DefaultCancelOn cts.Token).DefaultTimeout MergeAbortCleanupTimeout
+
+            match! resolvedGitDirVia cleanupCore dir with
             | Error e -> return Error e
             | Ok g -> return Ok(File.Exists(Path.Combine(g, "MERGE_HEAD")))
         }
@@ -1154,7 +1191,24 @@ type Git private (core: ManagedClient) =
 
     /// Abort an in-progress merge (`merge --abort`).
     member _.MergeAbort(dir: string) =
-        core.RunUnit(cLocale (core.CommandIn(dir, [ "merge"; "--abort" ])))
+        core.RunUnit(mergeAbortCommand core dir)
+
+    /// Abort an in-progress merge (`merge --abort`) on a **fresh** cancellation budget
+    /// (`MergeAbortCleanupTimeout`) instead of this client's own cancellation token — the
+    /// detached counterpart of `MergeAbort`, so a cleanup triggered by a cancelled or
+    /// timed-out `tryMerge` probe still runs to completion instead of racing the caller's own
+    /// (possibly already-fired) token. Builds the identical `merge --abort` argv as
+    /// `MergeAbort` via the shared `mergeAbortCommand`, so the two forms never drift apart.
+    /// Mirrors `Jj.RollbackTo`.
+    member _.MergeAbortDetached(dir: string) =
+        task {
+            use cts = new Threading.CancellationTokenSource(MergeAbortCleanupTimeout)
+
+            let cleanupCore =
+                (core.DefaultCancelOn cts.Token).DefaultTimeout MergeAbortCleanupTimeout
+
+            return! cleanupCore.RunUnit(mergeAbortCommand cleanupCore dir)
+        }
 
     /// Finish a merge after resolving conflicts (`commit --no-edit`).
     member _.MergeContinue(dir: string) =
@@ -1716,6 +1770,10 @@ and [<Sealed>] GitAt internal (git: Git, dir: string) =
     /// Whether a merge is in progress (a `MERGE_HEAD` exists under the git dir).
     member _.IsMergeInProgress() = git.IsMergeInProgress dir
 
+    /// The detached counterpart of `IsMergeInProgress` — probes on a fresh cancellation
+    /// budget instead of this client's own token.
+    member _.IsMergeInProgressDetached() = git.IsMergeInProgressDetached dir
+
     /// Whether a `git am` (mailbox apply) is in progress.
     member _.IsAmInProgress() = git.IsAmInProgress dir
 
@@ -1751,6 +1809,10 @@ and [<Sealed>] GitAt internal (git: Git, dir: string) =
 
     /// Abort an in-progress merge (`merge --abort`).
     member _.MergeAbort() = git.MergeAbort dir
+
+    /// The detached counterpart of `MergeAbort` — runs on a fresh cancellation budget
+    /// instead of this client's own token.
+    member _.MergeAbortDetached() = git.MergeAbortDetached dir
 
     /// Finish a merge after resolving conflicts (`commit --no-edit`).
     member _.MergeContinue() = git.MergeContinue dir

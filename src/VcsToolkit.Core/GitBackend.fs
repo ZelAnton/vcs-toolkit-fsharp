@@ -296,12 +296,14 @@ module internal GitBackend =
             match merged with
             | Ok() ->
                 // "Already up to date." exits 0 *without* MERGE_HEAD — only abort an
-                // actually-started merge.
-                match! git.IsMergeInProgress dir with
+                // actually-started merge. Detached probe: runs on its own cancellation
+                // budget rather than this call's (possibly already-fired) token, so a
+                // cancelled/timed-out probe merge still gets cleaned up.
+                match! git.IsMergeInProgressDetached dir with
                 | Error e -> return Error(RepoError.Vcs e)
                 | Ok inProgress ->
                     if inProgress then
-                        match! git.MergeAbort dir with
+                        match! git.MergeAbortDetached dir with
                         | Error e -> return Error(RepoError.Vcs e)
                         | Ok() -> return Ok MergeProbe.Clean
                     else
@@ -309,21 +311,23 @@ module internal GitBackend =
             | Error err when isMergeConflict err ->
                 // Collect the conflicted paths BEFORE aborting (`merge --abort` clears
                 // the unmerged index entries). Abort first regardless, so a transient
-                // read failure can't leave the probe merge staged.
+                // read failure can't leave the probe merge staged. Detached abort: see
+                // the comment on the success branch above.
                 let! files = git.ConflictedFiles dir
 
-                match! git.MergeAbort dir with
+                match! git.MergeAbortDetached dir with
                 // A failed abort breaks the guaranteed-rollback contract → propagate.
                 | Error e -> return Error(RepoError.Vcs e)
                 | Ok() -> return ofVcs (files |> Result.map MergeProbe.Conflicts)
             | Error err ->
                 // E.g. a dirty-tree refusal or an unknown ref — the merge usually never
-                // started, but clean up if it did.
-                match! git.IsMergeInProgress dir with
+                // started, but clean up if it did. Detached probe/abort: see the comment
+                // on the success branch above.
+                match! git.IsMergeInProgressDetached dir with
                 | Error e -> return Error(RepoError.Vcs e)
                 | Ok inProgress ->
                     if inProgress then
-                        match! git.MergeAbort dir with
+                        match! git.MergeAbortDetached dir with
                         | Error e -> return Error(RepoError.Vcs e)
                         | Ok() -> return Error(RepoError.Vcs err)
                     else

@@ -332,6 +332,15 @@ type Repo private (root: string, cwd: string, backend: Backend) =
     /// --no-commit --no-ff` then `merge --abort`; jj: a merge change probed and undone via
     /// `op restore`). A failing rollback propagates as an error rather than a result that
     /// misdescribes the on-disk state.
+    ///
+    /// **Cancellation-safe cleanup on both backends.** The rollback never inherits the
+    /// (possibly already-fired) cancellation token of the operation whose failure/cancellation
+    /// triggered it: on git, the merge-in-progress probe and `merge --abort` run detached, on
+    /// their own fresh cancellation budget (`Git.IsMergeInProgressDetached`/
+    /// `Git.MergeAbortDetached`); on jj, `Jj.RollbackTo` runs its `op log`/`op restore` cleanup
+    /// the same way. So a cancelled or timed-out probe merge still gets cleaned up on either
+    /// backend, instead of leaving a staged probe merge (git) or an un-restored op log (jj)
+    /// behind.
     member _.TryMerge(source: string) =
         match backend with
         | Backend.Git g -> GitBackend.tryMerge g cwd source
