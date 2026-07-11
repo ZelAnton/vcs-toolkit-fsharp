@@ -784,7 +784,14 @@ type HardeningTests() =
             let json = """[{"number":3,"title":"Docs","state":"OPEN","body":"","url":""}]"""
 
             let gh =
-                scripted [ "issue"; "list"; "--limit"; "100"; "--json"; "number,title,state,body,url" ] (Reply.Ok json)
+                scripted
+                    [ "issue"
+                      "list"
+                      "--limit"
+                      "100"
+                      "--json"
+                      "number,title,state,body,url,labels,assignees" ]
+                    (Reply.Ok json)
 
             match! gh.IssueList "." with
             | Ok [ issue ] -> Assert.That(issue.Number, Is.EqualTo 3UL)
@@ -828,7 +835,7 @@ type HardeningTests() =
                       "--limit"
                       "100"
                       "--json"
-                      "number,title,state,headRefName,baseRefName,url" ]
+                      "number,title,state,headRefName,baseRefName,url,labels,assignees" ]
                     (Reply.Ok json)
 
             match! gh.PrList "." with

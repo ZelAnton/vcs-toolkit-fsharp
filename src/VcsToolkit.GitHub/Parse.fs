@@ -19,6 +19,12 @@ type PullRequest =
         BaseRefName: string
         /// Web URL.
         Url: string
+        /// Labels attached to the PR (gh `--json labels`, flattened from
+        /// `[{"name": …}]` to plain names). Empty when gh sends none.
+        Labels: string list
+        /// Logins of assigned users (gh `--json assignees`, flattened from
+        /// `[{"login": …}]` to plain logins). Empty when gh sends none.
+        Assignees: string list
     }
 
 /// An issue (`gh issue list --json …`; `gh issue view` additionally fills `Body`/`Url`).
@@ -34,6 +40,12 @@ type Issue =
         Body: string
         /// Web URL.
         Url: string
+        /// Labels attached to the issue (gh `--json labels`, flattened from
+        /// `[{"name": …}]` to plain names). Empty when gh sends none.
+        Labels: string list
+        /// Logins of assigned users (gh `--json assignees`, flattened from
+        /// `[{"login": …}]` to plain logins). Empty when gh sends none.
+        Assignees: string list
     }
 
 /// A GitHub Actions workflow run (`gh run list/view --json …`).
@@ -193,20 +205,36 @@ module internal GitHubParse =
 
     // --- element -> record ---------------------------------------------------
 
+    /// Flatten a gh array-of-objects field into the nested string `field` of each
+    /// element — gh emits `labels` as `[{"name": …}]` and `assignees` as
+    /// `[{"login": …}]`, not plain strings. Absent / non-array reads as empty; a
+    /// non-object element reads as `""` (total, never throws).
+    let private nestedNames (el: JsonElement) (arrName: string) (field: string) : string list =
+        Json.arrayOf el arrName
+        |> List.map (fun e ->
+            if e.ValueKind = JsonValueKind.Object then
+                Json.strOr e field
+            else
+                "")
+
     let private toPr (el: JsonElement) : PullRequest =
         { Number = Json.u64Or el "number"
           Title = Json.strOr el "title"
           State = Json.strOr el "state"
           HeadRefName = Json.strOr el "headRefName"
           BaseRefName = Json.strOr el "baseRefName"
-          Url = Json.strOr el "url" }
+          Url = Json.strOr el "url"
+          Labels = nestedNames el "labels" "name"
+          Assignees = nestedNames el "assignees" "login" }
 
     let private toIssue (el: JsonElement) : Issue =
         { Number = Json.u64Or el "number"
           Title = Json.strOr el "title"
           State = Json.strOr el "state"
           Body = Json.strOr el "body"
-          Url = Json.strOr el "url" }
+          Url = Json.strOr el "url"
+          Labels = nestedNames el "labels" "name"
+          Assignees = nestedNames el "assignees" "login" }
 
     let private toRun (el: JsonElement) : WorkflowRun =
         { DatabaseId = Json.u64Or el "databaseId"

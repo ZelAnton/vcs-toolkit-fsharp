@@ -174,6 +174,17 @@ type ForgePr =
         /// its lean surface. Only GitLab carries `draft` there (`Some`); GitHub and Gitea
         /// don't expose it, so it is `None` — never conflated with a confirmed `Some false`.
         Draft: bool option
+        /// Labels attached to the PR/MR, or `None` when the backend can't report them.
+        /// GitHub and GitLab report `Some` — an empty `Some []` is a *confirmed* "no
+        /// labels"; Gitea is always `None` (`tea`'s PR list/view has no labels column, so
+        /// an empty list there would be a false "no labels" rather than the honest
+        /// "unknown"). Mirrors the `None`/`Some []` contract of `Draft`.
+        Labels: string list option
+        /// Usernames/logins of assigned users, or `None` when the backend can't report
+        /// them. GitHub (`gh --json assignees` → `login`) and GitLab (`assignees` →
+        /// `username`) report `Some` — an empty `Some []` is a *confirmed* "unassigned";
+        /// Gitea is always `None` (`tea`'s PR list/view has no assignees column).
+        Assignees: string list option
     }
 
 /// A repository (GitHub) / project (GitLab), unified. (Gitea's `tea` has no current-repo
@@ -217,6 +228,15 @@ type ForgeIssue =
         Body: string
         /// Web URL.
         Url: string
+        /// Labels attached to the issue, or `None` when the backend can't report them.
+        /// GitHub and GitLab report `Some` (an empty `Some []` is a *confirmed* "no
+        /// labels"); Gitea is always `None` — `tea`'s issue list/view has no labels column,
+        /// so an empty list there would be a false "no labels" rather than "unknown".
+        Labels: string list option
+        /// Usernames/logins of assigned users, or `None` when the backend can't report
+        /// them. GitHub and GitLab report `Some` (an empty `Some []` is a *confirmed*
+        /// "unassigned"); Gitea is always `None` — `tea` has no assignees column.
+        Assignees: string list option
     }
 
 /// A release, unified across the three forges. (Gitea's `tea` always lists, so

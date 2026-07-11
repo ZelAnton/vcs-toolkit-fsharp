@@ -26,6 +26,12 @@ type MergeRequest =
         /// Whether the MR is a draft (GitLab's `draft`; the deprecated
         /// `work_in_progress` is not read).
         Draft: bool
+        /// Labels on the MR — GitLab's REST `labels` is already an array of label-name
+        /// strings (not objects, unlike GitHub's `[{"name": …}]`). Empty when absent.
+        Labels: string list
+        /// Usernames of assigned users, flattened from GitLab's REST `assignees` array
+        /// of User objects (`[{"username": …}]`) to plain usernames. Empty when absent.
+        Assignees: string list
     }
 
 /// A project, returned by `repoView` (`glab repo view --output json`) — the fields are
@@ -62,6 +68,12 @@ type Issue =
         Body: string
         /// Web URL (GitLab's `web_url`).
         Url: string
+        /// Labels on the issue — GitLab's REST `labels` is already an array of label-name
+        /// strings (not objects). Empty when absent.
+        Labels: string list
+        /// Usernames of assigned users, flattened from GitLab's REST `assignees` array
+        /// of User objects (`[{"username": …}]`) to plain usernames. Empty when absent.
+        Assignees: string list
     }
 
 /// A release (`glab release list/view --output json`) — GitLab's REST `Release` object.
@@ -120,6 +132,28 @@ type CiStatus =
 [<RequireQualifiedAccess>]
 module internal GitLabParse =
 
+    /// The plain-string elements of a GitLab array field — its `labels` is already an
+    /// array of label-name strings. Absent / non-array reads as empty; a non-string
+    /// element is skipped (total, never throws).
+    let private stringArray (el: JsonElement) (name: string) : string list =
+        Json.arrayOf el name
+        |> List.choose (fun e ->
+            if e.ValueKind = JsonValueKind.String then
+                e.GetString() |> Option.ofObj
+            else
+                None)
+
+    /// Flatten GitLab's REST `assignees` array of User objects (`[{"username": …}]`)
+    /// into plain values, reading `field` off each object element. A non-object element
+    /// reads as `""` (total, never throws).
+    let private objectField (el: JsonElement) (arrName: string) (field: string) : string list =
+        Json.arrayOf el arrName
+        |> List.map (fun e ->
+            if e.ValueKind = JsonValueKind.Object then
+                Json.strOr e field
+            else
+                "")
+
     let private toMr (el: JsonElement) : MergeRequest =
         { Iid = Json.u64Or el "iid"
           Title = Json.strOr el "title"
@@ -127,7 +161,9 @@ module internal GitLabParse =
           SourceBranch = Json.strOr el "source_branch"
           TargetBranch = Json.strOr el "target_branch"
           Url = Json.strOr el "web_url"
-          Draft = Json.boolOr el "draft" }
+          Draft = Json.boolOr el "draft"
+          Labels = stringArray el "labels"
+          Assignees = objectField el "assignees" "username" }
 
     let private toRepo (el: JsonElement) : Repo =
         { Name = Json.strOr el "name"
@@ -141,7 +177,9 @@ module internal GitLabParse =
           Title = Json.strOr el "title"
           State = Json.strOr el "state"
           Body = Json.strOr el "description"
-          Url = Json.strOr el "web_url" }
+          Url = Json.strOr el "web_url"
+          Labels = stringArray el "labels"
+          Assignees = objectField el "assignees" "username" }
 
     let private toRelease (el: JsonElement) : Release =
         { TagName = Json.strOr el "tag_name"

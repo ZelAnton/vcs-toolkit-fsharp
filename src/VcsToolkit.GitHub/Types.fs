@@ -22,7 +22,7 @@ module internal Constants =
 
     /// `--json` field set for a pull request (`pr list`/`pr view`).
     [<Literal>]
-    let PR_FIELDS = "number,title,state,headRefName,baseRefName,url"
+    let PR_FIELDS = "number,title,state,headRefName,baseRefName,url,labels,assignees"
 
     /// `--json` field set for `repo view`.
     [<Literal>]
@@ -30,11 +30,11 @@ module internal Constants =
 
     /// `--json` field set for `issue list`.
     [<Literal>]
-    let ISSUE_LIST_FIELDS = "number,title,state,body,url"
+    let ISSUE_LIST_FIELDS = "number,title,state,body,url,labels,assignees"
 
     /// `--json` field set for `issue view`.
     [<Literal>]
-    let ISSUE_VIEW_FIELDS = "number,title,state,body,url"
+    let ISSUE_VIEW_FIELDS = "number,title,state,body,url,labels,assignees"
 
     /// `--json` field set for a workflow run (`run list`/`run view`).
     [<Literal>]
