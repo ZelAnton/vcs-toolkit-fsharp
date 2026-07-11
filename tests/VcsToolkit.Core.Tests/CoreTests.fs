@@ -618,6 +618,7 @@ type AssemblyTests() =
             cts.Cancel()
 
             let abortRan = ref false
+            let mergeHeadPath = Path.Combine(gitDir, "MERGE_HEAD")
 
             let runner =
                 ScriptedRunner()
@@ -626,6 +627,11 @@ type AssemblyTests() =
                         (fun (cmd: Command) ->
                             if cmd.Arguments |> Seq.contains "--abort" then
                                 abortRan.Value <- true
+                                // Mirror real `git merge --abort`: it clears MERGE_HEAD from the
+                                // repo, so the scripted reply must too — otherwise the test could
+                                // pass on a regression that invokes `--abort` without the cleanup
+                                // actually taking effect.
+                                File.Delete mergeHeadPath
                                 true
                             else
                                 false),
@@ -643,6 +649,12 @@ type AssemblyTests() =
                 abortRan.Value,
                 Is.True,
                 "merge --abort must still run on a fresh cancellation budget, not the ambient cancelled token"
+            )
+
+            Assert.That(
+                File.Exists mergeHeadPath,
+                Is.False,
+                "MERGE_HEAD must be removed by cleanup — a scripted abort that doesn't actually clear it would let a real regression pass this test"
             ))
 
     [<Test>]
