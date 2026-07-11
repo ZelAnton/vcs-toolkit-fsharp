@@ -389,6 +389,51 @@ type MutationTests() =
         }
 
     [<Test>]
+    member _.PushRejectsEmptySideRefspecs() : Task =
+        task {
+            // M16: an empty side of the `:` must be refused BEFORE spawning — `:branch` deletes
+            // the remote branch, `:` pushes all matching branches, and `local:` pushes to an
+            // empty remote ref; all are destructive fan-out/deletion the typed `Push` API
+            // claims impossible (only the raw `Run` escape hatch may do this deliberately).
+            let git = Git.WithRunner(ScriptedRunner().Fallback(Reply.Ok ""))
+
+            let rejected = [ ":branch"; ":"; "local:" ]
+
+            for refspec in rejected do
+                match!
+                    git.Push(
+                        ".",
+                        { Remote = "origin"
+                          Refspec = refspec
+                          SetUpstream = false }
+                    )
+                with
+                | Error(ProcessError.Spawn(program, _)) -> Assert.That(program, Is.EqualTo "git")
+                | Error e -> Assert.Fail $"expected a Spawn refusal for \"{refspec}\", got {e}"
+                | Ok() -> Assert.Fail $"an empty-side refspec \"{refspec}\" must be refused"
+
+            // The valid forms still pass the guard.
+            let plain = scripted [ "push"; "origin"; "branch" ] (Reply.Ok "")
+
+            match! plain.Push(".", GitPush.Branch "branch") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"a plain branch refspec must pass: {e}"
+
+            let localRemote = scripted [ "push"; "origin"; "local:remote" ] (Reply.Ok "")
+
+            match!
+                localRemote.Push(
+                    ".",
+                    { Remote = "origin"
+                      Refspec = "local:remote"
+                      SetUpstream = false }
+                )
+            with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"a local:remote refspec must pass: {e}"
+        }
+
+    [<Test>]
     member _.FetchBranchBuildsRefspec() : Task =
         task {
             let git =
