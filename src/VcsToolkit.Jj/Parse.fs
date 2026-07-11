@@ -210,16 +210,6 @@ module internal JjParse =
             else
                 l)
 
-    /// Digit-only, invariant-culture parse matching Rust's `usize::from_str` (which
-    /// rejects signs/whitespace), so a malformed token reads as 0.
-    let private parseIntOr0 (s: string) : uint64 =
-        if s.Length > 0 && s |> Seq.forall Char.IsAsciiDigit then
-            match UInt64.TryParse(s, Globalization.NumberStyles.None, Globalization.CultureInfo.InvariantCulture) with
-            | true, v -> v
-            | _ -> 0UL
-        else
-            0UL
-
     let private normalize (p: string) = p.Replace(char 92, '/')
 
     /// Hex digit → its 0-15 value, or `-1` for a non-hex char (total; drives the
@@ -542,7 +532,7 @@ module internal JjParse =
                     part.Split([| ' '; '\t'; '\r'; '\n' |], StringSplitOptions.RemoveEmptyEntries)
                     |> Array.tryHead
                 with
-                | Some tok -> parseIntOr0 tok
+                | Some tok -> TextParse.parseUInt64Or0 tok
                 | None -> 0UL
 
             if part.Contains "file" then

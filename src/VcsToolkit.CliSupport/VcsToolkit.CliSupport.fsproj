@@ -17,6 +17,7 @@
 		<Compile Include="Classify.fs" />
 		<Compile Include="Retry.fs" />
 		<Compile Include="ManagedClient.fs" />
+		<Compile Include="Wrappers.fs" />
 	</ItemGroup>
 
 	<ItemGroup>

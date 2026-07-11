@@ -9,63 +9,18 @@ open System.Text
 [<AutoOpen>]
 module Parse =
 
-    // Digit-only, invariant-culture parse matching Rust's `usize::from_str` (which
-    // rejects signs/whitespace), so a malformed hunk range like `-5` reads as 0.
-    let private parseIntOr0 (s: string) : uint64 =
-        if s.Length > 0 && s |> Seq.forall Char.IsAsciiDigit then
-            match UInt64.TryParse(s, Globalization.NumberStyles.None, Globalization.CultureInfo.InvariantCulture) with
-            | true, v -> v
-            | _ -> 0UL
-        else
-            0UL
-
     let private stripPrefix (prefix: string) (s: string) : string option =
         if s.StartsWith(prefix, StringComparison.Ordinal) then
             Some(s.Substring prefix.Length)
         else
             None
 
-    /// Split `text` into lines, each including its trailing `\n` (the last may lack one).
-    let private splitInclusive (text: string) : string list =
-        let result = ResizeArray<string>()
-        let mutable start = 0
-
-        for i in 0 .. text.Length - 1 do
-            if text.[i] = '\n' then
-                result.Add(text.Substring(start, i - start + 1))
-                start <- i + 1
-
-        if start < text.Length then
-            result.Add(text.Substring start)
-
-        List.ofSeq result
-
-    /// Lines with terminators stripped (mirrors Rust `str::lines`: handles `\n` and
-    /// `\r\n`, and yields no trailing empty for a final newline).
-    let private linesOf (text: string) : string list =
-        if text = "" then
-            []
-        else
-            let parts = text.Split('\n')
-            let n = parts.Length
-
-            [ for idx in 0 .. n - 1 do
-                  let part = parts.[idx]
-                  let isLast = idx = n - 1
-
-                  if isLast && part = "" then
-                      () // a final '\n' yields no trailing empty line
-                  elif (not isLast) && part.EndsWith("\r", StringComparison.Ordinal) then
-                      yield part.Substring(0, part.Length - 1) // the '\r' of a '\r\n' terminator
-                  else
-                      yield part ] // a bare trailing '\r' with no following '\n' is kept
-
     /// Slice a git-format diff into per-file sections (each starts at `diff --git`).
     let private diffSections (full: string) : string list =
         let bounds = ResizeArray<int>()
         let mutable idx = 0
 
-        for line in splitInclusive full do
+        for line in TextParse.splitInclusive full do
             if line.StartsWith("diff --git ", StringComparison.Ordinal) then
                 bounds.Add idx
 
@@ -136,8 +91,9 @@ module Parse =
     /// Parse a `<start>[,<count>]` hunk range; an omitted count means 1 line.
     let private parseHunkRange (range: string) : uint64 * uint64 =
         match range.IndexOf ',' with
-        | -1 -> (parseIntOr0 range, 1UL)
-        | idx -> (parseIntOr0 (range.Substring(0, idx)), parseIntOr0 (range.Substring(idx + 1)))
+        | -1 -> (TextParse.parseUInt64Or0 range, 1UL)
+        | idx ->
+            (TextParse.parseUInt64Or0 (range.Substring(0, idx)), TextParse.parseUInt64Or0 (range.Substring(idx + 1)))
 
     /// Parse a hunk header `@@ -<os>[,<ol>] +<ns>[,<nl>] @@[ <section>]` into an empty
     /// `Hunk`; `None` for any other line.
@@ -182,7 +138,7 @@ module Parse =
     /// (e.g. binary files): the `b/<new>` of the `diff --git` header. Handles the
     /// unquoted `a/<p> b/<p>` form and git's C-quoted `"a/<p>" "b/<p>"` form.
     let private headerBPath (section: string) : string option =
-        match linesOf section with
+        match TextParse.linesOf section with
         | [] -> None
         | first :: _ ->
             if not (first.StartsWith("diff --git ", StringComparison.Ordinal)) then
@@ -219,7 +175,7 @@ module Parse =
                 curHeader <- None
             | None -> ()
 
-        for line in linesOf section do
+        for line in TextParse.linesOf section do
             match parseHunkHeader line with
             | Some h ->
                 closeCurrent ()

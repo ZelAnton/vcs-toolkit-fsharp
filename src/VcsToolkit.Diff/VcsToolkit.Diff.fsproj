@@ -11,6 +11,7 @@
 	<!-- F# COMPILE ORDER IS SIGNIFICANT. -->
 	<ItemGroup>
 		<Compile Include="Model.fs" />
+		<Compile Include="TextParse.fs" />
 		<Compile Include="Parse.fs" />
 	</ItemGroup>
 

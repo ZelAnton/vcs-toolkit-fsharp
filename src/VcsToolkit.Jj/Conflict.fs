@@ -13,6 +13,7 @@ namespace VcsToolkit.Jj
 open System
 open System.Text
 open ProcessKit
+open VcsToolkit.Diff
 
 /// Pure helpers shared by the conflict types and the `Conflict` module.
 [<AutoOpen>]
@@ -21,25 +22,6 @@ module private JjConflictInternal =
     /// jj's marker for a side whose content does not end in a newline; appended to the label.
     [<Literal>]
     let NO_EOL_MARKER = "(no terminating newline)"
-
-    /// Split `s` into lines that each KEEP their trailing `\n` (Rust `str::split_inclusive`):
-    /// `"a\nb"` → `["a\n"; "b"]`, `"a\n"` → `["a\n"]`, `""` → `[]`.
-    let splitInclusive (s: string) : string list =
-        if s = "" then
-            []
-        else
-            let result = ResizeArray<string>()
-            let mutable start = 0
-
-            for i in 0 .. s.Length - 1 do
-                if s.[i] = '\n' then
-                    result.Add(s.Substring(start, i - start + 1))
-                    start <- i + 1
-
-            if start < s.Length then
-                result.Add(s.Substring start)
-
-            List.ofSeq result
 
     /// Whether a section label carries jj's no-terminating-newline marker.
     let labeledNoEol (label: string) : bool =
@@ -111,7 +93,7 @@ module private JjConflictInternal =
             else
                 content
 
-        splitInclusive content
+        TextParse.splitInclusive content
 
     /// The marker run length when `line` starts with a run of `ch` (>= 7) followed by a space or
     /// line end. `None` otherwise.
@@ -276,7 +258,7 @@ module Conflict =
 
     /// Does `content` contain a jj conflict-start marker (`<<<<<<< conflict N of M`)? Cheap pre-check.
     let hasConflictMarkers (content: string) : bool =
-        splitInclusive content
+        TextParse.splitInclusive content
         |> List.exists (fun line ->
             match markerRun line '<' with
             | Some n -> parseCounter (markerLabel line n) |> Option.isSome
@@ -285,7 +267,7 @@ module Conflict =
     /// Whether `content` carries git's `<<<`/`===`/`>>>` triad — used only to steer a caller who
     /// passed a git-style file to `VcsToolkit.Git.Conflict`. Requires all three marker runs.
     let private looksGitStyle (content: string) : bool =
-        let lines = splitInclusive content
+        let lines = TextParse.splitInclusive content
 
         let hasRun ch =
             lines |> List.exists (fun l -> (markerRun l ch).IsSome)
@@ -305,7 +287,7 @@ module Conflict =
                     "git-style conflict markers — parse this file with VcsToolkit.Git.Conflict (jj's `git` marker style uses git's grammar)"
             )
         else
-            let lines = splitInclusive content |> List.toArray
+            let lines = TextParse.splitInclusive content |> List.toArray
             let segments = ResizeArray<JjConflictSegment>()
             let text = ResizeArray<string>()
             let mutable i = 0

@@ -3,6 +3,7 @@ namespace VcsToolkit.Forge
 open System
 open System.Net
 open System.Net.Sockets
+open VcsToolkit.CliSupport
 
 // Forge-agnostic data types the facade returns, generalising the per-CLI shapes of
 // VcsToolkit.GitHub / VcsToolkit.GitLab / VcsToolkit.Gitea into one set a consumer can
@@ -112,9 +113,7 @@ type ForgeKind =
             // ASCII-only lowercase (matches Rust `to_ascii_lowercase`): a full-Unicode fold
             // (`ToLowerInvariant`) could map a non-ASCII character onto an ASCII letter and help
             // complete a spoof of a trusted host, so fold only `A`–`Z` in this security check.
-            let h =
-                host
-                |> String.map (fun c -> if c >= 'A' && c <= 'Z' then char (int c + 32) else c)
+            let h = asciiLower host
 
             if hostIs h "github.com" then
                 Some ForgeKind.GitHub

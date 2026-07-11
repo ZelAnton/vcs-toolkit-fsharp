@@ -25,35 +25,6 @@ module private GitHelpers =
         envs
         |> List.fold (fun (c: Command) (name, value) -> c.Env(name, value.Expose())) cmd
 
-    /// R7: whether `dest` is one a clone could have *created* — absent, unreadable, or an empty
-    /// directory — as opposed to a non-empty pre-existing dir (the caller's data, which git
-    /// refuses to clone into). Captured **before** the clone so a failure can clean only its own
-    /// partial output.
-    let cloneDestCleanable (dest: string) : bool =
-        try
-            (not (Directory.Exists dest))
-            || (Directory.EnumerateFileSystemEntries dest |> Seq.isEmpty)
-        with _ ->
-            // Unreadable → the clone would create/populate it; treat as cleanable.
-            true
-
-    /// R7: on a failed clone into a `cleanable` `dest`, best-effort remove the partial output so a
-    /// retry isn't blocked by "destination path already exists and is not empty". `timeout_grace`
-    /// alone can't prevent the partial (Windows' job-kill is atomic; the Unix grace is too short
-    /// for a multi-GB partial). Never touches a non-`cleanable` dest (the caller's data).
-    let cloneCleanupOnError (dest: string) (cleanable: bool) (result: Result<unit, ProcessError>) =
-        match result with
-        | Error _ when cleanable ->
-            try
-                if Directory.Exists dest then
-                    Directory.Delete(dest, true)
-            with _ ->
-                // Best-effort cleanup on the error path; a leftover partial is not fatal.
-                ()
-        | _ -> ()
-
-        result
-
     /// Conservative ceiling, in argv characters, on how much space this wrapper will spend
     /// inlining a path list into a `git` command line (`Add`/`CommitPaths`/`LogPaths`) before it
     /// switches transports. Well under Windows' hard ~32767-character `CreateProcess` command-line
@@ -126,20 +97,6 @@ module private GitHelpers =
         |> String.concat ""
         |> System.Text.Encoding.UTF8.GetBytes
 
-    /// Apply the argv injection guard to each (what, value) pair, short-circuiting
-    /// on the first refusal.
-    let checkFlags (checks: (string * string) list) : Result<unit, ProcessError> =
-        let bad =
-            checks
-            |> List.tryPick (fun (what, value) ->
-                match rejectFlagLike BINARY what value with
-                | Error e -> Some e
-                | Ok() -> None)
-
-        match bad with
-        | Some e -> Error e
-        | None -> Ok()
-
     /// A branch/ref name interpolated into a refspec (`FetchBranch`, `RemoteBranchExists`)
     /// without going through `checkFlags`. Empty, or a name containing a control character or
     /// any of the refspec/glob metacharacters `" *?[:"`, is refused before git spawns: any of
@@ -210,22 +167,6 @@ module private GitHelpers =
 /// are not guarded.
 [<Sealed>]
 type Git private (core: ManagedClient) =
-
-    /// Run `cmd` returning **untrimmed** stdout (unlike `core.Run`, which trims the trailing
-    /// newline) — for blob content and diffs where a trailing newline is significant: a
-    /// read-modify-write must be byte-exact, and a diff's trailing blank context line keeps the
-    /// last hunk's `@@` count valid on re-parse/re-apply.
-    let runUntrimmed (cmd: Command) : System.Threading.Tasks.Task<Result<string, ProcessError>> =
-        // Capture as bytes and decode, not via the string verb: the latter reconstructs stdout from
-        // lines and drops the trailing newline, which would defeat byte-exactness.
-        task {
-            match! core.OutputBytes cmd with
-            | Error e -> return Error e
-            | Ok res ->
-                match ProcessResult.ensureSuccess res with
-                | Error e -> return Error e
-                | Ok ok -> return Ok(System.Text.Encoding.UTF8.GetString ok.Stdout)
-        }
 
     /// Build one `git --literal-pathspecs log <revs…> -n<max> -z --format=… -- <paths>` call —
     /// used both for `LogPaths`'s common case (everything fits one invocation, `revs` being the
@@ -395,7 +336,7 @@ type Git private (core: ManagedClient) =
     /// Up to `max` commits reachable from `revspec`, newest first.
     member _.Log(dir: string, revspec: string, max: int) =
         task {
-            match checkFlags [ "revspec", revspec ] with
+            match checkFlags BINARY [ "revspec", revspec ] with
             | Error e -> return Error e
             | Ok() ->
                 let n = sprintf "-n%d" max
@@ -440,7 +381,7 @@ type Git private (core: ManagedClient) =
     /// is rejected up front rather than forwarded as an over-budget singleton chunk.
     member _.LogPaths(dir: string, revspec: string, max: int, paths: string list) =
         task {
-            match checkFlags [ "revspec", revspec ] with
+            match checkFlags BINARY [ "revspec", revspec ] with
             | Error e -> return Error e
             | Ok() ->
                 if List.isEmpty paths then
@@ -534,7 +475,7 @@ type Git private (core: ManagedClient) =
     /// resolving an untrusted revision would get garbage instead of a failure.
     member _.RevParse(dir: string, rev: string) =
         task {
-            match checkFlags [ "revision", rev ] with
+            match checkFlags BINARY [ "revision", rev ] with
             | Error e -> return Error e
             | Ok() -> return! core.Run(core.CommandIn(dir, [ "rev-parse"; "--verify"; rev ]))
         }
@@ -542,7 +483,7 @@ type Git private (core: ManagedClient) =
     /// Resolve a revision to its abbreviated hash (`git rev-parse --short <rev>`).
     member _.RevParseShort(dir: string, rev: string) =
         task {
-            match checkFlags [ "revision", rev ] with
+            match checkFlags BINARY [ "revision", rev ] with
             | Error e -> return Error e
             | Ok() -> return! core.Run(core.CommandIn(dir, [ "rev-parse"; "--short"; rev ]))
         }
@@ -587,7 +528,7 @@ type Git private (core: ManagedClient) =
     /// Create a branch without switching to it (`git branch <name>`).
     member _.CreateBranch(dir: string, name: string) =
         task {
-            match checkFlags [ "branch name", name ] with
+            match checkFlags BINARY [ "branch name", name ] with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(core.CommandIn(dir, [ "branch"; name ]))
         }
@@ -599,7 +540,7 @@ type Git private (core: ManagedClient) =
     /// hard error.
     member _.Checkout(dir: string, reference: string) =
         task {
-            match checkFlags [ "reference", reference ] with
+            match checkFlags BINARY [ "reference", reference ] with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(core.CommandIn(dir, [ "checkout"; reference; "--" ]))
         }
@@ -607,7 +548,7 @@ type Git private (core: ManagedClient) =
     /// Check out a commit as a detached HEAD (`git checkout --detach <commit>`).
     member _.CheckoutDetach(dir: string, commit: string) =
         task {
-            match checkFlags [ "commit", commit ] with
+            match checkFlags BINARY [ "commit", commit ] with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(core.CommandIn(dir, [ "checkout"; "--detach"; commit ]))
         }
@@ -676,7 +617,7 @@ type Git private (core: ManagedClient) =
     /// Resolve a revision to a commit hash, peeling tags.
     member _.ResolveCommit(dir: string, rev: string) =
         task {
-            match checkFlags [ "revision", rev ] with
+            match checkFlags BINARY [ "revision", rev ] with
             | Error e -> return Error e
             | Ok() ->
                 let spec = sprintf "%s^{commit}" rev
@@ -716,7 +657,7 @@ type Git private (core: ManagedClient) =
     /// A remote's URL (`remote get-url <remote>`).
     member _.RemoteUrl(dir: string, remote: string) =
         task {
-            match checkFlags [ "remote name", remote ] with
+            match checkFlags BINARY [ "remote name", remote ] with
             | Error e -> return Error e
             | Ok() -> return! core.Run(core.CommandIn(dir, [ "remote"; "get-url"; remote ]))
         }
@@ -777,7 +718,7 @@ type Git private (core: ManagedClient) =
     /// Branch names on `remote`, without fetching (`ls-remote --heads <remote>`).
     member this.RemoteBranches(dir: string, remote: string) =
         task {
-            match checkFlags [ "remote name", remote ] with
+            match checkFlags BINARY [ "remote name", remote ] with
             | Error e -> return Error e
             | Ok() ->
                 match! this.RemoteCredentials None with
@@ -819,7 +760,7 @@ type Git private (core: ManagedClient) =
     /// Whether `branch` is fully merged into `target`.
     member _.IsMerged(dir: string, branch: string, target: string) =
         task {
-            match checkFlags [ "branch", branch; "target", target ] with
+            match checkFlags BINARY [ "branch", branch; "target", target ] with
             | Error e -> return Error e
             | Ok() ->
                 match! core.Run(core.CommandIn(dir, [ "branch"; "--merged"; target; "--no-column"; "--no-color" ])) with
@@ -836,7 +777,7 @@ type Git private (core: ManagedClient) =
     /// Set `branch`'s upstream to `upstream`.
     member _.SetUpstream(dir: string, branch: string, upstream: string) =
         task {
-            match checkFlags [ "branch name", branch ] with
+            match checkFlags BINARY [ "branch name", branch ] with
             | Error e -> return Error e
             | Ok() ->
                 let flag = sprintf "--set-upstream-to=%s" upstream
@@ -846,7 +787,7 @@ type Git private (core: ManagedClient) =
     /// Delete a local branch (`branch -d`, or `-D` when `force`).
     member _.DeleteBranch(dir: string, name: string, force: bool) =
         task {
-            match checkFlags [ "branch name", name ] with
+            match checkFlags BINARY [ "branch name", name ] with
             | Error e -> return Error e
             | Ok() ->
                 let flag = if force then "-D" else "-d"
@@ -856,7 +797,7 @@ type Git private (core: ManagedClient) =
     /// Rename a local branch (`branch -m <old> <new>`).
     member _.RenameBranch(dir: string, oldName: string, newName: string) =
         task {
-            match checkFlags [ "branch name", oldName; "branch name", newName ] with
+            match checkFlags BINARY [ "branch name", oldName; "branch name", newName ] with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(core.CommandIn(dir, [ "branch"; "-m"; oldName; newName ]))
         }
@@ -864,7 +805,7 @@ type Git private (core: ManagedClient) =
     /// Count commits in a range (`rev-list --count <range>`).
     member _.RevListCount(dir: string, range: string) =
         task {
-            match checkFlags [ "range", range ] with
+            match checkFlags BINARY [ "range", range ] with
             | Error e -> return Error e
             | Ok() ->
                 return!
@@ -891,7 +832,7 @@ type Git private (core: ManagedClient) =
     /// Whether a diff range is empty (`diff --quiet <range>`).
     member _.DiffRangeIsEmpty(dir: string, range: string) =
         task {
-            match checkFlags [ "range", range ] with
+            match checkFlags BINARY [ "range", range ] with
             | Error e -> return Error e
             | Ok() -> return! core.Probe(core.CommandIn(dir, [ "diff"; "--quiet"; range ]))
         }
@@ -901,7 +842,7 @@ type Git private (core: ManagedClient) =
     /// git (otherwise the counts read as all-zero).
     member _.DiffStat(dir: string, range: string) =
         task {
-            match checkFlags [ "range", range ] with
+            match checkFlags BINARY [ "range", range ] with
             | Error e -> return Error e
             | Ok() ->
                 return!
@@ -924,15 +865,15 @@ type Git private (core: ManagedClient) =
             | DiffSpec.WorkingTree ->
                 match! this.IsUnborn dir with
                 | Error e -> return Error e
-                | Ok false -> return! runUntrimmed (core.CommandIn(dir, args "HEAD"))
+                | Ok false -> return! runUntrimmed core (core.CommandIn(dir, args "HEAD"))
                 | Ok true ->
                     match! this.EmptyTreeOid dir with
                     | Error e -> return Error e
-                    | Ok emptyTree -> return! runUntrimmed (core.CommandIn(dir, args emptyTree))
+                    | Ok emptyTree -> return! runUntrimmed core (core.CommandIn(dir, args emptyTree))
             | DiffSpec.Rev rev ->
-                match checkFlags [ "revision", rev ] with
+                match checkFlags BINARY [ "revision", rev ] with
                 | Error e -> return Error e
-                | Ok() -> return! runUntrimmed (core.CommandIn(dir, args rev))
+                | Ok() -> return! runUntrimmed core (core.CommandIn(dir, args rev))
         }
 
     /// Parsed per-file unified diff for `spec`.
@@ -1063,7 +1004,7 @@ type Git private (core: ManagedClient) =
     /// Fetch from a named remote.
     member this.FetchFrom(dir: string, remote: string) =
         task {
-            match checkFlags [ "remote", remote ] with
+            match checkFlags BINARY [ "remote", remote ] with
             | Error e -> return Error e
             | Ok() -> return! this.RunFetch(dir, [ remote ])
         }
@@ -1079,7 +1020,7 @@ type Git private (core: ManagedClient) =
     /// Push to a remote (`push [-u] <remote> <refspec>`).
     member this.Push(dir: string, spec: GitPush) =
         task {
-            match checkFlags [ "remote", spec.Remote; "refspec", spec.Refspec ] with
+            match checkFlags BINARY [ "remote", spec.Remote; "refspec", spec.Refspec ] with
             | Error e -> return Error e
             | Ok() ->
                 // M16: `checkFlags` catches a leading `-`/empty/NUL, but not the refspec
@@ -1125,7 +1066,7 @@ type Git private (core: ManagedClient) =
     /// since git accepts options after positionals — and both are refused before any spawn.
     member this.CloneRepo(url: string, dest: string, spec: CloneSpec) =
         task {
-            match checkFlags [ "url", url; "destination", dest ] with
+            match checkFlags BINARY [ "url", url; "destination", dest ] with
             | Error e -> return Error e
             | Ok() ->
                 // Scope the credential helper to the clone URL's host, so a cross-host
@@ -1163,7 +1104,7 @@ type Git private (core: ManagedClient) =
     /// conflicting squash-merge's `CONFLICT (...)` output stays classifiable by `isMergeConflict`.
     member _.MergeSquash(dir: string, branch: string) =
         task {
-            match checkFlags [ "branch", branch ] with
+            match checkFlags BINARY [ "branch", branch ] with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(cLocale (core.CommandIn(dir, [ "merge"; "--squash"; branch ])))
         }
@@ -1171,7 +1112,7 @@ type Git private (core: ManagedClient) =
     /// Merge a branch (`merge [--no-ff] [-m <msg> | --no-edit] <branch>`).
     member _.MergeCommit(dir: string, spec: MergeCommit) =
         task {
-            match checkFlags [ "branch", spec.Branch ] with
+            match checkFlags BINARY [ "branch", spec.Branch ] with
             | Error e -> return Error e
             | Ok() ->
                 let args =
@@ -1188,7 +1129,7 @@ type Git private (core: ManagedClient) =
     /// Merge a branch but stop before committing.
     member _.MergeNoCommit(dir: string, spec: MergeNoCommit) =
         task {
-            match checkFlags [ "branch", spec.Branch ] with
+            match checkFlags BINARY [ "branch", spec.Branch ] with
             | Error e -> return Error e
             | Ok() ->
                 let middle =
@@ -1232,7 +1173,7 @@ type Git private (core: ManagedClient) =
     /// Hard-reset the working tree to a revision (`reset --hard <rev>`).
     member _.ResetHard(dir: string, rev: string) =
         task {
-            match checkFlags [ "revision", rev ] with
+            match checkFlags BINARY [ "revision", rev ] with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(core.CommandIn(dir, [ "reset"; "--hard"; rev ]))
         }
@@ -1240,7 +1181,7 @@ type Git private (core: ManagedClient) =
     /// Rebase the current branch onto `onto` (`rebase <onto>`).
     member _.Rebase(dir: string, onto: string) =
         task {
-            match checkFlags [ "rebase target", onto ] with
+            match checkFlags BINARY [ "rebase target", onto ] with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(noEditor (cLocale (core.CommandIn(dir, [ "rebase"; onto ]))))
         }
@@ -1337,7 +1278,7 @@ type Git private (core: ManagedClient) =
                 @ (spec.NewBranch |> Option.map (fun n -> "branch name", n) |> Option.toList)
                 @ (spec.Commitish |> Option.map (fun c -> "commit-ish", c) |> Option.toList)
 
-            match checkFlags checks with
+            match checkFlags BINARY checks with
             | Error e -> return Error e
             | Ok() ->
                 let mutable cmd = core.CommandIn(dir, [ "worktree"; "add" ])
@@ -1362,7 +1303,7 @@ type Git private (core: ManagedClient) =
     /// leading-`-` value would be read as a flag — it is refused before spawning.
     member _.WorktreeRemove(dir: string, path: string, force: bool) =
         task {
-            match checkFlags [ "worktree path", path ] with
+            match checkFlags BINARY [ "worktree path", path ] with
             | Error e -> return Error e
             | Ok() ->
                 let cmd = core.CommandIn(dir, [ "worktree"; "remove" ])
@@ -1375,7 +1316,7 @@ type Git private (core: ManagedClient) =
     /// before spawning.
     member _.WorktreeMove(dir: string, fromPath: string, toPath: string) =
         task {
-            match checkFlags [ "worktree source path", fromPath; "worktree destination path", toPath ] with
+            match checkFlags BINARY [ "worktree source path", fromPath; "worktree destination path", toPath ] with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit((core.CommandIn(dir, [ "worktree"; "move" ])).Arg(fromPath).Arg toPath)
         }
@@ -1393,7 +1334,7 @@ type Git private (core: ManagedClient) =
                 ("tag name", name)
                 :: (rev |> Option.map (fun r -> "revision", r) |> Option.toList)
 
-            match checkFlags checks with
+            match checkFlags BINARY checks with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(core.CommandIn(dir, [ "tag"; name ] @ Option.toList rev))
         }
@@ -1405,7 +1346,7 @@ type Git private (core: ManagedClient) =
                 ("tag name", spec.Name)
                 :: (spec.Rev |> Option.map (fun r -> "revision", r) |> Option.toList)
 
-            match checkFlags checks with
+            match checkFlags BINARY checks with
             | Error e -> return Error e
             | Ok() ->
                 return!
@@ -1432,7 +1373,7 @@ type Git private (core: ManagedClient) =
     /// Delete a tag (`tag -d <name>`).
     member _.TagDelete(dir: string, name: string) =
         task {
-            match checkFlags [ "tag name", name ] with
+            match checkFlags BINARY [ "tag name", name ] with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(core.CommandIn(dir, [ "tag"; "-d"; name ]))
         }
@@ -1440,7 +1381,7 @@ type Git private (core: ManagedClient) =
     /// A file's content at a revision (`git show <rev>:<path>`).
     member _.ShowFile(dir: string, rev: string, path: string) =
         task {
-            match checkFlags [ "revision", rev ] with
+            match checkFlags BINARY [ "revision", rev ] with
             | Error e -> return Error e
             | Ok() ->
                 // Windows: git rejects backslash separators in the <rev>:<path> spec.
@@ -1453,13 +1394,13 @@ type Git private (core: ManagedClient) =
                 let spec = sprintf "%s:%s" rev p
                 // Untrimmed: a blob's trailing newline(s) must survive for a byte-exact
                 // read-modify-write.
-                return! runUntrimmed (core.CommandIn(dir, [ "show"; spec ]))
+                return! runUntrimmed core (core.CommandIn(dir, [ "show"; spec ]))
         }
 
     /// The value of a config key, or `None` when unset (`config --get <key>`).
     member _.ConfigGet(dir: string, key: string) =
         task {
-            match checkFlags [ "config key", key ] with
+            match checkFlags BINARY [ "config key", key ] with
             | Error e -> return Error e
             | Ok() ->
                 match! core.Output(core.CommandIn(dir, [ "config"; "--get"; key ])) with
@@ -1487,7 +1428,7 @@ type Git private (core: ManagedClient) =
     /// config key never legitimately begins with `-`).
     member _.ConfigSet(dir: string, key: string, value: string) =
         task {
-            match checkFlags [ "config key", key ] with
+            match checkFlags BINARY [ "config key", key ] with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(core.CommandIn(dir, [ "config"; "--"; key; value ]))
         }
@@ -1495,7 +1436,7 @@ type Git private (core: ManagedClient) =
     /// Add a remote (`remote add <name> <url>`).
     member _.RemoteAdd(dir: string, name: string, url: string) =
         task {
-            match checkFlags [ "remote name", name; "url", url ] with
+            match checkFlags BINARY [ "remote name", name; "url", url ] with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(core.CommandIn(dir, [ "remote"; "add"; name; url ]))
         }
@@ -1503,7 +1444,7 @@ type Git private (core: ManagedClient) =
     /// Change a remote's URL (`remote set-url <name> <url>`).
     member _.RemoteSetUrl(dir: string, name: string, url: string) =
         task {
-            match checkFlags [ "remote name", name; "url", url ] with
+            match checkFlags BINARY [ "remote name", name; "url", url ] with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(core.CommandIn(dir, [ "remote"; "set-url"; name; url ]))
         }
@@ -1513,7 +1454,7 @@ type Git private (core: ManagedClient) =
         task {
             let guard =
                 match rev with
-                | Some r -> checkFlags [ "revision", r ]
+                | Some r -> checkFlags BINARY [ "revision", r ]
                 | None -> Ok()
 
             match guard with
@@ -1524,7 +1465,7 @@ type Git private (core: ManagedClient) =
                 // line, and `parseBlamePorcelain` closes a record only on that `\t`-prefixed line —
                 // trimming it (as `core.Parse` does) would silently drop the last blame entry.
                 // Mirrors the jj `FileAnnotate` workaround.
-                match! runUntrimmed (core.CommandIn(dir, args)) with
+                match! runUntrimmed core (core.CommandIn(dir, args)) with
                 | Error e -> return Error e
                 | Ok out -> return Ok(GitParse.parseBlamePorcelain out)
         }
@@ -1534,7 +1475,7 @@ type Git private (core: ManagedClient) =
     /// Apply a commit onto the current branch (`cherry-pick <rev>`).
     member _.CherryPick(dir: string, rev: string) =
         task {
-            match checkFlags [ "revision", rev ] with
+            match checkFlags BINARY [ "revision", rev ] with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(noEditor (cLocale (core.CommandIn(dir, [ "cherry-pick"; rev ]))))
         }
@@ -1542,7 +1483,7 @@ type Git private (core: ManagedClient) =
     /// Revert a commit with the default message (`revert --no-edit <rev>`).
     member _.Revert(dir: string, rev: string) =
         task {
-            match checkFlags [ "revision", rev ] with
+            match checkFlags BINARY [ "revision", rev ] with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(noEditor (cLocale (core.CommandIn(dir, [ "revert"; "--no-edit"; rev ]))))
         }

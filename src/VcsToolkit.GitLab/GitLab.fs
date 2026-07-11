@@ -9,20 +9,6 @@ open VcsToolkit.Diff
 [<AutoOpen>]
 module private GitLabHelpers =
 
-    /// Apply the argv injection guard to each (what, value) pair, short-circuiting on
-    /// the first refusal.
-    let checkFlags (checks: (string * string) list) : Result<unit, ProcessError> =
-        let bad =
-            checks
-            |> List.tryPick (fun (what, value) ->
-                match rejectFlagLike BINARY what value with
-                | Error e -> Some e
-                | Ok() -> None)
-
-        match bad with
-        | Some e -> Error e
-        | None -> Ok()
-
     /// Refuse a body/description value equal to exactly `-` before spawning: glab
     /// treats a bare `-` as its own sentinel meaning "read from stdin / open
     /// $EDITOR", not the literal string, and a headless call would hang waiting
@@ -150,7 +136,7 @@ type GitLab private (core: ManagedClient) =
     /// the process cwd happens to be in.
     member _.Api(dir: string, endpoint: string) =
         task {
-            match checkFlags [ "endpoint", endpoint ] with
+            match checkFlags BINARY [ "endpoint", endpoint ] with
             | Error e -> return Error e
             | Ok() -> return! core.Run(core.CommandIn(dir, [ "api"; endpoint ]))
         }
@@ -322,7 +308,7 @@ type GitLab private (core: ManagedClient) =
     /// A single release by its tag (`glab release view <tag> --output json`).
     member _.ReleaseView(dir: string, tag: string) =
         task {
-            match checkFlags [ "tag", tag ] with
+            match checkFlags BINARY [ "tag", tag ] with
             | Error e -> return Error e
             | Ok() ->
                 return!

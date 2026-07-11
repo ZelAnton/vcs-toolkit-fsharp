@@ -61,12 +61,6 @@ module internal Constants =
 [<AutoOpen>]
 module private HostClassify =
 
-    /// Fold ASCII `A`–`Z` to lower case only (matching Rust `to_ascii_lowercase`): a
-    /// full-Unicode fold could map a non-ASCII character onto an ASCII letter and help
-    /// spoof a trusted host, so canonicalise a hostname with an ASCII-only fold.
-    let asciiLower (s: string) : string =
-        s |> String.map (fun c -> if c >= 'A' && c <= 'Z' then char (int c + 32) else c)
-
     /// A DNS-host character: ASCII letter/digit, `.`, or `-` (matching Rust
     /// `is_ascii_alphanumeric() || '.' || '-'`).
     let inline private isHostChar (c: char) =

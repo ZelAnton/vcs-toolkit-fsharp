@@ -11,20 +11,6 @@ open VcsToolkit.Diff
 [<AutoOpen>]
 module private JjHelpers =
 
-    /// Apply the argv injection guard to each (what, value) pair, short-circuiting
-    /// on the first refusal.
-    let checkFlags (checks: (string * string) list) : Result<unit, ProcessError> =
-        let bad =
-            checks
-            |> List.tryPick (fun (what, value) ->
-                match rejectFlagLike BINARY what value with
-                | Error e -> Some e
-                | Ok() -> None)
-
-        match bad with
-        | Some e -> Error e
-        | None -> Ok()
-
     /// jj treats a bare `<NAMES>` / `-b <BOOKMARK>` / `--remote <REMOTE>` argument as a **glob**
     /// pattern (verified on 0.42: `bookmark delete '*'` deletes every bookmark; `git push -b '*'`
     /// pushes them all), so a name containing `*`/`?` — or a hostile `"*"` from a UI/bot — would
@@ -55,33 +41,6 @@ module private JjHelpers =
             )
         else
             Ok()
-
-    /// R7: whether `dest` is one a clone could have *created* — absent, unreadable, or an empty
-    /// directory — vs a non-empty pre-existing dir (the caller's data, which jj/git refuses to
-    /// clone into). Captured **before** the clone so a failure cleans only its own partial output.
-    let cloneDestCleanable (dest: string) : bool =
-        try
-            (not (System.IO.Directory.Exists dest))
-            || (System.IO.Directory.EnumerateFileSystemEntries dest |> Seq.isEmpty)
-        with _ ->
-            true
-
-    /// R7: on a failed clone into a `cleanable` `dest`, best-effort remove the partial output so a
-    /// retry isn't blocked by "destination already exists". `timeout_grace` can't prevent the
-    /// partial (Windows' job-kill is atomic; the Unix grace is too short for a multi-GB partial).
-    /// Never touches a non-`cleanable` dest.
-    let cloneCleanupOnError (dest: string) (cleanable: bool) (result: Result<unit, ProcessError>) =
-        match result with
-        | Error _ when cleanable ->
-            try
-                if System.IO.Directory.Exists dest then
-                    System.IO.Directory.Delete(dest, true)
-            with _ ->
-                // Best-effort cleanup on the error path; a leftover partial is not fatal.
-                ()
-        | _ -> ()
-
-        result
 
     /// The first bookmark name from an `.escape_json()`-framed `BOOKMARKS_TEMPLATE` render;
     /// `None` when the commit carries no local bookmark.
@@ -186,22 +145,6 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
             cmdIn dir (Seq.append [ "--ignore-working-copy" ] args)
         else
             cmdIn dir args
-
-    /// Run `cmd` returning **untrimmed** stdout (unlike `core.Run`, which trims the trailing
-    /// newline) — for blob content and diffs where a trailing newline is significant: a
-    /// read-modify-write must be byte-exact, and a diff's trailing blank context line keeps the
-    /// last hunk's `@@` count valid on re-parse/re-apply.
-    let runUntrimmed (cmd: Command) : System.Threading.Tasks.Task<Result<string, ProcessError>> =
-        // Capture as bytes and decode, not via the string verb: the latter reconstructs stdout from
-        // lines and drops the trailing newline, which would defeat byte-exactness.
-        task {
-            match! core.OutputBytes cmd with
-            | Error e -> return Error e
-            | Ok res ->
-                match ProcessResult.ensureSuccess res with
-                | Error e -> return Error e
-                | Ok ok -> return Ok(System.Text.Encoding.UTF8.GetString ok.Stdout)
-        }
 
     /// Create a client driving the real job-backed runner.
     static member Create() = Jj(ManagedClient.Create BINARY, false)
@@ -406,7 +349,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
         task {
             // A leading-`-` name makes the whole `{name}@{remote}` token start with
             // `-`, which jj parses as a global flag; guard it.
-            match checkFlags [ "bookmark name", name ] with
+            match checkFlags BINARY [ "bookmark name", name ] with
             | Error e -> return Error e
             | Ok() ->
                 match rejectGlobLike BINARY "remote" remote with
@@ -421,7 +364,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
     /// Point a bookmark at `revision` (`jj bookmark set <name> -r <revision>`).
     member _.BookmarkSet(dir: string, name: string, revision: string) =
         task {
-            match checkFlags [ "bookmark name", name ] with
+            match checkFlags BINARY [ "bookmark name", name ] with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(cmdIn dir [ "bookmark"; "set"; name; "-r"; revision ])
         }
@@ -429,7 +372,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
     /// Create a bookmark at a revision (`bookmark create <name> -r <rev>`).
     member _.BookmarkCreate(dir: string, name: string, revision: string) =
         task {
-            match checkFlags [ "bookmark name", name ] with
+            match checkFlags BINARY [ "bookmark name", name ] with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(cmdIn dir [ "bookmark"; "create"; name; "-r"; revision ])
         }
@@ -437,7 +380,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
     /// Rename a bookmark (`bookmark rename <old> <new>`).
     member _.BookmarkRename(dir: string, oldName: string, newName: string) =
         task {
-            match checkFlags [ "bookmark name", oldName; "bookmark name", newName ] with
+            match checkFlags BINARY [ "bookmark name", oldName; "bookmark name", newName ] with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(cmdIn dir [ "bookmark"; "rename"; oldName; newName ])
         }
@@ -446,7 +389,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
     /// deletes only the one named, not every matching bookmark.
     member _.BookmarkDelete(dir: string, name: string) =
         task {
-            match checkFlags [ "bookmark name", name ] with
+            match checkFlags BINARY [ "bookmark name", name ] with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(cmdIn dir [ "bookmark"; "delete"; exact name ])
         }
@@ -454,7 +397,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
     /// Move a bookmark to a revision (`bookmark move exact:<name> --to <rev> [--allow-backwards]`).
     member _.BookmarkMove(dir: string, name: string, toRev: string, allowBackwards: bool) =
         task {
-            match checkFlags [ "bookmark name", name ] with
+            match checkFlags BINARY [ "bookmark name", name ] with
             | Error e -> return Error e
             | Ok() ->
                 // `exact:` on the name (a `*` would move every bookmark); `toRev` is a revision.
@@ -546,7 +489,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
             | DiffSpec.WorkingTree -> "@"
             | DiffSpec.Rev rev -> rev
 
-        runUntrimmed (cmdInRead dir [ "diff"; "-r"; revset; "--git" ])
+        runUntrimmed core (cmdInRead dir [ "diff"; "-r"; revset; "--git" ])
 
     /// Parsed per-file unified diff for `spec`, layered on `DiffText`.
     member this.Diff(dir: string, spec: DiffSpec) =
@@ -622,7 +565,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
 
         // Untrimmed: a template's output can be significant to the trailing byte (a consumer
         // may render or round-trip it), matching the Rust `run_untrimmed`.
-        runUntrimmed (cmdInRead dir args)
+        runUntrimmed core (cmdInRead dir args)
 
     /// The full (possibly multiline) description of the commit `revset` resolves to,
     /// trailing whitespace trimmed; empty for an undescribed change. A multi-commit
@@ -693,7 +636,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
     member _.FileShow(dir: string, revset: string, path: string) =
         let fileset = JjFileset.Path path
         // Untrimmed: a blob's trailing newline(s) must survive for a byte-exact read-modify-write.
-        runUntrimmed (cmdInRead dir [ "file"; "show"; "-r"; revset; fileset.Value ])
+        runUntrimmed core (cmdInRead dir [ "file"; "show"; "-r"; revset; fileset.Value ])
 
     // --- Mutations -----------------------------------------------------------
 
@@ -708,7 +651,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
     /// Move the working copy to a revision (`edit <rev>`).
     member _.Edit(dir: string, revset: string) =
         task {
-            match checkFlags [ "revset", revset ] with
+            match checkFlags BINARY [ "revset", revset ] with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(cmdIn dir [ "edit"; revset ])
         }
@@ -718,7 +661,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
     /// commit stacked on top of it.
     member _.NewChild(dir: string, parent: string) =
         task {
-            match checkFlags [ "parent", parent ] with
+            match checkFlags BINARY [ "parent", parent ] with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(cmdIn dir [ "new"; parent ])
         }
@@ -772,7 +715,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
         task {
             // Parents are bare positionals — a leading-`-` one would be silently
             // consumed as a flag.
-            match checkFlags (parents |> List.map (fun p -> "parent", p)) with
+            match checkFlags BINARY (parents |> List.map (fun p -> "parent", p)) with
             | Error e -> return Error e
             | Ok() ->
                 let args = [ "new"; "-m"; message ] @ parents
@@ -782,7 +725,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
     /// Abandon a revision (`abandon <rev>`).
     member _.Abandon(dir: string, revset: string) =
         task {
-            match checkFlags [ "revset", revset ] with
+            match checkFlags BINARY [ "revset", revset ] with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(cmdIn dir [ "abandon"; revset ])
         }
@@ -823,7 +766,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
     /// Duplicate the commits a revset resolves to (`duplicate <revset>`).
     member _.Duplicate(dir: string, revset: string) =
         task {
-            match checkFlags [ "revset", revset ] with
+            match checkFlags BINARY [ "revset", revset ] with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(cmdIn dir [ "duplicate"; revset ])
         }
@@ -892,7 +835,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
             // `url` and `dest` are both bare positionals in `jj git clone <url> <dest>`: a
             // leading-`-` value in either would be parsed as a flag. Guard both before spawning
             // (a real URL/path never leads with `-`, so no false positives).
-            match checkFlags [ "url", url; "destination", dest ] with
+            match checkFlags BINARY [ "url", url; "destination", dest ] with
             | Error e -> return Error e
             | Ok() ->
                 let colocateFlag = if colocate then "--colocate" else "--no-colocate"
@@ -936,7 +879,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
     /// Restore the repo to an operation (`op restore <id>`).
     member _.OpRestore(dir: string, opId: string) =
         task {
-            match checkFlags [ "operation id", opId ] with
+            match checkFlags BINARY [ "operation id", opId ] with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(cmdIn dir [ "op"; "restore"; opId ])
         }
@@ -967,7 +910,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
     /// verbatim and need no guard.)
     member _.WorkspaceAdd(dir: string, spec: WorkspaceAdd) =
         task {
-            match checkFlags [ "workspace path", spec.Path ] with
+            match checkFlags BINARY [ "workspace path", spec.Path ] with
             | Error e -> return Error e
             | Ok() ->
                 // Built directly on `CommandIn` (not `cmdIn`) because the trailing
@@ -988,7 +931,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
     /// Forget a workspace (`workspace forget <name>`).
     member _.WorkspaceForget(dir: string, name: string) =
         task {
-            match checkFlags [ "workspace name", name ] with
+            match checkFlags BINARY [ "workspace name", name ] with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(cmdIn dir [ "workspace"; "forget"; name ])
         }

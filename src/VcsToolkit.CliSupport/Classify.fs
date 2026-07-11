@@ -63,8 +63,12 @@ module Classify =
 
     /// ASCII-only lowercasing, matching Rust's `to_ascii_lowercase`. Avoids the
     /// spurious matches a full-Unicode fold (`ToLowerInvariant`) could introduce
-    /// (e.g. U+212A KELVIN SIGN folding to `k`); the markers are all pure ASCII.
-    let private asciiLower (s: string) =
+    /// (e.g. U+212A KELVIN SIGN folding to `k`) — used both by these classifiers (whose
+    /// markers are all pure ASCII) and by the host-classification code in the forge
+    /// wrappers, where an ASCII-only fold is a deliberate anti-spoofing measure (a
+    /// full-Unicode fold could map a non-ASCII character onto an ASCII letter and help
+    /// complete a spoof of a trusted host).
+    let asciiLower (s: string) =
         String(
             s.ToCharArray()
             |> Array.map (fun c -> if c >= 'A' && c <= 'Z' then char (int c + 32) else c)

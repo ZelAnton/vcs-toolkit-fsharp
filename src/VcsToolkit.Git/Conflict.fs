@@ -12,6 +12,7 @@ namespace VcsToolkit.Git
 open System
 open System.Text
 open ProcessKit
+open VcsToolkit.Diff
 
 /// Which side of a conflict a resolution keeps.
 [<RequireQualifiedAccess>]
@@ -77,25 +78,6 @@ type ConflictSegment =
 [<RequireQualifiedAccess>]
 module Conflict =
 
-    /// Split `s` into lines that each KEEP their trailing `\n` (like Rust `str::split_inclusive`):
-    /// `"a\nb"` → `["a\n"; "b"]`, `"a\n"` → `["a\n"]`, `""` → `[]`.
-    let private splitInclusive (s: string) : string[] =
-        if s = "" then
-            [||]
-        else
-            let result = ResizeArray<string>()
-            let mutable start = 0
-
-            for i in 0 .. s.Length - 1 do
-                if s.[i] = '\n' then
-                    result.Add(s.Substring(start, i - start + 1))
-                    start <- i + 1
-
-            if start < s.Length then
-                result.Add(s.Substring start)
-
-            result.ToArray()
-
     /// The length of the leading `ch` run when `line` is a marker line for it: the run must be
     /// followed by a space + label, or end the line. `None` otherwise.
     let private markerRun (line: string) (ch: char) : int option =
@@ -118,8 +100,8 @@ module Conflict =
     /// Does `content` contain a line that looks like a conflict-start marker? A cheap pre-check
     /// before a full `parseConflicts`.
     let hasConflictMarkers (content: string) : bool =
-        splitInclusive content
-        |> Array.exists (fun line ->
+        TextParse.splitInclusive content
+        |> List.exists (fun line ->
             match markerRun line '<' with
             | Some n -> n >= 7
             | None -> false)
@@ -132,7 +114,9 @@ module Conflict =
     /// a quoted email), so a file with no real conflict — or a real conflict alongside marker-like
     /// content — parses cleanly.
     let parseConflicts (content: string) : Result<ConflictSegment list, ProcessError> =
-        let lines = splitInclusive content
+        // `List.toArray` for the O(1) indexed `lines.[i]` random access the parse loop below needs
+        // (a `string list` would make it O(n²)); the split itself is the shared `TextParse` one.
+        let lines = TextParse.splitInclusive content |> List.toArray
         let segments = ResizeArray<ConflictSegment>()
         let text = ResizeArray<string>()
         let mutable i = 0

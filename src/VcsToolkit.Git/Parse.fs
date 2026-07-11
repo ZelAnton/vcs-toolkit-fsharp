@@ -115,12 +115,13 @@ module internal GitParse =
 
     let private nul = char 0
     let private unitSep = char 0x1f
-    let private lf = char 10
-    let private cr = char 13
     let private tab = char 9
 
     // Digit-only, invariant-culture parse matching Rust's integer `from_str` (rejects
     // signs/whitespace), so a malformed numeric field reads as 0 rather than a sign-led value.
+    // Deliberately **int32**-width and kept local: git blame's `OrigLine`/`FinalLine` are `int`
+    // fields, so a `uint64` parser would not fit them. The `usize`-width fields (diff stats,
+    // ahead/behind, change counts) instead use the shared `TextParse.parseUInt64Or0`.
     let private parseIntOr0 (s: string) =
         if s.Length > 0 && s |> Seq.forall Char.IsAsciiDigit then
             match Int32.TryParse(s, Globalization.NumberStyles.None, Globalization.CultureInfo.InvariantCulture) with
@@ -128,36 +129,6 @@ module internal GitParse =
             | _ -> 0
         else
             0
-
-    // As `parseIntOr0`, but for the `usize` fields (diff stats, ahead/behind, change
-    // counts) — mirrors Rust's `usize::from_str` width.
-    let private parseUInt64Or0 (s: string) : uint64 =
-        if s.Length > 0 && s |> Seq.forall Char.IsAsciiDigit then
-            match UInt64.TryParse(s, Globalization.NumberStyles.None, Globalization.CultureInfo.InvariantCulture) with
-            | true, v -> v
-            | _ -> 0UL
-        else
-            0UL
-
-    /// Lines with terminators stripped (mirrors Rust `str::lines`: strips the `\r` of a
-    /// `\r\n`, keeps a bare trailing `\r`, and yields no trailing empty for a final `\n`).
-    let private linesOf (text: string) : string[] =
-        if text = "" then
-            [||]
-        else
-            let parts = text.Split lf
-            let n = parts.Length
-
-            [| for idx in 0 .. n - 1 do
-                   let part = parts.[idx]
-                   let isLast = idx = n - 1
-
-                   if isLast && part = "" then
-                       ()
-                   elif (not isLast) && part.EndsWith(string cr, StringComparison.Ordinal) then
-                       yield part.Substring(0, part.Length - 1)
-                   else
-                       yield part |]
 
     /// Parse `git status --porcelain=v1 -z`: NUL-delimited, raw paths. A rename/copy
     /// entry is followed by its source path as the next NUL record.
@@ -309,9 +280,9 @@ module internal GitParse =
 
     /// Parse `git branch` output. The first column is the `* `/`  `/`+ ` marker.
     let parseBranches (output: string) : Branch list =
-        linesOf output
-        |> Array.filter (fun line -> line.Trim() <> "")
-        |> Array.choose (fun line ->
+        TextParse.linesOf output
+        |> List.filter (fun line -> line.Trim() <> "")
+        |> List.choose (fun line ->
             let current = line.StartsWith("*", StringComparison.Ordinal)
             let name = (if line.Length >= 1 then line.Substring 1 else "").Trim()
             // Skip the detached-HEAD pseudo-entry, e.g. "* (HEAD detached at …)".
@@ -319,7 +290,6 @@ module internal GitParse =
                 None
             else
                 Some { Name = name; Current = current })
-        |> Array.toList
 
     /// Parse `git worktree list --porcelain`.
     let parseWorktreePorcelain (output: string) : Worktree list =
@@ -333,7 +303,7 @@ module internal GitParse =
                 current <- None
             | None -> ()
 
-        for line in linesOf output do
+        for line in TextParse.linesOf output do
             if line = "" then
                 flush ()
             else
@@ -383,7 +353,7 @@ module internal GitParse =
         let lines = ResizeArray<BlameLine>()
         let mutable current: BlameLine option = None
 
-        for line in linesOf output do
+        for line in TextParse.linesOf output do
             if line.StartsWith(string tab, StringComparison.Ordinal) then
                 // Content line: closes the current record.
                 match current with
@@ -444,7 +414,11 @@ module internal GitParse =
 
     let private leadingCount (part: string) : uint64 =
         let toks = part.Split([| ' '; tab |], StringSplitOptions.RemoveEmptyEntries)
-        if toks.Length >= 1 then parseUInt64Or0 toks.[0] else 0UL
+
+        if toks.Length >= 1 then
+            TextParse.parseUInt64Or0 toks.[0]
+        else
+            0UL
 
     /// Parse `git diff --shortstat`, e.g. ` 3 files changed, 12 insertions(+), 4 deletions(-)`.
     let parseShortstat (output: string) : DiffStat =
@@ -467,8 +441,8 @@ module internal GitParse =
 
     /// Parse `git ls-remote --heads <remote>` output into the bare branch names.
     let parseLsRemoteHeads (output: string) : string list =
-        linesOf output
-        |> Array.choose (fun line ->
+        TextParse.linesOf output
+        |> List.choose (fun line ->
             match line.IndexOf tab with
             | -1 -> None
             | idx ->
@@ -478,4 +452,3 @@ module internal GitParse =
                     Some(refname.Substring 11)
                 else
                     None)
-        |> Array.toList

@@ -4,30 +4,6 @@ open System
 open ProcessKit
 open VcsToolkit.CliSupport
 
-/// tea-specific command shaping shared by the client's methods.
-[<AutoOpen>]
-module private GiteaHelpers =
-
-    /// Apply the argv injection guard to each (what, value) pair, short-circuiting on
-    /// the first refusal.
-    let checkFlags (checks: (string * string) list) : Result<unit, ProcessError> =
-        let bad =
-            checks
-            |> List.tryPick (fun (what, value) ->
-                match rejectFlagLike BINARY what value with
-                | Error e -> Some e
-                | Ok() -> None)
-
-        match bad with
-        | Some e -> Error e
-        | None -> Ok()
-
-    /// Map a parser's `Result<_, string>` error message into a `ProcessError.Parse`.
-    let mapParse (r: Result<'T, string>) : Result<'T, ProcessError> =
-        match r with
-        | Ok v -> Ok v
-        | Error m -> Error(ProcessError.Parse(BINARY, m))
-
 /// The real Gitea (and Forgejo) client: typed async methods that run the real `tea`,
 /// ask it for `--output json`, and deserialize the result. `Gitea.Create()` uses the
 /// job-backed runner; `Gitea.WithRunner` injects a fake one for tests. Wraps a `ManagedClient`.
@@ -127,7 +103,7 @@ type Gitea private (core: ManagedClient) =
                     if json = "" then
                         return Ok false
                     else
-                        return mapParse (GiteaParse.parseHasLogins json)
+                        return mapParse BINARY (GiteaParse.parseHasLogins json)
                 | Some _ ->
                     // A plain non-zero exit just means "no logins" → false.
                     return Ok false
@@ -246,7 +222,7 @@ type Gitea private (core: ManagedClient) =
     /// The `body` is a bare positional, so it is rejected if empty or `-`-leading.
     member _.PrComment(dir: string, number: uint64, body: string) =
         task {
-            match checkFlags [ "body", body ] with
+            match checkFlags BINARY [ "body", body ] with
             | Error e -> return Error e
             | Ok() -> return! core.Run(core.CommandIn(dir, [ "comment"; string number; body ]))
         }

@@ -5,30 +5,6 @@ open ProcessKit
 open VcsToolkit.CliSupport
 open VcsToolkit.Diff
 
-/// gh-specific command shaping shared by the client's methods.
-[<AutoOpen>]
-module private GitHubHelpers =
-
-    /// Apply the argv injection guard to each (what, value) pair, short-circuiting on
-    /// the first refusal.
-    let checkFlags (checks: (string * string) list) : Result<unit, ProcessError> =
-        let bad =
-            checks
-            |> List.tryPick (fun (what, value) ->
-                match rejectFlagLike BINARY what value with
-                | Error e -> Some e
-                | Ok() -> None)
-
-        match bad with
-        | Some e -> Error e
-        | None -> Ok()
-
-    /// Map a parser's `Result<_, string>` error message into a `ProcessError.Parse`.
-    let mapParse (r: Result<'T, string>) : Result<'T, ProcessError> =
-        match r with
-        | Ok v -> Ok v
-        | Error m -> Error(ProcessError.Parse(BINARY, m))
-
 /// The real GitHub client: typed async methods that run the real `gh`, ask it for
 /// `--json`, and deserialize the result. `GitHub.Create()` uses the job-backed
 /// runner; `GitHub.WithRunner` injects a fake one for tests. Wraps a `ManagedClient`.
@@ -177,7 +153,7 @@ type GitHub private (core: ManagedClient) =
     /// repository's remote rather than whatever repo the process cwd happens to be in.
     member _.Api(dir: string, endpoint: string) =
         task {
-            match checkFlags [ "endpoint", endpoint ] with
+            match checkFlags BINARY [ "endpoint", endpoint ] with
             | Error e -> return Error e
             | Ok() -> return! core.Run(core.CommandIn(dir, [ "api"; endpoint ]))
         }
@@ -291,9 +267,9 @@ type GitHub private (core: ManagedClient) =
             | Error e -> return Error e
             | Ok res ->
                 match res.Code with
-                | Some 0 -> return mapParse (GitHubParse.parseChecks res.Stdout)
+                | Some 0 -> return mapParse BINARY (GitHubParse.parseChecks res.Stdout)
                 | Some 1
-                | Some 8 when res.Stdout.Trim() <> "" -> return mapParse (GitHubParse.parseChecks res.Stdout)
+                | Some 8 when res.Stdout.Trim() <> "" -> return mapParse BINARY (GitHubParse.parseChecks res.Stdout)
                 // gh exits 1 with NO JSON for a PR that simply has no checks — the one
                 // bare non-zero we read as an empty list (matched case-insensitively so
                 // a capitalization tweak in gh's wording doesn't turn it into an error).
@@ -424,7 +400,7 @@ type GitHub private (core: ManagedClient) =
     /// `IsLatest` is reported only by `ReleaseList`; here it defaults to `false`.
     member _.ReleaseView(dir: string, tag: string) =
         task {
-            match checkFlags [ "tag", tag ] with
+            match checkFlags BINARY [ "tag", tag ] with
             | Error e -> return Error e
             | Ok() ->
                 return!
