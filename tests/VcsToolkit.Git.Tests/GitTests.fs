@@ -1283,3 +1283,197 @@ type NonUtf8PathIntegrationTests() =
                 Assert.That(paths.[0], Is.EqualTo exoticName)
             | Error e -> Assert.Fail $"ConflictedFiles failed: {e}"
         }
+
+/// T-036: bare positional argv slots that were previously unguarded — a clone destination, the
+/// worktree add/remove/move paths, and the config value. Each now either refuses a leading-`-`
+/// value BEFORE any spawn (proven by the runner never being invoked — `captured` stays `None`,
+/// not merely by the returned error code) or, for the config value (which may legitimately begin
+/// with `-`, e.g. `-1`), routes through an end-of-options `--` separator so the value is taken
+/// verbatim. Valid calls' argv is asserted verbatim to show the guard doesn't perturb them.
+[<TestFixture>]
+type PositionalArgvGuardTests() =
+
+    // The argv (program excluded) of a captured command, space-joined for a byte-exact assertion
+    // (matching the rest of this file's argv checks). The values asserted here are space-free.
+    let argv (cmd: Command) = String.concat " " cmd.Arguments
+
+    [<Test>]
+    member _.CloneRepoRefusesLeadingDashDestinationBeforeSpawning() : Task =
+        task {
+            // git accepts options after positionals, so a `dest` like `--upload-pack=<cmd>` is a
+            // command-execution vector. `captured` staying `None` proves the runner was never hit.
+            let captured, runner = capturing (Reply.Ok "")
+            let git = Git.WithRunner runner
+
+            match! git.CloneRepo("https://github.com/o/r.git", "--upload-pack=touch pwned", CloneSpec.Create()) with
+            | Error(ProcessError.Spawn(program, _)) -> Assert.That(program, Is.EqualTo "git")
+            | Error e -> Assert.Fail $"expected a Spawn refusal, got {e}"
+            | Ok() -> Assert.Fail "a leading-dash clone destination must be refused"
+
+            Assert.That(captured.Value.IsNone, "the guard must refuse before any spawn")
+        }
+
+    [<Test>]
+    member _.CloneRepoAcceptsValidDestinationUnchanged() : Task =
+        task {
+            // A legitimate url + dest still build exactly `clone <url> <dest>`: the guard leaves a
+            // valid call's argv byte-for-byte unchanged.
+            let captured, runner = capturing (Reply.Ok "")
+            let git = Git.WithRunner runner
+            let dest = cloneDest ()
+
+            match! git.CloneRepo("https://github.com/o/r.git", dest, CloneSpec.Create()) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"a valid clone must pass: {e}"
+
+            match captured.Value with
+            | Some cmd -> Assert.That(argv cmd, Is.EqualTo $"clone https://github.com/o/r.git {dest}")
+            | None -> Assert.Fail "no clone command captured"
+        }
+
+    [<Test>]
+    member _.WorktreeAddRefusesLeadingDashPathBeforeSpawning() : Task =
+        task {
+            let captured, runner = capturing (Reply.Ok "")
+            let git = Git.WithRunner runner
+
+            match! git.WorktreeAdd(".", WorktreeAdd.Checkout("--no-checkout", "main")) with
+            | Error(ProcessError.Spawn(program, _)) -> Assert.That(program, Is.EqualTo "git")
+            | Error e -> Assert.Fail $"expected a Spawn refusal, got {e}"
+            | Ok() -> Assert.Fail "a leading-dash worktree path must be refused"
+
+            Assert.That(captured.Value.IsNone, "the guard must refuse before any spawn")
+        }
+
+    [<Test>]
+    member _.WorktreeAddAcceptsValidPathUnchanged() : Task =
+        task {
+            let captured, runner = capturing (Reply.Ok "")
+            let git = Git.WithRunner runner
+
+            match! git.WorktreeAdd(".", WorktreeAdd.Checkout("/tmp/wt", "main")) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"a valid worktree add must pass: {e}"
+
+            match captured.Value with
+            | Some cmd -> Assert.That(argv cmd, Is.EqualTo "worktree add /tmp/wt main")
+            | None -> Assert.Fail "no worktree add command captured"
+        }
+
+    [<Test>]
+    member _.WorktreeRemoveRefusesLeadingDashPathBeforeSpawning() : Task =
+        task {
+            let captured, runner = capturing (Reply.Ok "")
+            let git = Git.WithRunner runner
+
+            match! git.WorktreeRemove(".", "--force", false) with
+            | Error(ProcessError.Spawn(program, _)) -> Assert.That(program, Is.EqualTo "git")
+            | Error e -> Assert.Fail $"expected a Spawn refusal, got {e}"
+            | Ok() -> Assert.Fail "a leading-dash worktree path must be refused"
+
+            Assert.That(captured.Value.IsNone, "the guard must refuse before any spawn")
+        }
+
+    [<Test>]
+    member _.WorktreeRemoveAcceptsValidPathUnchanged() : Task =
+        task {
+            let captured, runner = capturing (Reply.Ok "")
+            let git = Git.WithRunner runner
+
+            match! git.WorktreeRemove(".", "/tmp/wt", true) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"a valid worktree remove must pass: {e}"
+
+            match captured.Value with
+            | Some cmd -> Assert.That(argv cmd, Is.EqualTo "worktree remove --force /tmp/wt")
+            | None -> Assert.Fail "no worktree remove command captured"
+        }
+
+    [<Test>]
+    member _.WorktreeMoveRefusesLeadingDashSourceOrDestinationBeforeSpawning() : Task =
+        task {
+            // A leading-dash SOURCE and a leading-dash DESTINATION are each refused before spawn.
+            let cap1, runner1 = capturing (Reply.Ok "")
+
+            match! (Git.WithRunner runner1).WorktreeMove(".", "--force", "/tmp/to") with
+            | Error(ProcessError.Spawn(program, _)) -> Assert.That(program, Is.EqualTo "git")
+            | Error e -> Assert.Fail $"expected a Spawn refusal for a bad source, got {e}"
+            | Ok() -> Assert.Fail "a leading-dash source path must be refused"
+
+            Assert.That(cap1.Value.IsNone, "a bad source must refuse before any spawn")
+
+            let cap2, runner2 = capturing (Reply.Ok "")
+
+            match! (Git.WithRunner runner2).WorktreeMove(".", "/tmp/from", "--force") with
+            | Error(ProcessError.Spawn(program, _)) -> Assert.That(program, Is.EqualTo "git")
+            | Error e -> Assert.Fail $"expected a Spawn refusal for a bad destination, got {e}"
+            | Ok() -> Assert.Fail "a leading-dash destination path must be refused"
+
+            Assert.That(cap2.Value.IsNone, "a bad destination must refuse before any spawn")
+        }
+
+    [<Test>]
+    member _.WorktreeMoveAcceptsValidPathsUnchanged() : Task =
+        task {
+            let captured, runner = capturing (Reply.Ok "")
+            let git = Git.WithRunner runner
+
+            match! git.WorktreeMove(".", "/tmp/from", "/tmp/to") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"a valid worktree move must pass: {e}"
+
+            match captured.Value with
+            | Some cmd -> Assert.That(argv cmd, Is.EqualTo "worktree move /tmp/from /tmp/to")
+            | None -> Assert.Fail "no worktree move command captured"
+        }
+
+    [<Test>]
+    member _.ConfigSetProtectsDashLeadingValueWithSeparator() : Task =
+        task {
+            // A config value may legitimately begin with `-` (e.g. `-1`). Instead of refusing it, an
+            // end-of-options `--` separator makes git take the value verbatim rather than parse it
+            // as a flag — the value reaches git AND the argv carries the `--`.
+            let captured, runner = capturing (Reply.Ok "")
+            let git = Git.WithRunner runner
+
+            match! git.ConfigSet(".", "core.abbrev", "-1") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"a dash-leading config value must pass via the separator: {e}"
+
+            match captured.Value with
+            | Some cmd -> Assert.That(argv cmd, Is.EqualTo "config -- core.abbrev -1")
+            | None -> Assert.Fail "no config command captured"
+        }
+
+    [<Test>]
+    member _.ConfigSetKeepsSeparatorForOrdinaryValue() : Task =
+        task {
+            // The `--` separator is unconditional: an attacker-supplied `--global`/`--unset` value
+            // must never redirect or subvert the write. An ordinary value builds `config -- <k> <v>`.
+            let captured, runner = capturing (Reply.Ok "")
+            let git = Git.WithRunner runner
+
+            match! git.ConfigSet(".", "user.name", "Ada") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"config set failed: {e}"
+
+            match captured.Value with
+            | Some cmd -> Assert.That(argv cmd, Is.EqualTo "config -- user.name Ada")
+            | None -> Assert.Fail "no config command captured"
+        }
+
+    [<Test>]
+    member _.ConfigSetStillRefusesDashLeadingKeyBeforeSpawning() : Task =
+        task {
+            // The key stays guarded — a config key never legitimately begins with `-`, and the `--`
+            // separator only protects the value slot.
+            let captured, runner = capturing (Reply.Ok "")
+            let git = Git.WithRunner runner
+
+            match! git.ConfigSet(".", "--global", "x") with
+            | Error(ProcessError.Spawn(program, _)) -> Assert.That(program, Is.EqualTo "git")
+            | Error e -> Assert.Fail $"expected a Spawn refusal, got {e}"
+            | Ok() -> Assert.Fail "a leading-dash config key must be refused"
+
+            Assert.That(captured.Value.IsNone, "the key guard must refuse before any spawn")
+        }

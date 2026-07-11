@@ -729,6 +729,23 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.GitCloneRefusesLeadingDashDestinationBeforeSpawning() : Task =
+        task {
+            // `dest` is a bare positional in `jj git clone <url> <dest>`: a leading-`-` value would
+            // be parsed as a flag. The refusal must precede any spawn — `captured` staying `None`
+            // proves the runner was never invoked (not merely that an error code came back).
+            let captured, runner = capturing (Reply.Ok "")
+            let jj = Jj.WithRunner runner
+
+            match! jj.GitClone("https://x/r.git", "--colocate=/etc", false) with
+            | Error(ProcessError.Spawn(program, _)) -> Assert.That(program, Is.EqualTo "jj")
+            | Error e -> Assert.Fail $"expected a Spawn refusal, got {e}"
+            | Ok() -> Assert.Fail "a leading-dash destination must be refused"
+
+            Assert.That(captured.Value.IsNone, "the guard must refuse before any spawn")
+        }
+
+    [<Test>]
     member _.AbsorbBuildsArgs() : Task =
         task {
             let jj = scripted [ "absorb"; "--from"; "@-"; "file:\"src/a.rs\"" ] (Reply.Ok "")
@@ -879,6 +896,24 @@ type ClientTests() =
             match! jj.WorkspaceAdd(".", spec) with
             | Ok() -> ()
             | Error e -> Assert.Fail $"workspace_add sparse failed: {e}"
+        }
+
+    [<Test>]
+    member _.WorkspaceAddRefusesLeadingDashPathBeforeSpawning() : Task =
+        task {
+            // `spec.Path` is a bare positional (`--name`/`-r` carry Name/Base as flag values), so a
+            // leading-`-` path would be parsed as a flag — refused before any spawn. `captured`
+            // staying `None` proves the runner was never invoked.
+            let captured, runner = capturing (Reply.Ok "")
+            let jj = Jj.WithRunner runner
+            let spec = WorkspaceAdd.Create("ws1", "main", "--sparse-patterns")
+
+            match! jj.WorkspaceAdd(".", spec) with
+            | Error(ProcessError.Spawn(program, _)) -> Assert.That(program, Is.EqualTo "jj")
+            | Error e -> Assert.Fail $"expected a Spawn refusal, got {e}"
+            | Ok() -> Assert.Fail "a leading-dash workspace path must be refused"
+
+            Assert.That(captured.Value.IsNone, "the guard must refuse before any spawn")
         }
 
     [<Test>]
