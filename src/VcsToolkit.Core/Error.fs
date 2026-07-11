@@ -16,6 +16,11 @@ type RepoError =
     | WorktreeNotFound of path: string
     /// A filesystem operation failed (e.g. removing a workspace directory).
     | Io of message: string
+    /// The requested action is not supported for the repository's current in-progress state
+    /// — e.g. `Repo.ContinueInProgress` during a bisect, which has no continue step. Refused
+    /// up front rather than pretending to succeed. Test with the compiler-generated
+    /// `IsUnsupported`.
+    | Unsupported of operation: string
     /// An underlying `git`/`jj` (i.e. ProcessKit) error, carried verbatim.
     | Vcs of ProcessError
 
@@ -80,6 +85,7 @@ type RepoError =
         | RepoError.NotARepository dir -> sprintf "no git or jj repository found at or above %s" dir
         | RepoError.WorktreeNotFound path -> sprintf "no worktree found at %s" path
         | RepoError.Io message -> message
+        | RepoError.Unsupported operation -> sprintf "unsupported operation: %s" operation
         | RepoError.Vcs e -> e.Message
 
 /// Lift a `Result<_, ProcessError>` from a backend client into the facade's

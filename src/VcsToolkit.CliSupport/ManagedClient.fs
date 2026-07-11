@@ -15,7 +15,8 @@ type private ManagedConfig =
       Cancel: CancellationToken
       Retry: RetryPolicy
       Credentials: ICredentialProvider option
-      TokenEnv: (CredentialService * string) option }
+      TokenEnv: (CredentialService * string) option
+      ExpectedHost: string option }
 
 /// A ProcessKit-runner wrapper that adds two opt-in concerns the CLI wrappers all
 /// share, without touching a call site: lock-contention retry per a `RetryPolicy`
@@ -35,7 +36,8 @@ type ManagedClient private (cfg: ManagedConfig) =
           Cancel = CancellationToken.None
           Retry = RetryPolicy.None
           Credentials = None
-          TokenEnv = None }
+          TokenEnv = None
+          ExpectedHost = None }
 
     /// A client driving `program` on the real job-backed runner (no retry until `WithRetry`).
     static member Create(program: string) =
@@ -67,6 +69,17 @@ type ManagedClient private (cfg: ManagedConfig) =
         ManagedClient
             { cfg with
                 TokenEnv = Some(service, var) }
+
+    /// Bind the known target host of this client's operations (e.g. a configured forge host).
+    /// It becomes the `CredentialRequest.Host` on the token-env injection path — so a host-keyed
+    /// provider can pick the secret for *this* host instead of always being asked with `None`.
+    /// A blank host is treated as no binding (stays unscoped). This scopes only the token-env
+    /// path; `git` remote operations carry the per-operation host explicitly (see the `Git`
+    /// client), so this binding never overrides a resolve that already knows its host.
+    member _.WithExpectedHost(host: string) =
+        ManagedClient
+            { cfg with
+                ExpectedHost = if String.IsNullOrWhiteSpace host then None else Some host }
 
     /// Apply a default timeout to every command this client builds.
     member _.DefaultTimeout(timeout: TimeSpan) =
@@ -113,8 +126,14 @@ type ManagedClient private (cfg: ManagedConfig) =
     member this.CommandIn(dir: string, args: string seq) : Command =
         this.ApplyDefaults(Command(cfg.Program).CurrentDir(dir).Args args)
 
-    /// Resolve a credential for `service`/`host` from the configured provider, or
-    /// `None` if no provider is set or it (or an empty secret) defers to ambient auth.
+    /// Resolve a credential for `service`/`host` from the configured provider. The `host` is
+    /// passed through verbatim into the `CredentialRequest` (never silently overridden), so a
+    /// host-keyed provider selects the secret for exactly that host. The fallback policy:
+    /// no provider configured → `Ok None` (ambient auth); the provider returns `Ok None` →
+    /// ambient; the provider returns a credential whose secret is empty/whitespace → ambient
+    /// (injecting it would override the ambient login with nothing); the provider returns
+    /// `Error` → the `Error` propagates (fail-closed — the caller must abort, not degrade to
+    /// ambient silently).
     member _.ResolveCredential
         (service: CredentialService, host: string option)
         : Task<Result<Credential option, ProcessError>> =
@@ -134,13 +153,16 @@ type ManagedClient private (cfg: ManagedConfig) =
                         return Ok(Some cred)
         }
 
-    /// Inject the forge token env (if a token-env binding and a provider are both set).
+    /// Inject the forge token env (if a token-env binding and a provider are both set). The
+    /// resolve carries the client-bound `ExpectedHost` (from `WithExpectedHost`) as the request
+    /// host — the token-env path has no per-operation host of its own — so a host-keyed provider
+    /// serves the secret for this client's host rather than always being asked with `None`.
     member private this.Prepare(cmd: Command) : Task<Result<Command, ProcessError>> =
         task {
             match cfg.TokenEnv with
             | None -> return Ok cmd
             | Some(service, var) ->
-                match! this.ResolveCredential(service, None) with
+                match! this.ResolveCredential(service, cfg.ExpectedHost) with
                 | Error e -> return Error e
                 | Ok None -> return Ok cmd
                 | Ok(Some cred) -> return Ok(cmd.Env(var, cred.Secret.Expose()))
