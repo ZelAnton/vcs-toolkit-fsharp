@@ -57,8 +57,8 @@ the facades declare their backends (`Core` → `Git`/`Jj` (+ `CliSupport`/`Diff`
 → `GitHub`/`GitLab`/`Gitea`, `Watch` → `Core`, `Mcp` → `Core`/`Forge`).
 `VcsToolkit.TestKit` is self-contained (no sibling references).
 
-**ProcessKit and `ProcessKit.Testing` are both on nuget.org** (pinned at 2.2.0), so a consumer of
-any `VcsToolkit.*` package restores its `ProcessKit (>= 2.2.0)` runtime dependency cleanly — the
+**ProcessKit and `ProcessKit.Testing` are both on nuget.org** (pinned at 2.3.0), so a consumer of
+any `VcsToolkit.*` package restores its `ProcessKit (>= 2.3.0)` runtime dependency cleanly — the
 packages are ready to publish. The split-out `ScriptedRunner` / `Reply` test doubles now restore
 from the published **`ProcessKit.Testing`** package too — a **test-only** dependency that never
 reaches the published `VcsToolkit.*` packages, so it does not affect consumers. Nothing is
