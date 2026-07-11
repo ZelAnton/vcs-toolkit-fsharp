@@ -777,6 +777,38 @@ type Git private (core: ManagedClient) =
             | Ok g -> return Ok(File.Exists(Path.Combine(g, "MERGE_HEAD")))
         }
 
+    /// Whether a cherry-pick is in progress (`CHERRY_PICK_HEAD` under the git dir). A
+    /// cherry-pick conflict writes `CHERRY_PICK_HEAD`, **not** `MERGE_HEAD`, so this is
+    /// distinct from a merge and is aborted/continued with `cherry-pick --abort` /
+    /// `cherry-pick --continue`, not `merge --abort`.
+    member this.IsCherryPickInProgress(dir: string) =
+        task {
+            match! this.ResolvedGitDir dir with
+            | Error e -> return Error e
+            | Ok g -> return Ok(File.Exists(Path.Combine(g, "CHERRY_PICK_HEAD")))
+        }
+
+    /// Whether a revert is in progress (`REVERT_HEAD` under the git dir). Like a cherry-pick,
+    /// a revert conflict writes its own head file, not `MERGE_HEAD`; it is driven with
+    /// `revert --abort` / `revert --continue`.
+    member this.IsRevertInProgress(dir: string) =
+        task {
+            match! this.ResolvedGitDir dir with
+            | Error e -> return Error e
+            | Ok g -> return Ok(File.Exists(Path.Combine(g, "REVERT_HEAD")))
+        }
+
+    /// Whether a `git bisect` session is in progress (`BISECT_LOG` under the git dir).
+    /// `BISECT_LOG` is git's own canonical "a bisect is running" marker (it also drives
+    /// `git bisect log`); the other `BISECT_*` files are session details. A bisect is ended
+    /// with `bisect reset` — there is no `--continue`.
+    member this.IsBisectInProgress(dir: string) =
+        task {
+            match! this.ResolvedGitDir dir with
+            | Error e -> return Error e
+            | Ok g -> return Ok(File.Exists(Path.Combine(g, "BISECT_LOG")))
+        }
+
     // --- Mutations: fetch / push / clone -------------------------------------
 
     member private this.RunFetch(dir: string, tail: string list) =
@@ -975,6 +1007,34 @@ type Git private (core: ManagedClient) =
     /// Skip the current patch of a paused rebase (`rebase --skip`).
     member _.RebaseSkip(dir: string) =
         core.RunUnit(noEditor (cLocale (core.CommandIn(dir, [ "rebase"; "--skip" ]))))
+
+    /// Abort an in-progress cherry-pick (`cherry-pick --abort`), restoring the
+    /// pre-cherry-pick state. No editor on `--abort`, but keep the C locale so any failure
+    /// output still feeds the classifiers uniformly with the rest of the sequencer.
+    member _.CherryPickAbort(dir: string) =
+        core.RunUnit(cLocale (core.CommandIn(dir, [ "cherry-pick"; "--abort" ])))
+
+    /// Continue a cherry-pick after resolving conflicts (`cherry-pick --continue`); the editor
+    /// is suppressed so the message-confirm never hangs a headless caller. On a multi-commit
+    /// pick it can stop again on the next commit's conflict (exit non-zero) — a conflict, not a
+    /// hard error (`GitBackend.continueInProgress` classifies that via `ConflictedFiles`).
+    member _.CherryPickContinue(dir: string) =
+        core.RunUnit(noEditor (cLocale (core.CommandIn(dir, [ "cherry-pick"; "--continue" ]))))
+
+    /// Abort an in-progress revert (`revert --abort`), restoring the pre-revert state.
+    member _.RevertAbort(dir: string) =
+        core.RunUnit(cLocale (core.CommandIn(dir, [ "revert"; "--abort" ])))
+
+    /// Continue a revert after resolving conflicts (`revert --continue`); the editor is
+    /// suppressed like `CherryPickContinue`, and it too can stop on the next commit's conflict.
+    member _.RevertContinue(dir: string) =
+        core.RunUnit(noEditor (cLocale (core.CommandIn(dir, [ "revert"; "--continue" ]))))
+
+    /// End a `git bisect` session (`bisect reset`), returning to the branch/commit that was
+    /// checked out before it started. This is the "abort" for a bisect; bisect has no
+    /// `--continue`.
+    member _.BisectReset(dir: string) =
+        core.RunUnit(cLocale (core.CommandIn(dir, [ "bisect"; "reset" ])))
 
     /// Stash the working tree (`stash push`, `--include-untracked` when asked).
     member _.StashPush(dir: string, includeUntracked: bool) =
@@ -1469,6 +1529,15 @@ and [<Sealed>] GitAt internal (git: Git, dir: string) =
     /// Whether a `git am` (mailbox apply) is in progress.
     member _.IsAmInProgress() = git.IsAmInProgress dir
 
+    /// Whether a cherry-pick is in progress (`CHERRY_PICK_HEAD` under the git dir).
+    member _.IsCherryPickInProgress() = git.IsCherryPickInProgress dir
+
+    /// Whether a revert is in progress (`REVERT_HEAD` under the git dir).
+    member _.IsRevertInProgress() = git.IsRevertInProgress dir
+
+    /// Whether a `git bisect` session is in progress (`BISECT_LOG` under the git dir).
+    member _.IsBisectInProgress() = git.IsBisectInProgress dir
+
     /// Fetch from the default remote, retrying transient failures.
     member _.Fetch() = git.Fetch dir
 
@@ -1513,6 +1582,21 @@ and [<Sealed>] GitAt internal (git: Git, dir: string) =
 
     /// Continue a rebase after resolving conflicts (`rebase --continue`).
     member _.RebaseContinue() = git.RebaseContinue dir
+
+    /// Abort an in-progress cherry-pick (`cherry-pick --abort`).
+    member _.CherryPickAbort() = git.CherryPickAbort dir
+
+    /// Continue a cherry-pick after resolving conflicts (`cherry-pick --continue`).
+    member _.CherryPickContinue() = git.CherryPickContinue dir
+
+    /// Abort an in-progress revert (`revert --abort`).
+    member _.RevertAbort() = git.RevertAbort dir
+
+    /// Continue a revert after resolving conflicts (`revert --continue`).
+    member _.RevertContinue() = git.RevertContinue dir
+
+    /// End a `git bisect` session (`bisect reset`).
+    member _.BisectReset() = git.BisectReset dir
 
     /// Stash the working tree (`stash push`, `--include-untracked` when asked).
     member _.StashPush(includeUntracked: bool) = git.StashPush(dir, includeUntracked)
