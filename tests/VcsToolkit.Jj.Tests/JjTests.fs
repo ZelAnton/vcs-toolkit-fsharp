@@ -171,14 +171,70 @@ type ParseTests() =
 
     [<Test>]
     member _.WorkspacesSplitTabFieldsAndBookmarks() =
+        // Bookmarks are the framing contract's space-joined list (a raw name decodes to
+        // itself); no bookmarks → an empty list.
         let got =
-            JjParse.parseWorkspaces $"default{tab}e2aa3420{tab}main,feature\nws1{tab}12345678{tab}\n"
+            JjParse.parseWorkspaces $"default{tab}e2aa3420{tab}main feature\nws1{tab}12345678{tab}\n"
 
         Assert.That(got.Length, Is.EqualTo 2)
         Assert.That(got.[0].Name, Is.EqualTo "default")
         Assert.That(got.[0].Commit, Is.EqualTo "e2aa3420")
         Assert.That(got.[0].Bookmarks.Length, Is.EqualTo 2)
         Assert.That(got.[1].Bookmarks.Length, Is.EqualTo 0, "no bookmarks → empty list, not [\"\"]")
+
+    [<Test>]
+    member _.WorkspacesRoundTripExoticNames() =
+        // A workspace name holding a REAL tab is `.escape_json()`-framed as `"ta\tb"`
+        // (backslash-t, not a literal tab), so the row still splits on the two column
+        // separators and the interior tab is DECODED, not split on. A comma/slash in a
+        // bookmark name likewise survives the space-joined escaped list (T-014).
+        let field0 = "\"ta\\tb\"" // escape_json of  ta<TAB>b
+        let field2 = "\"co,mma\" \"pl/ain\"" // two escaped bookmark names, space-joined
+        let got = JjParse.parseWorkspaces $"{field0}{tab}c0ffee{tab}{field2}\n"
+        Assert.That(got.Length, Is.EqualTo 1)
+        Assert.That(got.[0].Name, Is.EqualTo $"ta{tab}b", "the interior tab is decoded, not split on")
+        Assert.That(got.[0].Commit, Is.EqualTo "c0ffee")
+        Assert.That(got.[0].Bookmarks.Length, Is.EqualTo 2)
+        Assert.That(got.[0].Bookmarks.[0], Is.EqualTo "co,mma", "a comma in a bookmark name survives")
+        Assert.That(got.[0].Bookmarks.[1], Is.EqualTo "pl/ain")
+
+    [<Test>]
+    member _.BookmarksRoundTripSpecialCharsInName() =
+        // A git-imported bookmark name can carry a comma/tab/quote; `.escape_json()`
+        // framing means the row still splits on the real tab separator and
+        // `decodeJsonField` restores the exact name — free text no longer breaks the
+        // field split (T-014).
+        let name = "\"we,ird\\tname\"" // escape_json of  we,ird<TAB>name
+        let got = JjParse.parseBookmarks $"{name}{tab}f5d07685\n"
+        Assert.That(got.Length, Is.EqualTo 1)
+        Assert.That(got.[0].Name, Is.EqualTo $"we,ird{tab}name")
+        Assert.That(got.[0].Target, Is.EqualTo "f5d07685")
+
+    [<Test>]
+    member _.ReachableBookmarksDecodeEscapedNames() =
+        // Space-joined escaped names: a comma in a name survives (a name never holds a
+        // space, so the join stays reversible), and each token decodes on its own.
+        let got = JjParse.parseReachableBookmarks $"\"co,mma\" \"main\"{tab}abc123\n"
+
+        Assert.That(got.Length, Is.EqualTo 2)
+        Assert.That(got.[0].Name, Is.EqualTo "co,mma")
+        Assert.That(got.[1].Name, Is.EqualTo "main")
+        Assert.That(got.[0].Target, Is.EqualTo "abc123")
+
+    [<Test>]
+    member _.FullIdsDisambiguateSharedShortPrefix() =
+        // Identity targets carry the FULL commit id, so two bookmarks sharing a 16-char
+        // short prefix stay distinct — a `.short()` key would collide and cross-reference
+        // wrongly (T-014).
+        let a = "abcdef0123456789abcdef0123456789abcdef01"
+        let b = "abcdef0123456789ffffffffffffffffffffffff" // same 16-char prefix
+        let bms = JjParse.parseBookmarks $"\"one\"{tab}{a}\n\"two\"{tab}{b}\n"
+        Assert.That(bms.[0].Target, Is.EqualTo a)
+        Assert.That(bms.[1].Target, Is.EqualTo b)
+        Assert.That(bms.[0].Target, Is.Not.EqualTo(bms.[1].Target), "full ids must not collide")
+        // The same holds for the workspace commit (the WorktreeInfo.Commit source).
+        let ws = JjParse.parseWorkspaces $"\"w1\"{tab}{a}{tab}\n\"w2\"{tab}{b}{tab}\n"
+        Assert.That(ws.[0].Commit, Is.Not.EqualTo(ws.[1].Commit))
 
     [<Test>]
     member _.DiffSummarySplitsStatusAndPath() =

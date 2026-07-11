@@ -43,7 +43,10 @@ type WorktreeInfo =
         Path: string
         /// The branch (git) or first bookmark (jj) on it; `None` when detached/none.
         Branch: string option
-        /// The checked-out commit; `None` when unavailable (e.g. a bare git entry).
+        /// The checked-out commit's **full** object id — the same identity
+        /// `RepoSnapshot.Head` carries (git `HEAD` oid / jj workspace commit id), so the
+        /// two compare directly without a short-prefix collision; `None` when unavailable
+        /// (e.g. a bare git entry). Truncate for display.
         Commit: string option
         /// A bare git worktree entry (always `false` for jj).
         IsBare: bool
