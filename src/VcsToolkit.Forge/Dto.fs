@@ -138,10 +138,17 @@ type ForgeOp =
     | PrChecks
     /// `releaseView` — a single release by tag.
     | ReleaseView
+    /// `prDiff` — a PR/MR's unified diff. **`Unsupported` on Gitea** (`tea` has no diff
+    /// command); supported on GitHub/GitLab.
+    | PrDiff
 
     /// Every capability-varying operation — iterate it to build a full support matrix.
     static member All =
-        [ ForgeOp.RepoView; ForgeOp.PrMarkReady; ForgeOp.PrChecks; ForgeOp.ReleaseView ]
+        [ ForgeOp.RepoView
+          ForgeOp.PrMarkReady
+          ForgeOp.PrChecks
+          ForgeOp.ReleaseView
+          ForgeOp.PrDiff ]
 
 /// The normalised state of a `ForgePr`, unifying GitHub's `OPEN`/`CLOSED`/`MERGED`,
 /// GitLab's `opened`/`closed`/`locked`/`merged`, and Gitea's `open`/`closed`.
@@ -380,6 +387,12 @@ type PrEdit =
 /// intersected with whether the CLI is authenticated. Each `bool` is `true` iff the
 /// operation is available on this forge's CLI **and** the CLI reports an authenticated
 /// session.
+///
+/// Deliberately not a 1:1 mirror of `ForgeOp`: this map predates `RepoView`/`PrMarkReady`/
+/// `ReleaseView`/`PrDiff` joining `ForgeOp`, and those (all read-only, capability-varying
+/// only on Gitea) are queried through `Forge.Supports` instead — adding a flag here for
+/// each would duplicate that support matrix without a behavioural difference. `PrChecks`
+/// keeps its flag here for backward compatibility with existing consumers.
 type ForgeCapabilities =
     {
         /// The CLI can open a PR/MR.

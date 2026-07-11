@@ -271,6 +271,22 @@ type CredentialTests() =
         Assert.That(Credentials.httpsHost "https://[::1]:443/o/r", Is.EqualTo Option.None)
 
     [<Test>]
+    member _.HttpsHostSchemeIsCaseInsensitive() =
+        // git/curl accept the scheme case-insensitively; a mixed-case `HTTPS://` on an
+        // externally-supplied clone URL must NOT silently defeat host scoping (it would build an
+        // unscoped helper, leaking the secret to any host git touches on redirect/submodule).
+        Assert.That(Credentials.httpsHost "HTTPS://github.com/x/y", Is.EqualTo(Some "github.com"))
+        Assert.That(Credentials.httpsHost "Https://github.com/x/y", Is.EqualTo(Some "github.com"))
+        Assert.That(Credentials.httpsHost "hTTps://github.com/x/y", Is.EqualTo(Some "github.com"))
+        // The host is still returned byte-for-byte — only the SCHEME comparison is case-folded,
+        // the host case is preserved verbatim (git compares `host=` literally).
+        Assert.That(Credentials.httpsHost "HTTPS://GitHub.COM:8443/x/y", Is.EqualTo(Some "GitHub.COM:8443"))
+        // Non-https schemes stay unscoped (None) regardless of capitalization.
+        Assert.That(Credentials.httpsHost "HTTP://github.com/x/y", Is.EqualTo Option.None)
+        Assert.That(Credentials.httpsHost "SSH://git@github.com/x/y", Is.EqualTo Option.None)
+        Assert.That(Credentials.httpsHost "FTP://github.com/x/y", Is.EqualTo Option.None)
+
+    [<Test>]
     member _.GitCredentialHelperDefaultsUsername() =
         let h = Credentials.gitCredentialHelper (Credential.Token "t") None
         let _, user = h.Env |> List.find (fun (k, _) -> k = "VCS_TOOLKIT_GIT_USERNAME")

@@ -89,8 +89,9 @@ type ForgeKindTests() =
 
     [<Test>]
     member _.ForgeOpAllEnumeratesTheVaryingOps() =
-        Assert.That(ForgeOp.All.Length, Is.EqualTo 4)
+        Assert.That(ForgeOp.All.Length, Is.EqualTo 5)
         Assert.That(List.contains ForgeOp.PrChecks ForgeOp.All, Is.True)
+        Assert.That(List.contains ForgeOp.PrDiff ForgeOp.All, Is.True)
 
 // ---------------------------------------------------------------------------
 // ForgeError classifiers
@@ -153,17 +154,24 @@ type DispatchTests() =
         // An Unknown handle supports nothing — agrees with its all-Unsupported dispatch.
         Assert.That(unknown.Supports ForgeOp.PrChecks, Is.False)
         Assert.That(unknown.Supports ForgeOp.RepoView, Is.False)
+        Assert.That(unknown.Supports ForgeOp.PrDiff, Is.False)
 
         let gh = ghForge [ "pr"; "list" ] (Reply.Ok "[]")
         Assert.That(gh.Kind, Is.EqualTo ForgeKind.GitHub)
         Assert.That(gh.Supports ForgeOp.PrChecks, Is.True)
+        Assert.That(gh.Supports ForgeOp.PrDiff, Is.True)
         Assert.That(gh.Cwd, Is.EqualTo ".")
+
+        let gl = glForge [ "mr"; "list" ] (Reply.Ok "[]")
+        Assert.That(gl.Kind, Is.EqualTo ForgeKind.GitLab)
+        Assert.That(gl.Supports ForgeOp.PrDiff, Is.True)
 
         let tea = teaForge [ "pr"; "list" ] (Reply.Ok "[]")
         // Gitea supports NONE of the varying ops.
         Assert.That(tea.Supports ForgeOp.RepoView, Is.False)
         Assert.That(tea.Supports ForgeOp.PrChecks, Is.False)
         Assert.That(tea.Supports ForgeOp.ReleaseView, Is.False)
+        Assert.That(tea.Supports ForgeOp.PrDiff, Is.False)
 
     [<Test>]
     member _.RawClientAccessorsReturnTheBackendClientOnly() =

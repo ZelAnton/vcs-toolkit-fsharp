@@ -83,11 +83,10 @@ module private JjHelpers =
 
         result
 
-    /// The first bookmark name from a comma-joined `BOOKMARKS_TEMPLATE` render;
+    /// The first bookmark name from an `.escape_json()`-framed `BOOKMARKS_TEMPLATE` render;
     /// `None` when the commit carries no local bookmark.
     let firstBookmark (rendered: string) : string option =
-        let r = rendered.Trim()
-        if r = "" then None else Some(r.Split(',').[0])
+        rendered.Trim() |> JjParse.decodeNameList |> List.tryHead
 
     /// How many `jj workspace root` lookups `WorkspaceRoots` keeps in flight at once
     /// — a cap so a repo with many workspaces doesn't spawn an unbounded burst of

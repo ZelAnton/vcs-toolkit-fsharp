@@ -142,9 +142,10 @@ module internal JjParse =
     let WORKSPACE_TEMPLATE =
         "name.escape_json() ++ \"\\t\" ++ target.commit_id() ++ \"\\t\" ++ target.local_bookmarks().map(|b| b.name().escape_json()).join(\" \") ++ \"\\n\""
 
-    /// `jj log -T` template rendering a commit's local bookmark names, comma-joined.
-    /// Drives `currentBookmark`/`trunk`.
-    let BOOKMARKS_TEMPLATE = "local_bookmarks.map(|b| b.name()).join(\",\")"
+    /// `jj log -T` template rendering a commit's local bookmark names as a space-joined
+    /// `.escape_json()` list. Drives `currentBookmark`/`trunk`.
+    let BOOKMARKS_TEMPLATE =
+        "local_bookmarks.map(|b| b.name().escape_json()).join(\" \")"
 
     /// `jj bookmark list -a -T` template: `"<name>"\t<remote>\t<tracked 1/0>\t<full-commit>`,
     /// one row per local *and* remote-tracking bookmark. The name is `.escape_json()`-framed;
@@ -297,7 +298,7 @@ module internal JjParse =
     /// field) back into the individual names. Splitting on the space is exact — a
     /// bookmark name can never contain one (a git-ref rule jj enforces) — so each token
     /// is one whole JSON string literal.
-    let private decodeNameList (field: string) : string list =
+    let decodeNameList (field: string) : string list =
         field.Split(' ')
         |> Array.filter (fun tok -> tok <> "")
         |> Array.map decodeJsonField
