@@ -57,12 +57,24 @@ the facades declare their backends (`Core` → `Git`/`Jj` (+ `CliSupport`/`Diff`
 → `GitHub`/`GitLab`/`Gitea`, `Watch` → `Core`, `Mcp` → `Core`/`Forge`).
 `VcsToolkit.TestKit` is self-contained (no sibling references).
 
-**ProcessKit and `ProcessKit.Testing` are both on nuget.org** (pinned at 2.3.0), so a consumer of
-any `VcsToolkit.*` package restores its `ProcessKit (>= 2.3.0)` runtime dependency cleanly — the
+**ProcessKit and `ProcessKit.Testing` are both on nuget.org** (pinned at 2.4.0), so a consumer of
+any `VcsToolkit.*` package restores its `ProcessKit (>= 2.4.0)` runtime dependency cleanly — the
 packages are ready to publish. The split-out `ScriptedRunner` / `Reply` test doubles now restore
 from the published **`ProcessKit.Testing`** package too — a **test-only** dependency that never
 reaches the published `VcsToolkit.*` packages, so it does not affect consumers. Nothing is
 vendored and there is no local NuGet feed.
+
+### ProcessKit 2.4.0 compatibility
+
+The [upstream 2.4.0 changelog](https://github.com/ZelAnton/ProcessKit-fSharp/blob/v2.4.0/CHANGELOG.md)
+was reviewed. `ManagedClient` only constructs `Command` values and invokes the `JobRunner` through
+the `IProcessRunner` capture/parse verbs; it does not use `RunningProcess`, `ProcessGroup`, hosted
+processes, supplementary groups, inherited stdin, profiling, or readiness probes. Its only stdin
+sources (`Stdin.Empty` and `Stdin.FromBytes`) are repeatable, so the retry/supervision guard is also
+inapplicable. Tests use `ScriptedRunner`/`Reply` only: there are no record/replay cassettes or
+cwd-sensitive matches, and no `WaitForAsync`/`WaitForPortAsync` calls. Thus the 2.4.0 additions and
+the pid-reuse, cgroup, pipe-teardown, and timeout-reporting fixes do not require source or test
+changes here; the version update is internal, so it has no separate VcsToolkit changelog entry.
 
 ## Changelog
 
