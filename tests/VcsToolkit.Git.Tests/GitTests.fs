@@ -474,6 +474,150 @@ type MutationTests() =
             | Error e -> Assert.Fail $"merge_commit failed: {e}"
         }
 
+/// T-008: `--literal-pathspecs` on `Add`/`CommitPaths`, and the NUL-safe
+/// `--pathspec-from-file=- --pathspec-file-nul` stdin transport for a path set whose combined
+/// argv length would approach the OS command-line limit.
+[<TestFixture>]
+type PathTransportTests() =
+
+    /// A path list whose combined argv length (`ArgvPathBudget` accounting: length + 1 per
+    /// path) safely exceeds both the wrapper's own budget (30000) and Windows' hard
+    /// ~32767-character `CreateProcess` command-line ceiling — for asserting the stdin-transport
+    /// branch is chosen over an inline argv. 600 paths * 64 chars (63 + the counted separator) =
+    /// 38400.
+    let overBudgetPaths () : string list =
+        [ for i in 1..600 -> sprintf "dir/file-%050d.txt" i ]
+
+    [<Test>]
+    member _.AddAppliesLiteralPathspecsToSmallSetUnchangedOtherwise() : Task =
+        task {
+            let captured, runner = capturing (Reply.Ok "")
+            let git = Git.WithRunner runner
+
+            match! git.Add(".", [ "a.txt"; "b.txt" ]) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"Add failed: {e}"
+
+            match captured.Value with
+            | Some cmd ->
+                Assert.That(
+                    String.concat " " cmd.Arguments,
+                    Is.EqualTo "--literal-pathspecs add -- a.txt b.txt",
+                    "small-set argv must be unchanged apart from the added --literal-pathspecs"
+                )
+            | None -> Assert.Fail "no command captured"
+        }
+
+    [<Test>]
+    member _.CommitPathsAppliesLiteralPathspecsToSmallSetUnchangedOtherwise() : Task =
+        task {
+            let captured, runner = capturing (Reply.Ok "")
+            let git = Git.WithRunner runner
+
+            match! git.CommitPaths(".", CommitPaths.Create([ "a.txt" ], "msg")) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"CommitPaths failed: {e}"
+
+            match captured.Value with
+            | Some cmd ->
+                Assert.That(
+                    String.concat " " cmd.Arguments,
+                    Is.EqualTo "--literal-pathspecs commit -m msg --only -- a.txt",
+                    "small-set argv must be unchanged apart from the added --literal-pathspecs"
+                )
+            | None -> Assert.Fail "no command captured"
+        }
+
+    [<Test>]
+    member _.CommitPathsWithAmendKeepsAmendBeforeMessage() : Task =
+        task {
+            let captured, runner = capturing (Reply.Ok "")
+            let git = Git.WithRunner runner
+
+            match! git.CommitPaths(".", CommitPaths.Create([ "a.txt" ], "msg").WithAmend()) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"CommitPaths failed: {e}"
+
+            match captured.Value with
+            | Some cmd ->
+                Assert.That(
+                    String.concat " " cmd.Arguments,
+                    Is.EqualTo "--literal-pathspecs commit --amend -m msg --only -- a.txt"
+                )
+            | None -> Assert.Fail "no command captured"
+        }
+
+    [<Test>]
+    member _.AddRoutesOverBudgetPathSetThroughStdinTransport() : Task =
+        task {
+            let captured, runner = capturing (Reply.Ok "")
+            let git = Git.WithRunner runner
+            let paths = overBudgetPaths ()
+
+            match! git.Add(".", paths) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"Add failed: {e}"
+
+            match captured.Value with
+            | Some cmd ->
+                Assert.That(
+                    String.concat " " cmd.Arguments,
+                    Is.EqualTo "--literal-pathspecs add --pathspec-from-file=- --pathspec-file-nul",
+                    "an over-budget path set must route through the stdin transport, not inline argv"
+                )
+            | None -> Assert.Fail "no command captured"
+        }
+
+    [<Test>]
+    member _.CommitPathsRoutesOverBudgetPathSetThroughStdinTransport() : Task =
+        task {
+            let captured, runner = capturing (Reply.Ok "")
+            let git = Git.WithRunner runner
+            let paths = overBudgetPaths ()
+
+            match! git.CommitPaths(".", CommitPaths.Create(paths, "big commit")) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"CommitPaths failed: {e}"
+
+            match captured.Value with
+            | Some cmd ->
+                Assert.That(
+                    String.concat " " cmd.Arguments,
+                    Is.EqualTo
+                        "--literal-pathspecs commit -m big commit --only --pathspec-from-file=- --pathspec-file-nul",
+                    "an over-budget path set must route through the stdin transport, not inline argv"
+                )
+            | None -> Assert.Fail "no command captured"
+        }
+
+    [<Test>]
+    member _.AddRejectsEmbeddedNulPathBeforeSpawning() : Task =
+        task {
+            // The guard fires before any spawn, so a fallback that would fail loudly is never
+            // reached — proving atomicity (no partial add).
+            let git =
+                Git.WithRunner(ScriptedRunner().Fallback(Reply.Fail(1, "must not spawn — refusal must precede it")))
+
+            match! git.Add(".", [ "a.txt"; "b" + nul + ".txt" ]) with
+            | Error(ProcessError.Spawn(program, _)) -> Assert.That(program, Is.EqualTo "git")
+            | Error e -> Assert.Fail $"expected a Spawn refusal, got {e}"
+            | Ok() -> Assert.Fail "a path with an embedded NUL must be refused before spawning"
+        }
+
+    [<Test>]
+    member _.CommitPathsRejectsEmbeddedNulPathBeforeSpawning() : Task =
+        task {
+            // Same atomicity guarantee as `Add`: the refusal precedes any spawn, so a rejected
+            // input never leaves a partial commit behind.
+            let git =
+                Git.WithRunner(ScriptedRunner().Fallback(Reply.Fail(1, "must not spawn — refusal must precede it")))
+
+            match! git.CommitPaths(".", CommitPaths.Create([ "b" + nul + ".txt" ], "msg")) with
+            | Error(ProcessError.Spawn(program, _)) -> Assert.That(program, Is.EqualTo "git")
+            | Error e -> Assert.Fail $"expected a Spawn refusal, got {e}"
+            | Ok() -> Assert.Fail "a path with an embedded NUL must be refused before spawning"
+        }
+
 [<TestFixture>]
 type GuardTests() =
 

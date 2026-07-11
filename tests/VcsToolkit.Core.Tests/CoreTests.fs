@@ -38,6 +38,15 @@ let private jjRepo (tokens: string list) (reply: Reply) =
 let private gitRepo (tokens: string list) (reply: Reply) =
     Repo.FromGit("/repo", "/repo", Git.WithRunner(ScriptedRunner().On(tokens, reply)))
 
+// A tab, built explicitly so no escape has to survive a round-trip.
+let private tab = string (char 9)
+
+// One valid `op log` row (OP_TEMPLATE shape) whose short id is `id` — for scripting the
+// divergence probe in the shared jj rollback protocol (`jj.RollbackTo`, which `Repo.TryMerge`
+// drives). `parseOperations` needs >= 3 tab fields to keep the id.
+let private opRow (id: string) =
+    $"{id}{tab}u@h{tab}2026-01-01T00:00:00+00:00{tab}probe\n"
+
 // ---------------------------------------------------------------------------
 // detect — pure filesystem probing for the backing repository
 // ---------------------------------------------------------------------------
@@ -312,10 +321,12 @@ type DispatchTests() =
     [<Test>]
     member _.JjTryMergeCleanRollsBack() : Task =
         task {
-            // op head → new_merge → is_conflicted(false) → op restore. A clean, rolled-back probe.
+            // op head → new_merge → is_conflicted(false) → divergence probe → op restore. A
+            // clean, rolled-back probe (the probe still shows the captured op, so it restores).
             let runner =
                 ScriptedRunner()
-                    .On([ "op"; "log" ], Reply.Ok "opabc\n")
+                    .On([ "op"; "log"; "--limit"; "1" ], Reply.Ok "opabc\n") // op-head capture
+                    .On([ "op"; "log"; "--limit"; "32" ], Reply.Ok(opRow "opabc")) // divergence probe: captured op present
                     .On([ "new" ], Reply.Ok "")
                     .On([ "log"; "-T" ], Reply.Ok "0\n") // is_conflicted template → not conflicted
                     .On([ "op"; "restore"; "opabc" ], Reply.Ok "")
@@ -457,7 +468,8 @@ type AssemblyTests() =
             // is_conflicted(true) → resolve --list → MergeProbe.Conflicts, still rolled back.
             let runner =
                 ScriptedRunner()
-                    .On([ "op"; "log" ], Reply.Ok "opabc\n")
+                    .On([ "op"; "log"; "--limit"; "1" ], Reply.Ok "opabc\n") // op-head capture
+                    .On([ "op"; "log"; "--limit"; "32" ], Reply.Ok(opRow "opabc")) // divergence probe: captured op present
                     .On([ "new" ], Reply.Ok "")
                     .On([ "log"; "-T" ], Reply.Ok "1\n") // conflicted
                     .On([ "resolve"; "--list" ], Reply.Ok "a.rs    2-sided conflict\n")
@@ -478,7 +490,8 @@ type AssemblyTests() =
             // the probe change still present would lie about the tree.
             let runner =
                 ScriptedRunner()
-                    .On([ "op"; "log" ], Reply.Ok "opabc\n")
+                    .On([ "op"; "log"; "--limit"; "1" ], Reply.Ok "opabc\n") // op-head capture
+                    .On([ "op"; "log"; "--limit"; "32" ], Reply.Ok(opRow "opabc")) // divergence probe: captured op present
                     .On([ "new" ], Reply.Ok "")
                     .On([ "log"; "-T" ], Reply.Ok "0\n")
                     .On([ "op"; "restore"; "opabc" ], Reply.Fail(1, "restore failed"))
@@ -487,6 +500,26 @@ type AssemblyTests() =
 
             let! r = repo.TryMerge "feature"
             Assert.That(Result.isError r, Is.True, "a failed rollback must surface as an error, not Clean")
+        }
+
+    [<Test>]
+    member _.JjTryMergeRefusesRollbackOnDivergence() : Task =
+        task {
+            // A concurrent operation advanced the op-log past the captured op between capture
+            // and rollback, so the probe no longer sees it. The rollback must be refused (no
+            // `op restore` scripted — one would raise), surfacing as an error rather than
+            // clobbering the concurrent work with a blind restore.
+            let runner =
+                ScriptedRunner()
+                    .On([ "op"; "log"; "--limit"; "1" ], Reply.Ok "opabc\n") // op-head capture
+                    .On([ "op"; "log"; "--limit"; "32" ], Reply.Ok(opRow "opNEW")) // probe: captured op gone → diverged
+                    .On([ "new" ], Reply.Ok "")
+                    .On([ "log"; "-T" ], Reply.Ok "0\n")
+
+            let repo = Repo.FromJj("/repo", "/repo", Jj.WithRunner runner)
+
+            let! r = repo.TryMerge "feature"
+            Assert.That(Result.isError r, Is.True, "a diverged rollback must surface as an error, not Clean")
         }
 
     [<Test>]
