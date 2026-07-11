@@ -193,7 +193,7 @@ type ToolTests() =
     member _.ReadToolWorksInReadOnlyMode() : Task =
         task {
             let server =
-                gitServer (ScriptedRunner().On([ "status" ], Reply.Ok " M a.rs ")) WriteGate.None
+                gitServer (ScriptedRunner().On([ "status" ], Reply.Ok " M a.rs ")) WriteGate.None
 
             match! server.RepoStatus() with
             | Ok json -> Assert.That(json, Does.Contain "a.rs")
