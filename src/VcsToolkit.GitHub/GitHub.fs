@@ -81,6 +81,35 @@ type GitHub private (core: ManagedClient) =
     member this.WithEnvToken(var: string) =
         this.WithCredentials(EnvToken var :> ICredentialProvider)
 
+    /// Bind this client to a GitHub `host`, so a supplied credential is injected into the
+    /// environment variable `gh` reads for **that** host and `GH_HOST` pins gh's default
+    /// host:
+    ///
+    /// - **github.com** (`GitHubHost.GitHubCom`) → the token goes to `GH_TOKEN` (the SaaS
+    ///   default, unchanged) and `GH_HOST` is `github.com`.
+    /// - a **GitHub Enterprise Server** host → the token goes to `GH_ENTERPRISE_TOKEN` (the
+    ///   variable `gh` uses for a non-github.com host) and `GH_HOST` is that host, so gh's
+    ///   non-repo commands resolve against it. The github.com `GH_TOKEN` is **not** set, so
+    ///   an enterprise secret never lands in the github.com token env (nor vice versa).
+    ///
+    /// Compose with `WithCredentials`/`WithToken`/`WithEnvToken` in either order — the host
+    /// selects the env var, the provider supplies the secret. The bound host also travels
+    /// in each operation's `CredentialRequest`, so a **host-keyed** provider returns the
+    /// secret for *this* host and never a neighbouring instance's. For several hosts, build
+    /// **one client per host**: each injects only its own host's token, so a broken or
+    /// missing credential for one host can't leak into another. Without a host binding the
+    /// client behaves exactly as before — github.com semantics, credential injected as
+    /// `GH_TOKEN`. (`GH_HOST` only steers gh's host inference for commands with **no**
+    /// repository context; a repo-scoped method still resolves its host from the bound
+    /// directory's remote, so point a host-bound client at repositories on that host.)
+    member _.WithHost(host: GitHubHost) =
+        GitHub(
+            core
+                .WithTokenEnv(CredentialService.GitHub, host.TokenEnvVar)
+                .WithExpectedHost(host.Host)
+                .DefaultEnv("GH_HOST", host.Host)
+        )
+
     // Bind this client to a directory with `At(dir)` (a `GitHubAt` view whose modelled methods
     // drop the leading `dir` argument); see the `GitHubAt` type below.
 
@@ -116,6 +145,20 @@ type GitHub private (core: ManagedClient) =
     member _.AuthStatus() =
         task {
             match! core.ExitCode(core.Command [ "auth"; "status" ]) with
+            | Error e -> return Error e
+            | Ok code -> return Ok(code = 0)
+        }
+
+    /// Whether the user is authenticated for `host` specifically (`gh auth status
+    /// --hostname <host>` exits zero). Scoping the probe to one host means a broken session
+    /// on a DIFFERENT host can't flip this false: the unscoped `AuthStatus` inspects every
+    /// configured host and folds them together, so a single expired login there would read
+    /// as a false negative for the host actually targeted. Any non-zero exit reads as
+    /// `false`; only a spawn failure or timeout errors. `host` is a validated `GitHubHost`,
+    /// so its `--hostname` value can never be flag-like or empty.
+    member _.AuthStatusFor(host: GitHubHost) =
+        task {
+            match! core.ExitCode(core.Command [ "auth"; "status"; "--hostname"; host.Host ]) with
             | Error e -> return Error e
             | Ok code -> return Ok(code = 0)
         }
@@ -409,6 +452,10 @@ and [<Sealed>] GitHubAt internal (github: GitHub, dir: string) =
 
     /// Whether the user is authenticated (`gh auth status` exits zero).
     member _.AuthStatus() = github.AuthStatus()
+
+    /// Whether the user is authenticated for `host` specifically
+    /// (`gh auth status --hostname <host>`).
+    member _.AuthStatusFor(host: GitHubHost) = github.AuthStatusFor host
 
     // --- Modelled methods (dir injected as the first argument) ----------------
 
