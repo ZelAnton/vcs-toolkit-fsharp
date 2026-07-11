@@ -10,6 +10,7 @@ open VcsToolkit.Diff
 open VcsToolkit.Git
 open VcsToolkit.Jj
 open VcsToolkit.Core
+open VcsToolkit.TestKit
 
 // Create a unique temp directory, run `f` against it, then remove it.
 let private withTempDir (f: string -> unit) =
@@ -917,3 +918,61 @@ type GitSequencerStateTests() =
                 Assert.That(e.IsUnsupported, Is.True, $"expected Unsupported, got {e.Message}")
                 Assert.That(e.Message, Does.Contain "bisect", "the message must name the reason")
             | Ok state -> Assert.Fail $"bisect continue must be refused, got {state}")
+
+// ---------------------------------------------------------------------------
+// GitBackend.diffStat on an unborn repo — real git, both object formats (T-037)
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type GitBackendDiffStatUnbornTests() =
+
+    let requireGit () =
+        try
+            Raw.git "." [ "--version" ]
+        with _ ->
+            // git isn't on PATH (or failed to spawn) — a hermetic CI without it must skip,
+            // not fail, this fixture.
+            Assert.Ignore "git not available on PATH"
+
+    /// A SHA-256 sandbox, or skip: not every git distribution is built with SHA-256
+    /// object-format support, so a fixture that needs one must not hard-fail on those.
+    let sha256Sandbox (tag: string) : GitSandbox =
+        try
+            GitSandbox.InitSha256 tag
+        with _ ->
+            Assert.Ignore "this git build does not support --object-format=sha256"
+            failwith "unreachable: Assert.Ignore always throws"
+
+    [<Test>]
+    member _.Sha1UnbornDiffStatStillWorks() : Task =
+        task {
+            requireGit ()
+            use repo = GitSandbox.Init "diffstat-unborn-sha1"
+            repo.Write("a.txt", "one\n")
+            repo.AddAll()
+
+            let facade = Repo.FromGit(repo.Path, repo.Path, Git.Create())
+
+            match! facade.DiffStat() with
+            | Ok stat -> Assert.That(stat.FilesChanged, Is.EqualTo 1UL, "the unborn working tree reports the new file")
+            | Error e -> Assert.Fail $"DiffStat failed: {e.Message}"
+        }
+
+    /// The decisive check (T-037): a SHA-256 unborn repo has no `4b825dc…` object at all,
+    /// so if `diffStat` still used the hardcoded SHA-1 literal, `git diff <that sha>` would
+    /// fail outright (`fatal: bad object` / `fatal: ambiguous argument`) instead of reporting
+    /// additions.
+    [<Test>]
+    member _.Sha256UnbornDiffStatReportsAdditionsInsteadOfError() : Task =
+        task {
+            requireGit ()
+            use repo = sha256Sandbox "diffstat-unborn-sha256"
+            repo.Write("a.txt", "one\n")
+            repo.AddAll()
+
+            let facade = Repo.FromGit(repo.Path, repo.Path, Git.Create())
+
+            match! facade.DiffStat() with
+            | Ok stat -> Assert.That(stat.FilesChanged, Is.EqualTo 1UL, "the unborn working tree reports the new file")
+            | Error e -> Assert.Fail $"DiffStat failed on a SHA-256 unborn repo: {e.Message}"
+        }

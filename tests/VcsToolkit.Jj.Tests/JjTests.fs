@@ -922,16 +922,24 @@ type ClientTests() =
             | Error e -> Assert.Fail $"op_log failed: {e}"
         }
 
-    [<Test>]
-    member _.CurrentBookmarkTakesFirstOrNone() : Task =
+    [<TestCase("main", "\"main\"\n")>]
+    [<TestCase("main,test", "\"main,test\"\n")>]
+    [<TestCase("my\"quote", "\"my\\\"quote\"\n")>]
+    member _.CurrentBookmarkAndTrunkRoundTripEscapedNames(name: string, rendered: string) : Task =
         task {
-            let some = scripted [ "log" ] (Reply.Ok "main\n")
+            let current = scripted [ "log"; "-r"; "@" ] (Reply.Ok rendered)
 
-            match! some.CurrentBookmark "." with
-            | Ok v -> Assert.That(v, Is.EqualTo(Some "main"))
+            match! current.CurrentBookmark "." with
+            | Ok v -> Assert.That(v, Is.EqualTo(Some name))
             | Error e -> Assert.Fail $"current_bookmark failed: {e}"
 
-            let none = scripted [ "log" ] (Reply.Ok "\n")
+            let trunk = scripted [ "log"; "-r"; "trunk()" ] (Reply.Ok rendered)
+
+            match! trunk.Trunk "." with
+            | Ok v -> Assert.That(v, Is.EqualTo(Some name))
+            | Error e -> Assert.Fail $"trunk failed: {e}"
+
+            let none = scripted [ "log"; "-r"; "@" ] (Reply.Ok "\n")
 
             match! none.CurrentBookmark "." with
             | Ok v -> Assert.That(v, Is.EqualTo None)
