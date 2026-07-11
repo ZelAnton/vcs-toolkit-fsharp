@@ -163,6 +163,37 @@ type DiffTests() =
         )
 
     [<Test>]
+    member _.SequencerStateTransitionsAreDetectedAsOperationChanged() =
+        // The new git sequencer states flow through the structural comparison automatically: a
+        // start (Clear→CherryPick) and a finish (Bisect→Clear) are each an OperationChanged, not
+        // swallowed like a jj Conflict transition.
+        let picking =
+            { baseState with
+                Operation = OperationState.CherryPick }
+
+        Assert.That(
+            (Diff.diff baseState picking = [ RepoEvent.OperationChanged(
+                                                 From = OperationState.Clear,
+                                                 To = OperationState.CherryPick
+                                             ) ]),
+            Is.True,
+            "Clear→CherryPick must emit OperationChanged"
+        )
+
+        let bisecting =
+            { baseState with
+                Operation = OperationState.Bisect }
+
+        Assert.That(
+            (Diff.diff bisecting baseState = [ RepoEvent.OperationChanged(
+                                                   From = OperationState.Bisect,
+                                                   To = OperationState.Clear
+                                               ) ]),
+            Is.True,
+            "Bisect→Clear (a finished bisect) must emit OperationChanged"
+        )
+
+    [<Test>]
     member _.MultipleChangesEmitInStableOrder() =
         let prev =
             { baseState with

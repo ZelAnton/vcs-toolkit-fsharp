@@ -5,6 +5,7 @@ open NUnit.Framework
 open ProcessKit
 open ProcessKit.Testing
 open VcsToolkit.Forge
+open VcsToolkit.Diff
 
 // Forge handles over a scripted runner, per backend.
 let private ghForge (tokens: string list) (reply: Reply) =
@@ -348,6 +349,47 @@ type DispatchTests() =
                 Assert.That(repo.Owner, Is.EqualTo "group/sub", "owner is the namespace before the last /")
                 Assert.That(repo.Private, Is.EqualTo None, "absent visibility → unknown (None), never a false 'public'")
             | Error err -> Assert.Fail $"repo view failed: {err.Message}"
+        }
+
+    [<Test>]
+    member _.PrDiffDispatchesToTheUnderlyingClientAndParsesFileDiffs() : Task =
+        task {
+            let raw =
+                "diff --git a/foo.txt b/foo.txt\n--- a/foo.txt\n+++ b/foo.txt\n@@ -1,1 +1,2 @@\n unchanged\n+added\n"
+
+            let gh = ghForge [ "pr"; "diff"; "1" ] (Reply.Ok raw)
+
+            match! gh.PrDiff 1UL with
+            | Ok [ file ] ->
+                Assert.That(file.Path, Is.EqualTo "foo.txt")
+                Assert.That(file.Change, Is.EqualTo ChangeKind.Modified)
+            | Ok other -> Assert.Fail $"expected one file diff, got {other.Length}"
+            | Error e -> Assert.Fail $"gh pr diff failed: {e.Message}"
+
+            let gl = glForge [ "mr"; "diff"; "1" ] (Reply.Ok raw)
+
+            match! gl.PrDiff 1UL with
+            | Ok [ file ] ->
+                Assert.That(file.Path, Is.EqualTo "foo.txt")
+                Assert.That(file.Change, Is.EqualTo ChangeKind.Modified)
+            | Ok other -> Assert.Fail $"expected one file diff, got {other.Length}"
+            | Error e -> Assert.Fail $"glab mr diff failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.PrDiffIsUnsupportedOnGiteaAndUnknownWithoutSpawning() : Task =
+        task {
+            let tea = Forge.FromGitea(".", VcsToolkit.Gitea.Gitea.WithRunner(ScriptedRunner()))
+
+            match! tea.PrDiff 1UL with
+            | Error e -> Assert.That(e.IsUnsupported, Is.True, "Gitea prDiff must be Unsupported without spawning")
+            | Ok _ -> Assert.Fail "Gitea prDiff must be Unsupported"
+
+            let unknown = Forge.FromUnknown "."
+
+            match! unknown.PrDiff 1UL with
+            | Error e -> Assert.That(e.IsUnsupported, Is.True, "Unknown prDiff must be Unsupported")
+            | Ok _ -> Assert.Fail "Unknown prDiff must be Unsupported"
         }
 
     [<Test>]

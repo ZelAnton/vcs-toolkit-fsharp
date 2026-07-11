@@ -5,6 +5,7 @@ open NUnit.Framework
 open ProcessKit
 open ProcessKit.Testing
 open VcsToolkit.GitLab
+open VcsToolkit.Diff
 
 let private scripted (tokens: string list) (reply: Reply) =
     GitLab.WithRunner(ScriptedRunner().On(tokens, reply))
@@ -228,6 +229,30 @@ type ClientTests() =
             match! glab.MrView(".", 12UL) with
             | Ok mr -> Assert.That(mr.Iid, Is.EqualTo 12UL)
             | Error e -> Assert.Fail $"mr view failed: {e}"
+        }
+
+    [<Test>]
+    member _.MrDiffParsesUnifiedDiffIntoFileDiffs() : Task =
+        task {
+            let raw =
+                "diff --git a/foo.txt b/foo.txt\n"
+                + "index e69de29..4b825dc 100644\n"
+                + "--- a/foo.txt\n"
+                + "+++ b/foo.txt\n"
+                + "@@ -1,1 +1,2 @@\n"
+                + " unchanged\n"
+                + "+added line\n"
+
+            let glab = scripted [ "mr"; "diff"; "12" ] (Reply.Ok raw)
+
+            match! glab.MrDiff(".", 12UL) with
+            | Ok [ file ] ->
+                Assert.That(file.Path, Is.EqualTo "foo.txt")
+                Assert.That(file.Change, Is.EqualTo ChangeKind.Modified)
+                Assert.That(file.Hunks.Length, Is.EqualTo 1)
+                Assert.That(file.Hunks.[0].Lines = [ DiffLine.Context "unchanged"; DiffLine.Added "added line" ])
+            | Ok other -> Assert.Fail $"expected one file diff, got {other.Length}"
+            | Error e -> Assert.Fail $"mr diff failed: {e}"
         }
 
     [<Test>]

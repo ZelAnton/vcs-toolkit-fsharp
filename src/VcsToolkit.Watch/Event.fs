@@ -32,10 +32,11 @@ type RepoEvent =
     | UpstreamChanged of Upstream: string option
     /// The ahead/behind counts versus the upstream changed (git only).
     | AheadBehindChanged of Ahead: uint64 option * Behind: uint64 option
-    /// The in-progress **operation** changed — a git merge or rebase started or finished. A
-    /// transition to/from `OperationState.Conflict` (jj's conflict marker) is **not**
-    /// reported here (`ConflictChanged` already signals it on both backends), so this fires
-    /// only on git, with `From`/`To` in `Clear`/`Merge`/`Rebase`.
+    /// The in-progress **operation** changed — a git merge, rebase, `am`, cherry-pick,
+    /// revert, or bisect started or finished. A transition to/from `OperationState.Conflict`
+    /// (jj's conflict marker) is **not** reported here (`ConflictChanged` already signals it
+    /// on both backends), so this fires only on git, with `From`/`To` in any of
+    /// `Clear`/`Merge`/`Rebase`/`ApplyMailbox`/`CherryPick`/`Revert`/`Bisect`.
     | OperationChanged of From: OperationState * To: OperationState
     /// Whether the working copy has an unresolved conflict changed.
     | ConflictChanged of Conflicted: bool

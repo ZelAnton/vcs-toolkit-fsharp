@@ -6,6 +6,7 @@ open System.Threading.Tasks
 open NUnit.Framework
 open ProcessKit
 open ProcessKit.Testing
+open VcsToolkit.CliSupport
 open VcsToolkit.Git
 
 // Control bytes built explicitly so no escape has to survive a round-trip.
@@ -47,6 +48,12 @@ let private withTempDir (f: string -> unit) =
         with _ ->
             // Best-effort cleanup; a leftover temp dir is not a test failure.
             ()
+
+/// A fresh, non-existent temp path to use as a clone destination. The `ScriptedRunner` never
+/// actually clones, so nothing is created or removed on disk (`cloneDestCleanable` only probes
+/// existence, and cleanup runs on the error path alone).
+let private cloneDest () =
+    Path.Combine(Path.GetTempPath(), "vcs-clone-" + Guid.NewGuid().ToString("N"))
 
 [<TestFixture>]
 type StatusTests() =
@@ -691,4 +698,229 @@ type AtViewTests() =
                 Assert.That(cmd.WorkingDirectory, Is.EqualTo None, "the raw Run hatch is NOT bound to dir")
                 Assert.That(String.concat " " cmd.Arguments, Is.EqualTo "rev-parse HEAD")
             | None -> Assert.Fail "no command captured"
+        }
+
+[<TestFixture>]
+type SequencerStateTests() =
+
+    [<Test>]
+    member _.SequencerStateProbesKeyOffTheirOwnMarker() =
+        // Each sequencer probe must fire ONLY on its own git-dir marker — and crucially a
+        // cherry-pick/revert must NOT read as a merge: a conflicted cherry-pick/revert writes its
+        // own head file (`CHERRY_PICK_HEAD`/`REVERT_HEAD`), never `MERGE_HEAD`, so mislabelling it
+        // a merge would abort with the wrong command. Bisect keys off `BISECT_LOG`.
+        let boolOf (t: Task<Result<bool, ProcessError>>) =
+            match t.GetAwaiter().GetResult() with
+            | Ok v -> v
+            | Error e -> failwithf "unexpected error: %A" e
+
+        withTempDir (fun dir ->
+            let gitDir = Path.Combine(dir, ".git")
+            Directory.CreateDirectory gitDir |> ignore
+            let git = scripted [ "rev-parse"; "--git-dir" ] (Reply.Ok(gitDir + "\n"))
+
+            let touch name =
+                File.WriteAllText(Path.Combine(gitDir, name), "x\n")
+
+            let rm name = File.Delete(Path.Combine(gitDir, name))
+
+            // A cherry-pick.
+            touch "CHERRY_PICK_HEAD"
+            Assert.That(boolOf (git.IsCherryPickInProgress dir), Is.True, "CHERRY_PICK_HEAD is a cherry-pick")
+            Assert.That(boolOf (git.IsMergeInProgress dir), Is.False, "a cherry-pick must NOT read as a merge")
+            Assert.That(boolOf (git.IsRevertInProgress dir), Is.False)
+            Assert.That(boolOf (git.IsBisectInProgress dir), Is.False)
+            rm "CHERRY_PICK_HEAD"
+
+            // A revert.
+            touch "REVERT_HEAD"
+            Assert.That(boolOf (git.IsRevertInProgress dir), Is.True, "REVERT_HEAD is a revert")
+            Assert.That(boolOf (git.IsCherryPickInProgress dir), Is.False)
+            Assert.That(boolOf (git.IsMergeInProgress dir), Is.False, "a revert must NOT read as a merge")
+            Assert.That(boolOf (git.IsBisectInProgress dir), Is.False)
+            rm "REVERT_HEAD"
+
+            // A bisect (keyed off BISECT_LOG).
+            touch "BISECT_LOG"
+            Assert.That(boolOf (git.IsBisectInProgress dir), Is.True, "BISECT_LOG is a bisect")
+            Assert.That(boolOf (git.IsCherryPickInProgress dir), Is.False)
+            Assert.That(boolOf (git.IsRevertInProgress dir), Is.False)
+            rm "BISECT_LOG"
+
+            // Clean git dir → none fire.
+            Assert.That(boolOf (git.IsCherryPickInProgress dir), Is.False)
+            Assert.That(boolOf (git.IsRevertInProgress dir), Is.False)
+            Assert.That(boolOf (git.IsBisectInProgress dir), Is.False))
+
+    [<Test>]
+    member _.SequencerAbortContinueCommandsDispatchCorrectArgv() : Task =
+        task {
+            // The abort/continue command wrappers must emit exactly git's own sub-commands; a
+            // continue routed to the wrong one (e.g. `rebase --continue` for a cherry-pick) would
+            // corrupt the sequencer. `--continue` carries no argv flag for the editor (that is an
+            // env var), so the argv is the bare sub-command.
+            let captured, runner = capturing (Reply.Ok "")
+            let git = Git.WithRunner runner
+
+            let argv () =
+                match captured.Value with
+                | Some c -> String.concat " " c.Arguments
+                | None -> "<no command captured>"
+
+            let! _ = git.CherryPickAbort "."
+            Assert.That(argv (), Is.EqualTo "cherry-pick --abort")
+            let! _ = git.CherryPickContinue "."
+            Assert.That(argv (), Is.EqualTo "cherry-pick --continue")
+            let! _ = git.RevertAbort "."
+            Assert.That(argv (), Is.EqualTo "revert --abort")
+            let! _ = git.RevertContinue "."
+            Assert.That(argv (), Is.EqualTo "revert --continue")
+            let! _ = git.BisectReset "."
+            Assert.That(argv (), Is.EqualTo "bisect reset")
+        }
+
+/// T-018: the known target host of a remote op reaches BOTH the provider lookup (host-keyed
+/// secret selection) and the credential helper (host gating), and the fallback policy —
+/// no provider / `Ok None` / empty secret → ambient auth; provider `Error` → fail-closed —
+/// holds for reads (fetch/clone) and writes (push) alike.
+[<TestFixture>]
+type RemoteCredentialTests() =
+
+    /// Records into `seen` the host each `CredentialRequest` carried, always yielding `token`.
+    let capturingProvider (seen: string option option ref) (token: string) : ICredentialProvider =
+        Credentials.providerFn (fun r ->
+            seen.Value <- Some r.Host
+            Ok(Some(Credential.Token token)))
+
+    let hasCredentialHelper (cmd: Command) =
+        cmd.Arguments |> Seq.exists (fun a -> a.Contains "credential.helper=")
+
+    [<Test>]
+    member _.CloneScopesCredentialLookupToUrlHost() : Task =
+        task {
+            // The clone URL's host must reach the CredentialRequest (it was hard-coded `None`
+            // before this fix) so a host-keyed provider serves the secret for THIS host, and the
+            // resolved credential installs the git credential helper.
+            let seen = ref (None: string option option)
+            let captured, runner = capturing (Reply.Ok "")
+
+            let git =
+                (Git.WithRunner runner).WithCredentials(capturingProvider seen "gh-secret")
+
+            match! git.CloneRepo("https://github.com/o/r.git", cloneDest (), CloneSpec.Create()) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"clone failed: {e}"
+
+            Assert.That(
+                seen.Value,
+                Is.EqualTo(Some(Some "github.com")),
+                "the clone URL host reaches the CredentialRequest"
+            )
+
+            match captured.Value with
+            | Some cmd ->
+                Assert.That(hasCredentialHelper cmd, "a resolved credential installs the git credential helper")
+            | None -> Assert.Fail "no clone command captured"
+        }
+
+    [<Test>]
+    member _.FetchAndPushResolveWithoutAKnownHost() : Task =
+        task {
+            // Fetch/push target the already-configured remote, so the layer knows no host: the
+            // request host is `None` (unscoped) — the credential still resolves and is injected.
+            for isPush in [ false; true ] do
+                let seen = ref (None: string option option)
+                let captured, runner = capturing (Reply.Ok "")
+
+                let git = (Git.WithRunner runner).WithCredentials(capturingProvider seen "secret")
+
+                let! outcome =
+                    if isPush then
+                        git.Push(".", GitPush.Branch "feature")
+                    else
+                        git.Fetch "."
+
+                match outcome with
+                | Ok() -> ()
+                | Error e -> Assert.Fail $"[push={isPush}] remote op failed: {e}"
+
+                Assert.That(seen.Value, Is.EqualTo(Some(None: string option)), $"[push={isPush}] host is None")
+
+                match captured.Value with
+                | Some cmd -> Assert.That(hasCredentialHelper cmd, $"[push={isPush}] credential helper injected")
+                | None -> Assert.Fail $"[push={isPush}] no command captured"
+        }
+
+    [<Test>]
+    member _.DeferringProviderIsAmbientForReadAndWrite() : Task =
+        task {
+            // No provider, `Ok None`, and an empty/whitespace secret all defer to ambient auth:
+            // the read (fetch) and the write (push) still run, with NO credential helper injected.
+            let cases: (string * ICredentialProvider option) list =
+                [ "no provider", None
+                  "Ok None", Some(Credentials.providerFn (fun _ -> Ok None))
+                  "empty secret", Some(Credentials.providerFn (fun _ -> Ok(Some(Credential.Token "  ")))) ]
+
+            for label, provider in cases do
+                for isPush in [ false; true ] do
+                    let captured, runner = capturing (Reply.Ok "")
+
+                    let git =
+                        match provider with
+                        | Some p -> (Git.WithRunner runner).WithCredentials p
+                        | None -> Git.WithRunner runner
+
+                    let! outcome =
+                        if isPush then
+                            git.Push(".", GitPush.Branch "feature")
+                        else
+                            git.Fetch "."
+
+                    match outcome with
+                    | Ok() -> ()
+                    | Error e -> Assert.Fail $"[{label}, push={isPush}] ambient op must run: {e}"
+
+                    match captured.Value with
+                    | Some cmd ->
+                        Assert.That(
+                            hasCredentialHelper cmd,
+                            Is.False,
+                            $"[{label}, push={isPush}] ambient op must not install a credential helper"
+                        )
+                    | None -> Assert.Fail $"[{label}, push={isPush}] no command captured"
+        }
+
+    [<Test>]
+    member _.ProviderErrorFailsClosedForReadAndWrite() : Task =
+        task {
+            // A provider `Error` aborts the remote op up front (fail-closed) for both read and
+            // write — git must never be spawned to run unauthenticated behind the caller's back.
+            for isPush in [ false; true ] do
+                let spawned = ref false
+
+                let runner =
+                    ScriptedRunner()
+                        .When(
+                            (fun _ ->
+                                spawned.Value <- true
+                                true),
+                            Reply.Ok ""
+                        )
+
+                let boom =
+                    Credentials.providerFn (fun _ -> Error(ProcessError.Exit("git", 1, "", "vault unreachable")))
+
+                let git = (Git.WithRunner runner).WithCredentials boom
+
+                let! outcome =
+                    if isPush then
+                        git.Push(".", GitPush.Branch "feature")
+                    else
+                        git.Fetch "."
+
+                match outcome with
+                | Error(ProcessError.Exit(_, _, _, stderr)) -> Assert.That(stderr, Is.EqualTo "vault unreachable")
+                | other -> Assert.Fail $"[push={isPush}] must fail closed on a provider error: {other}"
+
+                Assert.That(spawned.Value, Is.False, $"[push={isPush}] a fail-closed op must not spawn git")
         }
