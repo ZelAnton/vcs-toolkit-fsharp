@@ -55,23 +55,61 @@ let private openRepo (dir: string) (timeout: TimeSpan option) : Result<Repo, str
 
                 Ok(Repo.FromJj(located.Root, abs, jj))
 
+/// Parse `jj git remote list` output (one `<name> <url>` line per configured remote,
+/// space-separated — verified against jj 0.42) and return the URL configured for
+/// `remote`, if listed. `None` when `remote` isn't in the list (or the output is empty).
+let internal parseJjRemoteUrl (remote: string) (output: string) : string option =
+    output.Split('\n')
+    |> Array.tryPick (fun rawLine ->
+        let line = rawLine.Trim()
+
+        match line.IndexOf(' ') with
+        | -1 -> None
+        | idx ->
+            let name = line.Substring(0, idx)
+
+            if name = remote then
+                Some(line.Substring(idx + 1).Trim())
+            else
+                None)
+
 /// Best-effort: read the `origin` remote URL and classify its host.
-let private detectForgeKind (root: string) (timeout: TimeSpan option) : Task<ForgeKind option> =
+///
+/// Git-backed repos ask git directly (`remote get-url`). A jj-backed repo without git
+/// colocation has no `.git` at its root for that to find, so it falls back to `jj git
+/// remote list` (the `Jj.Run` escape hatch — there is no typed wrapper for this jj
+/// subcommand) and parses the `<name> <url>` line for `origin` out of the raw text.
+let internal detectForgeKind (repo: Repo) : Task<ForgeKind option> =
     task {
-        match! (hardenedGit timeout).RemoteUrl(root, "origin") with
-        | Ok url -> return ForgeKind.OfRemoteUrl url
-        | Error _ -> return Option.None
+        match repo.Kind with
+        | BackendKind.Git ->
+            match repo.Git with
+            | Option.None -> return Option.None // unreachable: Kind = Git implies Git = Some
+            | Some git ->
+                match! git.RemoteUrl(repo.Root, "origin") with
+                | Ok url -> return ForgeKind.OfRemoteUrl url
+                | Error _ -> return Option.None
+        | BackendKind.Jj ->
+            match repo.Jj with
+            | Option.None -> return Option.None // unreachable: Kind = Jj implies Jj = Some
+            | Some jj ->
+                match! jj.Run(repo.Root, [ "git"; "remote"; "list" ]) with
+                | Error _ -> return Option.None
+                | Ok output ->
+                    match parseJjRemoteUrl "origin" output with
+                    | Some url -> return ForgeKind.OfRemoteUrl url
+                    | Option.None -> return Option.None
     }
 
 /// Pick the forge: the explicit `--forge`, else the `origin` remote's host, else none.
-let private resolveForge (repo: Repo) (forced: ForgeKind option) (timeout: TimeSpan option) : Task<Forge option> =
+let internal resolveForge (repo: Repo) (forced: ForgeKind option) (timeout: TimeSpan option) : Task<Forge option> =
     task {
         let cwd = repo.Root
 
         let! kind =
             match forced with
             | Some k -> Task.FromResult(Some k)
-            | Option.None -> detectForgeKind repo.Root timeout
+            | Option.None -> detectForgeKind repo
 
         match kind with
         | Some ForgeKind.GitHub ->

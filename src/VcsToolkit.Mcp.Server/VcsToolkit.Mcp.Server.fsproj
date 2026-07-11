@@ -12,6 +12,12 @@
 		<Compile Include="Program.fs" />
 	</ItemGroup>
 
+	<!-- `detectForgeKind`/`resolveForge`/`parseJjRemoteUrl` are `internal`; the tests exercise
+	     them directly rather than through the stdio protocol. -->
+	<ItemGroup>
+		<InternalsVisibleTo Include="VcsToolkit.Mcp.Server.Tests" />
+	</ItemGroup>
+
 	<ItemGroup>
 		<PackageReference Include="FSharp.Core" />
 		<PackageReference Include="ProcessKit" />

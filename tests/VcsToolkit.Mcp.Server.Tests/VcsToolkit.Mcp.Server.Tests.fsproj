@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<IsPackable>false</IsPackable>
+		<AssemblySearchPaths>$(AssemblySearchPaths);$(McpServerDir)bin\$(Configuration)\$(TargetFramework);$(CoreDir)bin\$(Configuration)\$(TargetFramework);$(ForgeDir)bin\$(Configuration)\$(TargetFramework);$(GitDir)bin\$(Configuration)\$(TargetFramework);$(JjDir)bin\$(Configuration)\$(TargetFramework);$(GitHubDir)bin\$(Configuration)\$(TargetFramework);$(GitLabDir)bin\$(Configuration)\$(TargetFramework);$(GiteaDir)bin\$(Configuration)\$(TargetFramework);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework);$(DiffDir)bin\$(Configuration)\$(TargetFramework);$(TestKitDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<Compile Include="ForgeDetectionTests.fs" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="FSharp.Core" />
+		<PackageReference Include="Microsoft.NET.Test.Sdk" />
+		<PackageReference Include="NUnit" />
+		<PackageReference Include="NUnit3TestAdapter" />
+		<!-- `VcsToolkit.Core`/`Git`/`Jj`'s method signatures carry `ProcessError` (via
+		     ProcessKit's `Result<_, ProcessError>`); a transitive package dep isn't pulled
+		     through a bare `Reference`, so it's declared explicitly (same reasoning as
+		     `VcsToolkit.Mcp.Tests`/`VcsToolkit.Git.Tests`). -->
+		<PackageReference Include="ProcessKit" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<!-- The `vcs-mcp` binary's assembly file name is `vcs-mcp` (see its `<AssemblyName>`),
+		     not the project name — `Reference` resolves by assembly file name. -->
+		<Reference Include="vcs-mcp" />
+		<Reference Include="VcsToolkit.Core" />
+		<Reference Include="VcsToolkit.Forge" />
+		<Reference Include="VcsToolkit.GitHub" />
+		<Reference Include="VcsToolkit.GitLab" />
+		<Reference Include="VcsToolkit.Gitea" />
+		<Reference Include="VcsToolkit.Git" />
+		<Reference Include="VcsToolkit.Jj" />
+		<Reference Include="VcsToolkit.CliSupport" />
+		<Reference Include="VcsToolkit.Diff" />
+		<Reference Include="VcsToolkit.TestKit" />
+	</ItemGroup>
+
+</Project>

@@ -19,6 +19,7 @@
 		<WatchDir>$(RepoRoot)src\VcsToolkit.Watch\</WatchDir>
 		<TestKitDir>$(RepoRoot)src\VcsToolkit.TestKit\</TestKitDir>
 		<McpDir>$(RepoRoot)src\VcsToolkit.Mcp\</McpDir>
+		<McpServerDir>$(RepoRoot)src\VcsToolkit.Mcp.Server\</McpServerDir>
 	</PropertyGroup>
 
 	<PropertyGroup>
