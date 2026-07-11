@@ -35,6 +35,26 @@ let private capturing (reply: Reply) : (Command option ref) * ScriptedRunner =
 let private permissive () =
     Jj.WithRunner(ScriptedRunner().Fallback(Reply.Ok ""))
 
+/// A runner that records **every** command it runs (in call order) and replies `reply` to
+/// all of them — for asserting the exact argv a read/mutation builds, including where the
+/// read-only `--ignore-working-copy` flag lands relative to the subcommand.
+let private recording (reply: Reply) : ResizeArray<Command> * ScriptedRunner =
+    let calls = ResizeArray<Command>()
+
+    let runner =
+        ScriptedRunner()
+            .When(
+                (fun (cmd: Command) ->
+                    calls.Add cmd
+                    true),
+                reply
+            )
+
+    calls, runner
+
+/// The argv (program excluded), in order, of a captured command.
+let private argsOf (cmd: Command) = cmd.Arguments |> Seq.toList
+
 // ---------------------------------------------------------------------------
 // Pure parsers
 // ---------------------------------------------------------------------------
@@ -1167,4 +1187,212 @@ type AtViewTests() =
             match captured.Value with
             | Some cmd -> Assert.That(cmd.WorkingDirectory, Is.EqualTo None, "the raw Run hatch is NOT bound to dir")
             | None -> Assert.Fail "no command captured"
+        }
+
+// ---------------------------------------------------------------------------
+// Read-only mode (`ReadOnly` / `--ignore-working-copy`)
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type ReadOnlyModeTests() =
+
+    [<Test>]
+    member _.ReadOnlyIsObservableAndPreservedByConfigChaining() =
+        // `Create`/`WithRunner` build a snapshotting client; `ReadOnly()` flips the mode on and
+        // returns a NEW client (this one unchanged); the config chainables carry the mode either
+        // way, so composing timeouts/env onto a read-only client keeps it read-only.
+        let plain = permissive ()
+        Assert.That(plain.IsReadOnly, Is.False, "a fresh client snapshots on reads")
+        let ro = plain.ReadOnly()
+        Assert.That(ro.IsReadOnly, Is.True, "ReadOnly() turns the mode on")
+        Assert.That(plain.IsReadOnly, Is.False, "ReadOnly() is non-destructive — the original is unchanged")
+
+        Assert.That(
+            (ro.DefaultTimeout(System.TimeSpan.FromSeconds 1.0)).IsReadOnly,
+            Is.True,
+            "config chaining preserves read-only"
+        )
+
+        Assert.That((ro.DefaultEnv("K", "V")).IsReadOnly, Is.True)
+
+        Assert.That(
+            (plain.DefaultTimeout(System.TimeSpan.FromSeconds 1.0)).IsReadOnly,
+            Is.False,
+            "a plain client stays snapshotting through config chaining"
+        )
+
+    [<Test>]
+    member _.EveryReadPrependsIgnoreWorkingCopyBeforeItsSubcommand() : Task =
+        task {
+            // The audit: exercise every single-command read on a read-only client and prove each
+            // one prepends the global `--ignore-working-copy` flag *before* its subcommand — so no
+            // read path was missed and the flag can never land in a value slot. Compound reads
+            // (`Status`/`DiffSummary`, which also resolve the root) are pinned separately below.
+            let calls, runner = recording (Reply.Ok "")
+            let jj = (Jj.WithRunner runner).ReadOnly()
+
+            let! _ = jj.StatusText "."
+            let! _ = jj.Log(".", "@", 5)
+            let! _ = jj.Bookmarks "."
+            let! _ = jj.BookmarksAll "."
+            let! _ = jj.ReachableBookmarks "."
+            let! _ = jj.Root "."
+            let! _ = jj.CurrentBookmark "."
+            let! _ = jj.Trunk "."
+            let! _ = jj.DiffStat(".", "@")
+            let! _ = jj.DiffText(".", DiffSpec.WorkingTree)
+            let! _ = jj.CommitCount(".", "@")
+            let! _ = jj.IsConflicted(".", "@")
+            let! _ = jj.ResolveList(".", "@")
+            let! _ = jj.TemplateQuery(".", "@", "commit_id", Some 1)
+            let! _ = jj.Evolog(".", "@", 3)
+            let! _ = jj.FileShow(".", "@", "a.fs")
+            let! _ = jj.OpHead "."
+            let! _ = jj.OpLog(".", 10)
+            let! _ = jj.WorkspaceList "."
+            let! _ = jj.WorkspaceRoot(".", None)
+            let! _ = jj.WorkspaceRoots(".", [ "default" ])
+
+            Assert.That(calls.Count, Is.EqualTo 21, "one command per read (WorkspaceRoots fans out one per name)")
+
+            for cmd in calls do
+                let args = argsOf cmd
+                let joined = String.concat " " args
+
+                Assert.That(
+                    List.head args,
+                    Is.EqualTo "--ignore-working-copy",
+                    $"the read-only flag must lead the argv (before the subcommand): {joined}"
+                )
+
+                Assert.That(
+                    (List.item 1 args) <> "--ignore-working-copy",
+                    Is.True,
+                    "a real subcommand — not a second flag — must follow"
+                )
+
+            // Spot-check a couple of exact argv prefixes: flag, then the (possibly two-word) subcommand.
+            Assert.That(
+                ((argsOf calls.[2]) |> List.take 3) = [ "--ignore-working-copy"; "bookmark"; "list" ],
+                Is.True,
+                "bookmark list leads with the flag then the two-word subcommand"
+            )
+
+            Assert.That(
+                ((argsOf calls.[17]) |> List.take 3) = [ "--ignore-working-copy"; "op"; "log" ],
+                Is.True,
+                "op log leads with the flag then the two-word subcommand"
+            )
+        }
+
+    [<Test>]
+    member _.StatusReadOnlyFlagsBothTheRootProbeAndTheDiffQuery() : Task =
+        task {
+            // `Status` resolves the workspace root first, then runs `diff --summary` from it: BOTH
+            // underlying commands must be read-only, or resolving the path prefix would itself
+            // snapshot and defeat the point.
+            let calls, runner = recording (Reply.Ok "")
+            let jj = (Jj.WithRunner runner).ReadOnly()
+
+            let! _ = jj.Status "/repo"
+
+            Assert.That(calls.Count, Is.EqualTo 2, "Status = root probe + diff --summary")
+
+            let subcommands =
+                calls |> Seq.map (fun c -> (argsOf c) |> List.item 1) |> List.ofSeq
+
+            Assert.That((subcommands = [ "root"; "diff" ]), Is.True, "the root probe precedes the diff query")
+
+            for cmd in calls do
+                Assert.That(
+                    List.head (argsOf cmd),
+                    Is.EqualTo "--ignore-working-copy",
+                    "both the root probe and the diff query carry the flag"
+                )
+        }
+
+    [<Test>]
+    member _.ReadOnlyFileAnnotatePrependsFlagAheadOfTheDashDashSeparator() : Task =
+        task {
+            // `file annotate` ends in a `-- <path>` separator, and jj requires global flags to
+            // precede `--`. The read-only flag is prepended at the very front, so it leads the
+            // argv AND sits before `--` (and the untrusted path can never inject it).
+            let calls, runner = recording (Reply.Ok "")
+            let jj = (Jj.WithRunner runner).ReadOnly()
+
+            let! _ = jj.FileAnnotate(".", "src/a.fs", None)
+
+            Assert.That(calls.Count, Is.EqualTo 1)
+            let args = argsOf calls.[0]
+
+            Assert.That(
+                (args |> List.take 3) = [ "--ignore-working-copy"; "file"; "annotate" ],
+                Is.True,
+                "the flag leads, then the two-word `file annotate` subcommand"
+            )
+
+            let flagIdx = List.findIndex ((=) "--ignore-working-copy") args
+            let dashIdx = List.findIndex ((=) "--") args
+            Assert.That(flagIdx < dashIdx, Is.True, "the read-only flag must precede the `--` path separator")
+        }
+
+    [<Test>]
+    member _.DefaultSnapshottingClientNeverCarriesTheFlag() : Task =
+        task {
+            // The default (non-read-only) client must behave exactly as before: it snapshots, so
+            // its reads carry NO `--ignore-working-copy`.
+            let calls, runner = recording (Reply.Ok "")
+            let jj = Jj.WithRunner runner // NOT read-only
+
+            let! _ = jj.Bookmarks "."
+            let! _ = jj.Log(".", "@", 5)
+            let! _ = jj.OpLog(".", 10)
+            let! _ = jj.Status "/repo"
+
+            Assert.That(calls.Count >= 4, Is.True)
+
+            for cmd in calls do
+                let args = argsOf cmd
+                let joined = String.concat " " args
+
+                Assert.That(
+                    List.contains "--ignore-working-copy" args,
+                    Is.False,
+                    $"a snapshotting client must not pass the flag: {joined}"
+                )
+        }
+
+    [<Test>]
+    member _.ReadOnlyModeNeverAltersAMutationsArgv() : Task =
+        task {
+            // The mode is read-only *for reads only*: a mutation on a read-only client keeps its
+            // exact argv (no flag), so `describe`/`new`/`bookmark set`/`rebase`/`op restore` still
+            // snapshot and record operations as they always have.
+            let calls, runner = recording (Reply.Ok "")
+            let jj = (Jj.WithRunner runner).ReadOnly()
+
+            let! _ = jj.Describe(".", "msg")
+            let! _ = jj.NewChange(".", "msg")
+            let! _ = jj.BookmarkSet(".", "feat", "@")
+            let! _ = jj.Rebase(".", "main")
+            let! _ = jj.OpRestore(".", "abc123")
+            let! _ = jj.CommitPaths(".", [ JjFileset.Path "a.fs" ], "msg")
+
+            Assert.That(calls.Count, Is.EqualTo 6)
+
+            for cmd in calls do
+                let args = argsOf cmd
+                let joined = String.concat " " args
+
+                Assert.That(
+                    List.contains "--ignore-working-copy" args,
+                    Is.False,
+                    $"a mutation must be untouched by read-only mode: {joined}"
+                )
+
+                Assert.That(
+                    List.head args <> "--ignore-working-copy",
+                    Is.True,
+                    "the argv still leads with the subcommand"
+                )
         }

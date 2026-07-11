@@ -534,6 +534,22 @@ type Builder
     /// error (missing binary / unreadable state dir / watch-registration failure).
     member _.Build() : Task<Result<RepoWatcher, WatchError>> =
         task {
+            // Observe the repo **read-only**: on jj a plain `Snapshot`/`LocalBranches` re-query
+            // snapshots the working copy and records a new operation as a side effect — so a
+            // watcher would perturb the very state it reports, and each filesystem signal it
+            // re-queried would itself generate more op-log churn to watch. Swap the jj client
+            // for its read-only view (`Jj.ReadOnly` → `--ignore-working-copy`) via the `Jj`
+            // escape hatch, keeping the same `Root`/`Cwd`; a git repo has no such snapshot side
+            // effect, so it is watched unchanged. Both the baseline below and every loop
+            // re-query go through this same view, so they stay consistent (no spurious
+            // first-event diff from a snapshot the read-only re-query would never observe). Only
+            // the query path is affected — the state-dir resolution and watch registration read
+            // the identical `Kind`/`Root`.
+            let repo =
+                match repo.Jj with
+                | Some jj -> Repo.FromJj(repo.Root, repo.Cwd, jj.ReadOnly())
+                | None -> repo
+
             match Paths.stateDirs repo.Kind repo.Root with
             | Error e -> return Error e
             | Ok dirs ->

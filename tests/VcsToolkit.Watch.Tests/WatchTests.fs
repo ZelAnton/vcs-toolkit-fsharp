@@ -616,3 +616,61 @@ type PipelineTests() =
                     // best-effort cleanup.
                     ()
         }
+
+    [<Test>]
+    member _.WatchObservesTheJjRepoReadOnly() : Task =
+        task {
+            // The behavioural fix (T-015): a `RepoWatcher` must observe jj **read-only**. jj
+            // snapshots the working copy and records a new operation on an ordinary `log`/`status`/
+            // `bookmark list`, so a naive watcher would perturb the very state it reports (and its
+            // own re-query would churn the op log it watches). Build a watcher over a real `.jj`
+            // state dir with a runner that records every command, then assert every jj query it
+            // issued leads with the global `--ignore-working-copy` flag.
+            let dir = Path.Combine(Path.GetTempPath(), $"vcs-watch-ro-{Guid.NewGuid():N}")
+            Directory.CreateDirectory(Path.Combine(dir, ".jj")) |> ignore
+
+            try
+                let calls = ResizeArray<Command>()
+
+                // Rule 1 records every command and falls through (returns false); the `On` rules
+                // (and a benign fallback) supply the replies. The `On` token subsets still match
+                // with `--ignore-working-copy` prepended, so recording the read-only argv is safe.
+                let runner =
+                    ScriptedRunner()
+                        .When(
+                            (fun (cmd: Command) ->
+                                calls.Add cmd
+                                false),
+                            Reply.Ok ""
+                        )
+                        .On([ "log"; "-r"; "@"; "--limit"; "1" ], Reply.Ok "aaaa\t1\t0\n")
+                        .On([ "log"; "heads(::@ & bookmarks())" ], Reply.Ok "main\txyz\n")
+                        .On([ "bookmark"; "list" ], Reply.Ok "main\tabc\n")
+                        .Fallback(Reply.Ok "")
+
+                let repo = Repo.FromJj(dir, dir, Jj.WithRunner runner)
+
+                match! RepoWatcher.Watch repo with
+                | Ok watcher ->
+                    // The baseline re-query has already run through `Build()` (→ read-only) by now.
+                    (watcher :> IDisposable).Dispose()
+
+                    Assert.That(calls.Count > 0, Is.True, "the baseline re-query issued jj commands")
+
+                    for cmd in calls do
+                        let args = cmd.Arguments |> Seq.toList
+                        let joined = String.concat " " args
+
+                        Assert.That(
+                            List.head args,
+                            Is.EqualTo "--ignore-working-copy",
+                            $"a watch re-query command must be read-only (flag before the subcommand): {joined}"
+                        )
+                | Error e -> Assert.Fail $"build failed: {e.Message}"
+            finally
+                try
+                    Directory.Delete(dir, true)
+                with _ ->
+                    // best-effort cleanup.
+                    ()
+        }

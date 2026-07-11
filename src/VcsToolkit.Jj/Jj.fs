@@ -154,7 +154,7 @@ module private JjHelpers =
 /// and the `Run`/`RunRaw` escape hatches are not guarded; for eager validation see
 /// `RevsetExpr`.
 [<Sealed>]
-type Jj private (core: ManagedClient) =
+type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
 
     /// A repo-scoped `jj` command with `--color never` forced on. jj honours
     /// `ui.color = "always"` from user config even when its output is piped, which
@@ -162,8 +162,31 @@ type Jj private (core: ManagedClient) =
     /// ANSI escapes and break parsing; `--color never` is the only thing that
     /// overrides that config. It is a global flag, appended here (no jj subcommand
     /// takes a trailing `--`, so this is safe).
+    ///
+    /// Used by the **mutating** commands; the read/query commands route through
+    /// `cmdInRead`, which additionally honours the client's read-only mode.
     let cmdIn (dir: string) (args: string seq) : Command =
         (core.CommandIn(dir, args)).Arg("--color").Arg("never")
+
+    /// A repo-scoped **read/query** command. On a normal client it is exactly `cmdIn`; on a
+    /// read-only client (see `ReadOnly`) it prepends the global `--ignore-working-copy` flag
+    /// **before** the subcommand, so the query reports the state of the *last recorded
+    /// operation* — jj takes no working-copy lock, imports no bare filesystem edits into a
+    /// fresh `@`, and records **no new operation** (`@` stays put). That is the read-only
+    /// mode an observer (a `RepoWatcher`, a prompt refresh) needs: reading the repo must not
+    /// perturb the state it reports.
+    ///
+    /// The flag is a hard-coded literal placed ahead of the caller's argv — it can never be
+    /// injected from an untrusted revset / bookmark / operation id (a leading-`-` positional
+    /// is already rejected by the argv guards), and jj reads it as a global flag regardless
+    /// of the subcommand (safe for `file annotate`'s trailing `--`, unlike a trailing global
+    /// flag). Only **read** methods route through here; the mutating commands keep using
+    /// `cmdIn`, so the read-only mode never alters a mutation's argv.
+    let cmdInRead (dir: string) (args: string seq) : Command =
+        if ignoreWorkingCopy then
+            cmdIn dir (Seq.append [ "--ignore-working-copy" ] args)
+        else
+            cmdIn dir args
 
     /// Run `cmd` returning **untrimmed** stdout (unlike `core.Run`, which trims the trailing
     /// newline) — for blob content and diffs where a trailing newline is significant: a
@@ -182,31 +205,56 @@ type Jj private (core: ManagedClient) =
         }
 
     /// Create a client driving the real job-backed runner.
-    static member Create() = Jj(ManagedClient.Create BINARY)
+    static member Create() = Jj(ManagedClient.Create BINARY, false)
 
     /// Create a client driving `runner` — inject a fake in tests.
     static member WithRunner(runner: IProcessRunner) =
-        Jj(ManagedClient.WithRunner(BINARY, runner))
+        Jj(ManagedClient.WithRunner(BINARY, runner), false)
 
     // --- Configuration (chainable; each returns a new client) ----------------
 
     /// Apply a default timeout to every command this client builds.
-    member _.DefaultTimeout(timeout: TimeSpan) = Jj(core.DefaultTimeout timeout)
+    member _.DefaultTimeout(timeout: TimeSpan) =
+        Jj(core.DefaultTimeout timeout, ignoreWorkingCopy)
 
     /// Set an environment variable on every command this client builds.
-    member _.DefaultEnv(key: string, value: string) = Jj(core.DefaultEnv(key, value))
+    member _.DefaultEnv(key: string, value: string) =
+        Jj(core.DefaultEnv(key, value), ignoreWorkingCopy)
 
     /// Remove an inherited environment variable on every command this client builds.
-    member _.DefaultEnvRemove(key: string) = Jj(core.DefaultEnvRemove key)
+    member _.DefaultEnvRemove(key: string) =
+        Jj(core.DefaultEnvRemove key, ignoreWorkingCopy)
 
     /// Cancel every command this client builds when `token` fires.
-    member _.DefaultCancelOn(token: CancellationToken) = Jj(core.DefaultCancelOn token)
+    member _.DefaultCancelOn(token: CancellationToken) =
+        Jj(core.DefaultCancelOn token, ignoreWorkingCopy)
 
     /// Retry working-copy lock-contention failures per `policy` (opt-in, off by
     /// default). Safe even for mutating commands: a lock-acquisition failure is
     /// pre-execution (jj never ran). jj's operation log already auto-resolves most
     /// concurrency, so hard lock failures are rarer than with git.
-    member _.WithRetry(policy: RetryPolicy) = Jj(core.WithRetry policy)
+    member _.WithRetry(policy: RetryPolicy) =
+        Jj(core.WithRetry policy, ignoreWorkingCopy)
+
+    /// A **read-only** view of this client (the analogue of jj's `WorkingCopy::Ignore`): its
+    /// read/query methods pass the global `--ignore-working-copy` flag, so a `Status`/`Log`/
+    /// `Diff`/bookmark/op-log/workspace query reports the last recorded operation's state
+    /// **without** snapshotting the working copy or advancing the operation log (`@` stays
+    /// put — no new jj operation). The **mutating** methods (`Describe`/`New`/`Commit`/
+    /// `Squash`/`Bookmark…`/`Git…`/`Op…`/…) are deliberately unaffected: they still behave
+    /// exactly as on a normal client. Chainable and non-destructive — returns a new client;
+    /// this one is unchanged. Used by `VcsToolkit.Watch` so filesystem-driven re-queries
+    /// observe the repository without perturbing it.
+    ///
+    /// Trade-off: because a read-only query does not snapshot, a bare working-tree edit that
+    /// no jj command has recorded yet is invisible to it (state is as of the last operation).
+    /// A caller that must observe such edits uses the normal (snapshotting) client instead.
+    member _.ReadOnly() = Jj(core, true)
+
+    /// Whether this client runs its read/query methods in read-only mode — i.e. whether they
+    /// pass the global `--ignore-working-copy` flag (see `ReadOnly`). `false` on a client
+    /// from `Create`/`WithRunner`; `true` after `ReadOnly()`.
+    member _.IsReadOnly = ignoreWorkingCopy
 
     // --- Escape hatches / version --------------------------------------------
 
@@ -245,20 +293,22 @@ type Jj private (core: ManagedClient) =
             match! this.Root dir with
             | Error e -> return Error e
             | Ok root ->
-                match! core.Parse(cmdIn (root.Trim()) [ "diff"; "-r"; "@"; "--summary" ], JjParse.parseDiffSummary) with
+                match!
+                    core.Parse(cmdInRead (root.Trim()) [ "diff"; "-r"; "@"; "--summary" ], JjParse.parseDiffSummary)
+                with
                 | Error e -> return Error e
                 | Ok entries -> return rejectEscapingPaths entries
         }
 
     /// Raw `jj status` text (human-readable) — the unparsed counterpart of `Status`.
-    member _.StatusText(dir: string) = core.Run(cmdIn dir [ "status" ])
+    member _.StatusText(dir: string) = core.Run(cmdInRead dir [ "status" ])
 
     /// Changes matching `revset`, newest first, up to `max` (`jj log`).
     member _.Log(dir: string, revset: string, max: int) =
         let n = sprintf "-n%d" max
 
         core.Parse(
-            cmdIn dir [ "log"; "-r"; revset; n; "--no-graph"; "-T"; JjParse.CHANGE_TEMPLATE ],
+            cmdInRead dir [ "log"; "-r"; revset; n; "--no-graph"; "-T"; JjParse.CHANGE_TEMPLATE ],
             JjParse.parseChanges
         )
 
@@ -289,12 +339,12 @@ type Jj private (core: ManagedClient) =
 
     /// Local bookmarks (`jj bookmark list`).
     member _.Bookmarks(dir: string) =
-        core.Parse(cmdIn dir [ "bookmark"; "list"; "-T"; JjParse.BOOKMARK_LIST_TEMPLATE ], JjParse.parseBookmarks)
+        core.Parse(cmdInRead dir [ "bookmark"; "list"; "-T"; JjParse.BOOKMARK_LIST_TEMPLATE ], JjParse.parseBookmarks)
 
     /// Local *and* remote-tracking bookmarks (`jj bookmark list -a`).
     member _.BookmarksAll(dir: string) =
         core.Parse(
-            cmdIn dir [ "bookmark"; "list"; "-a"; "-T"; JjParse.BOOKMARK_ALL_TEMPLATE ],
+            cmdInRead dir [ "bookmark"; "list"; "-a"; "-T"; JjParse.BOOKMARK_ALL_TEMPLATE ],
             JjParse.parseBookmarksAll
         )
 
@@ -303,7 +353,7 @@ type Jj private (core: ManagedClient) =
     /// "belongs to". A commit carrying several bookmarks yields one entry each.
     member _.ReachableBookmarks(dir: string) =
         core.Parse(
-            cmdIn
+            cmdInRead
                 dir
                 [ "log"
                   "-r"
@@ -381,7 +431,7 @@ type Jj private (core: ManagedClient) =
     // --- Discovery / identity ------------------------------------------------
 
     /// Working-copy root of the current workspace (`jj root`).
-    member _.Root(dir: string) : Task<Result<string, ProcessError>> = core.Run(cmdIn dir [ "root" ])
+    member _.Root(dir: string) : Task<Result<string, ProcessError>> = core.Run(cmdInRead dir [ "root" ])
 
     /// The local bookmark on the working-copy change `@`, if exactly one (or the
     /// first of several); `None` when `@` carries no bookmark.
@@ -389,7 +439,7 @@ type Jj private (core: ManagedClient) =
         task {
             match!
                 core.Run(
-                    cmdIn
+                    cmdInRead
                         dir
                         [ "log"
                           "-r"
@@ -410,7 +460,7 @@ type Jj private (core: ManagedClient) =
         task {
             match!
                 core.Run(
-                    cmdIn
+                    cmdInRead
                         dir
                         [ "log"
                           "-r"
@@ -442,7 +492,7 @@ type Jj private (core: ManagedClient) =
                 let range = sprintf "(%s)..(%s)" fromRev toRev
 
                 match!
-                    core.Parse(cmdIn (root.Trim()) [ "diff"; "-r"; range; "--summary" ], JjParse.parseDiffSummary)
+                    core.Parse(cmdInRead (root.Trim()) [ "diff"; "-r"; range; "--summary" ], JjParse.parseDiffSummary)
                 with
                 | Error e -> return Error e
                 | Ok entries -> return rejectEscapingPaths entries
@@ -450,7 +500,7 @@ type Jj private (core: ManagedClient) =
 
     /// Aggregate change stats for a revset (`diff -r <revset> --stat`).
     member _.DiffStat(dir: string, revset: string) =
-        core.Parse(cmdIn dir [ "diff"; "-r"; revset; "--stat" ], JjParse.parseDiffStat)
+        core.Parse(cmdInRead dir [ "diff"; "-r"; revset; "--stat" ], JjParse.parseDiffStat)
 
     /// Raw git-format unified diff text for `spec` (`diff -r <spec> --git`).
     member _.DiffText(dir: string, spec: DiffSpec) =
@@ -459,7 +509,7 @@ type Jj private (core: ManagedClient) =
             | DiffSpec.WorkingTree -> "@"
             | DiffSpec.Rev rev -> rev
 
-        runUntrimmed (cmdIn dir [ "diff"; "-r"; revset; "--git" ])
+        runUntrimmed (cmdInRead dir [ "diff"; "-r"; revset; "--git" ])
 
     /// Parsed per-file unified diff for `spec`, layered on `DiffText`.
     member this.Diff(dir: string, spec: DiffSpec) =
@@ -472,7 +522,7 @@ type Jj private (core: ManagedClient) =
     /// Count commits in a revset (`log -r <revset> --no-graph`, one id per line).
     member _.CommitCount(dir: string, revset: string) =
         core.Parse(
-            cmdIn dir [ "log"; "-r"; revset; "--no-graph"; "-T"; JjParse.COUNT_TEMPLATE ],
+            cmdInRead dir [ "log"; "-r"; revset; "--no-graph"; "-T"; JjParse.COUNT_TEMPLATE ],
             fun s ->
                 s.Split('\n')
                 |> Array.filter (fun line -> line <> "" && line <> "\r")
@@ -484,7 +534,7 @@ type Jj private (core: ManagedClient) =
         task {
             match!
                 core.Run(
-                    cmdIn
+                    cmdInRead
                         dir
                         [ "log"
                           "-r"
@@ -507,7 +557,7 @@ type Jj private (core: ManagedClient) =
     /// Empty when there are none.
     member _.ResolveList(dir: string, revset: string) =
         task {
-            match! core.Output(cmdIn dir [ "resolve"; "--list"; "-r"; revset ]) with
+            match! core.Output(cmdInRead dir [ "resolve"; "--list"; "-r"; revset ]) with
             | Error e -> return Error e
             | Ok res ->
                 match res.Code with
@@ -535,7 +585,7 @@ type Jj private (core: ManagedClient) =
 
         // Untrimmed: a template's output can be significant to the trailing byte (a consumer
         // may render or round-trip it), matching the Rust `run_untrimmed`.
-        runUntrimmed (cmdIn dir args)
+        runUntrimmed (cmdInRead dir args)
 
     /// The full (possibly multiline) description of the commit `revset` resolves to,
     /// trailing whitespace trimmed; empty for an undescribed change. A multi-commit
@@ -553,7 +603,7 @@ type Jj private (core: ManagedClient) =
     /// `max` (`jj evolog -r <revset>`) — one `Change` row per recorded predecessor.
     member _.Evolog(dir: string, revset: string, max: int) =
         core.Parse(
-            cmdIn
+            cmdInRead
                 dir
                 [ "evolog"
                   "-r"
@@ -571,10 +621,17 @@ type Jj private (core: ManagedClient) =
     member _.FileAnnotate(dir: string, path: string, revset: string option) =
         // `file annotate` takes a plain PATH (not a fileset), so a leading-`-` path
         // would be parsed as a flag. The `--` separator before it keeps even a
-        // `-dash.txt` literal safe — but global flags (`--color never`) MUST precede
-        // `--`, so this builds the command directly (not via `cmdIn`, which trails them).
+        // `-dash.txt` literal safe — but global flags (`--color never`, and the read-only
+        // `--ignore-working-copy`) MUST precede `--`, so this builds the command directly
+        // (not via `cmdInRead`, which appends `--color never`). The read-only flag is
+        // prepended at the very front (before the subcommand), so it precedes `--` too and
+        // stays a hard-coded literal the untrusted `path` can never inject.
         let args =
-            [ "file"; "annotate" ]
+            (if ignoreWorkingCopy then
+                 [ "--ignore-working-copy" ]
+             else
+                 [])
+            @ [ "file"; "annotate" ]
             @ (match revset with
                | Some r -> [ "-r"; r ]
                | None -> [])
@@ -599,7 +656,7 @@ type Jj private (core: ManagedClient) =
     member _.FileShow(dir: string, revset: string, path: string) =
         let fileset = JjFileset.Path path
         // Untrimmed: a blob's trailing newline(s) must survive for a byte-exact read-modify-write.
-        runUntrimmed (cmdIn dir [ "file"; "show"; "-r"; revset; fileset.Value ])
+        runUntrimmed (cmdInRead dir [ "file"; "show"; "-r"; revset; fileset.Value ])
 
     // --- Mutations -----------------------------------------------------------
 
@@ -821,12 +878,12 @@ type Jj private (core: ManagedClient) =
     /// The current operation id (`op log --no-graph --limit 1`) — capture before a
     /// risky sequence to roll back to.
     member _.OpHead(dir: string) =
-        core.Run(cmdIn dir [ "op"; "log"; "--no-graph"; "--limit"; "1"; "-T"; "id.short()" ])
+        core.Run(cmdInRead dir [ "op"; "log"; "--no-graph"; "--limit"; "1"; "-T"; "id.short()" ])
 
     /// The newest `limit` operations, newest first (`op log --no-graph --limit n`).
     member _.OpLog(dir: string, limit: int) =
         core.Parse(
-            cmdIn
+            cmdInRead
                 dir
                 [ "op"
                   "log"
@@ -854,7 +911,7 @@ type Jj private (core: ManagedClient) =
 
     /// List workspaces (`workspace list`).
     member _.WorkspaceList(dir: string) =
-        core.Parse(cmdIn dir [ "workspace"; "list"; "-T"; JjParse.WORKSPACE_TEMPLATE ], JjParse.parseWorkspaces)
+        core.Parse(cmdInRead dir [ "workspace"; "list"; "-T"; JjParse.WORKSPACE_TEMPLATE ], JjParse.parseWorkspaces)
 
     /// Resolve a workspace's root path (`workspace root [--name <name>]`).
     member _.WorkspaceRoot(dir: string, name: string option) =
@@ -864,7 +921,7 @@ type Jj private (core: ManagedClient) =
                | Some n -> [ "--name"; n ]
                | None -> [])
 
-        core.Run(cmdIn dir args)
+        core.Run(cmdInRead dir args)
 
     /// Add a workspace (`workspace add --name <name> -r <base> <path>`).
     member _.WorkspaceAdd(dir: string, spec: WorkspaceAdd) =
@@ -903,7 +960,7 @@ type Jj private (core: ManagedClient) =
                     do! sem.WaitAsync()
 
                     try
-                        match! core.Output(cmdIn dir [ "workspace"; "root"; "--name"; n ]) with
+                        match! core.Output(cmdInRead dir [ "workspace"; "root"; "--name"; n ]) with
                         | Error e -> return Error e
                         | Ok res ->
                             match ProcessResult.ensureSuccess res with
@@ -949,7 +1006,7 @@ type Jj private (core: ManagedClient) =
             use cts = new CancellationTokenSource(RollbackCleanupTimeout)
 
             let cleanup =
-                Jj((core.DefaultCancelOn cts.Token).DefaultTimeout RollbackCleanupTimeout)
+                Jj((core.DefaultCancelOn cts.Token).DefaultTimeout RollbackCleanupTimeout, ignoreWorkingCopy)
 
             // Divergence probe: is the captured op still within the recent op log?
             match! cleanup.OpLog(dir, RollbackProbeDepth) with
