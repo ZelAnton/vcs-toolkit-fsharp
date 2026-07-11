@@ -202,8 +202,12 @@ module private GitHelpers =
 /// lock-contention retry with `WithRetry`).
 ///
 /// Injection safety: every method placing a caller-supplied name/revision/range/
-/// remote/url in a positional argv slot rejects an empty or `-`-leading value
-/// before spawning. Flag-value slots and `--`-separated paths are not guarded.
+/// remote/url/path (including a clone destination, a worktree add/remove/move path)
+/// in a positional argv slot rejects an empty or `-`-leading value before spawning.
+/// The sole exception is `ConfigSet`'s value slot, where a legitimate value may
+/// genuinely begin with `-` (e.g. `-1`): it is protected by an end-of-options `--`
+/// separator instead of being refused. Flag-value slots and `--`-separated paths
+/// are not guarded.
 [<Sealed>]
 type Git private (core: ManagedClient) =
 
@@ -1115,10 +1119,13 @@ type Git private (core: ManagedClient) =
                         return! core.RunUnit cmd
         }
 
-    /// Clone `url` into `dest` (pass an absolute `dest`).
+    /// Clone `url` into `dest` (pass an absolute `dest`). Both `url` and `dest` are bare
+    /// positionals here (`git clone <url> <dest>`), so a leading-`-` value in either would be
+    /// read as a flag — e.g. a `dest` of `--upload-pack=<cmd>` is a command-execution vector,
+    /// since git accepts options after positionals — and both are refused before any spawn.
     member this.CloneRepo(url: string, dest: string, spec: CloneSpec) =
         task {
-            match checkFlags [ "url", url ] with
+            match checkFlags [ "url", url; "destination", dest ] with
             | Error e -> return Error e
             | Ok() ->
                 // Scope the credential helper to the clone URL's host, so a cross-host
@@ -1320,11 +1327,14 @@ type Git private (core: ManagedClient) =
     member _.WorktreeList(dir: string) =
         core.Parse(core.CommandIn(dir, [ "worktree"; "list"; "--porcelain" ]), GitParse.parseWorktreePorcelain)
 
-    /// Add a worktree.
+    /// Add a worktree. `spec.Path` is a bare positional (`worktree add … <path> [<commit-ish>]`),
+    /// so a leading-`-` path would be read as a flag — it is refused before spawning, alongside
+    /// the already-guarded `NewBranch`/`Commitish`.
     member _.WorktreeAdd(dir: string, spec: WorktreeAdd) =
         task {
             let checks =
-                (spec.NewBranch |> Option.map (fun n -> "branch name", n) |> Option.toList)
+                [ "worktree path", spec.Path ]
+                @ (spec.NewBranch |> Option.map (fun n -> "branch name", n) |> Option.toList)
                 @ (spec.Commitish |> Option.map (fun c -> "commit-ish", c) |> Option.toList)
 
             match checkFlags checks with
@@ -1348,15 +1358,27 @@ type Git private (core: ManagedClient) =
                 return! core.RunUnit cmd
         }
 
-    /// Remove a worktree (`worktree remove [--force] <path>`).
+    /// Remove a worktree (`worktree remove [--force] <path>`). `path` is a bare positional, so a
+    /// leading-`-` value would be read as a flag — it is refused before spawning.
     member _.WorktreeRemove(dir: string, path: string, force: bool) =
-        let cmd = core.CommandIn(dir, [ "worktree"; "remove" ])
-        let cmd = if force then cmd.Arg "--force" else cmd
-        core.RunUnit(cmd.Arg path)
+        task {
+            match checkFlags [ "worktree path", path ] with
+            | Error e -> return Error e
+            | Ok() ->
+                let cmd = core.CommandIn(dir, [ "worktree"; "remove" ])
+                let cmd = if force then cmd.Arg "--force" else cmd
+                return! core.RunUnit(cmd.Arg path)
+        }
 
-    /// Move a worktree (`worktree move <from> <to>`).
+    /// Move a worktree (`worktree move <from> <to>`). Both `fromPath` and `toPath` are bare
+    /// positionals, so a leading-`-` value in either would be read as a flag — both are refused
+    /// before spawning.
     member _.WorktreeMove(dir: string, fromPath: string, toPath: string) =
-        core.RunUnit((core.CommandIn(dir, [ "worktree"; "move" ])).Arg(fromPath).Arg toPath)
+        task {
+            match checkFlags [ "worktree source path", fromPath; "worktree destination path", toPath ] with
+            | Error e -> return Error e
+            | Ok() -> return! core.RunUnit((core.CommandIn(dir, [ "worktree"; "move" ])).Arg(fromPath).Arg toPath)
+        }
 
     /// Prune stale worktree admin entries (`worktree prune`).
     member _.WorktreePrune(dir: string) =
@@ -1452,12 +1474,22 @@ type Git private (core: ManagedClient) =
                         | Ok _ -> return Ok None
         }
 
-    /// Set a config key in the repository's local config (`config <key> <value>`).
+    /// Set a config key in the repository's local config (`config -- <key> <value>`). Unlike the
+    /// name/revision slots, a config `value` may legitimately begin with `-` (e.g. `-1`), so it
+    /// cannot be refused via the leading-`-` guard. Instead an end-of-options `--` separator is
+    /// emitted before the positionals: `git config` has no pathspec semantics, so `--`
+    /// unambiguously terminates option parsing and a `value` like `-1` is taken verbatim rather
+    /// than parsed as a flag (`--global`/`--unset`/… would otherwise redirect or subvert the
+    /// write). `--` is chosen over `--end-of-options` deliberately — it is honoured by
+    /// `git config`'s option parser across the toolkit's whole supported git 2.x range, whereas
+    /// `--end-of-options` requires git >= 2.24 — and mirrors the end-of-options convention already
+    /// used elsewhere in this client (`checkout … --`, `add -- …`). The `key` stays guarded (a
+    /// config key never legitimately begins with `-`).
     member _.ConfigSet(dir: string, key: string, value: string) =
         task {
             match checkFlags [ "config key", key ] with
             | Error e -> return Error e
-            | Ok() -> return! core.RunUnit(core.CommandIn(dir, [ "config"; key; value ]))
+            | Ok() -> return! core.RunUnit(core.CommandIn(dir, [ "config"; "--"; key; value ]))
         }
 
     /// Add a remote (`remote add <name> <url>`).

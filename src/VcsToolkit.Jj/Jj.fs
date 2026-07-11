@@ -889,9 +889,10 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
     /// `git.colocate` config, so `colocate` decides deterministically.
     member _.GitClone(url: string, dest: string, colocate: bool) =
         task {
-            // A leading-`-` url is a bare positional — guard it (a real URL never
-            // leads with `-`, so no false positives).
-            match checkFlags [ "url", url ] with
+            // `url` and `dest` are both bare positionals in `jj git clone <url> <dest>`: a
+            // leading-`-` value in either would be parsed as a flag. Guard both before spawning
+            // (a real URL/path never leads with `-`, so no false positives).
+            match checkFlags [ "url", url; "destination", dest ] with
             | Error e -> return Error e
             | Ok() ->
                 let colocateFlag = if colocate then "--colocate" else "--no-colocate"
@@ -960,21 +961,29 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
 
         core.Run(cmdInRead dir args)
 
-    /// Add a workspace (`workspace add --name <name> -r <base> <path>`).
+    /// Add a workspace (`workspace add --name <name> -r <base> <path>`). `spec.Path` is a bare
+    /// positional, so a leading-`-` value would be parsed as a flag — it is refused before
+    /// spawning. (`Name`/`Base` ride in flag-value slots — `--name`/`-r` — so they are consumed
+    /// verbatim and need no guard.)
     member _.WorkspaceAdd(dir: string, spec: WorkspaceAdd) =
-        // Built directly on `CommandIn` (not `cmdIn`) because the trailing
-        // `--color never` must come after the chained value args, not between
-        // `--name` and its value.
-        let cmd =
-            (core.CommandIn(dir, [ "workspace"; "add"; "--name" ])).Arg(spec.Name).Arg("-r").Arg(spec.Base)
+        task {
+            match checkFlags [ "workspace path", spec.Path ] with
+            | Error e -> return Error e
+            | Ok() ->
+                // Built directly on `CommandIn` (not `cmdIn`) because the trailing
+                // `--color never` must come after the chained value args, not between
+                // `--name` and its value.
+                let cmd =
+                    (core.CommandIn(dir, [ "workspace"; "add"; "--name" ])).Arg(spec.Name).Arg("-r").Arg(spec.Base)
 
-        let cmd =
-            match spec.SparsePatterns with
-            | Some mode -> cmd.Arg("--sparse-patterns").Arg(mode.AsArg)
-            | None -> cmd
+                let cmd =
+                    match spec.SparsePatterns with
+                    | Some mode -> cmd.Arg("--sparse-patterns").Arg(mode.AsArg)
+                    | None -> cmd
 
-        let cmd = cmd.Arg(spec.Path).Arg("--color").Arg("never")
-        core.RunUnit cmd
+                let cmd = cmd.Arg(spec.Path).Arg("--color").Arg("never")
+                return! core.RunUnit cmd
+        }
 
     /// Forget a workspace (`workspace forget <name>`).
     member _.WorkspaceForget(dir: string, name: string) =
