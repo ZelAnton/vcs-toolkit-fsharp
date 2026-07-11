@@ -55,11 +55,14 @@ module private GitHelpers =
         result
 
     /// Conservative ceiling, in argv characters, on how much space this wrapper will spend
-    /// inlining a path list into a `git` command line (`Add`/`CommitPaths`) before switching to
-    /// the NUL-safe `--pathspec-from-file=- --pathspec-file-nul` stdin transport instead. Well
-    /// under Windows' hard ~32767-character `CreateProcess` command-line limit — the tightest
-    /// ceiling among the supported platforms — leaving headroom for the rest of the argv (git's
-    /// own flags, per-argument quoting overhead) and the parent process's own command line.
+    /// inlining a path list into a `git` command line (`Add`/`CommitPaths`/`LogPaths`) before it
+    /// switches transports. Well under Windows' hard ~32767-character `CreateProcess` command-line
+    /// limit — the tightest ceiling among the supported platforms — leaving headroom for the rest
+    /// of the argv (git's own flags, per-argument quoting overhead) and the parent process's own
+    /// command line. `Add`/`CommitPaths` cross it into the NUL-safe `--pathspec-from-file=-
+    /// --pathspec-file-nul` stdin transport (the paths then leave argv entirely); `LogPaths`, for
+    /// which `git log` has no `--pathspec-from-file` support, instead chunks the pathspecs across
+    /// several within-budget calls (`chunkPathspecs`) and merges the results.
     [<Literal>]
     let ArgvPathBudget = 30000
 
@@ -68,6 +71,33 @@ module private GitHelpers =
     let needsStdinPathTransport (paths: string list) : bool =
         let total = paths |> List.sumBy (fun p -> p.Length + 1)
         total > ArgvPathBudget
+
+    /// Split `paths` into groups whose combined length (each entry's length plus one, matching
+    /// `needsStdinPathTransport`'s accounting) stays within `ArgvPathBudget` — for `LogPaths`'s
+    /// large-path-set fallback, since `git log` (unlike `Add`/`CommitPaths`) has no
+    /// `--pathspec-from-file` transport. Every group gets at least one path (a single path already
+    /// over budget still gets its own singleton group — nothing shorter is possible; `LogPaths`
+    /// rejects such a path up front). Preserves `paths`' order, both within and across groups.
+    let chunkPathspecs (paths: string list) : string list list =
+        let completed, current, _ =
+            paths
+            |> List.fold
+                (fun (chunks: string list list, cur: string list, curLen: int) (path: string) ->
+                    let len = path.Length + 1
+
+                    if not (List.isEmpty cur) && curLen + len > ArgvPathBudget then
+                        (List.rev cur :: chunks, [ path ], len)
+                    else
+                        (chunks, path :: cur, curLen + len))
+                ([], [], 0)
+
+        let allChunks =
+            if List.isEmpty current then
+                completed
+            else
+                List.rev current :: completed
+
+        List.rev allChunks
 
     /// Refuse a path set containing an embedded NUL character before it is used to build the
     /// NUL-delimited `--pathspec-file-nul` stdin transport, or spawn anything: a NUL inside a
@@ -161,6 +191,33 @@ type Git private (core: ManagedClient) =
                 | Error e -> return Error e
                 | Ok ok -> return Ok(System.Text.Encoding.UTF8.GetString ok.Stdout)
         }
+
+    /// Build one `git --literal-pathspecs log <revs…> -n<max> -z --format=… -- <paths>` call —
+    /// used both for `LogPaths`'s common case (everything fits one invocation, `revs` being the
+    /// single caller `revspec`) and for each chunk of its large-path-set fallback (`revs` then the
+    /// already-resolved commit-id tokens reused verbatim across every chunk). `--literal-pathspecs`
+    /// matches a path containing `*`/`?`/`[]` literally rather than as pathspec glob magic; the
+    /// trailing `--` keeps a path from being read as a flag. Chunked order is restored afterwards
+    /// by `logOrderCommand`, not by anything embedded in a chunk's own output, so the format is the
+    /// same on both paths.
+    let logPathsCommand (dir: string) (revs: string list) (n: string) (paths: string list) : Command =
+        let cmd =
+            ((core.CommandIn(dir, [ "--literal-pathspecs"; "log" ])).Args revs)
+                .Arg(n)
+                .Arg("-z")
+                .Arg("--format=%H%x1f%h%x1f%an%x1f%aI%x1f%s")
+                .Arg("--")
+
+        cmd.Args paths
+
+    /// Build the pathless `git log <revs…> -z --format=%H` commit-order oracle used to restore
+    /// git's own order across `LogPaths`'s merged chunk results. `revs` is the same already-resolved
+    /// commit-id tokens the chunk calls used (resolving the revspec again here would reopen the race
+    /// the one up-front resolution closes). No `-n` cap: a commit surviving path-filtering into the
+    /// merged top-`max` can sit arbitrarily far back in the unrestricted history, so the oracle must
+    /// be able to rank it. No paths, so no `--literal-pathspecs` is needed.
+    let logOrderCommand (dir: string) (revs: string list) : Command =
+        ((core.CommandIn(dir, [ "log" ])).Args revs).Arg("-z").Arg("--format=%H")
 
     /// Scrub the inherited repo-**redirector** environment variables on **every** command
     /// (not just `Harden`), so a `GIT_DIR`/`GIT_INDEX_FILE` (etc.) leaking from the parent —
@@ -303,6 +360,127 @@ type Git private (core: ManagedClient) =
                         core.CommandIn(dir, [ "log"; revspec; n; "-z"; "--format=%H%x1f%h%x1f%an%x1f%aI%x1f%s" ]),
                         GitParse.parseLog
                     )
+        }
+
+    /// Like `Log`, but scoped to commits that touched `paths` (`git --literal-pathspecs log
+    /// <revspec> -n<max> -z --format=… -- <paths>`) — e.g. "who changed this module".
+    /// `--literal-pathspecs` matches a path containing `*`/`?`/`[]` literally rather than as
+    /// pathspec glob magic, and the trailing `--` keeps a path from being read as a flag (same
+    /// convention as `Add`/`CommitPaths`). An empty `paths` is refused **before spawning**:
+    /// silently falling back to `Log`'s unrestricted history would defeat the "scoped to these
+    /// paths" contract.
+    ///
+    /// Unlike `Add`/`CommitPaths`, `git log` has no `--pathspec-from-file` transport (verified
+    /// against real git: the flag is rejected outright), so a `paths` set that would risk exceeding
+    /// the OS argv limit is instead split into several within-budget `git log` calls
+    /// (`chunkPathspecs`); the per-call results are merged (deduplicated by hash — a commit can
+    /// touch paths spread across more than one chunk) and restored to git's own commit order using
+    /// a separate, pathless `git log <revspec> --format=%H` oracle (`logOrderCommand`): pathspec
+    /// filtering only drops non-matching commits, it never reorders the ones that remain, so the
+    /// oracle's order over the *same* revspec gives the exact relative order a single, unchunked
+    /// call would have produced — without any assumption about author-vs-committer timestamps or
+    /// same-second ties. Requesting `-n<max>` per chunk is enough: any commit within the true
+    /// merged top-`max` has at most `max - 1` newer commits across the whole union, hence at most
+    /// that many within its own chunk too, so it always ranks within that chunk's own top `max`.
+    /// A `paths` set that fits one call is unaffected — same single invocation, same order.
+    ///
+    /// Before any of that, `revspec` is resolved exactly once (`git rev-parse`) into the fixed
+    /// commit ids every chunk call and the oracle then reuse verbatim: without this, each of those
+    /// several independent invocations would re-resolve the same symbolic text on its own, so a
+    /// concurrent commit/ref-move between two of them could make them observe different snapshots
+    /// (silently omitting a newer match, including an unreachable one, or interleaving two
+    /// histories). This resolution happens only on the chunked path; the single-call fast path is
+    /// untouched. Also before any of that, every path is checked against the argv budget on its own:
+    /// `git log` has no NUL-safe transport to fall back to, so a path that alone cannot fit in argv
+    /// is rejected up front rather than forwarded as an over-budget singleton chunk.
+    member _.LogPaths(dir: string, revspec: string, max: int, paths: string list) =
+        task {
+            match checkFlags [ "revspec", revspec ] with
+            | Error e -> return Error e
+            | Ok() ->
+                if List.isEmpty paths then
+                    return
+                        Error(
+                            ProcessError.Spawn(
+                                BINARY,
+                                "LogPaths requires at least one path — an empty set would log unrestricted history, not history scoped to the named paths"
+                            )
+                        )
+                else
+                    match paths |> List.tryFind (fun p -> p.Length + 1 > ArgvPathBudget) with
+                    | Some oversized ->
+                        return
+                            Error(
+                                ProcessError.Spawn(
+                                    BINARY,
+                                    sprintf
+                                        "LogPaths: a single path is %d bytes, exceeding the %d-byte argv pathspec budget on its own — `git log` has no NUL-safe pathspec-from-file transport (unlike Add/CommitPaths), so this path cannot be transmitted at all: %A"
+                                        (oversized.Length + 1)
+                                        ArgvPathBudget
+                                        oversized
+                                )
+                            )
+                    | None ->
+                        let n = sprintf "-n%d" max
+                        let chunks = chunkPathspecs paths
+
+                        if List.length chunks <= 1 then
+                            // The common case: everything fits one call. A single invocation can't
+                            // observe a moving repository state mid-operation, so `revspec` is
+                            // forwarded as-is — no up-front resolution needed.
+                            return! core.Parse(logPathsCommand dir [ revspec ] n paths, GitParse.parseLog)
+                        else
+                            // Large path set: resolve the revspec once, run each chunk over that
+                            // fixed snapshot, dedup by hash, then reorder by the pathless oracle.
+                            match! core.Run(core.CommandIn(dir, [ "rev-parse"; revspec ])) with
+                            | Error e -> return Error e
+                            | Ok raw ->
+                                let resolvedRevs =
+                                    raw.Split('\n')
+                                    |> Array.map (fun s -> s.Trim())
+                                    |> Array.filter (fun s -> s <> "")
+                                    |> Array.toList
+
+                                // Accumulate each chunk's commits (deduped by hash) sequentially, over
+                                // the one fixed snapshot; a mutable while-loop (not an inner `let rec`,
+                                // which the task state machine can't statically compile) so a chunk
+                                // failure short-circuits the rest.
+                                let mutable chunkError: ProcessError option = None
+                                let mutable acc: Commit list = []
+                                let mutable seen: Set<string> = Set.empty
+                                let mutable remaining = chunks
+
+                                while chunkError.IsNone && not (List.isEmpty remaining) do
+                                    let chunk = List.head remaining
+                                    remaining <- List.tail remaining
+
+                                    match! core.Parse(logPathsCommand dir resolvedRevs n chunk, GitParse.parseLog) with
+                                    | Error e -> chunkError <- Some e
+                                    | Ok commits ->
+                                        for c in commits do
+                                            if not (Set.contains c.Hash seen) then
+                                                acc <- c :: acc
+                                                seen <- Set.add c.Hash seen
+
+                                match chunkError with
+                                | Some e -> return Error e
+                                | None ->
+                                    let merged = List.rev acc
+
+                                    match! core.Parse(logOrderCommand dir resolvedRevs, GitParse.parseCommitOrder) with
+                                    | Error e -> return Error e
+                                    | Ok order ->
+                                        let rank = order |> List.mapi (fun i h -> (h, i)) |> Map.ofList
+
+                                        let ranked =
+                                            merged
+                                            |> List.sortBy (fun (c: Commit) ->
+                                                match Map.tryFind c.Hash rank with
+                                                | Some r -> r
+                                                | None -> System.Int32.MaxValue)
+                                            |> List.truncate max
+
+                                        return Ok ranked
         }
 
     /// Resolve a revision to a full hash (`git rev-parse --verify <rev>`). `--verify` (M13)
@@ -1423,6 +1601,9 @@ and [<Sealed>] GitAt internal (git: Git, dir: string) =
 
     /// Up to `max` commits reachable from `revspec`, newest first.
     member _.Log(revspec: string, max: int) = git.Log(dir, revspec, max)
+
+    /// Like `Log`, but scoped to commits that touched `paths`.
+    member _.LogPaths(revspec: string, max: int, paths: string list) = git.LogPaths(dir, revspec, max, paths)
 
     /// Resolve a revision to a full hash (`git rev-parse --verify <rev>`).
     member _.RevParse(rev: string) = git.RevParse(dir, rev)

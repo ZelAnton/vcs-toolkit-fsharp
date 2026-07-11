@@ -4,6 +4,7 @@ open System.Threading.Tasks
 open NUnit.Framework
 open ProcessKit
 open ProcessKit.Testing
+open VcsToolkit.CliSupport
 open VcsToolkit.GitHub
 open VcsToolkit.Diff
 
@@ -1072,4 +1073,212 @@ type VersionTests() =
             match! gh.Capabilities() with
             | Error _ -> ()
             | Ok _ -> Assert.Fail "an unrecognisable version banner must be an Error"
+        }
+
+// ---------------------------------------------------------------------------
+// GitHub Enterprise host: GitHubHost classification, host-scoped token env, and
+// the per-host `auth status --hostname` probe.
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type EnterpriseHostTests() =
+
+    // Unwrap a GitHubHost, failing the test loudly on an unexpected classification error.
+    let hostOf (name: string) : GitHubHost =
+        match GitHubHost.New name with
+        | Ok h -> h
+        | Error e ->
+            Assert.Fail $"host {name} should classify: {e}"
+            failwith "unreachable"
+
+    [<Test>]
+    member _.GitHubHostClassifiesSaasAndEnterprise() =
+        // github.com (any case) is SaaS, canonicalised to lower-case; every other valid
+        // host is a GHES host.
+        let saas = GitHubHost.GitHubCom
+        Assert.That(saas.IsGitHubCom, Is.True)
+        Assert.That(saas.IsEnterprise, Is.False)
+        Assert.That(saas.Host, Is.EqualTo "github.com")
+
+        for h in [ "github.com"; "GitHub.com"; "GITHUB.COM" ] do
+            let host = hostOf h
+            Assert.That(host.IsGitHubCom, Is.True, $"{h} should classify as SaaS")
+            Assert.That(host.Host, Is.EqualTo "github.com", "canonicalised to lower-case")
+
+        let ghes = hostOf "GHE.Example.COM"
+        Assert.That(ghes.IsEnterprise, Is.True)
+        Assert.That(ghes.Host, Is.EqualTo "ghe.example.com", "canonicalised to lower-case")
+
+    [<Test>]
+    member _.GitHubHostTokenEnvVarSelectsPerHost() =
+        // The exact per-host credential-env SELECTION — github.com reads GH_TOKEN, a GHES
+        // host reads GH_ENTERPRISE_TOKEN (the internal seam `WithHost` binds `WithTokenEnv`
+        // to). ProcessKit keeps a command's child env off the public test surface (secret
+        // hygiene), so this decision point is asserted directly rather than by reading the
+        // injected env value back off a captured command.
+        Assert.That(GitHubHost.GitHubCom.TokenEnvVar, Is.EqualTo "GH_TOKEN")
+        Assert.That((hostOf "ghe.example.com").TokenEnvVar, Is.EqualTo "GH_ENTERPRISE_TOKEN")
+
+    [<Test>]
+    member _.GitHubHostNewRejectsMalformedHosts() =
+        // A malformed host is a diagnosable error, never a silent github.com guess — so a
+        // bad host can't quietly authenticate as the SaaS default.
+        for bad in
+            [ ""
+              "  "
+              "-evil"
+              "has space"
+              "https://github.com"
+              "github.com/owner"
+              "ghe.example.com:8443"
+              "user@github.com"
+              ".leading"
+              "trailing." ] do
+            match GitHubHost.New bad with
+            | Error _ -> ()
+            | Ok h -> Assert.Fail $"\"{bad}\" must be rejected as invalid, not become {h.Host}"
+
+    [<Test>]
+    member _.GitHubHostFromRemoteUrlParsesAndClassifies() =
+        // Derive + classify the host across HTTPS / SSH / scp-like remotes, dropping any
+        // userinfo and port.
+        let cases =
+            [ "https://github.com/o/r.git", "github.com", false
+              "https://x-access-token:tok@ghe.example.com:8443/o/r", "ghe.example.com", true
+              "http://ghe.internal.corp/o/r", "ghe.internal.corp", true
+              "ssh://git@github.com/o/r", "github.com", false
+              "ssh://git@ghe.example.com:22/o/r", "ghe.example.com", true
+              "git@github.com:o/r.git", "github.com", false
+              "git@ghe.example.com:o/r.git", "ghe.example.com", true ]
+
+        for url, host, enterprise in cases do
+            match GitHubHost.OfRemoteUrl url with
+            | Ok parsed ->
+                Assert.That(parsed.Host, Is.EqualTo host, $"host for {url}")
+                Assert.That(parsed.IsEnterprise, Is.EqualTo enterprise, $"class for {url}")
+            | Error e -> Assert.Fail $"parse {url}: {e}"
+
+    [<Test>]
+    member _.GitHubHostFromRemoteUrlRejectsAmbiguous() =
+        // An unparseable / hostless / ambiguous remote is a diagnosable error, never a
+        // silent github.com fallback (which would authenticate the wrong host).
+        for url in
+            [ ""
+              "   "
+              "not-a-url"
+              "https://"
+              "ssh://"
+              "git@internalhost:repo.git"
+              "C:\\repo\\path"
+              "https://[::1]:8443/x" ] do
+            match GitHubHost.OfRemoteUrl url with
+            | Error _ -> ()
+            | Ok h -> Assert.Fail $"\"{url}\" must be a diagnosable error, not classify as {h.Host}"
+
+    [<Test>]
+    member _.AuthStatusForScopesToHostname() : Task =
+        task {
+            // `--hostname <host>` scopes the probe to one host, for both github.com and a
+            // GHES host — the exact argv is observable (unlike the injected token env).
+            let ghes, ghesArgs = capturing (Reply.Ok "")
+
+            match! ghes.AuthStatusFor(hostOf "ghe.example.com") with
+            | Ok authed ->
+                Assert.That(authed, Is.True, "a zero exit reads as authenticated")
+                assertArgs [ "auth"; "status"; "--hostname"; "ghe.example.com" ] ghesArgs
+            | Error e -> Assert.Fail $"auth status for (GHES) failed: {e}"
+
+            let saas, saasArgs = capturing (Reply.Ok "")
+
+            match! saas.AuthStatusFor GitHubHost.GitHubCom with
+            | Ok _ -> assertArgs [ "auth"; "status"; "--hostname"; "github.com" ] saasArgs
+            | Error e -> Assert.Fail $"auth status for (github.com) failed: {e}"
+        }
+
+    [<Test>]
+    member _.AuthStatusForReadsNonZeroAsUnauthenticated() : Task =
+        task {
+            // A non-zero exit for the scoped host reads as "not authenticated", never an error.
+            let gh =
+                scripted [ "auth"; "status"; "--hostname"; "ghe.example.com" ] (Reply.Exit 1)
+
+            match! gh.AuthStatusFor(hostOf "ghe.example.com") with
+            | Ok v -> Assert.That(v, Is.False)
+            | Error e -> Assert.Fail $"auth status for (exit 1) failed: {e}"
+        }
+
+    [<Test>]
+    member _.WithHostEnterpriseScopesRequestHostAndKeepsSecretOutOfArgv() : Task =
+        task {
+            // A host-keyed provider serves a per-host secret. A GHES-bound client must ask
+            // it with the BOUND host (so it draws the enterprise secret, not github.com's),
+            // and the secret must never reach argv. (The token-env VALUE isn't observable —
+            // ProcessKit keeps child env off the public test surface — so host scoping is
+            // verified through the CredentialRequest, exactly as the CliSupport suite does;
+            // the per-host env-var name is covered by GitHubHostTokenEnvVarSelectsPerHost.)
+            let seenHost = ref (None: string option option)
+
+            let provider =
+                Credentials.providerFn (fun r ->
+                    seenHost.Value <- Some r.Host
+
+                    match r.Host with
+                    | Some "ghe.example.com" -> Ok(Some(Credential.Token "ent-secret"))
+                    | Some "github.com" -> Ok(Some(Credential.Token "saas-secret"))
+                    | _ -> Ok None)
+
+            let baseGh, args = capturing (Reply.Ok "[]")
+            let gh = baseGh.WithHost(hostOf "ghe.example.com").WithCredentials provider
+
+            match! gh.PrList "." with
+            | Ok _ ->
+                Assert.That(
+                    seenHost.Value,
+                    Is.EqualTo(Some(Some "ghe.example.com")),
+                    "the bound GHES host reaches the CredentialRequest"
+                )
+
+                Assert.That(
+                    args |> Seq.exists (fun a -> a.Contains "ent-secret"),
+                    Is.False,
+                    "secret must never be in argv"
+                )
+
+                Assert.That(
+                    args |> Seq.exists (fun a -> a.Contains "saas-secret"),
+                    Is.False,
+                    "the github.com secret must never leak into a GHES command"
+                )
+            | Error e -> Assert.Fail $"pr list (GHES host) failed: {e}"
+        }
+
+    [<Test>]
+    member _.WithHostGitHubComScopesRequestHost() : Task =
+        task {
+            // The github.com binding scopes the CredentialRequest to github.com too, so a
+            // host-keyed provider draws the SaaS secret (never the enterprise one).
+            let seenHost = ref (None: string option option)
+
+            let provider =
+                Credentials.providerFn (fun r ->
+                    seenHost.Value <- Some r.Host
+                    Ok(Some(Credential.Token "saas-secret")))
+
+            let baseGh, args = capturing (Reply.Ok "[]")
+            let gh = baseGh.WithHost(GitHubHost.GitHubCom).WithCredentials provider
+
+            match! gh.PrList "." with
+            | Ok _ ->
+                Assert.That(
+                    seenHost.Value,
+                    Is.EqualTo(Some(Some "github.com")),
+                    "the bound github.com host reaches the CredentialRequest"
+                )
+
+                Assert.That(
+                    args |> Seq.exists (fun a -> a.Contains "saas-secret"),
+                    Is.False,
+                    "secret must never be in argv"
+                )
+            | Error e -> Assert.Fail $"pr list (github.com host) failed: {e}"
         }

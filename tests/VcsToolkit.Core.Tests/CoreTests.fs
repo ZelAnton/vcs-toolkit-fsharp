@@ -319,6 +319,78 @@ type DispatchTests() =
         }
 
     [<Test>]
+    member _.GitLogPathsReturnsUnifiedCommitScopedToPaths() : Task =
+        task {
+            // A git-backed path-scoped log maps git's typed commit onto the unified `Commit` DTO,
+            // author/date filled. The scripted tokens include the literal path, so a match proves
+            // the pathspec was passed.
+            let us = string (char 0x1f)
+            let nul = string (char 0)
+
+            let row = $"abc123{us}abc{us}Ada{us}2026-05-31T10:00:00+00:00{us}Add feature{nul}"
+
+            let repo = gitRepo [ "log"; "HEAD"; "--"; "src/a.fs" ] (Reply.Ok row)
+
+            match! repo.LogPaths("HEAD", 50, [ "src/a.fs" ]) with
+            | Ok commits ->
+                Assert.That(commits.Length, Is.EqualTo 1)
+                Assert.That(commits.[0].Id, Is.EqualTo "abc123")
+                Assert.That(commits.[0].Description, Is.EqualTo "Add feature")
+                Assert.That(commits.[0].Author, Is.EqualTo(Some "Ada"), "author is filled on git")
+                Assert.That(commits.[0].Date, Is.EqualTo(Some "2026-05-31T10:00:00+00:00"), "date is filled on git")
+            | Error e -> Assert.Fail $"LogPaths failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.JjLogReturnsUnifiedCommitWithNoAuthorOrDate() : Task =
+        task {
+            // A jj-backed log maps jj's typed change onto the unified `Commit` DTO — author/date are
+            // `None` (jj's typed log carries neither).
+            let repo =
+                jjRepo [ "log"; "-r"; "@" ] (Reply.Ok $"kztuxlro{tab}38e00654{tab}false{tab}feat: stuff\n")
+
+            match! repo.Log("@", 10) with
+            | Ok commits ->
+                Assert.That(commits.Length, Is.EqualTo 1)
+                Assert.That(commits.[0].Id, Is.EqualTo "38e00654", "the id is jj's commit id")
+                Assert.That(commits.[0].Description, Is.EqualTo "feat: stuff")
+                Assert.That(commits.[0].Author, Is.EqualTo(None: string option), "author is None on jj")
+                Assert.That(commits.[0].Date, Is.EqualTo(None: string option), "date is None on jj")
+            | Error e -> Assert.Fail $"Log failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.JjLogPathsScopesToFilesets() : Task =
+        task {
+            // A jj-backed path-scoped log converts the plain path to an exact-path `file:"…"`
+            // fileset; a scripted match on that token proves the conversion.
+            let repo =
+                jjRepo
+                    [ "log"; "-r"; "@"; "file:\"src/a.fs\"" ]
+                    (Reply.Ok $"kztuxlro{tab}38e00654{tab}false{tab}scoped\n")
+
+            match! repo.LogPaths("@", 10, [ "src/a.fs" ]) with
+            | Ok commits ->
+                Assert.That(commits.Length, Is.EqualTo 1)
+                Assert.That(commits.[0].Id, Is.EqualTo "38e00654")
+                Assert.That(commits.[0].Description, Is.EqualTo "scoped")
+            | Error e -> Assert.Fail $"LogPaths failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.LogPathsRefusesAnEmptyPathSet() : Task =
+        task {
+            // The empty-set guard fires before any spawn — a path-less scope would degrade to an
+            // unrestricted log on both backends, the opposite of "scoped to these paths".
+            let repo =
+                Repo.FromJj("/repo", "/repo", Jj.WithRunner(ScriptedRunner().Fallback(Reply.Ok "")))
+
+            match! repo.LogPaths("@", 5, []) with
+            | Error _ -> ()
+            | Ok _ -> Assert.Fail "an empty path set must be refused before spawning"
+        }
+
+    [<Test>]
     member _.JjTryMergeCleanRollsBack() : Task =
         task {
             // op head → new_merge → is_conflicted(false) → divergence probe → op restore. A
@@ -544,6 +616,40 @@ type AssemblyTests() =
                 Assert.That(w1.Branch, Is.EqualTo None, "no bookmark → None")
             | Ok other -> Assert.Fail $"expected two worktrees, got {other.Length}"
             | Error e -> Assert.Fail $"list worktrees failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.JjHeadAndWorktreeCommitAreTheSameFullId() : Task =
+        task {
+            // For one commit, `RepoSnapshot.Head` and `WorktreeInfo.Commit` are the SAME
+            // full commit id: the WORKSPACE_TEMPLATE now renders `target.commit_id()` (full,
+            // not `.short()`), matching the snapshot template's full head, so the two
+            // identities compare directly instead of a full-vs-short mismatch (T-014).
+            let full = "abcdef0123456789abcdef0123456789abcdef01" // 40 hex chars
+
+            let runner =
+                ScriptedRunner()
+                    // Snapshot spawn 1: head/empty/conflict for `@` (empty="1" ⇒ clean, so
+                    // the change-count spawn is skipped).
+                    .On([ "log"; "-r"; "@"; "--limit"; "1" ], Reply.Ok $"{full}\t1\t0\n")
+                    // Snapshot spawn 2: the nearest reachable bookmark → branch.
+                    .On([ "log"; "heads(::@ & bookmarks())" ], Reply.Ok "main\txyz\n")
+                    // ListWorktrees: one workspace on that SAME full commit, then its root.
+                    .On([ "workspace"; "list" ], Reply.Ok $"\"default\"\t{full}\t\"main\"\n")
+                    .On([ "workspace"; "root"; "--name"; "default" ], Reply.Ok "/repo\n")
+
+            let repo = Repo.FromJj("/repo", "/repo", Jj.WithRunner runner)
+
+            let! snap = repo.Snapshot()
+            let! worktrees = repo.ListWorktrees()
+
+            match snap, worktrees with
+            | Ok s, Ok [ w0 ] ->
+                Assert.That(s.Head, Is.EqualTo(Some full))
+                Assert.That(w0.Commit, Is.EqualTo(Some full))
+                Assert.That(s.Head, Is.EqualTo w0.Commit, "Head and WorktreeInfo.Commit are one identity")
+                Assert.That(full.Length, Is.EqualTo 40, "a full commit id, not a short prefix")
+            | _ -> Assert.Fail $"snapshot={snap}, worktrees={worktrees}"
         }
 
     [<Test>]

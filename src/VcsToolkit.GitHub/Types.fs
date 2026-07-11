@@ -53,6 +53,163 @@ module internal Constants =
     [<Literal>]
     let RELEASE_VIEW_FIELDS = "tagName,name,body,url,publishedAt,isDraft,isPrerelease"
 
+/// Host-classification helpers for `GitHubHost`. Kept local to this crate (the Forge
+/// facade sits *above* GitHub in the dependency stack, so its `OfRemoteUrl` classifier
+/// can't be reused here); this is the gh-specific port of the Rust `host_from_remote_url`
+/// / `validate_host` pair, which is stricter than Forge's SaaS-only classifier (any
+/// valid dotted host is a GHES host, and an ambiguous remote is an error, not `None`).
+[<AutoOpen>]
+module private HostClassify =
+
+    /// Fold ASCII `A`–`Z` to lower case only (matching Rust `to_ascii_lowercase`): a
+    /// full-Unicode fold could map a non-ASCII character onto an ASCII letter and help
+    /// spoof a trusted host, so canonicalise a hostname with an ASCII-only fold.
+    let asciiLower (s: string) : string =
+        s |> String.map (fun c -> if c >= 'A' && c <= 'Z' then char (int c + 32) else c)
+
+    /// A DNS-host character: ASCII letter/digit, `.`, or `-` (matching Rust
+    /// `is_ascii_alphanumeric() || '.' || '-'`).
+    let inline private isHostChar (c: char) =
+        (c >= '0' && c <= '9')
+        || (c >= 'a' && c <= 'z')
+        || (c >= 'A' && c <= 'Z')
+        || c = '.'
+        || c = '-'
+
+    /// The `Spawn` error the crate raises for a rejected host value — the same shape
+    /// `rejectFlagLike` uses for a refused positional, naming the bad host and why.
+    let invalidHostError (value: string) (reason: string) : ProcessError =
+        ProcessError.Spawn(BINARY, sprintf "GitHub host \"%s\": %s" value reason)
+
+    /// Validate a bare gh hostname, returning it **lower-cased** (its canonical form —
+    /// hostnames are case-insensitive and `gh` stores them lower-cased). A host must be
+    /// a non-empty DNS-style name (ASCII letters/digits/`.`/`-`), not start with `-`/`.`
+    /// nor end with `.`, and carry no scheme, path, port, userinfo, or whitespace.
+    /// Anything else is refused — `gh` would misread it, or it is not a host at all.
+    let validateHost (host: string) : Result<string, ProcessError> =
+        let trimmed = host.Trim()
+
+        let wellFormed =
+            trimmed <> ""
+            && not (trimmed.StartsWith('-'))
+            && not (trimmed.StartsWith('.'))
+            && not (trimmed.EndsWith('.'))
+            && trimmed |> Seq.forall isHostChar
+
+        if wellFormed then
+            Ok(asciiLower trimmed)
+        else
+            Error(invalidHostError host "not a valid GitHub hostname")
+
+    /// Extract the hostname from a repository remote URL (HTTPS / SSH / scp-like),
+    /// dropping any userinfo and port. Returns `None` when no unambiguous host is present
+    /// — an IPv6-literal authority (`[::1]`) and a bare single-label scp authority
+    /// (indistinguishable from a Windows drive path) included — so `GitHubHost.OfRemoteUrl`
+    /// surfaces a diagnosable error rather than defaulting to github.com. A GitHub host is
+    /// a dotted DNS name.
+    let hostFromRemoteUrl (url: string) : string option =
+        let url = url.Trim()
+
+        if url = "" then
+            None
+        else
+            match url.IndexOf("://", System.StringComparison.Ordinal) with
+            | i when i >= 0 ->
+                // scheme://[user@]host[:port]/…  — the authority ends at the first
+                // `/`/`?`/`#`; drop any `user:pass@` userinfo, then a trailing `:port`.
+                let rest = url.Substring(i + 3)
+                let authority = rest.Split([| '/'; '?'; '#' |]).[0]
+
+                let hostPort =
+                    match authority.LastIndexOf('@') with
+                    | j when j >= 0 -> authority.Substring(j + 1)
+                    | _ -> authority
+
+                // Refuse an IPv6-literal authority (`[::1]`): a GitHub host is never a
+                // bracketed literal, and gh names hosts without a port.
+                if hostPort = "" || hostPort.StartsWith('[') then
+                    None
+                else
+                    match hostPort.Split(':').[0] with
+                    | "" -> None
+                    | h -> Some h
+            | _ ->
+                // scp-like SSH `[user@]host:path` (no scheme): the host ends at the first `:`.
+                match url.IndexOf(':') with
+                | j when j >= 0 ->
+                    let authority = url.Substring(0, j)
+
+                    let host =
+                        match authority.LastIndexOf('@') with
+                        | k when k >= 0 -> authority.Substring(k + 1)
+                        | _ -> authority
+
+                    // Require a dotted host so a Windows drive path (`C:\…`) or a bare
+                    // single-label authority isn't misread as a remote host — those are
+                    // ambiguous, and the caller gets a diagnosable error, not a guess.
+                    if host.Contains('.') && not (host.Contains('/')) && not (host.Contains('\\')) then
+                        Some host
+                    else
+                        None
+                | _ -> None
+
+/// The GitHub host an operation targets: SaaS `github.com` or a **GitHub Enterprise
+/// Server** (GHES) host. `gh` reads a supplied credential from a different environment
+/// variable per host — `GH_TOKEN` for github.com, `GH_ENTERPRISE_TOKEN` for a GHES host
+/// — and its `auth status` can be scoped to a single host, so this type carries the
+/// target host: the client injects a credential into the variable `gh` actually reads
+/// for it (`GitHub.WithHost`) and can probe auth for exactly that host
+/// (`GitHub.AuthStatusFor`).
+///
+/// Build it for github.com (`GitHubHost.GitHubCom`), from a bare hostname
+/// (`GitHubHost.New`), or from a repository's remote URL (`GitHubHost.OfRemoteUrl`). A
+/// host that cannot be determined is an **error**, never a silent fall back to
+/// github.com — so an ambiguous or unknown host is a diagnosable result at the call site
+/// rather than a quiet authentication against the wrong host with the github.com token.
+[<Sealed>]
+type GitHubHost private (host: string, enterprise: bool) =
+
+    /// The SaaS GitHub hostname (`github.com`).
+    static member SaasHost = "github.com"
+
+    /// The SaaS github.com host — a supplied credential is injected as `GH_TOKEN`.
+    static member GitHubCom = GitHubHost(GitHubHost.SaasHost, false)
+
+    /// Classify a bare `host`: `github.com` (case-insensitive) is SaaS; any other valid
+    /// hostname is a GitHub Enterprise Server host (its credential goes to
+    /// `GH_ENTERPRISE_TOKEN`). An empty, flag-like, or malformed host (a scheme, path,
+    /// port, userinfo, or whitespace) is an error rather than a github.com guess.
+    static member New(host: string) : Result<GitHubHost, ProcessError> =
+        match validateHost host with
+        | Error e -> Error e
+        | Ok canonical -> Ok(GitHubHost(canonical, canonical <> GitHubHost.SaasHost))
+
+    /// Derive the host from a repository **remote URL** and classify it. Handles
+    /// `scheme://[user@]host[:port]/…` (HTTPS/SSH/…) and the scp-like `[user@]host:path`
+    /// SSH form; any userinfo and port are dropped. A remote whose host can't be
+    /// determined (unparseable, hostless, or ambiguous — an IPv6 literal, a bare
+    /// single-label scp authority, a local path) is an **error**, not a silent github.com
+    /// fallback, so the caller can surface an ambiguous remote as a diagnosable result.
+    static member OfRemoteUrl(url: string) : Result<GitHubHost, ProcessError> =
+        match hostFromRemoteUrl url with
+        | Some h -> GitHubHost.New h
+        | None -> Error(invalidHostError url "no GitHub host could be determined from the remote URL")
+
+    /// The canonical (lower-cased) hostname (`github.com`, `ghe.example.com`).
+    member _.Host = host
+
+    /// Whether this is a GitHub Enterprise Server host (anything but github.com).
+    member _.IsEnterprise = enterprise
+
+    /// Whether this is SaaS github.com.
+    member _.IsGitHubCom = not enterprise
+
+    /// The environment variable `gh` reads for a credential on this host — `GH_TOKEN`
+    /// for github.com, `GH_ENTERPRISE_TOKEN` for a GHES host. Seeds the client's
+    /// token-env binding in `GitHub.WithHost`.
+    member internal _.TokenEnvVar =
+        if enterprise then "GH_ENTERPRISE_TOKEN" else "GH_TOKEN"
+
 /// How `prMerge` merges the PR — exactly one of gh's mutually exclusive strategy flags.
 [<RequireQualifiedAccess>]
 type MergeStrategy =

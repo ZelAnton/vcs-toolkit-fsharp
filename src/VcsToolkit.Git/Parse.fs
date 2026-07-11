@@ -301,6 +301,12 @@ module internal GitParse =
                 None)
         |> Array.toList
 
+    /// Parse a NUL-delimited `git log -z --format=%H` hash list into git's own commit order
+    /// for the queried revspec — the ranking oracle that restores order across `LogPaths`'s
+    /// merged chunk results. Same framing as `parseNulPaths`, kept distinct for its role.
+    let parseCommitOrder (output: string) : string list =
+        output.Split nul |> Array.filter (fun r -> r <> "") |> Array.toList
+
     /// Parse `git branch` output. The first column is the `* `/`  `/`+ ` marker.
     let parseBranches (output: string) : Branch list =
         linesOf output

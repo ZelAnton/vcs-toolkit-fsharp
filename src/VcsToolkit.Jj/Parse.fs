@@ -21,7 +21,10 @@ type Bookmark =
     {
         /// Bookmark name.
         Name: string
-        /// Short id of the commit it points at.
+        /// **Full** commit id it points at — a stable identity that cross-references
+        /// against a `RepoSnapshot.Head` / git oid, not a display-truncated prefix.
+        /// Empty when the bookmark has no single normal target (a conflicted bookmark,
+        /// which is still *present*).
         Target: string
     }
 
@@ -32,7 +35,8 @@ type BookmarkRef =
         Name: string
         /// The remote it lives on (e.g. `origin`/`git`); `None` for a local bookmark.
         Remote: string option
-        /// Short id of the commit it points at (empty for a conflicted bookmark).
+        /// **Full** commit id it points at (empty for a conflicted bookmark) — a stable
+        /// cross-referenceable identity, not a display-truncated prefix.
         Target: string
         /// Whether this remote-tracking bookmark is tracked (`false` for locals).
         Tracked: bool
@@ -43,7 +47,9 @@ type Workspace =
     {
         /// Workspace name (`default` for the main one).
         Name: string
-        /// Short commit id of the workspace's working-copy commit.
+        /// **Full** commit id of the workspace's working-copy commit — the identity the
+        /// facade's `WorktreeInfo.Commit` carries so it compares directly against a
+        /// `RepoSnapshot.Head`; not a display-truncated prefix.
         Commit: string
         /// Local bookmarks pointing at that commit (empty when none).
         Bookmarks: string list
@@ -98,28 +104,59 @@ module internal JjParse =
     // are passed verbatim to jj (its template language interprets them), so they
     // are written as `\"\\t\"` — a quote, a backslash, a `t`, a quote — exactly as
     // the Rust source spells them.
+    //
+    // Machine-template framing/escaping contract. The identity templates below
+    // (WORKSPACE / BOOKMARK_ALL / BOOKMARK_LIST / REACHABLE_BOOKMARKS) render into a
+    // byte stream we parse back into typed rows, so the framing has to stay
+    // *unambiguous* even for exotic free text — a git-imported bookmark name can carry
+    // a comma; a workspace name a tab/newline. The contract these templates obey:
+    //
+    //   * Rows are separated by a literal `\n`; fields within a row by a literal `\t`.
+    //   * A field holding arbitrary user text (a bookmark/workspace *name*) is rendered
+    //     through jj's `.escape_json()` — a standard JSON string literal (`"…"` with
+    //     `\t`/`\n`/`\r`/`\"`/`\\`/`\uXXXX` escapes; raw UTF-8 otherwise, verified on jj
+    //     0.42). An escaped field can never contain a literal `\t`/`\n`, so the framing
+    //     stays unambiguous and `decodeJsonField` recovers the exact original.
+    //   * A *list* field (a commit's/workspace's local bookmark names) is the
+    //     `.escape_json()` of each element joined by a single space. Bookmark names can
+    //     never hold a space (a git-ref rule jj enforces), so the space-joined JSON
+    //     strings split back apart cleanly (`decodeNameList`).
+    //   * Structurally-constrained fields — hex ids, `0`/`1` and `true`/`false` flags, a
+    //     remote name (no whitespace by git-ref rule) — are rendered raw; they cannot
+    //     contain a separator.
+    //
+    // Identity/cross-reference commit ids on these templates carry the *full* id (not
+    // `.short()`) so they can be matched against a git oid / `RepoSnapshot.Head` without a
+    // short-prefix collision. The history-display CHANGE_TEMPLATE/EVOLOG_TEMPLATE rows (a
+    // display abbreviation, never a cross-reference key) are a deliberately separate
+    // concern and keep their short ids / raw description.
 
     /// Template used by the change commands: tab-separated, one change per line.
     let CHANGE_TEMPLATE =
         "change_id.short() ++ \"\\t\" ++ commit_id.short() ++ \"\\t\" ++ if(empty, \"true\", \"false\") ++ \"\\t\" ++ description.first_line() ++ \"\\n\""
 
-    /// `jj workspace list -T` template: `name\t<commit>\t<bookmarks,comma-joined>`.
+    /// `jj workspace list -T` template: `"<name>"\t<full-commit>\t<bookmarks>`, where the
+    /// name is `.escape_json()`-framed (a workspace name may hold a tab/newline), the commit
+    /// is the **full** id (identity — see the framing contract), and the bookmarks are the
+    /// space-joined `.escape_json()` of each local bookmark name.
     let WORKSPACE_TEMPLATE =
-        "name ++ \"\\t\" ++ target.commit_id().short() ++ \"\\t\" ++ target.local_bookmarks().map(|b| b.name()).join(\",\") ++ \"\\n\""
+        "name.escape_json() ++ \"\\t\" ++ target.commit_id() ++ \"\\t\" ++ target.local_bookmarks().map(|b| b.name().escape_json()).join(\" \") ++ \"\\n\""
 
     /// `jj log -T` template rendering a commit's local bookmark names, comma-joined.
     /// Drives `currentBookmark`/`trunk`.
     let BOOKMARKS_TEMPLATE = "local_bookmarks.map(|b| b.name()).join(\",\")"
 
-    /// `jj bookmark list -a -T` template: `name\t<remote>\t<tracked 1/0>\t<commit>`,
-    /// one row per local *and* remote-tracking bookmark.
+    /// `jj bookmark list -a -T` template: `"<name>"\t<remote>\t<tracked 1/0>\t<full-commit>`,
+    /// one row per local *and* remote-tracking bookmark. The name is `.escape_json()`-framed;
+    /// `remote` is raw (a remote name carries no whitespace) and the commit is the **full** id.
     let BOOKMARK_ALL_TEMPLATE =
-        "name ++ \"\\t\" ++ remote ++ \"\\t\" ++ if(tracked, \"1\", \"0\") ++ \"\\t\" ++ if(normal_target, normal_target.commit_id().short(), \"\") ++ \"\\n\""
+        "name.escape_json() ++ \"\\t\" ++ remote ++ \"\\t\" ++ if(tracked, \"1\", \"0\") ++ \"\\t\" ++ if(normal_target, normal_target.commit_id(), \"\") ++ \"\\n\""
 
     /// `jj bookmark list -T` template (no `-a`, so local bookmarks only):
-    /// `name\t<commit>`, one row per local bookmark.
+    /// `"<name>"\t<full-commit>`, one row per local bookmark. The name is
+    /// `.escape_json()`-framed and the commit is the **full** id (identity).
     let BOOKMARK_LIST_TEMPLATE =
-        "name ++ \"\\t\" ++ if(normal_target, normal_target.commit_id().short(), \"\") ++ \"\\n\""
+        "name.escape_json() ++ \"\\t\" ++ if(normal_target, normal_target.commit_id(), \"\") ++ \"\\n\""
 
     /// `jj log -T` template: `"1"` when the commit has a conflict, else `"0"`.
     let CONFLICT_TEMPLATE = "if(conflict, \"1\", \"0\")"
@@ -128,10 +165,11 @@ module internal JjParse =
     let COUNT_TEMPLATE = "commit_id.short() ++ \"\\n\""
 
     /// `jj log -T` template for `reachableBookmarks`: the commit's local bookmark
-    /// names (space-joined; jj names can't contain spaces) then a tab then the short
-    /// commit id.
+    /// names as space-joined `.escape_json()` strings (a name can't contain a space,
+    /// so the join stays reversible even for a comma/quote-carrying name), then a tab,
+    /// then the **full** commit id (identity — see the framing contract).
     let REACHABLE_BOOKMARKS_TEMPLATE =
-        "local_bookmarks.map(|b| b.name()).join(\" \") ++ \"\\t\" ++ commit_id.short() ++ \"\\n\""
+        "local_bookmarks.map(|b| b.name().escape_json()).join(\" \") ++ \"\\t\" ++ commit_id ++ \"\\n\""
 
     /// `jj evolog -T` template. Evolog renders in a *commit* context where the bare
     /// keywords (`change_id`, …) don't exist — the `commit.` method form is required.
@@ -182,6 +220,88 @@ module internal JjParse =
             0UL
 
     let private normalize (p: string) = p.Replace(char 92, '/')
+
+    /// Hex digit → its 0-15 value, or `-1` for a non-hex char (total; drives the
+    /// `\uXXXX` branch of `decodeJsonField`).
+    let private hexVal (c: char) : int =
+        if c >= '0' && c <= '9' then int c - int '0'
+        elif c >= 'a' && c <= 'f' then int c - int 'a' + 10
+        elif c >= 'A' && c <= 'F' then int c - int 'A' + 10
+        else -1
+
+    /// Decode a single JSON string literal as emitted by a jj template's
+    /// `.escape_json()` — e.g. `"a\tb"` → `a⇥b`, `"co,mma"` → `co,mma`. The inverse of
+    /// the machine-template framing contract's per-field escaping.
+    ///
+    /// Lenient by design (these parsers must never throw on unexpected jj output): a
+    /// field that is *not* a `"…"` literal is returned verbatim (so a hex id, a flag, or
+    /// a legacy raw field passes through unchanged), and a truncated or malformed escape
+    /// simply stops decoding rather than erroring. Only the escapes jj's `escape_json`
+    /// actually emits are recognised (`\" \\ \/ \b \f \n \r \t \uXXXX`); any other
+    /// backslash pair yields its second char.
+    let private decodeJsonField (field: string) : string =
+        // A JSON string starts with a quote; anything else is returned as-is.
+        if field.Length = 0 || field.[0] <> '"' then
+            field
+        else
+            let sb = System.Text.StringBuilder(field.Length)
+            let mutable i = 1
+            let mutable stop = false
+
+            while not stop && i < field.Length do
+                match field.[i] with
+                | '"' ->
+                    // Closing quote — ignore any trailing bytes.
+                    stop <- true
+                | '\\' when i + 1 >= field.Length ->
+                    // A trailing lone backslash: stop rather than emit a dangling escape.
+                    stop <- true
+                | '\\' ->
+                    (match field.[i + 1] with
+                     | '"' -> sb.Append('"') |> ignore
+                     | '\\' -> sb.Append('\\') |> ignore
+                     | '/' -> sb.Append('/') |> ignore
+                     | 'b' -> sb.Append('\b') |> ignore
+                     | 'f' -> sb.Append('\f') |> ignore
+                     | 'n' -> sb.Append('\n') |> ignore
+                     | 'r' -> sb.Append('\r') |> ignore
+                     | 't' -> sb.Append('\t') |> ignore
+                     | 'u' ->
+                         // `\uXXXX` — up to four hex digits. jj only escapes control chars
+                         // this way, so the BMP scalar always builds a single char.
+                         let mutable code = 0
+                         let mutable k = 0
+                         let mutable go = true
+
+                         while go && k < 4 && i + 2 + k < field.Length do
+                             match hexVal field.[i + 2 + k] with
+                             | -1 -> go <- false
+                             | d ->
+                                 code <- code * 16 + d
+                                 k <- k + 1
+
+                         sb.Append(char code) |> ignore
+                         // Skip the hex digits consumed (the `\u` pair is skipped below).
+                         i <- i + k
+                     | other -> sb.Append(other) |> ignore)
+
+                    // Skip the escaped char (the leading backslash is skipped below).
+                    i <- i + 1
+                | other -> sb.Append(other) |> ignore
+
+                i <- i + 1
+
+            sb.ToString()
+
+    /// Decode a space-joined list of `.escape_json()` names (the framing contract's list
+    /// field) back into the individual names. Splitting on the space is exact — a
+    /// bookmark name can never contain one (a git-ref rule jj enforces) — so each token
+    /// is one whole JSON string literal.
+    let private decodeNameList (field: string) : string list =
+        field.Split(' ')
+        |> Array.filter (fun tok -> tok <> "")
+        |> Array.map decodeJsonField
+        |> Array.toList
 
     // --- Version -------------------------------------------------------------
 
@@ -251,8 +371,11 @@ module internal JjParse =
 
     // --- Bookmarks -----------------------------------------------------------
 
-    /// Parse rows produced by `BOOKMARK_LIST_TEMPLATE`: `name\t<commit>`, one row per
-    /// local bookmark. A row with an empty name contributes nothing.
+    /// Parse rows produced by `BOOKMARK_LIST_TEMPLATE`: `"<name>"\t<full-commit>`, one
+    /// row per local bookmark. The name is `.escape_json()`-framed (so a tab/comma/quote
+    /// in it round-trips via `decodeJsonField`); a row whose decoded name is empty
+    /// contributes nothing. `decodeJsonField` passes a non-quoted field through verbatim,
+    /// so a raw/legacy name still parses.
     let parseBookmarks (output: string) : Bookmark list =
         lines output
         |> List.choose (fun line ->
@@ -260,18 +383,19 @@ module internal JjParse =
                 None
             else
                 let f = line.Split('\t')
-                let name = f.[0].Trim()
+                let name = decodeJsonField f.[0]
 
                 if name = "" then
                     None
                 else
                     Some
                         { Name = name
-                          Target = (if f.Length >= 2 then f.[1].Trim() else "") })
+                          Target = (if f.Length >= 2 then f.[1] else "") })
 
     /// Parse rows produced by `BOOKMARK_ALL_TEMPLATE`:
-    /// `name\t<remote>\t<tracked 1/0>\t<commit>` per local/remote bookmark. A row
-    /// whose name field is empty contributes nothing.
+    /// `"<name>"\t<remote>\t<tracked 1/0>\t<full-commit>` per local/remote bookmark. The
+    /// name is `.escape_json()`-framed and decoded here (a non-quoted raw/legacy name
+    /// passes through); a row whose decoded name is empty contributes nothing.
     let parseBookmarksAll (output: string) : BookmarkRef list =
         lines output
         |> List.choose (fun line ->
@@ -279,7 +403,7 @@ module internal JjParse =
                 None
             else
                 let f = line.Split('\t')
-                let name = f.[0].Trim()
+                let name = decodeJsonField f.[0]
 
                 if name = "" then
                     None
@@ -292,9 +416,10 @@ module internal JjParse =
                           Tracked = (f.Length >= 3 && f.[2] = "1")
                           Target = (if f.Length >= 4 then f.[3] else "") })
 
-    /// Parse rows produced by `REACHABLE_BOOKMARKS_TEMPLATE`: `<name>[ <name>…]\t<commit>`.
-    /// A commit with several bookmarks yields one `Bookmark` per name, all sharing
-    /// that commit as the target. A row with no bookmark names contributes nothing.
+    /// Parse rows produced by `REACHABLE_BOOKMARKS_TEMPLATE`:
+    /// `"<name>"[ "<name>"…]\t<full-commit>` (names `.escape_json()`-framed). A commit
+    /// with several bookmarks yields one `Bookmark` per name, all sharing that commit as
+    /// the target. A row with no bookmark names (empty first field) contributes nothing.
     let parseReachableBookmarks (output: string) : Bookmark list =
         [ for line in lines output do
               if line <> "" then
@@ -302,7 +427,7 @@ module internal JjParse =
                   let names = f.[0]
                   let target = if f.Length >= 2 then f.[1] else ""
 
-                  for name in names.Split([| ' '; '\t'; '\r'; '\n' |], StringSplitOptions.RemoveEmptyEntries) do
+                  for name in decodeNameList names do
                       yield { Name = name; Target = target } ]
 
     // --- Resolve / workspaces ------------------------------------------------
@@ -318,8 +443,10 @@ module internal JjParse =
 
             if path = "" then None else Some(path.Replace(char 92, '/')))
 
-    /// Parse rows produced by `WORKSPACE_TEMPLATE`: `name\t<commit>\t<bookmarks>`,
-    /// where bookmarks are comma-joined (and may be empty).
+    /// Parse rows produced by `WORKSPACE_TEMPLATE`:
+    /// `"<name>"\t<full-commit>\t<bookmarks>`, where the name is `.escape_json()`-framed
+    /// (so a name holding a tab/newline still splits on the column separators and round-
+    /// trips) and the bookmarks are space-joined `.escape_json()` names (and may be empty).
     let parseWorkspaces (output: string) : Workspace list =
         lines output
         |> List.choose (fun line ->
@@ -327,15 +454,10 @@ module internal JjParse =
                 None
             else
                 let f = line.Split('\t')
-
-                let bookmarks =
-                    if f.Length >= 3 then
-                        f.[2].Split(',') |> Array.filter (fun s -> s <> "") |> Array.toList
-                    else
-                        []
+                let bookmarks = if f.Length >= 3 then decodeNameList f.[2] else []
 
                 Some
-                    { Name = f.[0]
+                    { Name = decodeJsonField f.[0]
                       Commit = (if f.Length >= 2 then f.[1] else "")
                       Bookmarks = bookmarks })
 
