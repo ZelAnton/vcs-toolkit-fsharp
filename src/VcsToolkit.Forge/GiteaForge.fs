@@ -27,7 +27,11 @@ module internal GiteaForge =
           TargetBranch = pr.BaseBranch
           Url = pr.Url
           // tea's lean PR surface has no draft column → unreported, None.
-          Draft = None }
+          Draft = None
+          // tea's PR list/view has no labels/assignees columns → the honest answer is
+          // "unknown" (None), never a false empty `Some []`.
+          Labels = None
+          Assignees = None }
 
     let private mapIssue (i: VcsToolkit.Gitea.Issue) : ForgeIssue =
         { Number = i.Number
@@ -38,7 +42,10 @@ module internal GiteaForge =
             else
                 ForgeIssueState.Open
           Body = i.Body
-          Url = i.Url }
+          Url = i.Url
+          // tea's issue surface has no labels/assignees columns → None (unknown), not [].
+          Labels = None
+          Assignees = None }
 
     let private mapRelease (r: VcsToolkit.Gitea.Release) : ForgeRelease =
         { Tag = r.Tag

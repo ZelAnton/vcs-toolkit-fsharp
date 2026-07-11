@@ -31,14 +31,22 @@ module internal GitHubForge =
           Url = pr.Url
           // gh's lean `--json` fields don't include `isDraft`, so the draft state is
           // unreported here → None (not a confirmed `Some false`).
-          Draft = None }
+          Draft = None
+          // gh returns labels/assignees when requested (both are in `PR_FIELDS`), so these
+          // are confirmed values — an empty list is a confirmed "none", never unknown.
+          Labels = Some pr.Labels
+          Assignees = Some pr.Assignees }
 
     let private mapIssue (i: VcsToolkit.GitHub.Issue) : ForgeIssue =
         { Number = i.Number
           Title = i.Title
           State = issueStateOf i.State
           Body = i.Body
-          Url = i.Url }
+          Url = i.Url
+          // gh returns labels/assignees on issues too (both are in `ISSUE_*_FIELDS`) →
+          // confirmed values, never unknown.
+          Labels = Some i.Labels
+          Assignees = Some i.Assignees }
 
     let private mapRelease (r: VcsToolkit.GitHub.Release) : ForgeRelease =
         { Tag = r.TagName

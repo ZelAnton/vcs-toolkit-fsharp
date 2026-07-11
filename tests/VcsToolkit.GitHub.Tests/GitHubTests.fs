@@ -5,6 +5,7 @@ open NUnit.Framework
 open ProcessKit
 open ProcessKit.Testing
 open VcsToolkit.GitHub
+open VcsToolkit.Diff
 
 let private scripted (tokens: string list) (reply: Reply) =
     GitHub.WithRunner(ScriptedRunner().On(tokens, reply))
@@ -357,6 +358,30 @@ type ClientTests() =
             match! gh.PrView(".", 42UL) with
             | Ok pr -> Assert.That(pr.Number, Is.EqualTo 42UL)
             | Error e -> Assert.Fail $"pr view failed: {e}"
+        }
+
+    [<Test>]
+    member _.PrDiffParsesUnifiedDiffIntoFileDiffs() : Task =
+        task {
+            let raw =
+                "diff --git a/foo.txt b/foo.txt\n"
+                + "index e69de29..4b825dc 100644\n"
+                + "--- a/foo.txt\n"
+                + "+++ b/foo.txt\n"
+                + "@@ -1,1 +1,2 @@\n"
+                + " unchanged\n"
+                + "+added line\n"
+
+            let gh = scripted [ "pr"; "diff"; "42" ] (Reply.Ok raw)
+
+            match! gh.PrDiff(".", 42UL) with
+            | Ok [ file ] ->
+                Assert.That(file.Path, Is.EqualTo "foo.txt")
+                Assert.That(file.Change, Is.EqualTo ChangeKind.Modified)
+                Assert.That(file.Hunks.Length, Is.EqualTo 1)
+                Assert.That(file.Hunks.[0].Lines = [ DiffLine.Context "unchanged"; DiffLine.Added "added line" ])
+            | Ok other -> Assert.Fail $"expected one file diff, got {other.Length}"
+            | Error e -> Assert.Fail $"pr diff failed: {e}"
         }
 
     [<Test>]
@@ -784,7 +809,14 @@ type HardeningTests() =
             let json = """[{"number":3,"title":"Docs","state":"OPEN","body":"","url":""}]"""
 
             let gh =
-                scripted [ "issue"; "list"; "--limit"; "100"; "--json"; "number,title,state,body,url" ] (Reply.Ok json)
+                scripted
+                    [ "issue"
+                      "list"
+                      "--limit"
+                      "100"
+                      "--json"
+                      "number,title,state,body,url,labels,assignees" ]
+                    (Reply.Ok json)
 
             match! gh.IssueList "." with
             | Ok [ issue ] -> Assert.That(issue.Number, Is.EqualTo 3UL)
@@ -828,7 +860,7 @@ type HardeningTests() =
                       "--limit"
                       "100"
                       "--json"
-                      "number,title,state,headRefName,baseRefName,url" ]
+                      "number,title,state,headRefName,baseRefName,url,labels,assignees" ]
                     (Reply.Ok json)
 
             match! gh.PrList "." with

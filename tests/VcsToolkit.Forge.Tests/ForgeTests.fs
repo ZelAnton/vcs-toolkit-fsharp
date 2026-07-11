@@ -5,6 +5,7 @@ open NUnit.Framework
 open ProcessKit
 open ProcessKit.Testing
 open VcsToolkit.Forge
+open VcsToolkit.Diff
 
 // Forge handles over a scripted runner, per backend.
 let private ghForge (tokens: string list) (reply: Reply) =
@@ -351,6 +352,47 @@ type DispatchTests() =
         }
 
     [<Test>]
+    member _.PrDiffDispatchesToTheUnderlyingClientAndParsesFileDiffs() : Task =
+        task {
+            let raw =
+                "diff --git a/foo.txt b/foo.txt\n--- a/foo.txt\n+++ b/foo.txt\n@@ -1,1 +1,2 @@\n unchanged\n+added\n"
+
+            let gh = ghForge [ "pr"; "diff"; "1" ] (Reply.Ok raw)
+
+            match! gh.PrDiff 1UL with
+            | Ok [ file ] ->
+                Assert.That(file.Path, Is.EqualTo "foo.txt")
+                Assert.That(file.Change, Is.EqualTo ChangeKind.Modified)
+            | Ok other -> Assert.Fail $"expected one file diff, got {other.Length}"
+            | Error e -> Assert.Fail $"gh pr diff failed: {e.Message}"
+
+            let gl = glForge [ "mr"; "diff"; "1" ] (Reply.Ok raw)
+
+            match! gl.PrDiff 1UL with
+            | Ok [ file ] ->
+                Assert.That(file.Path, Is.EqualTo "foo.txt")
+                Assert.That(file.Change, Is.EqualTo ChangeKind.Modified)
+            | Ok other -> Assert.Fail $"expected one file diff, got {other.Length}"
+            | Error e -> Assert.Fail $"glab mr diff failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.PrDiffIsUnsupportedOnGiteaAndUnknownWithoutSpawning() : Task =
+        task {
+            let tea = Forge.FromGitea(".", VcsToolkit.Gitea.Gitea.WithRunner(ScriptedRunner()))
+
+            match! tea.PrDiff 1UL with
+            | Error e -> Assert.That(e.IsUnsupported, Is.True, "Gitea prDiff must be Unsupported without spawning")
+            | Ok _ -> Assert.Fail "Gitea prDiff must be Unsupported"
+
+            let unknown = Forge.FromUnknown "."
+
+            match! unknown.PrDiff 1UL with
+            | Error e -> Assert.That(e.IsUnsupported, Is.True, "Unknown prDiff must be Unsupported")
+            | Ok _ -> Assert.Fail "Unknown prDiff must be Unsupported"
+        }
+
+    [<Test>]
     member _.PrCommentRejectsEmptyBody() : Task =
         task {
             let forge =
@@ -625,6 +667,171 @@ type OptionalFieldTests() =
                 Assert.That(rel.Draft, Is.EqualTo(Some false), "status prerelease → draft confirmed Some false")
             | Ok other -> Assert.Fail $"expected one release, got {other.Length}"
             | Error e -> Assert.Fail $"release list failed: {e.Message}"
+        }
+
+    // --- ForgePr/ForgeIssue Labels & Assignees — Some on GitHub/GitLab, None on Gitea ---
+
+    [<Test>]
+    member _.GitHubPrLabelsAndAssigneesAreConfirmed() : Task =
+        task {
+            // gh returns labels/assignees as arrays of objects (`[{"name": …}]`,
+            // `[{"login": …}]`); the wrapper flattens them and reports a confirmed Some.
+            let json =
+                """[{"number":1,"title":"t","state":"OPEN","headRefName":"f","baseRefName":"main","url":"u","labels":[{"name":"bug"},{"name":"p1"}],"assignees":[{"login":"octocat"}]}]"""
+
+            let forge = ghForge [ "pr"; "list"; "--json" ] (Reply.Ok json)
+
+            match! forge.PrList() with
+            | Ok [ pr ] ->
+                Assert.That(pr.Labels, Is.EqualTo(Some [ "bug"; "p1" ]), "gh labels flattened from name → Some")
+                Assert.That(pr.Assignees, Is.EqualTo(Some [ "octocat" ]), "gh assignees flattened from login → Some")
+            | Ok other -> Assert.Fail $"expected one PR, got {other.Length}"
+            | Error e -> Assert.Fail $"pr list failed: {e.Message}"
+
+            // An empty labels/assignees array is a *confirmed* "none" → Some [], not None.
+            let emptyJson =
+                """[{"number":2,"title":"t","state":"OPEN","headRefName":"f","baseRefName":"main","url":"u","labels":[],"assignees":[]}]"""
+
+            let emptyForge = ghForge [ "pr"; "list"; "--json" ] (Reply.Ok emptyJson)
+
+            match! emptyForge.PrList() with
+            | Ok [ pr ] ->
+                Assert.That(pr.Labels, Is.EqualTo(Some List.empty<string>), "empty labels → confirmed Some []")
+                Assert.That(pr.Assignees, Is.EqualTo(Some List.empty<string>), "empty assignees → confirmed Some []")
+            | Ok other -> Assert.Fail $"expected one PR, got {other.Length}"
+            | Error e -> Assert.Fail $"pr list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabMrLabelsAndAssigneesAreConfirmed() : Task =
+        task {
+            // GitLab's `labels` are already plain strings; `assignees` is an array of User
+            // objects flattened to `username`. Both → a confirmed Some.
+            let json =
+                """[{"iid":1,"title":"t","state":"opened","source_branch":"s","target_branch":"main","web_url":"u","draft":false,"labels":["bug","confirmed"],"assignees":[{"username":"steiza"},{"username":"andyfeller"}]}]"""
+
+            let forge = glForge [ "mr"; "list" ] (Reply.Ok json)
+
+            match! forge.PrList() with
+            | Ok [ pr ] ->
+                Assert.That(
+                    pr.Labels,
+                    Is.EqualTo(Some [ "bug"; "confirmed" ]),
+                    "GitLab labels are plain strings → Some"
+                )
+
+                Assert.That(
+                    pr.Assignees,
+                    Is.EqualTo(Some [ "steiza"; "andyfeller" ]),
+                    "GitLab assignees flattened from username → Some"
+                )
+            | Ok other -> Assert.Fail $"expected one MR, got {other.Length}"
+            | Error e -> Assert.Fail $"mr list failed: {e.Message}"
+
+            let emptyJson =
+                """[{"iid":2,"title":"t","state":"opened","source_branch":"s","target_branch":"main","web_url":"u","draft":false,"labels":[],"assignees":[]}]"""
+
+            let emptyForge = glForge [ "mr"; "list" ] (Reply.Ok emptyJson)
+
+            match! emptyForge.PrList() with
+            | Ok [ pr ] ->
+                Assert.That(pr.Labels, Is.EqualTo(Some List.empty<string>), "empty labels → confirmed Some []")
+                Assert.That(pr.Assignees, Is.EqualTo(Some List.empty<string>), "empty assignees → confirmed Some []")
+            | Ok other -> Assert.Fail $"expected one MR, got {other.Length}"
+            | Error e -> Assert.Fail $"mr list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaPrLabelsAndAssigneesAreNone() : Task =
+        task {
+            // tea's PR table has no labels/assignees columns → honest None (unknown), not [].
+            let json =
+                """[{"index":"1","title":"t","state":"open","head":"f","base":"main","url":"u"}]"""
+
+            let forge = teaForge [ "pr"; "list"; "--fields" ] (Reply.Ok json)
+
+            match! forge.PrList() with
+            | Ok [ pr ] ->
+                Assert.That(pr.Labels, Is.EqualTo None, "Gitea PR labels unreported → None")
+                Assert.That(pr.Assignees, Is.EqualTo None, "Gitea PR assignees unreported → None")
+            | Ok other -> Assert.Fail $"expected one PR, got {other.Length}"
+            | Error e -> Assert.Fail $"pr list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitHubIssueLabelsAndAssigneesAreConfirmed() : Task =
+        task {
+            let json =
+                """[{"number":3,"title":"t","state":"OPEN","body":"b","url":"u","labels":[{"name":"docs"}],"assignees":[{"login":"andyfeller"}]}]"""
+
+            let forge = ghForge [ "issue"; "list" ] (Reply.Ok json)
+
+            match! forge.IssueList() with
+            | Ok [ issue ] ->
+                Assert.That(issue.Labels, Is.EqualTo(Some [ "docs" ]), "gh issue labels → Some")
+                Assert.That(issue.Assignees, Is.EqualTo(Some [ "andyfeller" ]), "gh issue assignees → Some")
+            | Ok other -> Assert.Fail $"expected one issue, got {other.Length}"
+            | Error e -> Assert.Fail $"issue list failed: {e.Message}"
+
+            let emptyJson =
+                """[{"number":4,"title":"t","state":"OPEN","body":"b","url":"u","labels":[],"assignees":[]}]"""
+
+            let emptyForge = ghForge [ "issue"; "list" ] (Reply.Ok emptyJson)
+
+            match! emptyForge.IssueList() with
+            | Ok [ issue ] ->
+                Assert.That(issue.Labels, Is.EqualTo(Some List.empty<string>), "empty issue labels → Some []")
+                Assert.That(issue.Assignees, Is.EqualTo(Some List.empty<string>), "empty issue assignees → Some []")
+            | Ok other -> Assert.Fail $"expected one issue, got {other.Length}"
+            | Error e -> Assert.Fail $"issue list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabIssueLabelsAndAssigneesAreConfirmed() : Task =
+        task {
+            let json =
+                """[{"iid":1,"title":"t","state":"opened","description":"b","web_url":"u","labels":["bug"],"assignees":[{"username":"steiza"}]}]"""
+
+            let forge = glForge [ "issue"; "list" ] (Reply.Ok json)
+
+            match! forge.IssueList() with
+            | Ok [ issue ] ->
+                Assert.That(issue.Labels, Is.EqualTo(Some [ "bug" ]), "GitLab issue labels → Some")
+                Assert.That(issue.Assignees, Is.EqualTo(Some [ "steiza" ]), "GitLab issue assignees → Some")
+            | Ok other -> Assert.Fail $"expected one issue, got {other.Length}"
+            | Error e -> Assert.Fail $"issue list failed: {e.Message}"
+
+            let emptyJson =
+                """[{"iid":2,"title":"t","state":"opened","description":"b","web_url":"u","labels":[],"assignees":[]}]"""
+
+            let emptyForge = glForge [ "issue"; "list" ] (Reply.Ok emptyJson)
+
+            match! emptyForge.IssueList() with
+            | Ok [ issue ] ->
+                Assert.That(issue.Labels, Is.EqualTo(Some List.empty<string>), "empty GitLab issue labels → Some []")
+
+                Assert.That(
+                    issue.Assignees,
+                    Is.EqualTo(Some List.empty<string>),
+                    "empty GitLab issue assignees → Some []"
+                )
+            | Ok other -> Assert.Fail $"expected one issue, got {other.Length}"
+            | Error e -> Assert.Fail $"issue list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaIssueLabelsAndAssigneesAreNone() : Task =
+        task {
+            // tea's issue table has no labels/assignees columns → honest None (unknown).
+            let json = """[{"index":"1","title":"t","state":"open","url":"u"}]"""
+            let forge = teaForge [ "issues"; "list"; "--fields" ] (Reply.Ok json)
+
+            match! forge.IssueList() with
+            | Ok [ issue ] ->
+                Assert.That(issue.Labels, Is.EqualTo None, "Gitea issue labels unreported → None")
+                Assert.That(issue.Assignees, Is.EqualTo None, "Gitea issue assignees unreported → None")
+            | Ok other -> Assert.Fail $"expected one issue, got {other.Length}"
+            | Error e -> Assert.Fail $"issue list failed: {e.Message}"
         }
 
 // ---------------------------------------------------------------------------

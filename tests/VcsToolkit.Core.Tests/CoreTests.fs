@@ -582,3 +582,101 @@ type AssemblyTests() =
             Assert.That(Option.isSome jj.JjAt, "a jj repo exposes JjAt")
             Assert.That(Option.isNone jj.GitAt, "a jj repo has no GitAt")
         }
+
+// ---------------------------------------------------------------------------
+// git sequencer states — cherry-pick / revert / bisect detection + routing
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type GitSequencerStateTests() =
+
+    // A git repo bound to `dir` whose `rev-parse --git-dir` echoes `dir/.git` (created on
+    // disk so the on-disk marker probes see it), with each requested command scripted and any
+    // other command failing — so a wrong sequencer command dispatch surfaces as an error.
+    let repoWithGitDir (dir: string) (rules: (string list * Reply) list) =
+        let gitDir = Path.Combine(dir, ".git")
+        Directory.CreateDirectory gitDir |> ignore
+
+        let runner =
+            (ScriptedRunner().On([ "rev-parse"; "--git-dir" ], Reply.Ok(gitDir + "\n")), rules)
+            ||> List.fold (fun (r: ScriptedRunner) (tokens, reply) -> r.On(tokens, reply))
+
+        gitDir, Repo.FromGit(dir, dir, Git.WithRunner(runner.Fallback(Reply.Fail(1, "unexpected command dispatched"))))
+
+    [<Test>]
+    member _.InProgressStateDetectsEachSequencerMarker() =
+        // The facade maps each git-dir marker to its OperationState via the shared detection
+        // precedence; a cherry-pick/revert marker must not be mis-read as a merge.
+        withTempDir (fun dir ->
+            let gitDir, repo = repoWithGitDir dir []
+
+            let stateOf () =
+                match repo.InProgressState().GetAwaiter().GetResult() with
+                | Ok s -> s
+                | Error e -> failwithf "InProgressState failed: %s" e.Message
+
+            let touch name =
+                File.WriteAllText(Path.Combine(gitDir, name), "x\n")
+
+            let rm name = File.Delete(Path.Combine(gitDir, name))
+
+            touch "CHERRY_PICK_HEAD"
+            Assert.That(stateOf (), Is.EqualTo OperationState.CherryPick)
+            rm "CHERRY_PICK_HEAD"
+
+            touch "REVERT_HEAD"
+            Assert.That(stateOf (), Is.EqualTo OperationState.Revert)
+            rm "REVERT_HEAD"
+
+            touch "BISECT_LOG"
+            Assert.That(stateOf (), Is.EqualTo OperationState.Bisect)
+            rm "BISECT_LOG"
+
+            Assert.That(stateOf (), Is.EqualTo OperationState.Clear, "a clean git dir is Clear"))
+
+    [<Test>]
+    member _.AbortDuringCherryPickDispatchesCherryPickAbort() =
+        // A cherry-pick abort must route `cherry-pick --abort` — the scripted runner fails any
+        // other command, so a wrong route (e.g. `merge --abort`) surfaces as an error.
+        withTempDir (fun dir ->
+            let gitDir, repo = repoWithGitDir dir [ [ "cherry-pick"; "--abort" ], Reply.Ok "" ]
+
+            File.WriteAllText(Path.Combine(gitDir, "CHERRY_PICK_HEAD"), "x\n")
+
+            match repo.AbortInProgress().GetAwaiter().GetResult() with
+            | Ok _ -> () // reached only if `cherry-pick --abort` was the dispatched command
+            | Error e -> Assert.Fail $"abort must dispatch cherry-pick --abort: {e.Message}")
+
+    [<Test>]
+    member _.ContinueDuringRevertDispatchesRevertContinue() =
+        // A revert continue must route `revert --continue`, not `rebase --continue`.
+        withTempDir (fun dir ->
+            let gitDir, repo =
+                repoWithGitDir
+                    dir
+                    [ [ "diff"; "--name-only"; "--diff-filter=U"; "-z" ], Reply.Ok "" // no unresolved paths
+                      [ "revert"; "--continue" ], Reply.Ok "" ]
+
+            File.WriteAllText(Path.Combine(gitDir, "REVERT_HEAD"), "x\n")
+
+            match repo.ContinueInProgress().GetAwaiter().GetResult() with
+            | Ok _ -> () // reached only if `revert --continue` was the dispatched command
+            | Error e -> Assert.Fail $"continue must dispatch revert --continue: {e.Message}")
+
+    [<Test>]
+    member _.ContinueDuringBisectIsUnsupportedAndRunsNoMutation() =
+        // A bisect has no continue step: ContinueInProgress must refuse it with
+        // RepoError.Unsupported (not silently report it still in progress), and no git mutation
+        // may run — only the conflict probe + git-dir resolution the detection needs. The
+        // Fallback fails any other command, so a stray mutation would surface as an error too.
+        withTempDir (fun dir ->
+            let gitDir, repo =
+                repoWithGitDir dir [ [ "diff"; "--name-only"; "--diff-filter=U"; "-z" ], Reply.Ok "" ]
+
+            File.WriteAllText(Path.Combine(gitDir, "BISECT_LOG"), "x\n")
+
+            match repo.ContinueInProgress().GetAwaiter().GetResult() with
+            | Error e ->
+                Assert.That(e.IsUnsupported, Is.True, $"expected Unsupported, got {e.Message}")
+                Assert.That(e.Message, Does.Contain "bisect", "the message must name the reason")
+            | Ok state -> Assert.Fail $"bisect continue must be refused, got {state}")

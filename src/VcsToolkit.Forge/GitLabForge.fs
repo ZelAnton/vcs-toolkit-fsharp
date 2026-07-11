@@ -30,14 +30,21 @@ module internal GitLabForge =
           TargetBranch = mr.TargetBranch
           Url = mr.Url
           // GitLab's MR surface carries `draft` → a confirmed verdict, Some.
-          Draft = Some mr.Draft }
+          Draft = Some mr.Draft
+          // GitLab's REST MR always carries labels/assignees → confirmed values (an empty
+          // list is a confirmed "none", never unknown).
+          Labels = Some mr.Labels
+          Assignees = Some mr.Assignees }
 
     let private mapIssue (i: VcsToolkit.GitLab.Issue) : ForgeIssue =
         { Number = i.Number
           Title = i.Title
           State = issueStateOf i.State
           Body = i.Body
-          Url = i.Url }
+          Url = i.Url
+          // GitLab's REST issue always carries labels/assignees → confirmed values.
+          Labels = Some i.Labels
+          Assignees = Some i.Assignees }
 
     let private mapRelease (r: VcsToolkit.GitLab.Release) : ForgeRelease =
         { Tag = r.TagName
