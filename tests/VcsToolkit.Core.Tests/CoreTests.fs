@@ -547,6 +547,40 @@ type AssemblyTests() =
         }
 
     [<Test>]
+    member _.JjHeadAndWorktreeCommitAreTheSameFullId() : Task =
+        task {
+            // For one commit, `RepoSnapshot.Head` and `WorktreeInfo.Commit` are the SAME
+            // full commit id: the WORKSPACE_TEMPLATE now renders `target.commit_id()` (full,
+            // not `.short()`), matching the snapshot template's full head, so the two
+            // identities compare directly instead of a full-vs-short mismatch (T-014).
+            let full = "abcdef0123456789abcdef0123456789abcdef01" // 40 hex chars
+
+            let runner =
+                ScriptedRunner()
+                    // Snapshot spawn 1: head/empty/conflict for `@` (empty="1" ⇒ clean, so
+                    // the change-count spawn is skipped).
+                    .On([ "log"; "-r"; "@"; "--limit"; "1" ], Reply.Ok $"{full}\t1\t0\n")
+                    // Snapshot spawn 2: the nearest reachable bookmark → branch.
+                    .On([ "log"; "heads(::@ & bookmarks())" ], Reply.Ok "main\txyz\n")
+                    // ListWorktrees: one workspace on that SAME full commit, then its root.
+                    .On([ "workspace"; "list" ], Reply.Ok $"\"default\"\t{full}\t\"main\"\n")
+                    .On([ "workspace"; "root"; "--name"; "default" ], Reply.Ok "/repo\n")
+
+            let repo = Repo.FromJj("/repo", "/repo", Jj.WithRunner runner)
+
+            let! snap = repo.Snapshot()
+            let! worktrees = repo.ListWorktrees()
+
+            match snap, worktrees with
+            | Ok s, Ok [ w0 ] ->
+                Assert.That(s.Head, Is.EqualTo(Some full))
+                Assert.That(w0.Commit, Is.EqualTo(Some full))
+                Assert.That(s.Head, Is.EqualTo w0.Commit, "Head and WorktreeInfo.Commit are one identity")
+                Assert.That(full.Length, Is.EqualTo 40, "a full commit id, not a short prefix")
+            | _ -> Assert.Fail $"snapshot={snap}, worktrees={worktrees}"
+        }
+
+    [<Test>]
     member _.JjRemoveWorktreeRefusesMainWorkspace() : Task =
         task {
             // Removing the repository's MAIN (default) workspace must be REFUSED — its directory
