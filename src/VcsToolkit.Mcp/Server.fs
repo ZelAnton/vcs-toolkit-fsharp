@@ -122,6 +122,28 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
                 | Ok f -> return! action f
         }
 
+    /// Gate a forge tool that mutates the LOCAL working copy (i.e. `forge_pr_checkout`,
+    /// which switches the working tree to a PR/MR branch): check the write gate, resolve the
+    /// forge, then hold the per-repo write lock for the action's duration. Unlike the
+    /// remote-only forge writes, this touches the same working tree the `repo_*` mutations
+    /// do, so it must serialize on that lock the way `repo_checkout` does — otherwise a
+    /// concurrent `repo_commit`/`repo_checkout` could interleave with the branch switch.
+    member private this.WithForgeRepoWrite (tool: string) (action: Forge -> Task<Result<string, McpError>>) =
+        task {
+            match this.RequireWrite tool with
+            | Error e -> return Error e
+            | Ok() ->
+                match this.Forge() with
+                | Error e -> return Error e
+                | Ok f ->
+                    do! writeLock.WaitAsync()
+
+                    try
+                        return! action f
+                    finally
+                        writeLock.Release() |> ignore
+        }
+
     /// A repo read tool: call the facade and serialize its DTO (mapping the error).
     member private _.ReadRepo(action: unit -> Task<Result<'T, RepoError>>) =
         task {
@@ -426,6 +448,17 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
                         match! f.PrEdit(number, edit) with
                         | Error e -> return Error(forgeErr e)
                         | Ok() -> return Ok(Json.ok {| edited = number |})
+            })
+
+    /// Check out a pull/merge request's branch into the local working copy. A local-worktree
+    /// mutation (it switches the checked-out branch), so — unlike the remote-only forge
+    /// writes — it holds the per-repo write lock to serialize with the `repo_*` mutations.
+    member this.ForgePrCheckout(number: uint64) =
+        this.WithForgeRepoWrite "forge_pr_checkout" (fun f ->
+            task {
+                match! f.PrCheckout number with
+                | Error e -> return Error(forgeErr e)
+                | Ok() -> return Ok(Json.ok {| checkedOut = number |})
             })
 
     interface IDisposable with

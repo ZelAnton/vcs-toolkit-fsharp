@@ -398,6 +398,17 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.PrCheckoutBuildsExactArgv() : Task =
+        task {
+            // `tea pr checkout <index>` — the number is the sole positional, no extra flags.
+            let tea, args = capturing (Reply.Ok "")
+
+            match! tea.PrCheckout(".", 7UL) with
+            | Ok() -> assertArgs [ "pr"; "checkout"; "7" ] args
+            | Error e -> Assert.Fail $"pr checkout failed: {e}"
+        }
+
+    [<Test>]
     member _.PrEditRejectsBothNoneAndBuildsDescription() : Task =
         task {
             let refuse = permissive ()

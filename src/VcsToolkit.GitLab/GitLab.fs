@@ -204,6 +204,14 @@ type GitLab private (core: ManagedClient) =
     member _.MrClose(dir: string, number: uint64) =
         core.RunUnit(core.CommandIn(dir, [ "mr"; "close"; string number ]))
 
+    /// Check out a merge request's branch locally in `dir` (`glab mr checkout <id>`): fetch
+    /// the MR's source branch and switch the working tree to it. A local-worktree mutation
+    /// (it changes `dir`'s checked-out branch), so it returns unit like the other lifecycle
+    /// mutations. The number is a positional but is always digits (`uint64`), so no
+    /// injection guard is needed.
+    member _.MrCheckout(dir: string, number: uint64) =
+        core.RunUnit(core.CommandIn(dir, [ "mr"; "checkout"; string number ]))
+
     /// Add a comment to a merge request, returning the command's output
     /// (`glab mr note <id> -m <message>`).
     member _.MrComment(dir: string, number: uint64, body: string) =
@@ -356,6 +364,9 @@ and [<Sealed>] GitLabAt internal (gitlab: GitLab, dir: string) =
 
     /// Close a merge request without merging (`glab mr close <id>`).
     member _.MrClose(number: uint64) = gitlab.MrClose(dir, number)
+
+    /// Check out a merge request's branch locally (`glab mr checkout <id>`).
+    member _.MrCheckout(number: uint64) = gitlab.MrCheckout(dir, number)
 
     /// Add a comment to a merge request (`glab mr note <id> -m …`).
     member _.MrComment(number: uint64, body: string) = gitlab.MrComment(dir, number, body)

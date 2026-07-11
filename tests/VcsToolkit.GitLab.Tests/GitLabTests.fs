@@ -303,6 +303,17 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.MrCheckoutBuildsExactArgv() : Task =
+        task {
+            // `glab mr checkout <id>` — the number is the sole positional, no extra flags.
+            let glab, args = capturing (Reply.Ok "")
+
+            match! glab.MrCheckout(".", 12UL) with
+            | Ok() -> assertArgs [ "mr"; "checkout"; "12" ] args
+            | Error e -> Assert.Fail $"mr checkout failed: {e}"
+        }
+
+    [<Test>]
     member _.MrCommentBuildsNoteArgs() : Task =
         task {
             let glab =

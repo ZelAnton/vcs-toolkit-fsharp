@@ -839,3 +839,69 @@ type PrMergeSpecTests() =
             | Ok() -> ()
             | Error e -> Assert.Fail $"a plain Gitea strategy merge must still work: {e.Message}"
         }
+
+// ---------------------------------------------------------------------------
+// Local-worktree checkout: each backend dispatches to its native checkout subcommand;
+// the CLI-less Unknown handle is Unsupported without spawning. (Checkout is supported on
+// all three CLIs, so it is NOT a capability-varying ForgeOp — unlike prMarkReady.)
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type PrCheckoutTests() =
+
+    [<Test>]
+    member _.GitHubDispatchesToPrCheckout() : Task =
+        task {
+            // No fallback: an empty ScriptedRunner RAISES on any unmatched spawn, so reaching
+            // Ok proves `gh pr checkout 1` was the exact argv dispatched.
+            let forge =
+                Forge.FromGitHub(
+                    ".",
+                    VcsToolkit.GitHub.GitHub.WithRunner(ScriptedRunner().On([ "pr"; "checkout"; "1" ], Reply.Exit 0))
+                )
+
+            match! forge.PrCheckout 1UL with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"gh pr checkout must dispatch: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabDispatchesToMrCheckout() : Task =
+        task {
+            let forge =
+                Forge.FromGitLab(
+                    ".",
+                    VcsToolkit.GitLab.GitLab.WithRunner(ScriptedRunner().On([ "mr"; "checkout"; "2" ], Reply.Exit 0))
+                )
+
+            match! forge.PrCheckout 2UL with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"glab mr checkout must dispatch: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaDispatchesToPrCheckout() : Task =
+        task {
+            // Gitea SUPPORTS checkout (unlike prMarkReady/prChecks) — it must dispatch, not
+            // return Unsupported.
+            let forge =
+                Forge.FromGitea(
+                    ".",
+                    VcsToolkit.Gitea.Gitea.WithRunner(ScriptedRunner().On([ "pr"; "checkout"; "3" ], Reply.Exit 0))
+                )
+
+            match! forge.PrCheckout 3UL with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"tea pr checkout must dispatch: {e.Message}"
+        }
+
+    [<Test>]
+    member _.UnknownHandleIsUnsupportedWithoutSpawning() : Task =
+        task {
+            // The inert Unknown handle has no CLI — checkout is Unsupported and spawns nothing.
+            let forge = Forge.FromUnknown "."
+
+            match! forge.PrCheckout 1UL with
+            | Error e -> Assert.That(e.IsUnsupported, Is.True, "Unknown prCheckout must be Unsupported")
+            | Ok() -> Assert.Fail "Unknown prCheckout must be Unsupported"
+        }

@@ -210,6 +210,14 @@ type GitHub private (core: ManagedClient) =
 
         core.RunUnit(core.CommandIn(dir, args))
 
+    /// Check out a pull request's branch locally in `dir` (`gh pr checkout <n>`): fetch the
+    /// PR's head branch and switch the working tree to it. A local-worktree mutation (it
+    /// changes `dir`'s checked-out branch), so it returns unit like the other lifecycle
+    /// mutations. The number is a positional but is always digits (`uint64`), so no
+    /// injection guard is needed.
+    member _.PrCheckout(dir: string, number: uint64) =
+        core.RunUnit(core.CommandIn(dir, [ "pr"; "checkout"; string number ]))
+
     /// The PR's checks (`gh pr checks <n> --json …`). gh signals the overall outcome
     /// through its exit code (0 all passed, 8 still pending, 1 some failed) and emits
     /// the same JSON either way, so all three return the parsed list; branch on each
@@ -424,6 +432,9 @@ and [<Sealed>] GitHubAt internal (github: GitHub, dir: string) =
     /// Close a pull request without merging (`gh pr close <n> [--delete-branch]`).
     member _.PrClose(number: uint64, deleteBranch: bool) =
         github.PrClose(dir, number, deleteBranch)
+
+    /// Check out a pull request's branch locally (`gh pr checkout <n>`).
+    member _.PrCheckout(number: uint64) = github.PrCheckout(dir, number)
 
     /// The PR's checks (`gh pr checks <n> --json …`).
     member _.PrChecks(number: uint64) = github.PrChecks(dir, number)

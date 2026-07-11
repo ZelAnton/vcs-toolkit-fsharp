@@ -211,6 +211,12 @@ module internal GitLabForge =
             return ofForge r
         }
 
+    let prCheckout (glab: VcsToolkit.GitLab.GitLab) (dir: string) (number: uint64) =
+        task {
+            let! r = glab.MrCheckout(dir, number)
+            return ofForge r
+        }
+
     let prChecks (glab: VcsToolkit.GitLab.GitLab) (dir: string) (number: uint64) =
         task {
             match! glab.MrChecks(dir, number) with

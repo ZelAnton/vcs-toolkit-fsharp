@@ -345,6 +345,19 @@ type Forge private (cwd: string, backend: Backend) =
         | Backend.Gitea c -> GiteaForge.prClose c cwd number
         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prClose")) }
 
+    /// Check out a PR/MR's branch into the bound directory (`gh pr checkout` /
+    /// `glab mr checkout` / `tea pr checkout`). Unlike the remote-only operations, this is a
+    /// **local-worktree mutation**: it fetches the PR/MR's source branch and switches the
+    /// working tree in `cwd` to it. Supported on all three CLIs (so it is *not* a
+    /// capability-varying `ForgeOp`); only the CLI-less `Unknown` handle returns
+    /// `Unsupported`, without spawning.
+    member _.PrCheckout(number: uint64) =
+        match backend with
+        | Backend.GitHub c -> GitHubForge.prCheckout c cwd number
+        | Backend.GitLab c -> GitLabForge.prCheckout c cwd number
+        | Backend.Gitea c -> GiteaForge.prCheckout c cwd number
+        | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prCheckout")) }
+
     /// The PR/MR's coarse CI status (see `CiStatus`). **`Unsupported` on Gitea** (`tea`
     /// has no checks command).
     member _.PrChecks(number: uint64) =

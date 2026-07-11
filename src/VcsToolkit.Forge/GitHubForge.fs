@@ -215,6 +215,12 @@ module internal GitHubForge =
             return ofForge r
         }
 
+    let prCheckout (gh: VcsToolkit.GitHub.GitHub) (dir: string) (number: uint64) =
+        task {
+            let! r = gh.PrCheckout(dir, number)
+            return ofForge r
+        }
+
     let prChecks (gh: VcsToolkit.GitHub.GitHub) (dir: string) (number: uint64) =
         task {
             match! gh.PrChecks(dir, number) with

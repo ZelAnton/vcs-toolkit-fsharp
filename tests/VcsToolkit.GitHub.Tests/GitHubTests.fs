@@ -726,6 +726,17 @@ type HardeningTests() =
         }
 
     [<Test>]
+    member _.PrCheckoutBuildsExactArgv() : Task =
+        task {
+            // `gh pr checkout <n>` — the number is the sole positional, no extra flags.
+            let gh, args = capturing (Reply.Ok "")
+
+            match! gh.PrCheckout(".", 42UL) with
+            | Ok() -> assertArgs [ "pr"; "checkout"; "42" ] args
+            | Error e -> Assert.Fail $"pr checkout failed: {e}"
+        }
+
+    [<Test>]
     member _.PrReviewApproveCarriesNoBodyByDefault() : Task =
         task {
             let gh, args = capturing (Reply.Ok "")

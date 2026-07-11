@@ -172,6 +172,12 @@ module internal GiteaForge =
             return ofForge r
         }
 
+    let prCheckout (tea: VcsToolkit.Gitea.Gitea) (dir: string) (number: uint64) =
+        task {
+            let! r = tea.PrCheckout(dir, number)
+            return ofForge r
+        }
+
     let issueList (tea: VcsToolkit.Gitea.Gitea) (dir: string) =
         task {
             match! tea.IssueList dir with

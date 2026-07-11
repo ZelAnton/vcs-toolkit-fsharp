@@ -310,7 +310,11 @@ module internal Catalog =
                 { Name = "body"
                   JsonType = "string"
                   Description = "The new body; omit to leave it alone."
-                  Required = false } ] ]
+                  Required = false } ]
+          write
+              "forge_pr_checkout"
+              "Check out a pull/merge request's branch into the local working copy (gh pr checkout / glab mr checkout / tea pr checkout). A local-worktree mutation — it switches the checked-out branch."
+              [ pNumber ] ]
 
     /// The JSON-Schema `inputSchema` object for a tool spec.
     let inputSchema (spec: ToolSpec) : string =
@@ -404,4 +408,5 @@ module internal Catalog =
         | "forge_pr_edit" ->
             bind (reqU64 args "number") (fun number ->
                 server.ForgePrEdit(number, optStr args "title", optStr args "body"))
+        | "forge_pr_checkout" -> bind (reqU64 args "number") server.ForgePrCheckout
         | unknown -> task { return Error(McpError.InvalidParams(sprintf "unknown tool %A" unknown)) }

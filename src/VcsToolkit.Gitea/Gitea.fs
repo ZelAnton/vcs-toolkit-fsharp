@@ -223,6 +223,14 @@ type Gitea private (core: ManagedClient) =
     member _.PrClose(dir: string, number: uint64) =
         core.RunUnit(core.CommandIn(dir, [ "pr"; "close"; string number ]))
 
+    /// Check out a pull request's branch locally in `dir` (`tea pr checkout <index>`): fetch
+    /// the PR's head branch and switch the working tree to it. A local-worktree mutation (it
+    /// changes `dir`'s checked-out branch), so it returns unit like the other lifecycle
+    /// mutations. The number is a positional but is always digits (`uint64`), so no
+    /// injection guard is needed.
+    member _.PrCheckout(dir: string, number: uint64) =
+        core.RunUnit(core.CommandIn(dir, [ "pr"; "checkout"; string number ]))
+
     /// Add a comment to a pull request, returning the command's output
     /// (`tea comment <index> <body>`). Gitea PRs and issues share the `index` space.
     /// The `body` is a bare positional, so it is rejected if empty or `-`-leading.
@@ -338,6 +346,9 @@ and [<Sealed>] GiteaAt internal (gitea: Gitea, dir: string) =
 
     /// Close a pull request without merging (`tea pr close <n>`).
     member _.PrClose(number: uint64) = gitea.PrClose(dir, number)
+
+    /// Check out a pull request's branch locally (`tea pr checkout <index>`).
+    member _.PrCheckout(number: uint64) = gitea.PrCheckout(dir, number)
 
     /// Add a comment to a pull request (`tea comment <index> <body>`).
     member _.PrComment(number: uint64, body: string) = gitea.PrComment(dir, number, body)
