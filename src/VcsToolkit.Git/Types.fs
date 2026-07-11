@@ -12,8 +12,12 @@ module internal Constants =
     [<Literal>]
     let BINARY = "git"
 
-    /// Git's well-known empty-tree object id — a stable stand-in for `HEAD` when
-    /// diffing the working tree of an unborn (no-commits-yet) repository.
+    /// SHA-1-**specific** empty-tree object id. `4b825dc…` is the empty-tree id only
+    /// under the SHA-1 object format; a repository with `extensions.objectFormat=sha256`
+    /// has a different (64-hex) empty-tree id. Do NOT treat this as a general "empty tree
+    /// of the current repository" stand-in — resolve that per-repository instead via
+    /// `Git.EmptyTreeOid`, which asks the repository's own `git hash-object` for it. Kept
+    /// where a SHA-1-specific value is genuinely wanted (e.g. as a test fixture).
     [<Literal>]
     let EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
