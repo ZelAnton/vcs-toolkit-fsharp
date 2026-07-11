@@ -8,6 +8,7 @@ open ProcessKit
 open ProcessKit.Testing
 open VcsToolkit.CliSupport
 open VcsToolkit.Git
+open VcsToolkit.TestKit
 
 // Control bytes built explicitly so no escape has to survive a round-trip.
 let private nul = string (char 0)
@@ -923,4 +924,97 @@ type RemoteCredentialTests() =
                 | other -> Assert.Fail $"[push={isPush}] must fail closed on a provider error: {other}"
 
                 Assert.That(spawned.Value, Is.False, $"[push={isPush}] a fail-closed op must not spawn git")
+        }
+
+/// T-030 investigation finding: `Status`/`StatusText`/`StatusTracked`/`BranchStatus`/
+/// `ConflictedFiles` all read through `ManagedClient.Run`/`Parse`, which decode `git`'s
+/// `-z`-delimited stdout via ProcessKit's `CaptureStringAsync` — `Encoding.UTF8`, non-throwing
+/// replacement fallback (invalid byte sequences become U+FFFD rather than raising). A filename
+/// this library (or any ordinary git/`.NET` tooling) can itself create is always a .NET
+/// `string` — a valid Unicode scalar sequence — and a valid Unicode string round-trips through
+/// UTF-8 byte-for-byte, so the decode never loses information for it: `-z` NUL-delimited
+/// framing (`Parse.fs`'s `parsePorcelain`/`parsePorcelainV2`/`parseNulPaths`) already bypasses
+/// `core.quotepath` octal-escaping, and splits/substrings on the DECODED `string` by character
+/// index, never by raw byte offset, so a multi-byte UTF-8 character never gets sliced in half.
+/// A filename containing a raw, genuinely-INVALID UTF-8 byte sequence would decode lossily —
+/// but that byte sequence can only originate from a non-.NET, non-Unicode-aware tool: .NET's
+/// own path APIs can only ever emit valid-UTF-8-encoded names on POSIX and valid UTF-16 names
+/// on Windows, so no code path in this library (or in any of the three CI platforms) can
+/// produce, let alone portably test, that edge here. Conclusion: LOSSLESS for the reachable
+/// domain — no `Git.fs`/`Parse.fs` change. (The jj side raises the identical question for
+/// `VcsToolkit.Jj`'s own `-z` readers; jj/Jj.fs and Jj.Tests are reserved for another task in
+/// this cohort (T-014/T-023) and are not touched here — flagged as a follow-up for a separate
+/// task to apply the same investigation there.)
+[<TestFixture>]
+type NonUtf8PathIntegrationTests() =
+
+    let requireGit () =
+        try
+            Raw.git "." [ "--version" ]
+        with _ ->
+            // git isn't on PATH (or failed to spawn) — a hermetic CI without it must skip, not
+            // fail, this fixture.
+            Assert.Ignore "git not available on PATH"
+
+    // Cyrillic + CJK + a surrogate-pair emoji: multi-byte UTF-8 on every segment, exercising
+    // the `-z` NUL-delimited decode/split boundary with real non-ASCII bytes end to end.
+    let exoticName = "файл-文件-📁.txt"
+
+    [<Test>]
+    member _.StatusReportsAMultiByteUnicodeFilenameUnmangled() : Task =
+        task {
+            requireGit ()
+            use repo = GitSandbox.Init "non-utf8-status"
+            repo.Write(exoticName, "content\n")
+
+            let git = Git.Create()
+
+            match! git.Status repo.Path with
+            | Ok entries ->
+                match entries |> List.tryFind (fun e -> e.Path = exoticName) with
+                | Some e -> Assert.That(e.Code, Is.EqualTo "??")
+                | None ->
+                    Assert.Fail(
+                        sprintf
+                            "expected an untracked entry for %s, got paths: %A"
+                            exoticName
+                            (entries |> List.map (fun e -> e.Path))
+                    )
+            | Error e -> Assert.Fail $"Status failed: {e}"
+        }
+
+    [<Test>]
+    member _.ConflictedFilesReportsAMultiByteUnicodeFilenameUnmangled() : Task =
+        task {
+            requireGit ()
+            use repo = GitSandbox.Init "non-utf8-conflict"
+            repo.Write(exoticName, "base\n")
+            repo.AddAll()
+            repo.Commit "seed"
+
+            repo.Branch "feature"
+            repo.Checkout "feature"
+            repo.Write(exoticName, "feature change\n")
+            repo.AddAll()
+            repo.Commit "feature change"
+
+            repo.Checkout "main"
+            repo.Write(exoticName, "main change\n")
+            repo.AddAll()
+            repo.Commit "main change"
+
+            // Both sides edited the same line — the merge conflicts by construction. A
+            // non-zero exit here is the expected outcome, not a fixture failure.
+            try
+                repo.Git [ "merge"; "-q"; "--no-edit"; "feature" ]
+            with _ ->
+                ()
+
+            let git = Git.Create()
+
+            match! git.ConflictedFiles repo.Path with
+            | Ok paths ->
+                Assert.That(paths.Length, Is.EqualTo 1)
+                Assert.That(paths.[0], Is.EqualTo exoticName)
+            | Error e -> Assert.Fail $"ConflictedFiles failed: {e}"
         }
