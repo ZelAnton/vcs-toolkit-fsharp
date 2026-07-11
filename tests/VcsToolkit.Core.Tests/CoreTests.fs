@@ -595,6 +595,57 @@ type AssemblyTests() =
         }
 
     [<Test>]
+    member _.GitTryMergeCleanupRunsOnFreshBudgetDespiteCancelledToken() =
+        // Mirrors `RollbackToRunsCleanupOnFreshBudgetDespiteCancelledToken` (VcsToolkit.Jj) for
+        // the git backend (T-032). The ambient client's cancellation token is already fired
+        // BEFORE `TryMerge` is even called, so the probe merge itself (`git merge --no-commit
+        // --no-ff`) — which is NOT detached, and inherits the token like any other mutation —
+        // surfaces as an error. The three tryMerge cleanup branches must still run their
+        // merge-in-progress probe + `merge --abort` on their OWN fresh, live budget
+        // (`Git.IsMergeInProgressDetached`/`MergeAbortDetached`): if the cleanup instead
+        // inherited the already-cancelled ambient token, `rev-parse --git-dir`/`merge --abort`
+        // would error as Cancelled before ever matching a scripted rule (the ScriptedRunner
+        // cancellation contract) and `merge --abort` would never actually run — leaving the
+        // probe merge staged. Reaching (and running) `merge --abort` proves the detached budget.
+        withTempDir (fun dir ->
+            let gitDir = Path.Combine(dir, ".git")
+            Directory.CreateDirectory gitDir |> ignore
+            // MERGE_HEAD present ⇒ the cleanup's IsMergeInProgressDetached probe reads `true`,
+            // so it proceeds to MergeAbortDetached.
+            File.WriteAllText(Path.Combine(gitDir, "MERGE_HEAD"), "x\n")
+
+            use cts = new System.Threading.CancellationTokenSource()
+            cts.Cancel()
+
+            let abortRan = ref false
+
+            let runner =
+                ScriptedRunner()
+                    .On([ "rev-parse"; "--git-dir" ], Reply.Ok(gitDir + "\n"))
+                    .When(
+                        (fun (cmd: Command) ->
+                            if cmd.Arguments |> Seq.contains "--abort" then
+                                abortRan.Value <- true
+                                true
+                            else
+                                false),
+                        Reply.Ok ""
+                    )
+
+            let git = (Git.WithRunner runner).DefaultCancelOn cts.Token
+            let repo = Repo.FromGit(dir, dir, git)
+
+            let r = repo.TryMerge("feature").GetAwaiter().GetResult()
+
+            Assert.That(Result.isError r, Is.True, "the ambient-cancelled probe merge itself must surface as an error")
+
+            Assert.That(
+                abortRan.Value,
+                Is.True,
+                "merge --abort must still run on a fresh cancellation budget, not the ambient cancelled token"
+            ))
+
+    [<Test>]
     member _.JjListWorktreesResolvesRootsAndBookmarks() : Task =
         task {
             // workspace list (name/commit/bookmarks) + a `workspace root` fan-out per name.
