@@ -151,6 +151,22 @@ type RevsetExpr private (value: string) =
         | Error e -> Error e
         | Ok() -> Ok(RevsetExpr revset)
 
+/// The outcome of an op-log rollback (`Jj.RollbackTo`) — the shared protocol behind
+/// `Jj.Transaction` and `Repo.TryMerge`. Reported to the caller rather than swallowed, so
+/// a refused rollback is never mistaken for a completed one.
+///
+/// Treat this as potentially extensible — add a `| _ ->` arm when pattern-matching so a
+/// future outcome doesn't break your code.
+[<RequireQualifiedAccess>]
+type RollbackOutcome =
+    /// The repo was restored to the captured operation (`op restore <captured>`).
+    | RolledBack
+    /// The rollback was **deliberately refused**: the captured operation is no longer
+    /// visible in the recent op log, so the op-head advanced past it — a concurrent
+    /// operation — and restoring would have discarded that work. Carries the captured
+    /// op-head and the op-head observed at probe time.
+    | SkippedDiverged of captured: string * current: string
+
 /// What the installed `jj` binary supports, probed via `capabilities`. A value
 /// type — the client holds no state, so probe once and keep the result.
 type JjCapabilities =

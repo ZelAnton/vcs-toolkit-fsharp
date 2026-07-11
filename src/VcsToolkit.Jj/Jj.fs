@@ -95,6 +95,22 @@ module private JjHelpers =
     [<Literal>]
     let WorkspaceRootsConcurrency = 8
 
+    /// How deep `RollbackTo` probes the op log for divergence before restoring. A
+    /// transaction/probe performs only a handful of operations, so the captured op-head sits
+    /// comfortably within this window on a clean rollback; if it has been pushed *out* of the
+    /// window, a concurrent operation advanced past it and the rollback is refused rather than
+    /// clobbering that work. Bounded so the probe is a single, cheap `op log` query. (Two
+    /// digits, no `1`, so a test scripting `--limit <depth>` never collides with the
+    /// `--limit 1` op-head capture.)
+    [<Literal>]
+    let RollbackProbeDepth = 32
+
+    /// The self-contained time budget `RollbackTo` gives its cleanup (`op log` + `op
+    /// restore`). It runs on a *fresh* cancellation token carrying this timeout — never the
+    /// (possibly already-fired) token of the operation whose failure triggered the rollback —
+    /// so a cancelled or timed-out closure is still cleaned up.
+    let RollbackCleanupTimeout = TimeSpan.FromSeconds 30.0
+
     /// Whether a forward-slash-normalised path carries a literal `..` segment — i.e.
     /// escapes whatever root it was resolved relative to.
     let private escapesRoot (path: string) : bool =
@@ -905,14 +921,67 @@ type Jj private (core: ManagedClient) =
 
     // --- Transactions --------------------------------------------------------
 
-    /// Run a mutation sequence with op-log rollback: capture the current operation
-    /// (`OpHead`), run `f` with this client, and on `Error` restore the repo to the
-    /// captured operation (`OpRestore`) before returning the error. The op log is
-    /// jj's safety net; this wraps it as a scope.
+    /// Roll the repo back to a previously captured operation (`capturedOpHead`, from
+    /// `OpHead`) — the shared op-log rollback protocol behind `Transaction` and
+    /// `Repo.TryMerge`. Two safeguards distinguish it from a bare `OpRestore`:
     ///
-    /// Caveats: rollback runs on `Error` only — not on a thrown exception or
-    /// cancellation. If the restore itself fails, the *original* error from `f` is
-    /// returned and the repo may be left mid-transaction; re-probe `OpHead` to detect that.
+    /// * **Fresh cancellation budget.** The cleanup (`op log` + `op restore`) runs on a
+    ///   brand-new `CancellationToken` carrying its own timeout (`RollbackCleanupTimeout`),
+    ///   *never* inheriting the — possibly already-fired — cancellation of the operation
+    ///   whose failure triggered the rollback. So a cancelled or timed-out closure is still
+    ///   cleaned up on a live budget.
+    ///
+    /// * **Divergence guard.** Before restoring, it probes the recent op log (bounded depth,
+    ///   `RollbackProbeDepth`). If `capturedOpHead` is no longer visible there, the op-head
+    ///   has advanced past it — a concurrent operation — and restoring would discard that
+    ///   work; the rollback is *refused* and reported as `SkippedDiverged` instead of
+    ///   silently clobbering. When the captured op is still present, it restores and reports
+    ///   `RolledBack`.
+    ///
+    /// The outcome is returned, not swallowed, so a caller can tell "rolled back" from
+    /// "left in place because the log diverged". A failed `op log`/`op restore` surfaces as
+    /// `Error`.
+    member this.RollbackTo(dir: string, capturedOpHead: string) : Task<Result<RollbackOutcome, ProcessError>> =
+        task {
+            // Fresh budget: a new client whose cleanup commands cancel only on `cts`, with
+            // their own timeout — not on the token the failed operation ran under (which may
+            // already be cancelled/timed-out, which is exactly when cleanup must still run).
+            use cts = new CancellationTokenSource(RollbackCleanupTimeout)
+
+            let cleanup =
+                Jj((core.DefaultCancelOn cts.Token).DefaultTimeout RollbackCleanupTimeout)
+
+            // Divergence probe: is the captured op still within the recent op log?
+            match! cleanup.OpLog(dir, RollbackProbeDepth) with
+            | Error e -> return Error e
+            | Ok ops ->
+                let ids = ops |> List.map (fun op -> op.Id)
+
+                if List.contains capturedOpHead ids then
+                    // Captured op still visible → the op-head is a descendant of it, so the
+                    // restore only discards our own work — safe to roll back.
+                    match! cleanup.OpRestore(dir, capturedOpHead) with
+                    | Error e -> return Error e
+                    | Ok() -> return Ok RollbackOutcome.RolledBack
+                else
+                    // Captured op pushed out of the window → a concurrent operation advanced
+                    // past it; refuse rather than clobber, and report the divergence.
+                    let current = ids |> List.tryHead |> Option.defaultValue ""
+                    return Ok(RollbackOutcome.SkippedDiverged(capturedOpHead, current))
+        }
+
+    /// Run a mutation sequence with op-log rollback: capture the current operation
+    /// (`OpHead`), run `f` with this client, and on `Error` roll the repo back to the
+    /// captured operation via `RollbackTo`. The op log is jj's safety net; this wraps it as
+    /// a scope.
+    ///
+    /// The rollback inherits `RollbackTo`'s guarantees: it runs on a *fresh* cancellation
+    /// budget (so a cancelled/timed-out closure is still rolled back) and refuses to restore
+    /// if a concurrent operation advanced the op-head past the captured point (rather than
+    /// clobbering that work). The closure's own error is always what the caller sees — the
+    /// rollback protocol never masks it. If the rollback is refused (divergence) or its `op
+    /// restore` fails, the repo may be left mid-transaction and that closure error still
+    /// surfaces; call `RollbackTo` directly when you need to observe the rollback outcome.
     member this.Transaction(dir: string, f: Jj -> Task<Result<'T, ProcessError>>) : Task<Result<'T, ProcessError>> =
         task {
             match! this.OpHead dir with
@@ -921,9 +990,10 @@ type Jj private (core: ManagedClient) =
                 match! f this with
                 | Ok value -> return Ok value
                 | Error err ->
-                    // Best-effort restore; the closure's error is the cause and is what
-                    // the caller must see even when the restore also fails.
-                    let! _ = this.OpRestore(dir, pre)
+                    // The closure's error is the cause and is what the caller must see, even
+                    // when the rollback is refused (divergence) or itself fails; the rollback
+                    // outcome is available to direct `RollbackTo` callers.
+                    let! _rollback = this.RollbackTo(dir, pre)
                     return Error err
         }
 
@@ -1123,6 +1193,10 @@ and [<Sealed>] JjAt internal (jj: Jj, dir: string) =
 
     /// Restore the repo to an operation (`op restore <id>`).
     member _.OpRestore(opId: string) = jj.OpRestore(dir, opId)
+
+    /// Roll back to a captured operation with a fresh cancellation budget and an op-log
+    /// divergence guard (bound form of `Jj.RollbackTo`).
+    member _.RollbackTo(capturedOpHead: string) = jj.RollbackTo(dir, capturedOpHead)
 
     /// Undo the latest operation (`op undo`).
     member _.OpUndo() = jj.OpUndo dir

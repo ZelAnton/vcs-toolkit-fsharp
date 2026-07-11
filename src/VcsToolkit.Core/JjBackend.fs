@@ -312,6 +312,28 @@ module internal JjBackend =
             | Ok false -> return Ok OperationState.Clear
         }
 
+    /// Collapse a `RollbackTo` outcome into the facade's unit result. For `tryMerge` the
+    /// rollback is not best-effort: the probe **must** leave no trace, so a refused rollback
+    /// (the op-log diverged — a concurrent operation advanced past the captured op) means the
+    /// probe change is still in the working copy. That is a failed rollback, surfaced as an
+    /// error rather than a `MergeProbe` result that would misdescribe the on-disk state.
+    let private rollbackToUnit (r: Result<RollbackOutcome, ProcessError>) : Result<unit, RepoError> =
+        match r with
+        | Error e -> Error(RepoError.Vcs e)
+        | Ok RollbackOutcome.RolledBack -> Ok()
+        | Ok(RollbackOutcome.SkippedDiverged(captured, current)) ->
+            Error(
+                RepoError.Vcs(
+                    ProcessError.Spawn(
+                        "jj",
+                        sprintf
+                            "try_merge rollback refused: the operation log diverged from the captured op %s (now at %s) — a concurrent operation advanced past it, so the probe change was left in place rather than clobbering that work"
+                            captured
+                            current
+                    )
+                )
+            )
+
     let tryMerge (jj: Jj) (dir: string) (source: string) =
         task {
             // Capture the rollback point BEFORE any mutation.
@@ -335,13 +357,17 @@ module internal JjBackend =
                         | Ok false -> return Ok None
                     }
 
-                // Always roll back — also when the merge or the probe errored.
-                let! restored = jj.OpRestore(dir, preOp)
+                // Always roll back — also when the merge or the probe errored. The shared
+                // protocol runs the cleanup on a fresh cancellation budget and refuses to
+                // restore if a concurrent operation advanced the op-head past `preOp` (which,
+                // for a probe that must leave no trace, `rollbackToUnit` treats as an error).
+                let! rolledBack = jj.RollbackTo(dir, preOp)
+                let restored = rollbackToUnit rolledBack
 
                 match merged, probe with
                 | Ok(), Ok conflicts ->
                     // The probe is only trustworthy if the rollback actually happened.
-                    match ofVcs restored with
+                    match restored with
                     | Error e -> return Error e
                     | Ok() ->
                         match conflicts with
@@ -351,7 +377,7 @@ module internal JjBackend =
                     // The merge succeeded but the probe errored. Surface a *failed*
                     // rollback first (the probe change is still in the working copy),
                     // otherwise surface the probe error.
-                    match ofVcs restored with
+                    match restored with
                     | Error e -> return Error e
                     | Ok() -> return Error(RepoError.Vcs err)
                 | Error err, _ ->

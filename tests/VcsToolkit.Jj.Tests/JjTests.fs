@@ -899,14 +899,21 @@ type SemanticsTests() =
             Assert.That(Result.isError g, Is.True)
         }
 
+    // One valid `op log` row (`OP_TEMPLATE` shape) whose short id is `id` — for scripting the
+    // divergence probe. Needs >= 3 tab fields for `parseOperations` to keep the id.
+    static member private OpRow(id: string) =
+        $"{id}{tab}u@h{tab}2026-01-01T00:00:00+00:00{tab}probe\n"
+
     [<Test>]
     member _.TransactionRestoresOpHeadOnError() : Task =
         task {
-            // op log returns the captured id; the mutation fails; the restore must
-            // run with that exact id (the `abc123` token gates the restore rule).
+            // Capture (op log --limit 1) yields the pre-op; the mutation fails; the
+            // divergence probe (op log --limit 32) still shows that pre-op, so the rollback
+            // restores it with that exact id (the `abc123` token gates the restore rule).
             let runner =
                 ScriptedRunner()
-                    .On([ "op"; "log" ], Reply.Ok "abc123\n")
+                    .On([ "op"; "log"; "--limit"; "1" ], Reply.Ok "abc123\n")
+                    .On([ "op"; "log"; "--limit"; "32" ], Reply.Ok(SemanticsTests.OpRow "abc123"))
                     .On([ "op"; "restore"; "abc123" ], Reply.Ok "")
                     .On([ "describe" ], Reply.Fail(1, "boom"))
 
@@ -920,7 +927,8 @@ type SemanticsTests() =
     member _.TransactionKeepsChangesOnSuccess() : Task =
         task {
             // No `op restore` rule scripted — if the transaction restored on success,
-            // the unscripted restore command would raise. Success must NOT restore.
+            // the unscripted restore command would raise. Success must NOT roll back (so the
+            // divergence probe never runs either).
             let runner =
                 ScriptedRunner().On([ "op"; "log" ], Reply.Ok "abc123\n").On([ "describe" ], Reply.Ok "")
 
@@ -929,6 +937,117 @@ type SemanticsTests() =
             match! jj.Transaction("/r", (fun tx -> tx.Describe("/r", "wip"))) with
             | Ok() -> ()
             | Error e -> Assert.Fail $"transaction should succeed: {e}"
+        }
+
+    [<Test>]
+    member _.RollbackToRestoresWhenCapturedOpStillVisible() : Task =
+        task {
+            // A newer op sits on top of the captured one, but the captured op is still within
+            // the probe window → restore proceeds and reports RolledBack.
+            let runner =
+                ScriptedRunner()
+                    .On([ "op"; "log" ], Reply.Ok(SemanticsTests.OpRow "opX" + SemanticsTests.OpRow "opabc"))
+                    .On([ "op"; "restore"; "opabc" ], Reply.Ok "")
+
+            let jj = Jj.WithRunner runner
+
+            match! jj.RollbackTo("/r", "opabc") with
+            | Ok RollbackOutcome.RolledBack -> ()
+            | other -> Assert.Fail $"expected RolledBack, got {other}"
+        }
+
+    [<Test>]
+    member _.RollbackToSkipsWhenCapturedOpDivergedOut() : Task =
+        task {
+            // The probe op-log no longer contains the captured op → a concurrent op advanced
+            // past it. The rollback must be refused (no `op restore` scripted — one would
+            // raise) and report the divergence.
+            let runner =
+                ScriptedRunner().On([ "op"; "log" ], Reply.Ok(SemanticsTests.OpRow "opNEW"))
+
+            let jj = Jj.WithRunner runner
+
+            match! jj.RollbackTo("/r", "opabc") with
+            | Ok(RollbackOutcome.SkippedDiverged("opabc", "opNEW")) -> ()
+            | other -> Assert.Fail $"expected SkippedDiverged(opabc, opNEW), got {other}"
+        }
+
+    [<Test>]
+    member _.RollbackToRunsCleanupOnFreshBudgetDespiteCancelledToken() : Task =
+        task {
+            // The client's ambient cancellation token is already fired. If the cleanup ran on
+            // it, `op log`/`op restore` would error as cancelled before matching (the
+            // ScriptedRunner cancellation contract). Reaching RolledBack proves the cleanup
+            // ran on a *fresh* budget instead.
+            use cts = new System.Threading.CancellationTokenSource()
+            cts.Cancel()
+
+            let runner =
+                ScriptedRunner()
+                    .On([ "op"; "log" ], Reply.Ok(SemanticsTests.OpRow "opabc"))
+                    .On([ "op"; "restore"; "opabc" ], Reply.Ok "")
+
+            let jj = (Jj.WithRunner runner).DefaultCancelOn cts.Token
+
+            match! jj.RollbackTo("/r", "opabc") with
+            | Ok RollbackOutcome.RolledBack -> ()
+            | other -> Assert.Fail $"expected RolledBack on a fresh budget, got {other}"
+        }
+
+    [<Test>]
+    member _.TransactionRollsBackCancelledClosureOnFreshBudget() : Task =
+        task {
+            // The closure cancels the operation's token, then a mutation on that token fails
+            // as cancelled — the classic "cancelled mid-transaction". The rollback must still
+            // run (on a fresh budget): we record that `op restore` actually reached the runner.
+            use cts = new System.Threading.CancellationTokenSource()
+            let restoreRan = ref false
+
+            let runner =
+                ScriptedRunner()
+                    .On([ "op"; "log"; "--limit"; "1" ], Reply.Ok "opabc\n")
+                    .On([ "op"; "log"; "--limit"; "32" ], Reply.Ok(SemanticsTests.OpRow "opabc"))
+                    .When(
+                        (fun (cmd: Command) ->
+                            if cmd.Arguments |> Seq.contains "restore" then
+                                restoreRan.Value <- true
+                                true
+                            else
+                                false),
+                        Reply.Ok ""
+                    )
+
+            let jj = (Jj.WithRunner runner).DefaultCancelOn cts.Token
+
+            let closure (tx: Jj) =
+                task {
+                    cts.Cancel()
+                    return! tx.Describe("/r", "wip")
+                }
+
+            let! res = jj.Transaction("/r", closure)
+
+            Assert.That(Result.isError res, Is.True, "the cancelled closure's error must surface")
+            Assert.That(restoreRan.Value, Is.True, "rollback must run on a fresh budget despite cancellation")
+        }
+
+    [<Test>]
+    member _.TransactionSkipsRollbackWhenOpLogDiverged() : Task =
+        task {
+            // The closure fails; between op-head capture and rollback a concurrent op advanced
+            // the op-log so the captured op is no longer visible. The rollback must be refused:
+            // no `op restore` is scripted, so an attempt would raise. The closure error still
+            // surfaces.
+            let runner =
+                ScriptedRunner()
+                    .On([ "op"; "log"; "--limit"; "1" ], Reply.Ok "opabc\n")
+                    .On([ "op"; "log"; "--limit"; "32" ], Reply.Ok(SemanticsTests.OpRow "opNEW"))
+                    .On([ "describe" ], Reply.Fail(1, "boom"))
+
+            let jj = Jj.WithRunner runner
+
+            let! res = jj.Transaction("/r", (fun tx -> tx.Describe("/r", "wip")))
+            Assert.That(Result.isError res, Is.True, "the closure error must still surface")
         }
 
     [<Test>]
