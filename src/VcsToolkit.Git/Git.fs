@@ -54,6 +54,48 @@ module private GitHelpers =
 
         result
 
+    /// Conservative ceiling, in argv characters, on how much space this wrapper will spend
+    /// inlining a path list into a `git` command line (`Add`/`CommitPaths`) before switching to
+    /// the NUL-safe `--pathspec-from-file=- --pathspec-file-nul` stdin transport instead. Well
+    /// under Windows' hard ~32767-character `CreateProcess` command-line limit — the tightest
+    /// ceiling among the supported platforms — leaving headroom for the rest of the argv (git's
+    /// own flags, per-argument quoting overhead) and the parent process's own command line.
+    [<Literal>]
+    let ArgvPathBudget = 30000
+
+    /// Whether inlining `paths` into argv (each path plus a separating space, roughly — real
+    /// quoting overhead only adds more) would approach `ArgvPathBudget`.
+    let needsStdinPathTransport (paths: string list) : bool =
+        let total = paths |> List.sumBy (fun p -> p.Length + 1)
+        total > ArgvPathBudget
+
+    /// Refuse a path set containing an embedded NUL character before it is used to build the
+    /// NUL-delimited `--pathspec-file-nul` stdin transport, or spawn anything: a NUL inside a
+    /// path would truncate that entry's framing in the NUL-delimited stream, splicing the
+    /// remainder into the NEXT pathspec entry — a path-injection/corruption vector. Runs before
+    /// any spawn decision (small-set or stdin-transport alike), so a refusal here never leaves a
+    /// partial `Add`/`CommitPaths` behind.
+    let checkNoEmbeddedNul (what: string) (paths: string list) : Result<unit, ProcessError> =
+        if paths |> List.exists (fun p -> p.IndexOf(char 0) >= 0) then
+            Error(
+                ProcessError.Spawn(
+                    BINARY,
+                    sprintf
+                        "%s set contains a path with an embedded NUL character — refusing to build a pathspec transport from it"
+                        what
+                )
+            )
+        else
+            Ok()
+
+    /// NUL-terminate each path and concatenate to UTF-8 bytes, for `--pathspec-file-nul` stdin
+    /// (`Stdin.FromBytes`). Assumes `checkNoEmbeddedNul` already passed.
+    let encodeNulPaths (paths: string list) : byte[] =
+        paths
+        |> List.map (fun p -> p + "\u0000")
+        |> String.concat ""
+        |> System.Text.Encoding.UTF8.GetBytes
+
     /// Apply the argv injection guard to each (what, value) pair, short-circuiting
     /// on the first refusal.
     let checkFlags (checks: (string * string) list) : Result<unit, ProcessError> =
@@ -286,9 +328,34 @@ type Git private (core: ManagedClient) =
     member _.Init(dir: string) =
         core.RunUnit(core.CommandIn(dir, [ "init" ]))
 
-    /// Stage `paths` (`git add -- <paths>`).
+    /// Stage `paths` (`git --literal-pathspecs add -- <paths>`). `--literal-pathspecs` is applied
+    /// unconditionally so a path containing a glob metacharacter (`*`, `?`, `[]`) is matched
+    /// literally instead of being expanded as a pathspec pattern. A path set whose combined argv
+    /// length would approach `ArgvPathBudget` (the tightest supported OS command-line ceiling —
+    /// Windows' ~32767-character `CreateProcess` limit) is routed through the NUL-safe
+    /// `--pathspec-from-file=- --pathspec-file-nul` stdin transport instead, keeping the paths out
+    /// of argv entirely; a small set still goes through a single argv-based call, its argv
+    /// unchanged apart from the added `--literal-pathspecs`.
     member _.Add(dir: string, paths: string list) =
-        core.RunUnit((core.CommandIn(dir, [ "add"; "--" ])).Args paths)
+        task {
+            match checkNoEmbeddedNul "path" paths with
+            | Error e -> return Error e
+            | Ok() ->
+                if needsStdinPathTransport paths then
+                    let cmd =
+                        (core.CommandIn(
+                            dir,
+                            [ "--literal-pathspecs"
+                              "add"
+                              "--pathspec-from-file=-"
+                              "--pathspec-file-nul" ]
+                        ))
+                            .Stdin(Stdin.FromBytes(encodeNulPaths paths))
+
+                    return! core.RunUnit cmd
+                else
+                    return! core.RunUnit((core.CommandIn(dir, [ "--literal-pathspecs"; "add"; "--" ])).Args paths)
+        }
 
     /// Commit staged changes (`git commit -m`).
     member _.Commit(dir: string, message: string) =
@@ -322,15 +389,32 @@ type Git private (core: ManagedClient) =
             | Ok() -> return! core.RunUnit(core.CommandIn(dir, [ "checkout"; "--detach"; commit ]))
         }
 
-    /// Commit exactly the spec's paths' working-tree content, ignoring the index.
+    /// Commit exactly the spec's paths' working-tree content, ignoring the index
+    /// (`git --literal-pathspecs commit [--amend] -m <message> --only -- <paths>`).
+    /// `--literal-pathspecs` is applied unconditionally (see `Add`), and a path set whose
+    /// combined argv length would approach `ArgvPathBudget` is routed through the NUL-safe
+    /// `--pathspec-from-file=- --pathspec-file-nul` stdin transport instead. The embedded-NUL
+    /// guard runs before any spawn decision, so a rejected input never leaves a partial commit.
     member _.CommitPaths(dir: string, spec: CommitPaths) =
-        let baseCmd = cLocale (core.CommandIn(dir, [ "commit" ]))
-        let withAmend = if spec.Amend then baseCmd.Arg "--amend" else baseCmd
+        task {
+            match checkNoEmbeddedNul "path" spec.Paths with
+            | Error e -> return Error e
+            | Ok() ->
+                let baseCmd = cLocale (core.CommandIn(dir, [ "--literal-pathspecs"; "commit" ]))
+                let withAmend = if spec.Amend then baseCmd.Arg "--amend" else baseCmd
+                let withMsg = withAmend.Arg("-m").Arg(spec.Message).Arg "--only"
 
-        let cmd =
-            (withAmend.Arg("-m").Arg(spec.Message).Arg("--only").Arg "--").Args spec.Paths
+                if needsStdinPathTransport spec.Paths then
+                    let cmd =
+                        withMsg
+                            .Arg("--pathspec-from-file=-")
+                            .Arg("--pathspec-file-nul")
+                            .Stdin(Stdin.FromBytes(encodeNulPaths spec.Paths))
 
-        core.RunUnit cmd
+                    return! core.RunUnit cmd
+                else
+                    return! core.RunUnit((withMsg.Arg "--").Args spec.Paths)
+        }
 
     /// The last commit's full message (`git log -1 --format=%B`).
     member _.LastCommitMessage(dir: string) =

@@ -11,6 +11,7 @@
 		<Compile Include="ConflictTests.fs" />
 		<Compile Include="UpstreamIntegrationTests.fs" />
 		<Compile Include="EmptyTreeOidIntegrationTests.fs" />
+		<Compile Include="PathTransportIntegrationTests.fs" />
 	</ItemGroup>
 
 	<ItemGroup>
