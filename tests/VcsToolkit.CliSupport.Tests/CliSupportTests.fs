@@ -5,6 +5,7 @@ open System.Threading
 open System.Threading.Tasks
 open NUnit.Framework
 open ProcessKit
+open ProcessKit.Testing
 open VcsToolkit.CliSupport
 
 let private exit (program: string) (code: int) (stderr: string) =
@@ -323,4 +324,180 @@ type CredentialTests() =
             match! provider.Credential(CredentialRequest.Create CredentialService.GitLab) with
             | Ok None -> ()
             | _ -> Assert.Fail "GitLab defers to ambient"
+        }
+
+    [<Test>]
+    member _.ResolveCredentialPassesHostToProvider() : Task =
+        task {
+            // A host-keyed provider must receive the exact host it was asked to resolve for —
+            // the host in `CredentialRequest` is passed through verbatim, never overridden.
+            let seen = ref (None: string option option)
+
+            let provider =
+                Credentials.providerFn (fun r ->
+                    seen.Value <- Some r.Host
+                    Ok(Some(Credential.Token "tok")))
+
+            let client = (ManagedClient.Create "git").WithCredentials provider
+
+            match! client.ResolveCredential(CredentialService.Git, Some "github.com") with
+            | Ok(Some _) -> ()
+            | _ -> Assert.Fail "provider yields a credential"
+
+            Assert.That(
+                seen.Value,
+                Is.EqualTo(Some(Some "github.com")),
+                "the resolve host reaches the CredentialRequest"
+            )
+        }
+
+    [<Test>]
+    member _.ResolveCredentialFailsClosedOnProviderError() : Task =
+        task {
+            // A provider error must NOT degrade to ambient (Ok None) — it propagates so the
+            // caller can abort (fail-closed), never silently running unauthenticated.
+            let provider =
+                Credentials.providerFn (fun _ -> Error(exit "git" 1 "vault unreachable"))
+
+            let client = (ManagedClient.Create "git").WithCredentials provider
+
+            match! client.ResolveCredential(CredentialService.Git, None) with
+            | Error(ProcessError.Exit(_, _, _, stderr)) -> Assert.That(stderr, Is.EqualTo "vault unreachable")
+            | other -> Assert.Fail $"a provider Error must propagate (fail-closed), got {other}"
+        }
+
+    [<Test>]
+    member _.TokenEnvInjectionCarriesExpectedHostToProvider() : Task =
+        task {
+            // The token-env injection path (`Prepare`) resolves with the client-bound
+            // `WithExpectedHost` value, so a host-keyed provider is asked for THIS host instead
+            // of the old hard-coded `None`.
+            let seen = ref (None: string option option)
+
+            let provider =
+                Credentials.providerFn (fun r ->
+                    seen.Value <- Some r.Host
+                    Ok(Some(Credential.Token "gh-secret")))
+
+            let client =
+                ManagedClient
+                    .WithRunner("gh", ScriptedRunner().Fallback(Reply.Ok ""))
+                    .WithTokenEnv(CredentialService.GitHub, "GH_TOKEN")
+                    .WithExpectedHost("github.enterprise.example")
+                    .WithCredentials(provider)
+
+            match! client.Run(client.Command [ "auth"; "status" ]) with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"token-env injection must not fail the command: {e}"
+
+            Assert.That(
+                seen.Value,
+                Is.EqualTo(Some(Some "github.enterprise.example")),
+                "the bound expected host reaches the CredentialRequest on the token-env path"
+            )
+        }
+
+    [<Test>]
+    member _.TokenEnvWithoutExpectedHostResolvesWithNone() : Task =
+        task {
+            // Without `WithExpectedHost` the token-env path has no host of its own (the forge CLI
+            // resolves the host itself), so the request host is `None`.
+            let seen = ref (None: string option option)
+
+            let provider =
+                Credentials.providerFn (fun r ->
+                    seen.Value <- Some r.Host
+                    Ok(Some(Credential.Token "gh-secret")))
+
+            let client =
+                ManagedClient
+                    .WithRunner("gh", ScriptedRunner().Fallback(Reply.Ok ""))
+                    .WithTokenEnv(CredentialService.GitHub, "GH_TOKEN")
+                    .WithCredentials(provider)
+
+            match! client.Run(client.Command [ "auth"; "status" ]) with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"{e}"
+
+            Assert.That(seen.Value, Is.EqualTo(Some(None: string option)), "no bound host -> the request host is None")
+        }
+
+    [<Test>]
+    member _.TokenEnvFailsClosedWithoutSpawning() : Task =
+        task {
+            // A provider error on the token-env path aborts before spawning — the process must
+            // NOT run (it would run unauthenticated) and the error must surface (not ambient).
+            let spawned = ref false
+
+            let runner =
+                ScriptedRunner()
+                    .When(
+                        (fun _ ->
+                            spawned.Value <- true
+                            true),
+                        Reply.Ok ""
+                    )
+
+            let provider =
+                Credentials.providerFn (fun _ -> Error(exit "gh" 1 "vault unreachable"))
+
+            let client =
+                ManagedClient
+                    .WithRunner("gh", runner)
+                    .WithTokenEnv(CredentialService.GitHub, "GH_TOKEN")
+                    .WithExpectedHost("github.com")
+                    .WithCredentials(provider)
+
+            match! client.Run(client.Command [ "auth"; "status" ]) with
+            | Error(ProcessError.Exit(_, _, _, stderr)) -> Assert.That(stderr, Is.EqualTo "vault unreachable")
+            | other -> Assert.Fail $"token-env resolve must fail closed: {other}"
+
+            Assert.That(spawned.Value, Is.False, "a fail-closed resolve must not spawn the command")
+        }
+
+    [<Test>]
+    member _.TokenEnvDeferringProviderRunsAmbient() : Task =
+        task {
+            // `Ok None` and an empty/whitespace secret both defer to ambient auth: the command
+            // still runs (no token injected), never failing closed.
+            for provider in
+                [ Credentials.providerFn (fun _ -> Ok None)
+                  Credentials.providerFn (fun _ -> Ok(Some(Credential.Token "   "))) ] do
+                let client =
+                    ManagedClient
+                        .WithRunner("gh", ScriptedRunner().Fallback(Reply.Ok "ok"))
+                        .WithTokenEnv(CredentialService.GitHub, "GH_TOKEN")
+                        .WithExpectedHost("github.com")
+                        .WithCredentials(provider)
+
+                match! client.Run(client.Command [ "auth"; "status" ]) with
+                | Ok out -> Assert.That(out, Is.EqualTo "ok")
+                | Error e -> Assert.Fail $"ambient fallback must let the command run: {e}"
+        }
+
+    [<Test>]
+    member _.WithExpectedHostTreatsBlankAsNoBinding() : Task =
+        task {
+            // A blank expected host is treated as no binding (stays unscoped) rather than
+            // scoping a host-keyed provider to an empty host it can never match.
+            for blank in [ ""; "   " ] do
+                let seen = ref (None: string option option)
+
+                let provider =
+                    Credentials.providerFn (fun r ->
+                        seen.Value <- Some r.Host
+                        Ok(Some(Credential.Token "tok")))
+
+                let client =
+                    ManagedClient
+                        .WithRunner("gh", ScriptedRunner().Fallback(Reply.Ok ""))
+                        .WithTokenEnv(CredentialService.GitHub, "GH_TOKEN")
+                        .WithExpectedHost(blank)
+                        .WithCredentials(provider)
+
+                match! client.Run(client.Command [ "auth"; "status" ]) with
+                | Ok _ -> ()
+                | Error e -> Assert.Fail $"{e}"
+
+                Assert.That(seen.Value, Is.EqualTo(Some(None: string option)), $"blank host {blank} -> no binding")
         }

@@ -536,10 +536,14 @@ type Git private (core: ManagedClient) =
     /// Resolve HTTPS credentials into the leading `-c` config args and the secret env, scoped to
     /// `expectHost` (`Some host` for a clone whose URL is externally supplied — so a cross-host
     /// redirect/submodule can't extract the token; `None` for fetch/push/ls-remote, which target
-    /// the already-configured remote). Both empty when no provider is configured (ambient auth).
+    /// the already-configured remote). The same `expectHost` also scopes the *provider lookup*
+    /// (`ResolveCredential`), so a host-keyed provider serves the secret for this host — and
+    /// because provider selection and the credential-helper's host gate are driven by the one
+    /// `expectHost`, they can never disagree (no cross-host secret release). Both empty when no
+    /// provider is configured (ambient auth).
     member private _.RemoteCredentials(expectHost: string option) =
         task {
-            match! core.ResolveCredential(CredentialService.Git, None) with
+            match! core.ResolveCredential(CredentialService.Git, expectHost) with
             | Error e -> return Error e
             | Ok None -> return Ok([], [])
             | Ok(Some cred) ->
