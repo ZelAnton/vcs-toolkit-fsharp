@@ -205,25 +205,56 @@ type AnnotatedTag =
     member this.WithRev(r: string) = { this with Rev = Some r }
 
 /// A pre-validated git reference name (branch/tag/remote), for callers that accept
-/// names from untrusted input and want to fail early. Rules follow the load-bearing
-/// core of `git check-ref-format`.
+/// names from untrusted input and want to fail early. Validation follows the
+/// load-bearing core of `git check-ref-format`, evaluated per slash-separated path
+/// component. A name is rejected when it:
+///
+///  * is empty, or is the single character `@`;
+///  * begins with `-` (an argv-injection guard, beyond `check-ref-format` itself);
+///  * has an empty path component — i.e. begins or ends with `/`, or contains `//`;
+///  * has a component beginning with `.` (e.g. `feature/.hidden`) or ending with
+///    `.lock` (e.g. `foo.lock/bar`);
+///  * contains `..`, ends with `.`, or contains the reflog/upstream sequence `@{`
+///    (which git resolves below the ref layer and could redirect the operation to a
+///    different ref than the one validated here);
+///  * contains an ASCII control character (including DEL) or any of the pattern/path
+///    metacharacters space `~` `^` `:` `?` `*` `[` `\`.
+///
+/// Deliberately *not* enforced: the requirement that a ref contain at least one `/`.
+/// One-level names (`main`, `v1.0`) are accepted, matching git's `--allow-onelevel`,
+/// because branch/tag/remote names are routinely single-level. Filesystem-specific
+/// checks git applies only under `core.protectHFS`/`core.protectNTFS` are likewise
+/// out of scope — they are not part of the `check-ref-format` core.
 [<Sealed>]
 type RefName private (value: string) =
     /// The validated name.
     member _.Value = value
     override _.ToString() = value
 
-    /// Validate `name` as a reference name.
+    /// Validate `name` as a reference name; see the type doc-comment for the exact
+    /// rule set (the load-bearing core of `git check-ref-format`, per-component).
     static member Create(name: string) : Result<RefName, ProcessError> =
+        // Chars git check-ref-format forbids anywhere (the ASCII control set is tested
+        // separately): space, the pattern/reflog metacharacters ~ ^ : ? * [ and `\`.
         let forbidden = set [ ' '; '~'; '^'; ':'; '?'; '*'; '['; char 92 ]
+
+        // A slash-separated path component must be non-empty (so the name cannot begin
+        // or end with `/`, nor contain `//`), must not begin with a dot (a hidden-ref
+        // component such as `feature/.hidden`), and must not end with `.lock` (git's
+        // lock-file suffix, e.g. `foo.lock/bar`).
+        let badComponent (c: string) =
+            c = ""
+            || c.StartsWith(".", StringComparison.Ordinal)
+            || c.EndsWith(".lock", StringComparison.Ordinal)
 
         let bad =
             name = ""
+            || name = "@"
             || name.StartsWith("-", StringComparison.Ordinal)
-            || name.StartsWith(".", StringComparison.Ordinal)
-            || name.EndsWith("/", StringComparison.Ordinal)
-            || name.EndsWith(".lock", StringComparison.Ordinal)
+            || name.EndsWith(".", StringComparison.Ordinal)
             || name.Contains ".."
+            || name.Contains "@{"
+            || name.Split('/') |> Array.exists badComponent
             || name |> Seq.exists (fun c -> Char.IsControl c || Set.contains c forbidden)
 
         if bad then

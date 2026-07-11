@@ -896,10 +896,47 @@ type GuardTests() =
 
     [<Test>]
     member _.RefNameValidates() =
-        Assert.That(RefName.Create "feature/x" |> Result.isOk)
-        Assert.That(RefName.Create "-bad" |> Result.isError)
-        Assert.That(RefName.Create "has..dots" |> Result.isError)
-        Assert.That(RefName.Create "ends.lock" |> Result.isError)
+        let rejects (name: string) =
+            Assert.That(RefName.Create name |> Result.isError, $"expected '{name}' to be rejected")
+
+        let accepts (name: string) =
+            Assert.That(RefName.Create name |> Result.isOk, $"expected '{name}' to be accepted")
+
+        // Valid names must keep passing — one-level (`main`), multi-level, and dots
+        // that are neither leading-in-a-component nor a `.lock` suffix / trailing dot.
+        accepts "feature/x"
+        accepts "main"
+        accepts "a.b"
+        accepts "v1.2.3"
+
+        // Existing rules (regression guard): empty, leading `-`, whole-name leading
+        // `.`, trailing `/`, whole-name `.lock` suffix, `..`, and forbidden/control
+        // characters all stay rejected.
+        rejects ""
+        rejects "-bad"
+        rejects ".hidden"
+        rejects "feature/"
+        rejects "ends.lock"
+        rejects "has..dots"
+        rejects "a b" // space
+        rejects "a~b"
+        rejects "a^b"
+        rejects "a:b"
+        rejects "a?b"
+        rejects "a*b"
+        rejects "a[b"
+        rejects (sprintf "a%cb" (char 92)) // backslash
+        rejects (sprintf "a%cb" (char 0x1f)) // ASCII control
+        rejects (sprintf "a%cb" (char 0x7f)) // DEL
+
+        // New rules — one case per tightened check.
+        rejects "feature/.hidden" // component with a leading dot
+        rejects "foo.lock/bar" // component with a `.lock` suffix
+        rejects "feature/x." // name ending with a dot
+        rejects "main@{u}" // reflog/upstream `@{` sequence
+        rejects "@" // the single character `@`
+        rejects "feature//x" // empty component (`//`)
+        rejects "/leading" // empty component (leading `/`)
 
 [<TestFixture>]
 type AtViewTests() =
