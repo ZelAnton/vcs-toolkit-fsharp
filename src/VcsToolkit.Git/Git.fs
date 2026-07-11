@@ -1080,19 +1080,23 @@ type Git private (core: ManagedClient) =
             | Ok() ->
                 // M16: `checkFlags` catches a leading `-`/empty/NUL, but not the refspec
                 // metacharacters that silently change what a push DOES — a leading `+`
-                // (force-push, overwriting the remote non-fast-forward) or an extra `:` (push to
-                // an unexpected remote ref). A valid refspec is `branch` or `local:remote` (a
-                // single, API-constructed `:`), so allow at most one `:` and no leading `+` on
-                // either side; a genuine force-push must go through `Run [ "push"; "--force"; … ]`.
+                // (force-push, overwriting the remote non-fast-forward), an extra `:` (push to
+                // an unexpected remote ref), or an empty side (`:branch` deletes the remote
+                // branch, `:` pushes all matching branches, `local:` pushes to an empty remote
+                // ref — all destructive fan-out/deletion the typed API claims impossible). A
+                // valid refspec is `branch` or `local:remote` (a single, API-constructed `:`
+                // with both sides non-empty), so allow at most one `:`, no leading `+`, and no
+                // empty side; a genuine force-push/delete must go through
+                // `Run [ "push"; "--force"; … ]`.
                 let sides = spec.Refspec.Split(':')
 
-                if sides.Length > 2 || sides |> Array.exists (fun s -> s.StartsWith '+') then
+                if sides.Length > 2 || sides |> Array.exists (fun s -> s.StartsWith '+' || s = "") then
                     return
                         Error(
                             ProcessError.Spawn(
                                 BINARY,
                                 sprintf
-                                    "push refspec %A contains a force (`+`) or multi-ref (`:`) metacharacter — pass a plain branch or `local:remote`, or use `Run [ \"push\"; … ]` for a force-push"
+                                    "push refspec %A contains a force (`+`), multi-ref (`:`), or empty-side (delete/all-matching) metacharacter — pass a plain branch or `local:remote`, or use `Run [ \"push\"; … ]` for a force-push/delete"
                                     spec.Refspec
                             )
                         )

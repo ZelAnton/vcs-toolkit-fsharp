@@ -100,16 +100,18 @@ module internal GitBackend =
             // its files as additions instead of hard-failing.
             match! git.IsUnborn dir with
             | Error e -> return Error(RepoError.Vcs e)
-            | Ok unborn ->
-                // git's well-known empty-tree object id (stand-in for HEAD in an unborn repo)
-                let range =
-                    if unborn then
-                        "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-                    else
-                        "HEAD"
-
-                let! r = git.DiffStat(dir, range)
+            | Ok false ->
+                let! r = git.DiffStat(dir, "HEAD")
                 return ofVcs r
+            | Ok true ->
+                // Resolve the repository's actual empty-tree id (stand-in for HEAD in an
+                // unborn repo) — not the SHA-1-specific literal, which doesn't exist under
+                // `extensions.objectFormat=sha256`.
+                match! git.EmptyTreeOid dir with
+                | Error e -> return Error(RepoError.Vcs e)
+                | Ok emptyTree ->
+                    let! r = git.DiffStat(dir, emptyTree)
+                    return ofVcs r
         }
 
     let snapshot (git: Git) (dir: string) =
