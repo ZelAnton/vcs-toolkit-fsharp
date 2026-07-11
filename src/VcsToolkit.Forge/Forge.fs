@@ -367,6 +367,24 @@ type Forge private (cwd: string, backend: Backend) =
         | Backend.Gitea _ -> task { return Error(ForgeError.Unsupported(ForgeKind.Gitea, "prChecks")) }
         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prChecks")) }
 
+    /// The PR/MR's unified diff, parsed into per-file `FileDiff` values (`gh pr diff <n>` /
+    /// `glab mr diff <n>`, calling the underlying `PrDiff`/`MrDiff` client method directly).
+    /// **`Unsupported` on Gitea** (`tea` has no diff command) and on an `Unknown` handle.
+    member _.PrDiff(number: uint64) =
+        match backend with
+        | Backend.GitHub c ->
+            task {
+                let! r = c.PrDiff(cwd, number)
+                return ofForge r
+            }
+        | Backend.GitLab c ->
+            task {
+                let! r = c.MrDiff(cwd, number)
+                return ofForge r
+            }
+        | Backend.Gitea _ -> task { return Error(ForgeError.Unsupported(ForgeKind.Gitea, "prDiff")) }
+        | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prDiff")) }
+
     // --- Issues / releases ---------------------------------------------------
 
     /// Open issues for the bound directory (up to 100; drop to the underlying client for more).

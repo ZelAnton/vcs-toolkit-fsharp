@@ -3,6 +3,7 @@ namespace VcsToolkit.GitLab
 open System
 open ProcessKit
 open VcsToolkit.CliSupport
+open VcsToolkit.Diff
 
 /// glab-specific command shaping shared by the client's methods.
 [<AutoOpen>]
@@ -259,6 +260,16 @@ type GitLab private (core: ManagedClient) =
             GitLabParse.parseCiStatus
         )
 
+    /// The merge request's unified diff, parsed into per-file `FileDiff` values
+    /// (`glab mr diff <n>`, then `VcsToolkit.Diff.parseDiff`). The number is a positional
+    /// but is always digits (`uint64`), so no injection guard is needed.
+    member _.MrDiff(dir: string, number: uint64) =
+        task {
+            match! core.Run(core.CommandIn(dir, [ "mr"; "diff"; string number ])) with
+            | Error e -> return Error e
+            | Ok raw -> return Ok(parseDiff raw)
+        }
+
     // --- Issues / releases ---------------------------------------------------
 
     /// Open issues for `dir` (`glab issue list --per-page 100 --output json`).
@@ -376,6 +387,10 @@ and [<Sealed>] GitLabAt internal (gitlab: GitLab, dir: string) =
 
     /// The MR's pipeline status, bucketed (`glab mr view <id> --output json`).
     member _.MrChecks(number: uint64) = gitlab.MrChecks(dir, number)
+
+    /// The merge request's unified diff, parsed into per-file `FileDiff` values
+    /// (`glab mr diff <n>`).
+    member _.MrDiff(number: uint64) = gitlab.MrDiff(dir, number)
 
     /// Open issues for the bound `dir` (`glab issue list …`).
     member _.IssueList() = gitlab.IssueList dir

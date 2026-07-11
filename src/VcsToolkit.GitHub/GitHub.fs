@@ -3,6 +3,7 @@ namespace VcsToolkit.GitHub
 open System
 open ProcessKit
 open VcsToolkit.CliSupport
+open VcsToolkit.Diff
 
 /// gh-specific command shaping shared by the client's methods.
 [<AutoOpen>]
@@ -166,6 +167,16 @@ type GitHub private (core: ManagedClient) =
     /// A single pull request by number (`gh pr view <n> --json …`).
     member _.PrView(dir: string, number: uint64) =
         core.TryParse(core.CommandIn(dir, [ "pr"; "view"; string number; "--json"; PR_FIELDS ]), GitHubParse.parsePr)
+
+    /// The pull request's unified diff, parsed into per-file `FileDiff` values
+    /// (`gh pr diff <n>`, then `VcsToolkit.Diff.parseDiff`). The number is a positional
+    /// but is always digits (`uint64`), so no injection guard is needed.
+    member _.PrDiff(dir: string, number: uint64) =
+        task {
+            match! core.Run(core.CommandIn(dir, [ "pr"; "diff"; string number ])) with
+            | Error e -> return Error e
+            | Ok raw -> return Ok(parseDiff raw)
+        }
 
     /// Issues for `dir` (`gh issue list --limit 100 --json …`). Up to 100 open issues.
     member _.IssueList(dir: string) =
@@ -416,6 +427,10 @@ and [<Sealed>] GitHubAt internal (github: GitHub, dir: string) =
 
     /// A single pull request by number (`gh pr view <n> --json …`).
     member _.PrView(number: uint64) = github.PrView(dir, number)
+
+    /// The pull request's unified diff, parsed into per-file `FileDiff` values
+    /// (`gh pr diff <n>`).
+    member _.PrDiff(number: uint64) = github.PrDiff(dir, number)
 
     /// Issues for the bound `dir` (`gh issue list …`).
     member _.IssueList() = github.IssueList dir
