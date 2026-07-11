@@ -67,6 +67,17 @@ type OperationState =
     /// A git `am` (mailbox patch apply) is in progress. Distinct from `Rebase` because it
     /// aborts with `am --abort`, not `rebase --abort` (M20).
     | ApplyMailbox
+    /// A git cherry-pick is in progress (`CHERRY_PICK_HEAD` present). Distinct from `Merge`:
+    /// it aborts/continues with `cherry-pick --abort` / `cherry-pick --continue` (a
+    /// cherry-pick conflict writes `CHERRY_PICK_HEAD`, **not** `MERGE_HEAD`). git only.
+    | CherryPick
+    /// A git revert is in progress (`REVERT_HEAD` present). Aborts/continues with
+    /// `revert --abort` / `revert --continue`. git only.
+    | Revert
+    /// A git bisect session is in progress (`BISECT_LOG` present). Aborts with `bisect reset`
+    /// — there is no continue step, so `Repo.ContinueInProgress` reports it unsupported rather
+    /// than silently doing nothing. git only.
+    | Bisect
     /// The working copy has an unresolved conflict (chiefly jj, which records conflicts
     /// on the change rather than pausing an operation).
     | Conflict

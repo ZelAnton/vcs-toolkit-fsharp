@@ -692,3 +692,82 @@ type AtViewTests() =
                 Assert.That(String.concat " " cmd.Arguments, Is.EqualTo "rev-parse HEAD")
             | None -> Assert.Fail "no command captured"
         }
+
+[<TestFixture>]
+type SequencerStateTests() =
+
+    [<Test>]
+    member _.SequencerStateProbesKeyOffTheirOwnMarker() =
+        // Each sequencer probe must fire ONLY on its own git-dir marker — and crucially a
+        // cherry-pick/revert must NOT read as a merge: a conflicted cherry-pick/revert writes its
+        // own head file (`CHERRY_PICK_HEAD`/`REVERT_HEAD`), never `MERGE_HEAD`, so mislabelling it
+        // a merge would abort with the wrong command. Bisect keys off `BISECT_LOG`.
+        let boolOf (t: Task<Result<bool, ProcessError>>) =
+            match t.GetAwaiter().GetResult() with
+            | Ok v -> v
+            | Error e -> failwithf "unexpected error: %A" e
+
+        withTempDir (fun dir ->
+            let gitDir = Path.Combine(dir, ".git")
+            Directory.CreateDirectory gitDir |> ignore
+            let git = scripted [ "rev-parse"; "--git-dir" ] (Reply.Ok(gitDir + "\n"))
+
+            let touch name =
+                File.WriteAllText(Path.Combine(gitDir, name), "x\n")
+
+            let rm name = File.Delete(Path.Combine(gitDir, name))
+
+            // A cherry-pick.
+            touch "CHERRY_PICK_HEAD"
+            Assert.That(boolOf (git.IsCherryPickInProgress dir), Is.True, "CHERRY_PICK_HEAD is a cherry-pick")
+            Assert.That(boolOf (git.IsMergeInProgress dir), Is.False, "a cherry-pick must NOT read as a merge")
+            Assert.That(boolOf (git.IsRevertInProgress dir), Is.False)
+            Assert.That(boolOf (git.IsBisectInProgress dir), Is.False)
+            rm "CHERRY_PICK_HEAD"
+
+            // A revert.
+            touch "REVERT_HEAD"
+            Assert.That(boolOf (git.IsRevertInProgress dir), Is.True, "REVERT_HEAD is a revert")
+            Assert.That(boolOf (git.IsCherryPickInProgress dir), Is.False)
+            Assert.That(boolOf (git.IsMergeInProgress dir), Is.False, "a revert must NOT read as a merge")
+            Assert.That(boolOf (git.IsBisectInProgress dir), Is.False)
+            rm "REVERT_HEAD"
+
+            // A bisect (keyed off BISECT_LOG).
+            touch "BISECT_LOG"
+            Assert.That(boolOf (git.IsBisectInProgress dir), Is.True, "BISECT_LOG is a bisect")
+            Assert.That(boolOf (git.IsCherryPickInProgress dir), Is.False)
+            Assert.That(boolOf (git.IsRevertInProgress dir), Is.False)
+            rm "BISECT_LOG"
+
+            // Clean git dir → none fire.
+            Assert.That(boolOf (git.IsCherryPickInProgress dir), Is.False)
+            Assert.That(boolOf (git.IsRevertInProgress dir), Is.False)
+            Assert.That(boolOf (git.IsBisectInProgress dir), Is.False))
+
+    [<Test>]
+    member _.SequencerAbortContinueCommandsDispatchCorrectArgv() : Task =
+        task {
+            // The abort/continue command wrappers must emit exactly git's own sub-commands; a
+            // continue routed to the wrong one (e.g. `rebase --continue` for a cherry-pick) would
+            // corrupt the sequencer. `--continue` carries no argv flag for the editor (that is an
+            // env var), so the argv is the bare sub-command.
+            let captured, runner = capturing (Reply.Ok "")
+            let git = Git.WithRunner runner
+
+            let argv () =
+                match captured.Value with
+                | Some c -> String.concat " " c.Arguments
+                | None -> "<no command captured>"
+
+            let! _ = git.CherryPickAbort "."
+            Assert.That(argv (), Is.EqualTo "cherry-pick --abort")
+            let! _ = git.CherryPickContinue "."
+            Assert.That(argv (), Is.EqualTo "cherry-pick --continue")
+            let! _ = git.RevertAbort "."
+            Assert.That(argv (), Is.EqualTo "revert --abort")
+            let! _ = git.RevertContinue "."
+            Assert.That(argv (), Is.EqualTo "revert --continue")
+            let! _ = git.BisectReset "."
+            Assert.That(argv (), Is.EqualTo "bisect reset")
+        }
