@@ -143,6 +143,16 @@ module internal GiteaForge =
             return ofForge r
         }
 
+    /// `tea pr merge` exposes no confirmed auto-merge / delete-source-branch flag, so the
+    /// unified spec's `Auto`/`DeleteBranch` can't be honoured on Gitea. Report a structural
+    /// `Unsupported` when either is asked for (so the facade refuses it before any spawn rather
+    /// than silently dropping the option); `None` for a plain, supportable strategy merge.
+    let unsupportedMerge (merge: PrMerge) : ForgeError option =
+        if merge.Auto || merge.DeleteBranch then
+            Some(ForgeError.Unsupported(ForgeKind.Gitea, "prMerge auto/delete-branch"))
+        else
+            None
+
     let prMerge (tea: VcsToolkit.Gitea.Gitea) (dir: string) (number: uint64) (strategy: MergeStrategy) =
         task {
             let ms =

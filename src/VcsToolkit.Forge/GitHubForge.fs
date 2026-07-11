@@ -184,15 +184,22 @@ module internal GitHubForge =
             return ofForge r
         }
 
-    let prMerge (gh: VcsToolkit.GitHub.GitHub) (dir: string) (number: uint64) (strategy: MergeStrategy) =
+    let prMerge (gh: VcsToolkit.GitHub.GitHub) (dir: string) (number: uint64) (merge: PrMerge) =
         task {
-            let merge =
-                match strategy with
+            // Map the unified strategy onto gh's own PrMerge, then carry `Auto`/`DeleteBranch`
+            // through to gh's real `--auto`/`--delete-branch` flags.
+            let strategy =
+                match merge.Strategy with
                 | MergeStrategy.Merge -> VcsToolkit.GitHub.PrMerge.Merge
                 | MergeStrategy.Squash -> VcsToolkit.GitHub.PrMerge.Squash
                 | MergeStrategy.Rebase -> VcsToolkit.GitHub.PrMerge.Rebase
 
-            let! r = gh.PrMerge(dir, number, merge)
+            let ghMerge =
+                strategy
+                |> fun m -> if merge.Auto then m.WithAuto() else m
+                |> fun m -> if merge.DeleteBranch then m.WithDeleteBranch() else m
+
+            let! r = gh.PrMerge(dir, number, ghMerge)
             return ofForge r
         }
 

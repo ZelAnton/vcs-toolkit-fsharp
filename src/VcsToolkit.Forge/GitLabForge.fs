@@ -176,6 +176,16 @@ module internal GitLabForge =
             return ofForge r
         }
 
+    /// `glab mr merge` exposes no confirmed auto-merge / delete-source-branch flag, so the
+    /// unified spec's `Auto`/`DeleteBranch` can't be honoured on GitLab. Report a structural
+    /// `Unsupported` when either is asked for (so the facade refuses it before any spawn rather
+    /// than silently dropping the option); `None` for a plain, supportable strategy merge.
+    let unsupportedMerge (merge: PrMerge) : ForgeError option =
+        if merge.Auto || merge.DeleteBranch then
+            Some(ForgeError.Unsupported(ForgeKind.GitLab, "prMerge auto/delete-branch"))
+        else
+            None
+
     let prMerge (glab: VcsToolkit.GitLab.GitLab) (dir: string) (number: uint64) (strategy: MergeStrategy) =
         task {
             let ms =

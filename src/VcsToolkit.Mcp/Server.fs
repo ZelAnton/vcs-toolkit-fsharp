@@ -344,14 +344,20 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
                 | Ok out -> return Ok(Json.ok {| output = out |})
             })
 
-    /// Merge a pull/merge request with a strategy (`merge`/`squash`/`rebase`).
-    member this.ForgePrMerge(number: uint64, strategy: string) =
+    /// Merge a pull/merge request with a strategy (`merge`/`squash`/`rebase`), optionally with
+    /// auto-merge / delete-branch (GitHub only — refused as `Unsupported` on GitLab/Gitea).
+    member this.ForgePrMerge(number: uint64, strategy: string, auto: bool, deleteBranch: bool) =
         this.WithForgeWrite "forge_pr_merge" (fun f ->
             task {
                 match parseStrategy strategy with
                 | Error e -> return Error e
                 | Ok ms ->
-                    match! f.PrMerge(number, ms) with
+                    let spec: PrMerge =
+                        { Strategy = ms
+                          Auto = auto
+                          DeleteBranch = deleteBranch }
+
+                    match! f.PrMerge(number, spec) with
                     | Error e -> return Error(forgeErr e)
                     | Ok() -> return Ok(Json.ok {| merged = number |})
             })

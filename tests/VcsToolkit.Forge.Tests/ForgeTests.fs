@@ -289,7 +289,7 @@ type DispatchTests() =
             let! a = isUnsupported (forge.PrList())
             let! b = isUnsupported (forge.PrView 1UL)
             let! c = isUnsupported (forge.RepoView())
-            let! d = isUnsupported (forge.PrMerge(1UL, MergeStrategy.Merge))
+            let! d = isUnsupported (forge.PrMerge(1UL, PrMerge.Merge))
             let! e = isUnsupported (forge.IssueCreate("t", "b"))
             let! f = isUnsupported (forge.ReleaseView "v1")
 
@@ -714,4 +714,128 @@ type VersionGateTests() =
                 Assert.That(caps.Version, Is.EqualTo None, "no CLI → no version")
                 Assert.That(caps.Kind, Is.EqualTo ForgeKind.Unknown)
             | Error e -> Assert.Fail $"capabilities failed: {e.Message}"
+        }
+
+// ---------------------------------------------------------------------------
+// Unified merge-spec: auto/delete-branch reach gh flags on GitHub; are refused
+// as Unsupported on GitLab/Gitea before spawning; plain strategies still merge.
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type PrMergeSpecTests() =
+
+    let isUnsupported (t: Task<Result<'T, ForgeError>>) =
+        task {
+            let! r = t
+
+            return
+                match r with
+                | Error e -> e.IsUnsupported
+                | Ok _ -> false
+        }
+
+    [<Test>]
+    member _.GitHubAutoAndDeleteBranchReachGhFlags() : Task =
+        task {
+            // ONLY `--version` and the EXACT expected merge argv are scripted (no fallback): an
+            // unmatched spawn raises, so an `Ok` proves `--auto` and `--delete-branch` both
+            // reached the gh command line — not silently dropped.
+            let forge =
+                Forge.FromGitHub(
+                    ".",
+                    VcsToolkit.GitHub.GitHub.WithRunner(
+                        ScriptedRunner()
+                            .On([ "--version" ], Reply.Ok "gh version 2.40.0\n")
+                            .On([ "pr"; "merge"; "1"; "--merge"; "--auto"; "--delete-branch" ], Reply.Exit 0)
+                    )
+                )
+
+            match! forge.PrMerge(1UL, PrMerge.Merge.WithAuto().WithDeleteBranch()) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"auto/delete-branch must reach the gh flags: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitHubPlainStrategyEmitsNoAutoOrDeleteBranchFlags() : Task =
+        task {
+            // Guard rules fail the run if either flag leaks in; a plain squash must match only
+            // the flag-free rule, proving the defaults add nothing.
+            let forge =
+                Forge.FromGitHub(
+                    ".",
+                    VcsToolkit.GitHub.GitHub.WithRunner(
+                        ScriptedRunner()
+                            .On([ "--version" ], Reply.Ok "gh version 2.40.0\n")
+                            .On([ "--auto" ], Reply.Exit 1)
+                            .On([ "--delete-branch" ], Reply.Exit 1)
+                            .On([ "pr"; "merge"; "1"; "--squash" ], Reply.Exit 0)
+                    )
+                )
+
+            match! forge.PrMerge(1UL, PrMerge.Squash) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"a plain strategy must add no auto/delete-branch flag: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabRefusesAutoAndDeleteBranchWithoutSpawning() : Task =
+        task {
+            // An empty ScriptedRunner RAISES on any spawn — so reaching Unsupported proves the
+            // facade refuses auto/delete-branch structurally, before even the version probe.
+            let forge =
+                Forge.FromGitLab(".", VcsToolkit.GitLab.GitLab.WithRunner(ScriptedRunner()))
+
+            let! auto = isUnsupported (forge.PrMerge(1UL, PrMerge.Merge.WithAuto()))
+            let! del = isUnsupported (forge.PrMerge(1UL, PrMerge.Squash.WithDeleteBranch()))
+            Assert.That(auto, Is.True, "GitLab auto-merge must be Unsupported without spawning")
+            Assert.That(del, Is.True, "GitLab delete-branch must be Unsupported without spawning")
+        }
+
+    [<Test>]
+    member _.GiteaRefusesAutoAndDeleteBranchWithoutSpawning() : Task =
+        task {
+            let forge =
+                Forge.FromGitea(".", VcsToolkit.Gitea.Gitea.WithRunner(ScriptedRunner()))
+
+            let! auto = isUnsupported (forge.PrMerge(1UL, PrMerge.Rebase.WithAuto()))
+            let! del = isUnsupported (forge.PrMerge(1UL, PrMerge.Merge.WithDeleteBranch()))
+            Assert.That(auto, Is.True, "Gitea auto-merge must be Unsupported without spawning")
+            Assert.That(del, Is.True, "Gitea delete-branch must be Unsupported without spawning")
+        }
+
+    [<Test>]
+    member _.GitLabPlainStrategyStillMerges() : Task =
+        task {
+            // A plain strategy (no auto/delete-branch) dispatches as before to `glab mr merge`.
+            let forge =
+                Forge.FromGitLab(
+                    ".",
+                    VcsToolkit.GitLab.GitLab.WithRunner(
+                        ScriptedRunner()
+                            .On([ "--version" ], Reply.Ok "glab 1.40.0\n")
+                            .On([ "mr"; "merge"; "1"; "--squash" ], Reply.Exit 0)
+                    )
+                )
+
+            match! forge.PrMerge(1UL, PrMerge.Squash) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"a plain GitLab strategy merge must still work: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaPlainStrategyStillMerges() : Task =
+        task {
+            let forge =
+                Forge.FromGitea(
+                    ".",
+                    VcsToolkit.Gitea.Gitea.WithRunner(
+                        ScriptedRunner()
+                            .On([ "--version" ], Reply.Ok "tea version 0.9.2\n")
+                            .On([ "pr"; "merge"; "1"; "--style"; "rebase" ], Reply.Exit 0)
+                    )
+                )
+
+            match! forge.PrMerge(1UL, PrMerge.Rebase) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"a plain Gitea strategy merge must still work: {e.Message}"
         }

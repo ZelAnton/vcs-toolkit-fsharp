@@ -265,12 +265,20 @@ module internal Catalog =
                   Required = false } ]
           write
               "forge_pr_merge"
-              "Merge a pull/merge request with a strategy (merge|squash|rebase)."
+              "Merge a pull/merge request with a strategy (merge|squash|rebase). auto/delete_branch are GitHub-only; on GitLab/Gitea either is refused as Unsupported."
               [ pNumber
                 { Name = "strategy"
                   JsonType = "string"
                   Description = "Merge strategy: merge, squash, or rebase."
-                  Required = true } ]
+                  Required = true }
+                { Name = "auto"
+                  JsonType = "boolean"
+                  Description = "Enable auto-merge — merge once requirements are met (GitHub only)."
+                  Required = false }
+                { Name = "delete_branch"
+                  JsonType = "boolean"
+                  Description = "Delete the source branch after merging (GitHub only)."
+                  Required = false } ]
           write
               "forge_pr_close"
               "Close a pull/merge request without merging."
@@ -385,7 +393,8 @@ module internal Catalog =
                     server.ForgePrCreate(title, body, optStr args "source", optStr args "target")))
         | "forge_pr_merge" ->
             bind (reqU64 args "number") (fun number ->
-                bind (reqStr args "strategy") (fun strategy -> server.ForgePrMerge(number, strategy)))
+                bind (reqStr args "strategy") (fun strategy ->
+                    server.ForgePrMerge(number, strategy, optBool args "auto", optBool args "delete_branch")))
         | "forge_pr_close" ->
             bind (reqU64 args "number") (fun number -> server.ForgePrClose(number, optBool args "delete_branch"))
         | "forge_pr_mark_ready" -> bind (reqU64 args "number") server.ForgePrMarkReady

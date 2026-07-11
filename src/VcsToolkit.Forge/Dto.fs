@@ -293,6 +293,48 @@ type MergeStrategy =
     /// Rebase the source onto the target.
     | Rebase
 
+/// Options for `prMerge` — the unified merge-a-PR/MR spec, mapped to each CLI's own merge
+/// flags. Build it through the strategy constructors `PrMerge.Merge`/`Squash`/`Rebase`, then
+/// the chained `WithAuto`/`WithDeleteBranch` setters (modelled on GitHub's own `PrMerge`).
+/// `Auto`/`DeleteBranch` map to real `gh` flags on GitHub; GitLab and Gitea expose no
+/// confirmed equivalent, so a spec that asks for either is refused with `Unsupported` before
+/// any spawn there rather than silently dropping the option.
+type PrMerge =
+    {
+        /// The merge strategy (see `MergeStrategy`).
+        Strategy: MergeStrategy
+        /// Enable auto-merge — merge once requirements are met (GitHub `--auto`).
+        /// **`Unsupported` on GitLab/Gitea.**
+        Auto: bool
+        /// Delete the source branch after the merge (GitHub `--delete-branch`).
+        /// **`Unsupported` on GitLab/Gitea.**
+        DeleteBranch: bool
+    }
+
+    /// Merge with a merge commit.
+    static member Merge =
+        { Strategy = MergeStrategy.Merge
+          Auto = false
+          DeleteBranch = false }
+
+    /// Squash the commits into one.
+    static member Squash =
+        { Strategy = MergeStrategy.Squash
+          Auto = false
+          DeleteBranch = false }
+
+    /// Rebase the source onto the target.
+    static member Rebase =
+        { Strategy = MergeStrategy.Rebase
+          Auto = false
+          DeleteBranch = false }
+
+    /// Merge automatically once requirements are met (GitHub `--auto`).
+    member this.WithAuto() = { this with Auto = true }
+
+    /// Delete the source branch after merging (GitHub `--delete-branch`).
+    member this.WithDeleteBranch() = { this with DeleteBranch = true }
+
 /// Options for `prEdit` — the unified edit-a-PR/MR spec. At least one of `Title`/`Body`
 /// must be `Some` — both-`None` is rejected by the facade before spawning. An empty
 /// string is a real value (clears the field), not a `None`.

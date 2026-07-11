@@ -152,8 +152,9 @@ type Forge private (cwd: string, backend: Backend) =
 
     /// The underlying `GitHub` client, or `None` when another forge backs this handle — an escape
     /// hatch to `gh`-only operations off the forge-agnostic surface (Actions runs, `prReview`/
-    /// `prFeedback`, the `api` REST/GraphQL hatch, `prMerge` auto-merge/delete-branch). Carries the
-    /// token when this handle was built via `GitHubWithToken`/`FromGitHub`. Pass `Cwd` as `dir`.
+    /// `prFeedback`, the `api` REST/GraphQL hatch). Carries the token when this handle was built
+    /// via `GitHubWithToken`/`FromGitHub`. Pass `Cwd` as `dir`. (`prMerge`'s auto-merge/
+    /// delete-branch options are now on the unified surface via the `PrMerge` spec.)
     /// (The `Repo.Git`/`Repo.Jj` analogue for the forge facade; named `*Client` because the bare
     /// `GitHub`/`GitLab`/`Gitea` names are the handle's constructors.)
     member _.GitHubClient =
@@ -299,15 +300,32 @@ type Forge private (cwd: string, backend: Backend) =
                         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prEdit")) })
         }
 
-    /// Merge a PR/MR with the given `MergeStrategy`. Version-gated: refused with
-    /// `UnsupportedVersion` before spawning if the CLI is below the wrapper's floor.
-    member _.PrMerge(number: uint64, strategy: MergeStrategy) =
-        gated backend "prMerge" (fun () ->
+    /// Merge a PR/MR with the given unified `PrMerge` spec. `Auto`/`DeleteBranch` map to real
+    /// `gh` flags on GitHub; on GitLab and Gitea — whose CLIs expose no confirmed equivalent —
+    /// a spec asking for either is refused structurally with `Unsupported` **before any spawn**
+    /// (including the version probe), rather than silently dropping the option. A plain strategy
+    /// merge works on all three. Version-gated: refused with `UnsupportedVersion` before
+    /// spawning if the CLI is below the wrapper's floor.
+    member _.PrMerge(number: uint64, merge: PrMerge) =
+        // The GitLab/Gitea backends own the "auto/delete-branch is unsupported here" verdict; a
+        // hit short-circuits before `gated` so nothing spawns. No catch-all: a new spec option
+        // must decide its support at each backend explicitly.
+        let unsupported =
             match backend with
-            | Backend.GitHub c -> GitHubForge.prMerge c cwd number strategy
-            | Backend.GitLab c -> GitLabForge.prMerge c cwd number strategy
-            | Backend.Gitea c -> GiteaForge.prMerge c cwd number strategy
-            | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prMerge")) })
+            | Backend.GitLab _ -> GitLabForge.unsupportedMerge merge
+            | Backend.Gitea _ -> GiteaForge.unsupportedMerge merge
+            | Backend.GitHub _
+            | Backend.Unknown -> None
+
+        match unsupported with
+        | Some e -> task { return Error e }
+        | None ->
+            gated backend "prMerge" (fun () ->
+                match backend with
+                | Backend.GitHub c -> GitHubForge.prMerge c cwd number merge
+                | Backend.GitLab c -> GitLabForge.prMerge c cwd number merge.Strategy
+                | Backend.Gitea c -> GiteaForge.prMerge c cwd number merge.Strategy
+                | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prMerge")) })
 
     /// Mark a draft PR/MR as ready for review. **`Unsupported` on Gitea** (`tea` has no
     /// draft toggle — a Gitea draft is a `WIP:` title prefix, edited via the raw client).
