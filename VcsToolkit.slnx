@@ -24,6 +24,7 @@
 		</Project>
 		<Project Path="tests/VcsToolkit.Core.Tests/VcsToolkit.Core.Tests.fsproj">
 			<BuildDependency Project="src/VcsToolkit.Core/VcsToolkit.Core.fsproj" />
+			<BuildDependency Project="src/VcsToolkit.TestKit/VcsToolkit.TestKit.fsproj" />
 		</Project>
 		<Project Path="tests/VcsToolkit.Forge.Tests/VcsToolkit.Forge.Tests.fsproj">
 			<BuildDependency Project="src/VcsToolkit.Forge/VcsToolkit.Forge.fsproj" />
