@@ -188,6 +188,25 @@ type GitSandbox private (dir: TempDir) =
             (dir :> IDisposable).Dispose()
             reraise ()
 
+    /// Create and initialise a repository under the **SHA-256** object format
+    /// (`git init -b main --object-format=sha256 --template=`), otherwise identical to
+    /// `Init`. For exercising SHA-256-specific behaviour (e.g. that the empty-tree id
+    /// resolves to a 64-hex value rather than the SHA-1 hardcoded constant). Raises if
+    /// the installed `git` was not built with SHA-256 support — callers on a real-`git`
+    /// fixture should catch and `Assert.Ignore` rather than fail the run.
+    static member InitSha256(tag: string) : GitSandbox =
+        let dir = new TempDir(tag)
+
+        try
+            run "git" dir.Path [ "init"; "-q"; "-b"; "main"; "--object-format=sha256"; "--template=" ]
+            configureIdentityAt dir.Path
+            new GitSandbox(dir)
+        with _ ->
+            // construction failed after the temp dir was created — dispose it so a failed
+            // fixture doesn't leak a dir (Rust's Drop fires during unwind; an F# `let` won't).
+            (dir :> IDisposable).Dispose()
+            reraise ()
+
     /// The repository's working-tree path.
     member _.Path = dir.Path
 
