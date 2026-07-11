@@ -10,7 +10,7 @@ open VcsToolkit.Jj
 open VcsToolkit.TestKit
 
 /// Whether a probe (a `<binary> --version` call) runs without raising — i.e. the binary is
-/// on PATH. The guarded tests below skip when it isn't (a hermetic CI has git but not jj).
+/// on PATH. The jj fallback is a required integration scenario, so its tests fail when jj is unavailable.
 let private binaryAvailable (probe: unit -> unit) : bool =
     try
         probe ()
@@ -21,7 +21,7 @@ let private binaryAvailable (probe: unit -> unit) : bool =
 
 let private requireBinary (name: string) (probe: unit -> unit) =
     if not (binaryAvailable probe) then
-        Assert.Ignore $"{name} not available on PATH"
+        Assert.Fail $"{name} must be available on PATH to run required forge-detection tests"
 
 /// A throwaway **non-colocated** jj repo (`jj git init --no-colocate`) — the scenario
 /// this task's fallback targets. `JjSandbox.Init` (`jj git init` with no flag) is
