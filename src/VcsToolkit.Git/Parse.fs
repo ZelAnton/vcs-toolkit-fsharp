@@ -259,7 +259,9 @@ module internal GitParse =
         output.Split nul
         |> Array.filter (fun r -> r <> "")
         |> Array.choose (fun record ->
-            let f = record.Split unitSep
+            // Limited to 5 fields so a trailing subject keeps literal 0x1f, like JjParse.parseChanges keeps trailing tabs.
+            // A literal 0x1f in %an still shifts later fields; that ambiguity is inherent to this format.
+            let f = record.Split(unitSep, 5)
 
             if f.Length >= 4 then
                 Some
