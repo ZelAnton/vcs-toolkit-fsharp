@@ -337,14 +337,28 @@ type Forge private (cwd: string, backend: Backend) =
         | Backend.Gitea _ -> task { return Error(ForgeError.Unsupported(ForgeKind.Gitea, "prMarkReady")) }
         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prMarkReady")) }
 
-    /// Close a PR/MR without merging. `deleteBranch` applies to GitHub only; GitLab and
-    /// Gitea ignore it.
+    /// Close a PR/MR without merging. `deleteBranch` maps to the real `gh` flag on GitHub; on
+    /// GitLab and Gitea — whose CLIs expose no confirmed equivalent — requesting it is refused
+    /// structurally with `Unsupported` **before any spawn**, rather than silently dropping the
+    /// option. Closing without deleting the branch works on all three.
     member _.PrClose(number: uint64, deleteBranch: bool) =
-        match backend with
-        | Backend.GitHub c -> GitHubForge.prClose c cwd number deleteBranch
-        | Backend.GitLab c -> GitLabForge.prClose c cwd number
-        | Backend.Gitea c -> GiteaForge.prClose c cwd number
-        | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prClose")) }
+        // The GitLab/Gitea backends own the support verdict; a hit returns before dispatch, so
+        // the unsupported request cannot reach the CLI.
+        let unsupported =
+            match backend with
+            | Backend.GitLab _ -> GitLabForge.unsupportedClose deleteBranch
+            | Backend.Gitea _ -> GiteaForge.unsupportedClose deleteBranch
+            | Backend.GitHub _
+            | Backend.Unknown -> None
+
+        match unsupported with
+        | Some e -> task { return Error e }
+        | None ->
+            match backend with
+            | Backend.GitHub c -> GitHubForge.prClose c cwd number deleteBranch
+            | Backend.GitLab c -> GitLabForge.prClose c cwd number
+            | Backend.Gitea c -> GiteaForge.prClose c cwd number
+            | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prClose")) }
 
     /// Check out a PR/MR's branch into the bound directory (`gh pr checkout` /
     /// `glab mr checkout` / `tea pr checkout`). Unlike the remote-only operations, this is a

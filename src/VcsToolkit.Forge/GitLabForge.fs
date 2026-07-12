@@ -193,6 +193,15 @@ module internal GitLabForge =
         else
             None
 
+    /// `glab mr close` exposes no confirmed delete-source-branch flag. Report a structural
+    /// `Unsupported` when it is requested so the facade refuses it before any spawn rather than
+    /// silently dropping the option; `None` when closing without deleting the branch.
+    let unsupportedClose (deleteBranch: bool) : ForgeError option =
+        if deleteBranch then
+            Some(ForgeError.Unsupported(ForgeKind.GitLab, "prClose delete-branch"))
+        else
+            None
+
     let prMerge (glab: VcsToolkit.GitLab.GitLab) (dir: string) (number: uint64) (strategy: MergeStrategy) =
         task {
             let ms =
@@ -211,7 +220,7 @@ module internal GitLabForge =
             return ofForge r
         }
 
-    // `delete_branch` has no `glab mr close` equivalent, so it is ignored here.
+
     let prClose (glab: VcsToolkit.GitLab.GitLab) (dir: string) (number: uint64) =
         task {
             let! r = glab.MrClose(dir, number)

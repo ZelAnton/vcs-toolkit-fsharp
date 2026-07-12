@@ -160,6 +160,15 @@ module internal GiteaForge =
         else
             None
 
+    /// `tea pr close` exposes no confirmed delete-source-branch flag. Report a structural
+    /// `Unsupported` when it is requested so the facade refuses it before any spawn rather than
+    /// silently dropping the option; `None` when closing without deleting the branch.
+    let unsupportedClose (deleteBranch: bool) : ForgeError option =
+        if deleteBranch then
+            Some(ForgeError.Unsupported(ForgeKind.Gitea, "prClose delete-branch"))
+        else
+            None
+
     let prMerge (tea: VcsToolkit.Gitea.Gitea) (dir: string) (number: uint64) (strategy: MergeStrategy) =
         task {
             let ms =
@@ -172,7 +181,7 @@ module internal GiteaForge =
             return ofForge r
         }
 
-    // `tea pr close` takes no branch-deletion flag, so `delete_branch` is ignored.
+
     let prClose (tea: VcsToolkit.Gitea.Gitea) (dir: string) (number: uint64) =
         task {
             let! r = tea.PrClose(dir, number)
