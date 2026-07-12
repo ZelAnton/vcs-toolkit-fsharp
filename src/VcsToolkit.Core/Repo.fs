@@ -222,13 +222,17 @@ type Repo private (root: string, cwd: string, backend: Backend) =
         | Backend.Git g -> GitBackend.log g cwd revspecOrRevset max
         | Backend.Jj j -> JjBackend.log j cwd revspecOrRevset max
 
-    /// Like `Log`, but scoped to commits that touched `paths` (repo-relative) — e.g. "who changed
-    /// this module". `paths` must be non-empty: an empty set is refused up front, because a
-    /// path-less scope would degrade to `Log`'s **unrestricted** history on both backends (git's
-    /// `-- ` with no pathspec, jj's bare `-r <revset>`), the opposite of "scoped to these paths".
-    /// On git the paths become `--literal-pathspecs` pathspecs (glob metacharacters matched
-    /// literally, argv-budget chunking transparent); on jj they become exact-path `file:"…"`
-    /// filesets. Same `Commit` DTO and author/date backend nuance as `Log`.
+    /// Like `Log`, but scoped to commits that touched `paths` — e.g. "who changed this module".
+    /// `paths` are **repo-root-relative** and resolved against the repository `Root` even when this
+    /// handle is bound to a subdirectory (`Cwd` ≠ `Root`), matching the root-relative paths
+    /// `ChangedFiles` reports — so a path taken from `ChangedFiles` scopes the exact same file.
+    /// `paths` must be non-empty: an empty set is refused up front, because a path-less scope would
+    /// degrade to `Log`'s **unrestricted** history on both backends (git's `-- ` with no pathspec,
+    /// jj's bare `-r <revset>`), the opposite of "scoped to these paths". On git the paths become
+    /// `--literal-pathspecs` pathspecs (glob metacharacters matched literally, argv-budget chunking
+    /// transparent) run from `Root` so they anchor there rather than at `Cwd`; on jj they become
+    /// exact-path `root-file:"…"` filesets (workspace-root-relative by construction). Same `Commit`
+    /// DTO and author/date backend nuance as `Log`.
     member _.LogPaths(revspecOrRevset: string, max: int, paths: string list) =
         task {
             if List.isEmpty paths then
@@ -239,16 +243,24 @@ type Repo private (root: string, cwd: string, backend: Backend) =
                     )
             else
                 match backend with
-                | Backend.Git g -> return! GitBackend.logPaths g cwd revspecOrRevset max paths
+                // Anchor the git pathspecs at the repo root: git resolves a `-- <pathspec>`
+                // relative to the command's cwd, so run from `root` (not this handle's `cwd`,
+                // which may be a subdirectory) to honour the repo-relative contract. jj's filesets
+                // are `root-file:` (self-anchoring to the workspace root), so `cwd` is passed
+                // as-is — it correctly scopes which workspace the query runs against.
+                | Backend.Git g -> return! GitBackend.logPaths g root revspecOrRevset max paths
                 | Backend.Jj j -> return! JjBackend.logPaths j cwd revspecOrRevset max paths
         }
 
     // --- Mutations -----------------------------------------------------------
 
     /// Commit exactly `paths` with `message` (git `commit --only`, jj `commit <filesets>`).
-    /// Paths are repo-relative. `paths` must be non-empty: an empty set is refused up
-    /// front, because the backends diverge dangerously — git errors, while jj's `commit`
-    /// with no filesets would silently commit the **entire** working copy.
+    /// `paths` are **repo-root-relative** and resolved against the repository `Root` even when this
+    /// handle is bound to a subdirectory (`Cwd` ≠ `Root`), matching the root-relative paths
+    /// `ChangedFiles` reports — so committing a path taken from `ChangedFiles` commits that exact
+    /// file. `paths` must be non-empty: an empty set is refused up front, because the backends
+    /// diverge dangerously — git errors, while jj's `commit` with no filesets would silently commit
+    /// the **entire** working copy.
     member _.CommitPaths(paths: string list, message: string) =
         task {
             if List.isEmpty paths then
@@ -259,7 +271,12 @@ type Repo private (root: string, cwd: string, backend: Backend) =
                     )
             else
                 match backend with
-                | Backend.Git g -> return! GitBackend.commitPaths g cwd paths message
+                // Anchor the git pathspecs at the repo root: git resolves a `-- <pathspec>` relative
+                // to the command's cwd, so run from `root` (not this handle's `cwd`, which may be a
+                // subdirectory) to honour the repo-relative contract. jj's filesets are `root-file:`
+                // (self-anchoring to the workspace root), so `cwd` is passed as-is — it correctly
+                // scopes which workspace the commit runs against.
+                | Backend.Git g -> return! GitBackend.commitPaths g root paths message
                 | Backend.Jj j -> return! JjBackend.commitPaths j cwd paths message
         }
 
