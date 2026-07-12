@@ -245,9 +245,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
             match! this.Root dir with
             | Error e -> return Error e
             | Ok root ->
-                match!
-                    core.Parse(cmdInRead (root.Trim()) [ "diff"; "-r"; "@"; "--summary" ], JjParse.parseDiffSummary)
-                with
+                match! core.Parse(cmdInRead root [ "diff"; "-r"; "@"; "--summary" ], JjParse.parseDiffSummary) with
                 | Error e -> return Error e
                 | Ok entries -> return rejectEscapingPaths entries
         }
@@ -472,9 +470,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
                 // meaning inside the `..` range instead of binding by operator precedence.
                 let range = sprintf "(%s)..(%s)" fromRev toRev
 
-                match!
-                    core.Parse(cmdInRead (root.Trim()) [ "diff"; "-r"; range; "--summary" ], JjParse.parseDiffSummary)
-                with
+                match! core.Parse(cmdInRead root [ "diff"; "-r"; range; "--summary" ], JjParse.parseDiffSummary) with
                 | Error e -> return Error e
                 | Ok entries -> return rejectEscapingPaths entries
         }

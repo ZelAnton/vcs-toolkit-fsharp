@@ -413,6 +413,33 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.StatusPreservesLeadingWhitespaceInWorkspaceRoot() : Task =
+        task {
+            // A leading space is legal in a Unix path; `Status` must run the diff query from
+            // the root exactly as `Root` returned it (TrimEnd-only), not further `Trim()`-ed
+            // (which would silently drop the leading space and point at a nonexistent dir).
+            let captured = ref (None: Command option)
+
+            let recordDiffCommand (cmd: Command) =
+                let args = cmd.Arguments |> Seq.toList
+
+                if List.truncate 4 args = [ "diff"; "-r"; "@"; "--summary" ] then
+                    captured.Value <- Some cmd
+
+                true
+
+            let runner =
+                ScriptedRunner().On([ "root" ], Reply.Ok " /repo\n").When(recordDiffCommand, Reply.Ok "M file.rs\n")
+
+            let jj = Jj.WithRunner runner
+
+            let! _ = jj.Status " /repo"
+            let cwd = captured.Value |> Option.bind (fun c -> c.WorkingDirectory)
+
+            Assert.That(cwd, Is.EqualTo(Some " /repo"), "the leading space must be preserved, not trimmed")
+        }
+
+    [<Test>]
     member _.StatusRejectsPathEscapingWorkspaceRoot() : Task =
         task {
             // Defensive backstop: a `..`-carrying path from `diff --summary` is rejected as an
