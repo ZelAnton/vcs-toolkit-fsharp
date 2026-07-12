@@ -1056,6 +1056,102 @@ type PrMergeSpecTests() =
         }
 
 // ---------------------------------------------------------------------------
+// PR close support: GitHub implements delete-branch; GitLab/Gitea reject that request
+// structurally before spawning, while branch-preserving closes remain available everywhere.
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type PrCloseSupportTests() =
+
+    let isCloseUnsupported (kind: ForgeKind) (t: Task<Result<'T, ForgeError>>) =
+        task {
+            let! r = t
+
+            return
+                match r with
+                | Error(ForgeError.Unsupported(actualKind, "prClose delete-branch")) -> actualKind = kind
+                | Error _
+                | Ok _ -> false
+        }
+
+    [<Test>]
+    member _.GitHubCloseWithDeleteBranchReachesGhFlag() : Task =
+        task {
+            let forge =
+                Forge.FromGitHub(
+                    ".",
+                    VcsToolkit.GitHub.GitHub.WithRunner(
+                        ScriptedRunner().On([ "pr"; "close"; "1"; "--delete-branch" ], Reply.Exit 0)
+                    )
+                )
+
+            match! forge.PrClose(1UL, true) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"GitHub delete-branch must reach the gh flag: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitHubCloseWithoutDeleteBranchKeepsExistingBehavior() : Task =
+        task {
+            let forge =
+                Forge.FromGitHub(
+                    ".",
+                    VcsToolkit.GitHub.GitHub.WithRunner(ScriptedRunner().On([ "pr"; "close"; "2" ], Reply.Exit 0))
+                )
+
+            match! forge.PrClose(2UL, false) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"GitHub close without delete-branch must still work: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabCloseWithDeleteBranchIsUnsupportedWithoutSpawning() : Task =
+        task {
+            let forge =
+                Forge.FromGitLab(".", VcsToolkit.GitLab.GitLab.WithRunner(ScriptedRunner()))
+
+            let! unsupported = isCloseUnsupported ForgeKind.GitLab (forge.PrClose(1UL, true))
+            Assert.That(unsupported, Is.True, "GitLab delete-branch must be Unsupported without spawning")
+        }
+
+    [<Test>]
+    member _.GitLabCloseWithoutDeleteBranchStillWorks() : Task =
+        task {
+            let forge =
+                Forge.FromGitLab(
+                    ".",
+                    VcsToolkit.GitLab.GitLab.WithRunner(ScriptedRunner().On([ "mr"; "close"; "1" ], Reply.Exit 0))
+                )
+
+            match! forge.PrClose(1UL, false) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"GitLab close without delete-branch must still work: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaCloseWithDeleteBranchIsUnsupportedWithoutSpawning() : Task =
+        task {
+            let forge =
+                Forge.FromGitea(".", VcsToolkit.Gitea.Gitea.WithRunner(ScriptedRunner()))
+
+            let! unsupported = isCloseUnsupported ForgeKind.Gitea (forge.PrClose(1UL, true))
+            Assert.That(unsupported, Is.True, "Gitea delete-branch must be Unsupported without spawning")
+        }
+
+    [<Test>]
+    member _.GiteaCloseWithoutDeleteBranchStillWorks() : Task =
+        task {
+            let forge =
+                Forge.FromGitea(
+                    ".",
+                    VcsToolkit.Gitea.Gitea.WithRunner(ScriptedRunner().On([ "pr"; "close"; "1" ], Reply.Exit 0))
+                )
+
+            match! forge.PrClose(1UL, false) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"Gitea close without delete-branch must still work: {e.Message}"
+        }
+// ---------------------------------------------------------------------------
 // Local-worktree checkout: each backend dispatches to its native checkout subcommand;
 // the CLI-less Unknown handle is Unsupported without spawning. (Checkout is supported on
 // all three CLIs, so it is NOT a capability-varying ForgeOp — unlike prMarkReady.)
