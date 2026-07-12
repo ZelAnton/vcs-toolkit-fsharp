@@ -286,6 +286,20 @@ type QueryTests() =
         }
 
     [<Test>]
+    member _.LogPreservesSubjectWith0x1f() : Task =
+        task {
+            let subject = $"Keep{us}this separator"
+            let out = $"abc123{us}abc{us}Ada{us}2026-05-31T10:00:00+00:00{us}{subject}{nul}"
+            let git = scripted [ "log"; "HEAD" ] (Reply.Ok out)
+
+            match! git.Log(".", "HEAD", 50) with
+            | Ok commits ->
+                Assert.That(commits.Length, Is.EqualTo 1)
+                Assert.That(commits.[0].Subject, Is.EqualTo subject)
+            | Error e -> Assert.Fail $"log failed: {e}"
+        }
+
+    [<Test>]
     member _.DiffStatParsesShortstat() : Task =
         task {
             let git =
