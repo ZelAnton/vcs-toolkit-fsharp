@@ -54,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `vcs-mcp`'s `forge_pr_merge` tool now holds the same per-repo write lock as `forge_pr_checkout` and the `repo_*` mutations for its whole call (previously it only checked the write gate, without serializing): with `delete_branch` it can delete the local branch and switch the checkout, so it must not race a concurrent repo mutation on the same working copy.
 
 ### Fixed
+- `GitHub.PrDiff` and `GitLab.MrDiff` now preserve the complete raw CLI diff output, including a trailing newline and a final blank context line, so their parsed `FileDiff.Raw` values remain byte-exact and the final hunk stays valid.
 - `Jj.CurrentBookmark` and `Jj.Trunk` now preserve local bookmark names containing commas or quotes instead of treating commas as separators.
 - `Git.Add`/`Git.CommitPaths` now apply `--literal-pathspecs` unconditionally, so a path containing a glob metacharacter (`*`, `?`, `[]`) matches literally instead of being silently expanded as a pathspec pattern; a path set whose combined argv length would approach the OS command-line limit (Windows' ~32767-character `CreateProcess` ceiling) is now routed through the NUL-safe `--pathspec-from-file=- --pathspec-file-nul` stdin transport instead of risking a spawn failure, with a small path set still going through a single, argv-unchanged call.
 - `GitLab`'s `MrCreate`/`MrEdit`/`IssueCreate`/`MrComment` now refuse a body/description of exactly `"-"` before spawning `glab`, instead of hanging on glab's own stdin/`$EDITOR` sentinel prompt.

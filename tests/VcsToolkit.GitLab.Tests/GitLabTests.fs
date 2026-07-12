@@ -239,9 +239,10 @@ type ClientTests() =
                 + "index e69de29..4b825dc 100644\n"
                 + "--- a/foo.txt\n"
                 + "+++ b/foo.txt\n"
-                + "@@ -1,1 +1,2 @@\n"
-                + " unchanged\n"
-                + "+added line\n"
+                + "@@ -1,2 +1,2 @@\n"
+                + "-old line\n"
+                + "+new line\n"
+                + " \n"
 
             let glab = scripted [ "mr"; "diff"; "12" ] (Reply.Ok raw)
 
@@ -250,7 +251,10 @@ type ClientTests() =
                 Assert.That(file.Path, Is.EqualTo "foo.txt")
                 Assert.That(file.Change, Is.EqualTo ChangeKind.Modified)
                 Assert.That(file.Hunks.Length, Is.EqualTo 1)
-                Assert.That(file.Hunks.[0].Lines = [ DiffLine.Context "unchanged"; DiffLine.Added "added line" ])
+                Assert.That(
+                    file.Hunks.[0].Lines = [ DiffLine.Removed "old line"; DiffLine.Added "new line"; DiffLine.Context "" ]
+                )
+                Assert.That(file.Raw, Is.EqualTo raw)
             | Ok other -> Assert.Fail $"expected one file diff, got {other.Length}"
             | Error e -> Assert.Fail $"mr diff failed: {e}"
         }

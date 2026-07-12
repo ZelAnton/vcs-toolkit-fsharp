@@ -261,7 +261,7 @@ type GitLab private (core: ManagedClient) =
     /// but is always digits (`uint64`), so no injection guard is needed.
     member _.MrDiff(dir: string, number: uint64) =
         task {
-            match! core.Run(core.CommandIn(dir, [ "mr"; "diff"; string number ])) with
+            match! runUntrimmed core (core.CommandIn(dir, [ "mr"; "diff"; string number ])) with
             | Error e -> return Error e
             | Ok raw -> return Ok(parseDiff raw)
         }
