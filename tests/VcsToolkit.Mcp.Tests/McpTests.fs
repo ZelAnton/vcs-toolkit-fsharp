@@ -609,6 +609,38 @@ type CatalogTests() =
         Assert.That(tryMerge.Idempotent, Is.True)
 
     [<Test>]
+    member _.WriteToolAnnotationsMatchTheirSemantics() =
+        let expected =
+            [ "repo_try_merge", false, true
+              "repo_commit", false, false
+              "repo_checkout", false, true
+              "repo_fetch", false, true
+              "repo_push", false, true
+              "repo_create_worktree", false, false
+              "repo_remove_worktree", true, false
+              "forge_issue_create", false, false
+              "forge_pr_create", false, false
+              "forge_pr_merge", true, false
+              "forge_pr_close", true, true
+              "forge_pr_mark_ready", false, true
+              "forge_pr_comment", false, false
+              "forge_pr_edit", false, true
+              "forge_pr_checkout", false, true ]
+
+        let expectedNames: Set<string> =
+            expected |> List.map (fun (name, _, _) -> name) |> Set.ofList
+        // `Set<string>` also satisfies NUnit's `'T seq` overload of `Is.EqualTo`, so a plain
+        // `Assert.That(expectedNames, Is.EqualTo WriteTools.asSet)` is ambiguous (FS0041) even
+        // with the type annotation above; compare via F#'s structural `=` instead.
+        Assert.That((expectedNames = WriteTools.asSet), Is.True, "expected tool names must match WriteTools.all")
+
+        for name, destructive, idempotent in expected do
+            let tool = Catalog.all |> List.find (fun t -> t.Name = name)
+            Assert.That(tool.ReadOnly, Is.False, name)
+            Assert.That(tool.Destructive, Is.EqualTo destructive, name)
+            Assert.That(tool.Idempotent, Is.EqualTo idempotent, name)
+
+    [<Test>]
     member _.InputSchemaListsPropertiesAndRequired() =
         let checkout = Catalog.all |> List.find (fun t -> t.Name = "repo_checkout")
         let schema = Catalog.inputSchema checkout

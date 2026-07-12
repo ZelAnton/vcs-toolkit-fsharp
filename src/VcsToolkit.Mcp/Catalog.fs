@@ -117,14 +117,20 @@ module internal Catalog =
               Idempotent = false
               Params = ps }
 
-        let write name desc ps =
+        // `destructive`/`idempotent` are per-tool, evaluated on the tool's actual worst-case
+        // semantics rather than a single shared default: destructive = the call (or one of its
+        // optional parameters, e.g. `force`/`delete_branch`) can irrecoverably discard data;
+        // idempotent = calling twice with the same arguments leaves the same end state as
+        // calling once (a creating call is never idempotent — it produces a new entity/commit
+        // each time).
+        let write name desc destructive idempotent ps =
             { Name = name
               Description =
                 desc
                 + " Requires write access (--allow-write, or --allow-tools naming this tool)."
               ReadOnly = false
-              Destructive = true
-              Idempotent = false
+              Destructive = destructive
+              Idempotent = idempotent
               Params = ps }
 
         [ read
@@ -181,6 +187,8 @@ module internal Catalog =
           write
               "repo_commit"
               "Commit exactly the given paths with a message."
+              false
+              false
               [ { Name = "paths"
                   JsonType = "array"
                   Description = "Repo-relative paths to commit (and nothing else)."
@@ -192,11 +200,18 @@ module internal Catalog =
           write
               "repo_checkout"
               "Switch the working copy to a branch/bookmark/revision (git checkout / jj edit)."
+              false
+              true
               [ pReference ]
-          write "repo_fetch" "Fetch from the default remote (git fetch / jj git fetch)." []
+          write "repo_fetch" "Fetch from the default remote (git fetch / jj git fetch)." false true []
+          // Non-destructive: fast-forward-only (no `force` param, so a diverged remote is
+          // refused rather than overwritten); idempotent: re-pushing an already-up-to-date
+          // branch is a no-op.
           write
               "repo_push"
               "Push an existing branch/bookmark to origin."
+              false
+              true
               [ { Name = "branch"
                   JsonType = "string"
                   Description = "The existing local branch (git) / bookmark (jj) to push."
@@ -204,6 +219,8 @@ module internal Catalog =
           write
               "repo_create_worktree"
               "Create a worktree/workspace at `path` on a new `branch` from `base`."
+              false
+              false
               [ { Name = "path"
                   JsonType = "string"
                   Description = "Filesystem path for the new worktree/workspace."
@@ -219,6 +236,8 @@ module internal Catalog =
           write
               "repo_remove_worktree"
               "Remove the worktree/workspace at `path` (the main worktree is always refused)."
+              true
+              false
               [ { Name = "path"
                   JsonType = "string"
                   Description = "Filesystem path of the worktree/workspace to remove."
@@ -248,6 +267,8 @@ module internal Catalog =
           write
               "forge_issue_create"
               "Open an issue, returning the CLI's output (the URL on success)."
+              false
+              false
               [ { Name = "title"
                   JsonType = "string"
                   Description = "Title."
@@ -259,6 +280,8 @@ module internal Catalog =
           write
               "forge_pr_create"
               "Open a pull/merge request, returning the CLI's output (the URL on success)."
+              false
+              false
               [ { Name = "title"
                   JsonType = "string"
                   Description = "Title."
@@ -275,9 +298,13 @@ module internal Catalog =
                   JsonType = "string"
                   Description = "Target/base branch; omit for the repo default."
                   Required = false } ]
+          // Destructive: `delete_branch=true` deletes the source branch; not idempotent:
+          // merging an already-merged PR errors, and `auto` makes the outcome non-deterministic.
           write
               "forge_pr_merge"
               "Merge a pull/merge request with a strategy (merge|squash|rebase). auto/delete_branch are GitHub-only; on GitLab/Gitea either is refused as Unsupported."
+              true
+              false
               [ pNumber
                 { Name = "strategy"
                   JsonType = "string"
@@ -291,9 +318,13 @@ module internal Catalog =
                   JsonType = "boolean"
                   Description = "Delete the source branch after merging (GitHub only)."
                   Required = false } ]
+          // Destructive: `delete_branch=true` deletes the source branch (closing alone is just
+          // a status change); idempotent: closing an already-closed PR/MR is a no-op.
           write
               "forge_pr_close"
               "Close a pull/merge request without merging. delete_branch is GitHub-only; on GitLab/Gitea it is refused as Unsupported."
+              true
+              true
               [ pNumber
                 { Name = "delete_branch"
                   JsonType = "boolean"
@@ -302,18 +333,27 @@ module internal Catalog =
           write
               "forge_pr_mark_ready"
               "Mark a draft pull/merge request as ready for review (Unsupported on Gitea)."
+              false
+              true
               [ pNumber ]
           write
               "forge_pr_comment"
               "Post a comment to an existing pull/merge request, returning the CLI's output."
+              false
+              false
               [ pNumber
                 { Name = "body"
                   JsonType = "string"
                   Description = "The markdown comment body."
                   Required = true } ]
+          // Non-destructive: only overwrites title/body text (no deletion capability), and it's
+          // trivially reversible via another edit call; idempotent: re-applying the same
+          // title/body leaves the PR/MR unchanged.
           write
               "forge_pr_edit"
               "Edit a pull/merge request's title and/or body (at least one required)."
+              false
+              true
               [ pNumber
                 { Name = "title"
                   JsonType = "string"
@@ -326,6 +366,8 @@ module internal Catalog =
           write
               "forge_pr_checkout"
               "Check out a pull/merge request's branch into the local working copy (gh pr checkout / glab mr checkout / tea pr checkout). A local-worktree mutation — it switches the checked-out branch."
+              false
+              true
               [ pNumber ] ]
 
     /// The JSON-Schema `inputSchema` object for a tool spec.
