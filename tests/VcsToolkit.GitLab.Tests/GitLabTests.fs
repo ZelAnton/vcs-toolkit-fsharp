@@ -251,9 +251,12 @@ type ClientTests() =
                 Assert.That(file.Path, Is.EqualTo "foo.txt")
                 Assert.That(file.Change, Is.EqualTo ChangeKind.Modified)
                 Assert.That(file.Hunks.Length, Is.EqualTo 1)
+
                 Assert.That(
-                    file.Hunks.[0].Lines = [ DiffLine.Removed "old line"; DiffLine.Added "new line"; DiffLine.Context "" ]
+                    file.Hunks.[0].Lines =
+                        [ DiffLine.Removed "old line"; DiffLine.Added "new line"; DiffLine.Context "" ]
                 )
+
                 Assert.That(file.Raw, Is.EqualTo raw)
             | Ok other -> Assert.Fail $"expected one file diff, got {other.Length}"
             | Error e -> Assert.Fail $"mr diff failed: {e}"
