@@ -266,7 +266,8 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
 
     /// Like `Log`, but scoped to changes that touched `filesets` (`jj log -r <revset> -n<max>
     /// --no-graph -T … <filesets>`) — e.g. "who changed this module". `filesets` are exact-path
-    /// `JjFileset`s (`file:"…"`), so a path metacharacter is matched literally rather than parsed
+    /// `JjFileset`s (`root-file:"…"`, so workspace-root-relative regardless of `dir`), so a path
+    /// metacharacter is matched literally rather than parsed
     /// as a fileset operator; they append after the template as jj's own path-scoping arguments (no
     /// argv-chunking is needed — jj, unlike `git log`, filters by revset/fileset natively rather
     /// than expanding paths into argv the way pathspec chunking guards against). An empty `filesets`
@@ -631,8 +632,9 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
                 | Ok ok -> return Ok(JjParse.parseAnnotate (System.Text.Encoding.UTF8.GetString ok.Stdout))
         }
 
-    /// A file's content at a revision (`jj file show -r <revset> file:"<path>"` — the
-    /// path is wrapped as an exact-path fileset, so metacharacters stay literal).
+    /// A file's content at a revision (`jj file show -r <revset> root-file:"<path>"` — the
+    /// path is wrapped as an exact-path fileset, so metacharacters stay literal and the path is
+    /// resolved relative to the workspace root regardless of `dir`).
     member _.FileShow(dir: string, revset: string, path: string) =
         let fileset = JjFileset.Path path
         // Untrimmed: a blob's trailing newline(s) must survive for a byte-exact read-modify-write.
@@ -1185,7 +1187,7 @@ and [<Sealed>] JjAt internal (jj: Jj, dir: string) =
     /// Per-line authorship of `path` (`jj file annotate <path> [-r <revset>]`).
     member _.FileAnnotate(path: string, revset: string option) = jj.FileAnnotate(dir, path, revset)
 
-    /// A file's content at a revision (`jj file show -r <revset> file:"<path>"`).
+    /// A file's content at a revision (`jj file show -r <revset> root-file:"<path>"`).
     member _.FileShow(revset: string, path: string) = jj.FileShow(dir, revset, path)
 
     /// Fold working-copy edits into the ancestors that introduced the touched lines.

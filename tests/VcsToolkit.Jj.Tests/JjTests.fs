@@ -298,20 +298,20 @@ type ParseTests() =
 
     [<Test>]
     member _.FilesetQuotesMetacharacters() =
-        Assert.That(JjFileset.Path("src/a(b).rs").Value, Is.EqualTo "file:\"src/a(b).rs\"")
-        // A literal quote is escaped for the `file:"…"` string literal, on both platforms.
-        Assert.That(JjFileset.Path("a\"b.txt").Value, Is.EqualTo "file:\"a\\\"b.txt\"")
+        Assert.That(JjFileset.Path("src/a(b).rs").Value, Is.EqualTo "root-file:\"src/a(b).rs\"")
+        // A literal quote is escaped for the `root-file:"…"` string literal, on both platforms.
+        Assert.That(JjFileset.Path("a\"b.txt").Value, Is.EqualTo "root-file:\"a\\\"b.txt\"")
 
         if System.OperatingSystem.IsWindows() then
             // On Windows a backslash separator is normalised to `/`.
-            Assert.That(JjFileset.Path($"src{string (char 92)}a.rs").Value, Is.EqualTo "file:\"src/a.rs\"")
+            Assert.That(JjFileset.Path($"src{string (char 92)}a.rs").Value, Is.EqualTo "root-file:\"src/a.rs\"")
         else
             // On non-Windows `\` is a legitimate filename byte: it is kept and
             // escaped as `\\` (not normalised to `/`), so the literal round-trips.
             let bs = string (char 92)
-            Assert.That(JjFileset.Path($"a{bs}b.txt").Value, Is.EqualTo $"file:\"a{bs}{bs}b.txt\"")
-            Assert.That(JjFileset.Path($"a{bs}").Value, Is.EqualTo $"file:\"a{bs}{bs}\"")
-            Assert.That(JjFileset.Path($"a{bs}b\"c.txt").Value, Is.EqualTo $"file:\"a{bs}{bs}b\\\"c.txt\"")
+            Assert.That(JjFileset.Path($"a{bs}b.txt").Value, Is.EqualTo $"root-file:\"a{bs}{bs}b.txt\"")
+            Assert.That(JjFileset.Path($"a{bs}").Value, Is.EqualTo $"root-file:\"a{bs}{bs}\"")
+            Assert.That(JjFileset.Path($"a{bs}b\"c.txt").Value, Is.EqualTo $"root-file:\"a{bs}{bs}b\\\"c.txt\"")
 
     [<Test>]
     member _.FilesetEscapingMatchesPlatformSemanticsIndependentOfHostOs() =
@@ -616,7 +616,7 @@ type ClientTests() =
     member _.CommitPathsBuildsFilesets() : Task =
         task {
             let jj =
-                scripted [ "commit"; "-m"; "msg"; "file:\"x|y.rs\""; "file:\"z.rs\"" ] (Reply.Ok "")
+                scripted [ "commit"; "-m"; "msg"; "root-file:\"x|y.rs\""; "root-file:\"z.rs\"" ] (Reply.Ok "")
 
             match! jj.CommitPaths(".", [ JjFileset.Path "x|y.rs"; JjFileset.Path "z.rs" ], "msg") with
             | Ok() -> ()
@@ -626,13 +626,13 @@ type ClientTests() =
     [<Test>]
     member _.LogPathsScopesToFilesetsLiterally() : Task =
         task {
-            // A glob metacharacter proves the fileset is exact-path (`file:"…"`), matched literally
-            // rather than expanded as a fileset operator. The path-scoping filesets append after the
-            // `-r <revset> -n<max> --no-graph -T <template>` prefix and drive a scoped `jj log`.
+            // A glob metacharacter proves the fileset is exact-path (`root-file:"…"`), matched
+            // literally rather than expanded as a fileset operator. The path-scoping filesets append
+            // after the `-r <revset> -n<max> --no-graph -T <template>` prefix and drive a scoped `jj log`.
             let changeRow = $"kztuxlro{tab}38e00654{tab}false{tab}touched src\n"
 
             let jj =
-                scripted [ "log"; "-r"; "main..@"; "-n20"; "--no-graph"; "file:\"src/*.rs\"" ] (Reply.Ok changeRow)
+                scripted [ "log"; "-r"; "main..@"; "-n20"; "--no-graph"; "root-file:\"src/*.rs\"" ] (Reply.Ok changeRow)
 
             match! jj.LogPaths(".", "main..@", 20, [ JjFileset.Path "src/*.rs" ]) with
             | Ok changes ->
@@ -660,7 +660,7 @@ type ClientTests() =
     member _.SquashPathsBuildsArgs() : Task =
         task {
             let jj =
-                scripted [ "squash"; "--from"; "@"; "--into"; "feat"; "file:\"a.rs\"" ] (Reply.Ok "")
+                scripted [ "squash"; "--from"; "@"; "--into"; "feat"; "root-file:\"a.rs\"" ] (Reply.Ok "")
 
             let spec = SquashPaths.Create("@", "feat").WithFilesets [ JjFileset.Path "a.rs" ]
 
@@ -673,7 +673,7 @@ type ClientTests() =
     member _.SquashPathsKeepsDestinationMessage() : Task =
         task {
             let jj =
-                scripted [ "squash"; "--use-destination-message"; "file:\"a.rs\"" ] (Reply.Ok "")
+                scripted [ "squash"; "--use-destination-message"; "root-file:\"a.rs\"" ] (Reply.Ok "")
 
             let spec =
                 SquashPaths.Create("@", "feat").WithFilesets([ JjFileset.Path "a.rs" ]).WithUseDestinationMessage()
@@ -748,7 +748,8 @@ type ClientTests() =
     [<Test>]
     member _.AbsorbBuildsArgs() : Task =
         task {
-            let jj = scripted [ "absorb"; "--from"; "@-"; "file:\"src/a.rs\"" ] (Reply.Ok "")
+            let jj =
+                scripted [ "absorb"; "--from"; "@-"; "root-file:\"src/a.rs\"" ] (Reply.Ok "")
 
             match! jj.Absorb(".", Some "@-", [ JjFileset.Path "src/a.rs" ]) with
             | Ok() -> ()
@@ -784,7 +785,7 @@ type ClientTests() =
             // file_show wraps the path as an exact-path fileset; the blob's trailing newline is
             // PRESERVED (untrimmed) so a read-modify-write stays byte-exact.
             let show =
-                scripted [ "file"; "show"; "-r"; "@-"; "file:\"src/a.rs\"" ] (Reply.Ok "content\n")
+                scripted [ "file"; "show"; "-r"; "@-"; "root-file:\"src/a.rs\"" ] (Reply.Ok "content\n")
 
             match! show.FileShow(".", "@-", "src/a.rs") with
             | Ok content -> Assert.That(content, Is.EqualTo "content\n")
