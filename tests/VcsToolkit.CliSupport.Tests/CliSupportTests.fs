@@ -200,6 +200,81 @@ type RetryTests() =
             )
         }
 
+    [<Test>]
+    member _.ParseRetriesLockContentionAndParsesOnlyTheSuccessfulOutput() : Task =
+        task {
+            let attempts = ref 0
+            let parserCalls = ref 0
+            let lockErr = exit "git" 128 "Unable to create '/r/.git/index.lock': File exists"
+
+            let runner =
+                ScriptedRunner()
+                    .When(
+                        (fun _ ->
+                            attempts.Value <- attempts.Value + 1
+                            attempts.Value = 1),
+                        Reply.Error lockErr
+                    )
+                    .Fallback(Reply.Ok "42")
+
+            let client =
+                ManagedClient.WithRunner("git", runner).WithRetry(RetryPolicy.None.WithAttempts 2)
+
+            let! result =
+                client.Parse(
+                    client.Command [ "rev-parse"; "--verify"; "HEAD" ],
+                    fun output ->
+                        parserCalls.Value <- parserCalls.Value + 1
+                        Int32.Parse output
+                )
+
+            match result with
+            | Ok value -> Assert.That(value, Is.EqualTo 42)
+            | Error error -> Assert.Fail $"expected successful retry, got {error}"
+
+            Assert.That(attempts.Value, Is.EqualTo 2, "first lock failure and one successful retry")
+            Assert.That(parserCalls.Value, Is.EqualTo 1, "parser runs only for the successful output")
+        }
+
+    [<Test>]
+    member _.TryParseRetriesLockContentionAndParsesOnlyTheSuccessfulOutput() : Task =
+        task {
+            let attempts = ref 0
+            let parserCalls = ref 0
+            let lockErr = exit "git" 128 "Unable to create '/r/.git/index.lock': File exists"
+
+            let runner =
+                ScriptedRunner()
+                    .When(
+                        (fun _ ->
+                            attempts.Value <- attempts.Value + 1
+                            attempts.Value = 1),
+                        Reply.Error lockErr
+                    )
+                    .Fallback(Reply.Ok "42")
+
+            let client =
+                ManagedClient.WithRunner("git", runner).WithRetry(RetryPolicy.None.WithAttempts 2)
+
+            let! result =
+                client.TryParse(
+                    client.Command [ "rev-parse"; "--verify"; "HEAD" ],
+                    fun output ->
+                        parserCalls.Value <- parserCalls.Value + 1
+
+                        match Int32.TryParse output with
+                        | true, value -> Ok value
+                        | false, _ -> Error "expected an integer"
+                )
+
+            match result with
+            | Ok value -> Assert.That(value, Is.EqualTo 42)
+            | Error error -> Assert.Fail $"expected successful retry, got {error}"
+
+            Assert.That(attempts.Value, Is.EqualTo 2, "first lock failure and one successful retry")
+            Assert.That(parserCalls.Value, Is.EqualTo 1, "parser runs only for the successful output")
+        }
+
 [<TestFixture>]
 type CredentialTests() =
 

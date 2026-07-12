@@ -18,12 +18,47 @@ type private ManagedConfig =
       TokenEnv: (CredentialService * string) option
       ExpectedHost: string option }
 
+module private ManagedParsing =
+
+    let parse
+        (program: string)
+        (parser: string -> 'T)
+        (runText: unit -> Task<Result<string, ProcessError>>)
+        : Task<Result<'T, ProcessError>> =
+        task {
+            match! runText () with
+            | Error error -> return Error error
+            | Ok text ->
+                try
+                    return Ok(parser text)
+                with ex ->
+                    return Error(ProcessError.Parse(program, ex.Message))
+        }
+
+    let tryParse
+        (program: string)
+        (parser: string -> Result<'T, string>)
+        (runText: unit -> Task<Result<string, ProcessError>>)
+        : Task<Result<'T, ProcessError>> =
+        task {
+            match! runText () with
+            | Error error -> return Error error
+            | Ok text ->
+                try
+                    match parser text with
+                    | Ok value -> return Ok value
+                    | Error message -> return Error(ProcessError.Parse(program, message))
+                with ex ->
+                    return Error(ProcessError.Parse(program, ex.Message))
+        }
+
 /// A ProcessKit-runner wrapper that adds two opt-in concerns the CLI wrappers all
 /// share, without touching a call site: lock-contention retry per a `RetryPolicy`
-/// (off by default), and credential injection from an opt-in `ICredentialProvider`
-/// (off by default → ambient auth). With neither configured it behaves like a bare
-/// runner. The default constructor drives the real job-backed `JobRunner`; pass a
-/// `ScriptedRunner` via `WithRunner` to inject a fake in tests.
+/// (off by default) on `Run`, `RunUnit`, `Probe`, `ExitCode`, `Parse`, and `TryParse`;
+/// and credential injection from an opt-in `ICredentialProvider` (off by default →
+/// ambient auth). With neither configured it behaves like a bare runner. The default
+/// constructor drives the real job-backed `JobRunner`; pass a `ScriptedRunner` via
+/// `WithRunner` to inject a fake in tests.
 [<Sealed>]
 type ManagedClient private (cfg: ManagedConfig) =
 
@@ -55,7 +90,9 @@ type ManagedClient private (cfg: ManagedConfig) =
     /// Whether a credential provider is configured.
     member _.HasCredentials = cfg.Credentials.IsSome
 
-    /// Set the lock-contention retry policy (opt-in; default is no retry).
+    /// Set the lock-contention retry policy (opt-in; default is no retry) for all
+    /// zero-exit methods. `Parse` and `TryParse` retry process execution only; each
+    /// parser runs once after a successful output is available.
     member _.WithRetry(policy: RetryPolicy) =
         ManagedClient { cfg with Retry = policy }
 
@@ -231,18 +268,26 @@ type ManagedClient private (cfg: ManagedConfig) =
                         Runner.exitCode cfg.Runner cfg.Cancel prepared)
         }
 
-    /// Require a zero exit and parse the trimmed stdout (credential injection applied; no lock-retry).
+    /// Require a zero exit and parse the trimmed stdout (credential injection and lock-retry applied).
     member this.Parse(cmd: Command, parser: string -> 'T) : Task<Result<'T, ProcessError>> =
         task {
             match! this.Prepare cmd with
             | Error e -> return Error e
-            | Ok prepared -> return! Runner.parse cfg.Runner cfg.Cancel parser prepared
+            | Ok prepared ->
+                return!
+                    ManagedParsing.parse cfg.Program parser (fun () ->
+                        Retry.retryAsync cfg.Retry isLockContention cfg.Cancel (fun () ->
+                            Runner.run cfg.Runner cfg.Cancel prepared))
         }
 
-    /// Like `Parse`, but the parser returns its own `Result` (credential injection applied; no lock-retry).
+    /// Like `Parse`, but the parser returns its own `Result` (credential injection and lock-retry applied).
     member this.TryParse(cmd: Command, parser: string -> Result<'T, string>) : Task<Result<'T, ProcessError>> =
         task {
             match! this.Prepare cmd with
             | Error e -> return Error e
-            | Ok prepared -> return! Runner.tryParse cfg.Runner cfg.Cancel parser prepared
+            | Ok prepared ->
+                return!
+                    ManagedParsing.tryParse cfg.Program parser (fun () ->
+                        Retry.retryAsync cfg.Retry isLockContention cfg.Cancel (fun () ->
+                            Runner.run cfg.Runner cfg.Cancel prepared))
         }
