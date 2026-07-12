@@ -114,6 +114,27 @@ module internal GitBackend =
                     return ofVcs r
         }
 
+    let private classifyOperationState (gitDir: string) : OperationState =
+        // `git am` and an apply-backend rebase share `rebase-apply/`, but am marks it
+        // `applying` — check that first so an am reads `ApplyMailbox`, not `Rebase`.
+        if File.Exists(Path.Combine(gitDir, "MERGE_HEAD")) then
+            OperationState.Merge
+        elif File.Exists(Path.Combine(gitDir, "rebase-apply", "applying")) then
+            OperationState.ApplyMailbox
+        elif
+            Directory.Exists(Path.Combine(gitDir, "rebase-merge"))
+            || Directory.Exists(Path.Combine(gitDir, "rebase-apply"))
+        then
+            OperationState.Rebase
+        elif File.Exists(Path.Combine(gitDir, "CHERRY_PICK_HEAD")) then
+            OperationState.CherryPick
+        elif File.Exists(Path.Combine(gitDir, "REVERT_HEAD")) then
+            OperationState.Revert
+        elif File.Exists(Path.Combine(gitDir, "BISECT_LOG")) then
+            OperationState.Bisect
+        else
+            OperationState.Clear
+
     let snapshot (git: Git) (dir: string) =
         task {
             // 1 spawn: branch + upstream + ahead/behind + change counts (porcelain v2).
@@ -134,30 +155,7 @@ module internal GitBackend =
                         else
                             Path.Combine(dir, raw)
 
-                    let operation =
-                        // Same precedence as `inProgressState`: `git am` and an apply-backend
-                        // rebase share `rebase-apply/`, but am marks it `applying` — check that
-                        // first so an am reads `ApplyMailbox`, not `Rebase` (M20). Cherry-pick and
-                        // revert key off their own head file (a conflict there writes
-                        // `CHERRY_PICK_HEAD`/`REVERT_HEAD`, never `MERGE_HEAD`); bisect keys off
-                        // `BISECT_LOG`.
-                        if File.Exists(Path.Combine(gitDir, "MERGE_HEAD")) then
-                            OperationState.Merge
-                        elif File.Exists(Path.Combine(gitDir, "rebase-apply", "applying")) then
-                            OperationState.ApplyMailbox
-                        elif
-                            Directory.Exists(Path.Combine(gitDir, "rebase-merge"))
-                            || Directory.Exists(Path.Combine(gitDir, "rebase-apply"))
-                        then
-                            OperationState.Rebase
-                        elif File.Exists(Path.Combine(gitDir, "CHERRY_PICK_HEAD")) then
-                            OperationState.CherryPick
-                        elif File.Exists(Path.Combine(gitDir, "REVERT_HEAD")) then
-                            OperationState.Revert
-                        elif File.Exists(Path.Combine(gitDir, "BISECT_LOG")) then
-                            OperationState.Bisect
-                        else
-                            OperationState.Clear
+                    let operation = classifyOperationState gitDir
 
                     let changeCount = bs.TrackedChanges + bs.Untracked
                     // Upstream + ahead/behind travel together: git reports the counts only when an
@@ -254,39 +252,17 @@ module internal GitBackend =
 
     let inProgressState (git: Git) (dir: string) =
         task {
-            // git surfaces an interrupted operation as on-disk state; at most one of these is
-            // live, so report whichever is present. The precedence mirrors git's own
-            // `wt_status_get_state` (merge → am/rebase → cherry-pick → revert, bisect
-            // independent) and is safe because the markers are mutually exclusive in practice: a
-            // cherry-pick/revert conflict writes `CHERRY_PICK_HEAD`/`REVERT_HEAD` (never
-            // `MERGE_HEAD`), and a rebase that internally cherry-picks does NOT set
-            // `CHERRY_PICK_HEAD`. `git am` is checked distinctly from rebase (both use
-            // `rebase-apply/`, but am marks it `applying`) so an am isn't mis-aborted with
-            // `rebase --abort` (M20). Keep this in step with the `snapshot` probe above.
-            match! git.IsMergeInProgress dir with
+            // Resolve git-dir once, then classify the on-disk interrupted-operation markers.
+            match! git.GitDir dir with
             | Error e -> return Error(RepoError.Vcs e)
-            | Ok true -> return Ok OperationState.Merge
-            | Ok false ->
-                match! git.IsAmInProgress dir with
-                | Error e -> return Error(RepoError.Vcs e)
-                | Ok true -> return Ok OperationState.ApplyMailbox
-                | Ok false ->
-                    match! git.IsRebaseInProgress dir with
-                    | Error e -> return Error(RepoError.Vcs e)
-                    | Ok true -> return Ok OperationState.Rebase
-                    | Ok false ->
-                        match! git.IsCherryPickInProgress dir with
-                        | Error e -> return Error(RepoError.Vcs e)
-                        | Ok true -> return Ok OperationState.CherryPick
-                        | Ok false ->
-                            match! git.IsRevertInProgress dir with
-                            | Error e -> return Error(RepoError.Vcs e)
-                            | Ok true -> return Ok OperationState.Revert
-                            | Ok false ->
-                                match! git.IsBisectInProgress dir with
-                                | Error e -> return Error(RepoError.Vcs e)
-                                | Ok true -> return Ok OperationState.Bisect
-                                | Ok false -> return Ok OperationState.Clear
+            | Ok raw ->
+                let gitDir =
+                    if Path.IsPathRooted raw then
+                        raw
+                    else
+                        Path.Combine(dir, raw)
+
+                return Ok(classifyOperationState gitDir)
         }
 
     let tryMerge (git: Git) (dir: string) (source: string) =

@@ -293,11 +293,11 @@ module internal Catalog =
                   Required = false } ]
           write
               "forge_pr_close"
-              "Close a pull/merge request without merging."
+              "Close a pull/merge request without merging. delete_branch is GitHub-only; on GitLab/Gitea it is refused as Unsupported."
               [ pNumber
                 { Name = "delete_branch"
                   JsonType = "boolean"
-                  Description = "Also delete the source branch (GitHub only)."
+                  Description = "Also delete the source branch (GitHub only; refused as Unsupported on GitLab/Gitea)."
                   Required = false } ]
           write
               "forge_pr_mark_ready"
