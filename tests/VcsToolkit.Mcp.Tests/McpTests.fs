@@ -185,6 +185,13 @@ type ErrorMappingTests() =
         | McpError.Internal message -> Assert.Fail $"expected invalid params, got internal: {message}"
 
     [<Test>]
+    member _.CoreUnsupportedMapsToInvalidParams() =
+        match coreErr (RepoError.Unsupported "continue during bisect") with
+        | McpError.InvalidParams message ->
+            Assert.That(message, Is.EqualTo "unsupported operation: continue during bisect")
+        | McpError.Internal message -> Assert.Fail $"expected invalid params, got internal: {message}"
+
+    [<Test>]
     member _.CoreIoMapsToInternal() =
         match coreErr (RepoError.Io "directory delete failed") with
         | McpError.Internal message -> Assert.That(message, Is.EqualTo "directory delete failed")

@@ -34,6 +34,7 @@ module internal ErrorMapping =
     let coreErr (e: RepoError) : McpError =
         match e with
         | RepoError.InvalidInput _ -> McpError.InvalidParams e.Message
+        | RepoError.Unsupported _ -> McpError.InvalidParams e.Message
         | _ -> McpError.Internal e.Message
 
     /// Map a `VcsToolkit.Forge` error into an MCP error — an `Unsupported` op or an
