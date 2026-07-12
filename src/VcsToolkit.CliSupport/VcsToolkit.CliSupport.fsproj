@@ -13,6 +13,7 @@
 	<ItemGroup>
 		<Compile Include="Json.fs" />
 		<Compile Include="Secret.fs" />
+		<Compile Include="RemoteUrl.fs" />
 		<Compile Include="Credentials.fs" />
 		<Compile Include="Classify.fs" />
 		<Compile Include="Retry.fs" />

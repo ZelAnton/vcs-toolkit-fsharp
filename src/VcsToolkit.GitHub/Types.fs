@@ -53,11 +53,13 @@ module internal Constants =
     [<Literal>]
     let RELEASE_VIEW_FIELDS = "tagName,name,body,url,publishedAt,isDraft,isPrerelease"
 
-/// Host-classification helpers for `GitHubHost`. Kept local to this crate (the Forge
-/// facade sits *above* GitHub in the dependency stack, so its `OfRemoteUrl` classifier
-/// can't be reused here); this is the gh-specific port of the Rust `host_from_remote_url`
-/// / `validate_host` pair, which is stricter than Forge's SaaS-only classifier (any
-/// valid dotted host is a GHES host, and an ambiguous remote is an error, not `None`).
+/// Host-classification helpers for `GitHubHost`. The gh-specific *policy* is kept local to
+/// this crate — the Forge facade sits *above* GitHub in the dependency stack, so its
+/// `OfRemoteUrl` classifier can't be reused here, and this policy is anyway stricter than
+/// Forge's SaaS-only one (any valid dotted host is a GHES host, and an ambiguous remote is
+/// an error, not `None`) — a gh-specific port of the Rust `host_from_remote_url` /
+/// `validate_host` pair. The URL-parsing *mechanics* (authority split, userinfo/port drop)
+/// come from `RemoteUrl` in CliSupport, which sits *below* both consumers.
 [<AutoOpen>]
 module private HostClassify =
 
@@ -107,36 +109,25 @@ module private HostClassify =
         if url = "" then
             None
         else
-            match url.IndexOf("://", System.StringComparison.Ordinal) with
-            | i when i >= 0 ->
-                // scheme://[user@]host[:port]/…  — the authority ends at the first
-                // `/`/`?`/`#`; drop any `user:pass@` userinfo, then a trailing `:port`.
-                let rest = url.Substring(i + 3)
-                let authority = rest.Split([| '/'; '?'; '#' |]).[0]
-
-                let hostPort =
-                    match authority.LastIndexOf('@') with
-                    | j when j >= 0 -> authority.Substring(j + 1)
-                    | _ -> authority
+            match RemoteUrl.afterScheme url with
+            | Some rest ->
+                // scheme://[user@]host[:port]/…  — shared mechanics take the authority to the
+                // first `/`/`?`/`#` and drop `user:pass@` userinfo; here we then apply gh policy.
+                let hostPort = RemoteUrl.authority rest
 
                 // Refuse an IPv6-literal authority (`[::1]`): a GitHub host is never a
                 // bracketed literal, and gh names hosts without a port.
                 if hostPort = "" || hostPort.StartsWith('[') then
                     None
                 else
-                    match hostPort.Split(':').[0] with
+                    match RemoteUrl.stripPort hostPort with
                     | "" -> None
                     | h -> Some h
-            | _ ->
+            | None ->
                 // scp-like SSH `[user@]host:path` (no scheme): the host ends at the first `:`.
                 match url.IndexOf(':') with
                 | j when j >= 0 ->
-                    let authority = url.Substring(0, j)
-
-                    let host =
-                        match authority.LastIndexOf('@') with
-                        | k when k >= 0 -> authority.Substring(k + 1)
-                        | _ -> authority
+                    let host = RemoteUrl.dropUserinfo (url.Substring(0, j))
 
                     // Require a dotted host so a Windows drive path (`C:\…`) or a bare
                     // single-label authority isn't misread as a remote host — those are

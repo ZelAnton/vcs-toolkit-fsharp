@@ -24,21 +24,18 @@ module private HostClassify =
 
     /// Extract the host from a git remote URL — scheme URLs (`https://host/…`,
     /// `ssh://git@host:22/…`, `https://[::1]:443/…`) and scp-like (`git@host:owner/repo`).
+    /// The authority split, userinfo drop, and port strip are the shared `RemoteUrl`
+    /// mechanics from CliSupport; the anti-spoofing IPv6-bracket policy below is Forge's own.
     /// For a scheme URL the host is bracket-aware: an IPv6 authority `[::1]:443` yields
     /// `::1`, but only when the bracket content is a *genuine* IPv6 literal — a bracketed
     /// name like `[gitlab.com]` or a colon-bearing fake `[a:b.gitlab.com]` must not be
     /// unwrapped (it could otherwise spoof a trusted host), so it yields `None`.
     let hostOf (url: string) : string option =
-        match url.IndexOf("://", StringComparison.Ordinal) with
-        | i when i >= 0 ->
-            // A scheme URL: take the authority up to the next `/`/`?`/`#`, drop userinfo.
-            let after = url.Substring(i + 3)
-            let authority = after.Split([| '/'; '?'; '#' |]).[0]
-
-            let hostPort =
-                match authority.LastIndexOf('@') with
-                | j when j >= 0 -> authority.Substring(j + 1)
-                | _ -> authority
+        match RemoteUrl.afterScheme url with
+        | Some after ->
+            // A scheme URL: shared mechanics take the authority to the next `/`/`?`/`#` and
+            // drop userinfo, leaving `host[:port]` or an IPv6 `[...]` authority.
+            let hostPort = RemoteUrl.authority after
 
             if hostPort.StartsWith("[", StringComparison.Ordinal) then
                 // Unwrap brackets ONLY when the content parses as a real IPv6 literal.
@@ -61,15 +58,12 @@ module private HostClassify =
                     | _ -> None
             else
                 // Otherwise strip an optional `:port`.
-                match hostPort.Split(':').[0] with
+                match RemoteUrl.stripPort hostPort with
                 | "" -> None
                 | h -> Some h
-        | _ ->
+        | None ->
             // No scheme: scp-like `user@host:path` or bare `host:path` / `host/path`.
-            let afterUser =
-                match url.LastIndexOf('@') with
-                | j when j >= 0 -> url.Substring(j + 1)
-                | _ -> url
+            let afterUser = RemoteUrl.dropUserinfo url
 
             match afterUser.Split([| ':'; '/' |]).[0] with
             | "" -> None

@@ -165,13 +165,10 @@ module Credentials =
         else
             // "https://" is 8 ASCII chars and OrdinalIgnoreCase is a 1:1 char mapping, so the
             // matched prefix is exactly this length; Substring past it preserves the host bytes.
-            let rest = url.Substring("https://".Length)
-            let authority = rest.Split([| '/'; '?'; '#' |]).[0]
-
-            let hostPort =
-                match authority.LastIndexOf('@') with
-                | i when i >= 0 -> authority.Substring(i + 1)
-                | _ -> authority
+            // Shared mechanics (`RemoteUrl.authority`) take the authority to the first `/`/`?`/`#`
+            // and drop userinfo; the HTTPS-only scheme gate, the `[`-IPv6-authority → `None`
+            // policy, and KEEPING the port and host case verbatim are this helper's own.
+            let hostPort = RemoteUrl.authority (url.Substring("https://".Length))
 
             if hostPort = "" || hostPort.StartsWith("[", System.StringComparison.Ordinal) then
                 None
