@@ -44,29 +44,27 @@ type SparseMode =
         | SparseMode.Full -> "full"
         | SparseMode.Empty -> "empty"
 
-/// An exact-path jj fileset (`file:"<path>"`), so path metacharacters like `(`,
+/// An exact-path jj fileset (`root-file:"<path>"`), so path metacharacters like `(`,
 /// `)`, `|`, `*` are treated literally rather than as fileset operators. Build it
-/// with `JjFileset.Path`; the path is repo-root-relative.
+/// with `JjFileset.Path`; the path is **workspace-root-relative** and resolved as
+/// such regardless of the command's working directory.
 [<Sealed>]
 type JjFileset private (value: string) =
-    /// The rendered `file:"…"` expression.
+    /// The rendered `root-file:"…"` expression.
     member _.Value = value
     override _.ToString() = value
 
-    /// Wrap a repo-relative `path` as an exact-path fileset. On Windows, backslash
-    /// separators are normalised to `/` first — jj filesets are forward-slash, so a
-    /// Windows caller's `src\a.rs` would otherwise become a literal-backslash
-    /// filename that matches nothing — then `"` is escaped for the `file:"…"`
-    /// string literal. On non-Windows platforms `\` is a legitimate filename byte,
-    /// so it is left alone and instead escaped as `\\` (before `"` is escaped, so
-    /// the two escapes don't double up), producing a valid string literal without
-    /// mangling the path.
-    // NOTE: this crate uses the `file:` fileset prefix (matching an exact path
-    // relative to the invocation cwd), whereas the sibling Rust implementation
-    // uses `root-file:` (explicitly repo-root-relative). This doc comment's
-    // "repo-root-relative" wording assumes callers invoke jj from the repo root;
-    // left as-is here since switching prefixes is a separate behavioural change
-    // from the escaping fix and wasn't clearly warranted.
+    /// Wrap a workspace-root-relative `path` as an exact-path fileset. Uses jj's
+    /// **`root-file:`** anchor (not the cwd-relative `file:`), so the path is
+    /// interpreted relative to the workspace root even when the command runs from a
+    /// subdirectory (`dir` ≠ root) — a plain `file:` there would silently target a
+    /// same-named file under `dir`, or nothing. On Windows, backslash separators are
+    /// normalised to `/` first — jj filesets are forward-slash, so a Windows caller's
+    /// `src\a.rs` would otherwise become a literal-backslash filename that matches
+    /// nothing — then `"` is escaped for the `root-file:"…"` string literal. On
+    /// non-Windows platforms `\` is a legitimate filename byte, so it is left alone
+    /// and instead escaped as `\\` (before `"` is escaped, so the two escapes don't
+    /// double up), producing a valid string literal without mangling the path.
     static member Path(path: string) =
         let escaped =
             if System.OperatingSystem.IsWindows() then
@@ -74,7 +72,7 @@ type JjFileset private (value: string) =
             else
                 path.Replace("\\", "\\\\").Replace("\"", "\\\"")
 
-        JjFileset(sprintf "file:\"%s\"" escaped)
+        JjFileset(sprintf "root-file:\"%s\"" escaped)
 
 /// Options for `workspaceAdd` (`jj workspace add`).
 type WorkspaceAdd =

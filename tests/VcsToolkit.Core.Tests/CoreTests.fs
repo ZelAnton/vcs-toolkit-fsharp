@@ -368,11 +368,11 @@ type DispatchTests() =
     [<Test>]
     member _.JjLogPathsScopesToFilesets() : Task =
         task {
-            // A jj-backed path-scoped log converts the plain path to an exact-path `file:"…"`
-            // fileset; a scripted match on that token proves the conversion.
+            // A jj-backed path-scoped log converts the plain path to an exact-path `root-file:"…"`
+            // fileset (workspace-root-relative); a scripted match on that token proves the conversion.
             let repo =
                 jjRepo
-                    [ "log"; "-r"; "@"; "file:\"src/a.fs\"" ]
+                    [ "log"; "-r"; "@"; "root-file:\"src/a.fs\"" ]
                     (Reply.Ok $"kztuxlro{tab}38e00654{tab}false{tab}scoped\n")
 
             match! repo.LogPaths("@", 10, [ "src/a.fs" ]) with
@@ -443,9 +443,9 @@ type DispatchTests() =
     [<Test>]
     member _.JjShowFileReturnsBlobContentUntrimmed() : Task =
         task {
-            // `file show -r <revset> file:"<path>"`; the trailing newline must survive untrimmed.
+            // `file show -r <revset> root-file:"<path>"`; the trailing newline must survive untrimmed.
             let repo =
-                jjRepo [ "file"; "show"; "-r"; "@"; "file:\"file.txt\"" ] (Reply.Ok "hello world\n")
+                jjRepo [ "file"; "show"; "-r"; "@"; "root-file:\"file.txt\"" ] (Reply.Ok "hello world\n")
 
             match! repo.ShowFile("@", "file.txt") with
             | Ok content -> Assert.That(content, Is.EqualTo "hello world\n")
@@ -456,7 +456,7 @@ type DispatchTests() =
     member _.JjShowFileSurfacesAMissingPathAsError() : Task =
         task {
             let repo =
-                jjRepo [ "file"; "show"; "-r"; "@"; "file:\"missing.txt\"" ] (Reply.Fail(1, "Error: No such path"))
+                jjRepo [ "file"; "show"; "-r"; "@"; "root-file:\"missing.txt\"" ] (Reply.Fail(1, "Error: No such path"))
 
             match! repo.ShowFile("@", "missing.txt") with
             | Error _ -> ()
@@ -983,4 +983,181 @@ type GitBackendDiffStatUnbornTests() =
             match! facade.DiffStat() with
             | Ok stat -> Assert.That(stat.FilesChanged, Is.EqualTo 1UL, "the unborn working tree reports the new file")
             | Error e -> Assert.Fail $"DiffStat failed on a SHA-256 unborn repo: {e.Message}"
+        }
+
+// ---------------------------------------------------------------------------
+// T-048: repo-root path anchoring for CommitPaths/LogPaths on a subdirectory-
+// bound handle (Cwd ≠ Root) — the input-path counterpart of the root-relative
+// output paths ChangedFiles/Status already return.
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type PathAnchoringTests() =
+
+    // A runner recording the last Command it ran (argv + working directory), always replying
+    // `reply` — for asserting which directory a path-op's git command runs from.
+    let capturing (reply: Reply) : (Command option ref) * ScriptedRunner =
+        let captured = ref (None: Command option)
+
+        let runner =
+            ScriptedRunner()
+                .When(
+                    (fun (cmd: Command) ->
+                        captured.Value <- Some cmd
+                        true),
+                    reply
+                )
+
+        captured, runner
+
+    let requireGit () =
+        try
+            Raw.git "." [ "--version" ]
+        with _ ->
+            // git isn't on PATH — a hermetic CI without it must skip, not fail, this fixture.
+            Assert.Ignore "git not available on PATH"
+
+    let requireJj () =
+        try
+            Raw.jj "." [ "--version" ]
+        with _ ->
+            // jj isn't on PATH — skip rather than fail.
+            Assert.Ignore "jj not available on PATH"
+
+    // --- git: the pathspec command must run from Root, not the subdir Cwd (mock) ------------
+
+    [<Test>]
+    member _.GitCommitPathsRunsFromRepoRootNotTheSubdirectoryCwd() : Task =
+        task {
+            // A handle bound to a SUBDIRECTORY (Cwd ≠ Root) must resolve its repo-relative
+            // pathspecs against the repo Root: `git commit --only` runs from Root, so the pathspec
+            // anchors there rather than at the subdir Cwd (which would look for Root/sub/<path>).
+            let captured, runner = capturing (Reply.Ok "")
+            let repo = Repo.FromGit("/repo", "/repo/sub", Git.WithRunner runner)
+
+            match! repo.CommitPaths([ "src/a.fs" ], "msg") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"CommitPaths failed: {e.Message}"
+
+            match captured.Value with
+            | Some cmd ->
+                Assert.That(
+                    cmd.WorkingDirectory,
+                    Is.EqualTo(Some "/repo"),
+                    "commit runs from Root, not the subdirectory Cwd"
+                )
+
+                Assert.That(
+                    String.concat " " cmd.Arguments,
+                    Is.EqualTo "--literal-pathspecs commit -m msg --only -- src/a.fs",
+                    "the repo-relative path is forwarded verbatim as the pathspec"
+                )
+            | None -> Assert.Fail "no command captured"
+        }
+
+    [<Test>]
+    member _.GitLogPathsRunsFromRepoRootNotTheSubdirectoryCwd() : Task =
+        task {
+            let captured, runner = capturing (Reply.Ok "")
+            let repo = Repo.FromGit("/repo", "/repo/sub", Git.WithRunner runner)
+
+            match! repo.LogPaths("HEAD", 50, [ "src/a.fs" ]) with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"LogPaths failed: {e.Message}"
+
+            match captured.Value with
+            | Some cmd ->
+                Assert.That(
+                    cmd.WorkingDirectory,
+                    Is.EqualTo(Some "/repo"),
+                    "log runs from Root, not the subdirectory Cwd"
+                )
+            | None -> Assert.Fail "no command captured"
+        }
+
+    // --- git: real-`git` end-to-end from a subdirectory-bound handle ------------------------
+
+    [<Test>]
+    member _.GitCommitPathsFromASubdirectoryHandleCommitsTheRootRelativeFile() : Task =
+        task {
+            requireGit ()
+            use sandbox = GitSandbox.Init "t048-git-subdir"
+            // Seed two files under a subdirectory, then dirty both.
+            sandbox.Write("sub/a.txt", "a1\n")
+            sandbox.Write("sub/b.txt", "b1\n")
+            sandbox.AddAll()
+            sandbox.Commit "seed"
+            sandbox.Write("sub/a.txt", "a2\n")
+            sandbox.Write("sub/b.txt", "b2\n")
+
+            // Open the handle IN the subdirectory (Cwd = sub, Root = repo root).
+            match Repo.Open(Path.Combine(sandbox.Path, "sub")) with
+            | Error e -> Assert.Fail $"Repo.Open(subdir) failed: {e.Message}"
+            | Ok repo ->
+                Assert.That(repo.Kind, Is.EqualTo BackendKind.Git)
+                Assert.That(repo.Cwd, Is.Not.EqualTo repo.Root, "the handle is bound to the subdirectory")
+
+                // Commit ONLY sub/a.txt via its repo-root-relative path. A subdir-relative
+                // resolution would look for sub/sub/a.txt and error / commit nothing.
+                match! repo.CommitPaths([ "sub/a.txt" ], "commit a only") with
+                | Error e -> Assert.Fail $"CommitPaths from a subdirectory handle failed: {e.Message}"
+                | Ok() ->
+                    match! repo.ChangedFiles() with
+                    | Error e -> Assert.Fail $"ChangedFiles failed: {e.Message}"
+                    | Ok changes ->
+                        let paths = changes |> List.map (fun c -> c.Path)
+                        Assert.That(paths, Does.Not.Contain "sub/a.txt", "the committed file must now be clean")
+                        Assert.That(paths, Does.Contain "sub/b.txt", "the uncommitted sibling's edit must remain")
+        }
+
+    [<Test>]
+    member _.GitLogPathsFromASubdirectoryHandleScopesToTheRootRelativeFile() : Task =
+        task {
+            requireGit ()
+            use sandbox = GitSandbox.Init "t048-git-subdir-log"
+            sandbox.CommitFile("sub/a.txt", "a1\n", "touch a")
+            sandbox.CommitFile("sub/b.txt", "b1\n", "touch b")
+
+            match Repo.Open(Path.Combine(sandbox.Path, "sub")) with
+            | Error e -> Assert.Fail $"Repo.Open(subdir) failed: {e.Message}"
+            | Ok repo ->
+                // Scope history to sub/a.txt via its repo-root-relative path: only the "touch a"
+                // commit qualifies. A subdir-relative pathspec (sub/sub/a.txt) would match nothing.
+                match! repo.LogPaths("HEAD", 50, [ "sub/a.txt" ]) with
+                | Error e -> Assert.Fail $"LogPaths from a subdirectory handle failed: {e.Message}"
+                | Ok commits ->
+                    let subjects = commits |> List.map (fun c -> c.Description)
+                    Assert.That(subjects, Does.Contain "touch a", "the commit touching sub/a.txt must be found")
+                    Assert.That(subjects, Does.Not.Contain "touch b", "an unrelated commit must be excluded")
+        }
+
+    // --- jj: real-`jj` end-to-end from a subdirectory-bound handle --------------------------
+
+    [<Test>]
+    member _.JjCommitPathsFromASubdirectoryHandleCommitsTheRootRelativeFile() : Task =
+        task {
+            requireJj ()
+            use sandbox = JjSandbox.Init "t048-jj-subdir"
+            // Two files under a subdirectory in the working-copy change `@` (jj auto-tracks).
+            sandbox.Write("sub/a.txt", "a1\n")
+            sandbox.Write("sub/b.txt", "b1\n")
+
+            // Open the handle IN the subdirectory (Cwd = sub, Root = workspace root).
+            match Repo.Open(Path.Combine(sandbox.Path, "sub")) with
+            | Error e -> Assert.Fail $"Repo.Open(subdir) failed: {e.Message}"
+            | Ok repo ->
+                Assert.That(repo.Kind, Is.EqualTo BackendKind.Jj)
+                Assert.That(repo.Cwd, Is.Not.EqualTo repo.Root, "the handle is bound to the subdirectory")
+
+                // Finalise ONLY sub/a.txt via its workspace-root-relative path. A cwd-relative
+                // `file:` fileset would resolve to sub/sub/a.txt and match nothing.
+                match! repo.CommitPaths([ "sub/a.txt" ], "commit a only") with
+                | Error e -> Assert.Fail $"CommitPaths from a subdirectory handle failed: {e.Message}"
+                | Ok() ->
+                    match! repo.ChangedFiles() with
+                    | Error e -> Assert.Fail $"ChangedFiles failed: {e.Message}"
+                    | Ok changes ->
+                        let paths = changes |> List.map (fun c -> c.Path)
+                        Assert.That(paths, Does.Not.Contain "sub/a.txt", "the committed file must no longer be pending")
+                        Assert.That(paths, Does.Contain "sub/b.txt", "the uncommitted sibling must remain in @")
         }
