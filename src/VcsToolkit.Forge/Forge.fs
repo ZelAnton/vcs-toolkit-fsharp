@@ -383,20 +383,12 @@ type Forge private (cwd: string, backend: Backend) =
         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prChecks")) }
 
     /// The PR/MR's unified diff, parsed into per-file `FileDiff` values (`gh pr diff <n>` /
-    /// `glab mr diff <n>`, calling the underlying `PrDiff`/`MrDiff` client method directly).
+    /// `glab mr diff <n>`, through the selected backend adapter).
     /// **`Unsupported` on Gitea** (`tea` has no diff command) and on an `Unknown` handle.
     member _.PrDiff(number: uint64) =
         match backend with
-        | Backend.GitHub c ->
-            task {
-                let! r = c.PrDiff(cwd, number)
-                return ofForge r
-            }
-        | Backend.GitLab c ->
-            task {
-                let! r = c.MrDiff(cwd, number)
-                return ofForge r
-            }
+        | Backend.GitHub c -> GitHubForge.prDiff c cwd number
+        | Backend.GitLab c -> GitLabForge.prDiff c cwd number
         | Backend.Gitea _ -> task { return Error(ForgeError.Unsupported(ForgeKind.Gitea, "prDiff")) }
         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prDiff")) }
 

@@ -236,6 +236,12 @@ module internal GitHubForge =
             | Ok checks -> return Ok(aggregate checks)
         }
 
+    let prDiff (gh: VcsToolkit.GitHub.GitHub) (dir: string) (number: uint64) =
+        task {
+            let! r = gh.PrDiff(dir, number)
+            return ofForge r
+        }
+
     let issueList (gh: VcsToolkit.GitHub.GitHub) (dir: string) =
         task {
             match! gh.IssueList dir with

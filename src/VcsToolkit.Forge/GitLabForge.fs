@@ -240,6 +240,12 @@ module internal GitLabForge =
             | Ok ci -> return Ok(mapCi ci)
         }
 
+    let prDiff (glab: VcsToolkit.GitLab.GitLab) (dir: string) (number: uint64) =
+        task {
+            let! r = glab.MrDiff(dir, number)
+            return ofForge r
+        }
+
     let issueList (glab: VcsToolkit.GitLab.GitLab) (dir: string) =
         task {
             match! glab.IssueList dir with
