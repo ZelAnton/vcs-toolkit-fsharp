@@ -679,10 +679,23 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
         core.RunUnit cmd
 
     /// Finalise a commit from exactly these filesets (`commit -m <message>
-    /// <filesets>`); the rest stay in the new working-copy change.
+    /// <filesets>`); the rest stay in the new working-copy change. `filesets`
+    /// must be non-empty — jj would otherwise commit the entire working copy,
+    /// so an empty set is refused before spawning.
     member _.CommitPaths(dir: string, filesets: JjFileset list, message: string) =
-        let args = [ "commit"; "-m"; message ] @ (filesets |> List.map (fun f -> f.Value))
-        core.RunUnit(cmdIn dir args)
+        task {
+            if List.isEmpty filesets then
+                return
+                    Error(
+                        ProcessError.Spawn(
+                            BINARY,
+                            "commit requires at least one fileset — an empty commit would commit the entire working copy"
+                        )
+                    )
+            else
+                let args = [ "commit"; "-m"; message ] @ (filesets |> List.map (fun f -> f.Value))
+                return! core.RunUnit(cmdIn dir args)
+        }
 
     /// Squash exactly these filesets from one revision into another
     /// (`squash --from <from> --into <into> [--use-destination-message] <filesets>`).
@@ -1212,6 +1225,7 @@ and [<Sealed>] JjAt internal (jj: Jj, dir: string) =
         jj.SquashInto(dir, into, useDestinationMessage)
 
     /// Finalise a commit from exactly these filesets (`commit -m <message> <filesets>`).
+    /// Empty filesets are refused before spawning because jj would commit the entire working copy.
     member _.CommitPaths(filesets: JjFileset list, message: string) = jj.CommitPaths(dir, filesets, message)
 
     /// Squash exactly these filesets from one revision into another.
