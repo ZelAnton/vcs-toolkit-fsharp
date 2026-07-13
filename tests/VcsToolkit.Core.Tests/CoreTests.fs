@@ -24,9 +24,23 @@ let private withTempDir (f: string -> unit) =
     finally
         try
             Directory.Delete(dir, true)
-        with _ ->
-            // Best-effort temp cleanup; a locked/again-deleted dir must not fail the test.
+        with
+        | :? IOException ->
+            // A test may still hold a file, or have removed its sandbox itself; cleanup must not hide its result.
             ()
+        | :? UnauthorizedAccessException ->
+            // Windows can briefly deny removal while a test-created handle is being released; preserve the test result.
+            ()
+
+// Change the process cwd only for the scope that needs to prove a handle captured its path.
+let private withCurrentDirectory (dir: string) (f: unit -> unit) =
+    let previous = Directory.GetCurrentDirectory()
+
+    try
+        Directory.SetCurrentDirectory dir
+        f ()
+    finally
+        Directory.SetCurrentDirectory previous
 
 // A jj-backed Repo over a runner scripted to reply to `tokens` with `reply`. Also
 // scripts `jj root` to echo back the fixed "/repo" cwd every jjRepo test uses, since
@@ -158,6 +172,131 @@ type DetectTests() =
             Assert.That(Detect.detect dir, Is.EqualTo None, "an empty .git file is not a marker"))
 
 // ---------------------------------------------------------------------------
+// Repo construction — all stored paths must be independent of process cwd
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type RepoConstructionTests() =
+
+    [<Test>]
+    member _.RelativePathsAreCapturedByEveryConstructor() : Task =
+        task {
+            withTempDir (fun sandbox ->
+                let initial = Path.Combine(sandbox, "initial")
+                let later = Path.Combine(sandbox, "later")
+                let openDir = Path.Combine(initial, "opened")
+                let expectedAt = Path.Combine(initial, "at")
+                let expectedRoot = Path.Combine(initial, "root")
+                let expectedCwd = Path.Combine(initial, "cwd")
+                let worktree = Path.Combine(expectedAt, "wt")
+                let atHolder: Repo option ref = ref None
+                Directory.CreateDirectory(Path.Combine(openDir, ".git")) |> ignore
+                Directory.CreateDirectory initial |> ignore
+                Directory.CreateDirectory later |> ignore
+
+                withCurrentDirectory initial (fun () ->
+                    match Repo.Open "opened" with
+                    | Error e -> Assert.Fail $"Repo.Open(relative) failed: {e.Message}"
+                    | Ok opened -> Assert.That(opened.Cwd, Is.EqualTo openDir, "Open captures the relative path now")
+
+                    let git =
+                        Repo.FromGit("root", "cwd", Git.WithRunner(ScriptedRunner().Fallback(Reply.Ok "")))
+
+                    let jj =
+                        Repo.FromJj(
+                            "root",
+                            "cwd",
+                            Jj.WithRunner(
+                                ScriptedRunner()
+                                    .On(
+                                        [ "workspace"
+                                          "add"
+                                          "--name"
+                                          "feature"
+                                          "-r"
+                                          "main"
+                                          "wt"
+                                          "--color"
+                                          "never" ],
+                                        Reply.Ok ""
+                                    )
+                                    .On([ "bookmark"; "create"; "feature"; "-r"; "feature@" ], Reply.Ok "")
+                                    .On([ "workspace"; "list" ], Reply.Ok $"feature\tdeadbeef\t\n")
+                                    .On([ "workspace"; "root"; "--name"; "feature" ], Reply.Ok(worktree + "\n"))
+                                    .On([ "workspace"; "forget"; "feature" ], Reply.Ok "")
+                            )
+                        )
+
+                    let at = jj.At "at"
+                    Assert.That(git.Root, Is.EqualTo expectedRoot, "FromGit captures a relative root")
+                    Assert.That(git.Cwd, Is.EqualTo expectedCwd, "FromGit captures a relative cwd")
+                    Assert.That(jj.Root, Is.EqualTo expectedRoot, "FromJj captures a relative root")
+                    Assert.That(jj.Cwd, Is.EqualTo expectedCwd, "FromJj captures a relative cwd")
+                    atHolder.Value <- Some at)
+
+                withCurrentDirectory later (fun () ->
+                    match atHolder.Value with
+                    | None -> Assert.Fail "the relative Repo.At handle was not created"
+                    | Some at ->
+                        // The re-anchor happened before the cwd changed. Both operations must
+                        // resolve `wt` from `initial/at`, not from the later process cwd.
+                        Assert.That(at.Cwd, Is.EqualTo expectedAt, "At keeps the captured cwd")
+
+                        match at.CreateWorktree("wt", "feature", "main").GetAwaiter().GetResult() with
+                        | Error e -> Assert.Fail $"CreateWorktree failed after cwd change: {e.Message}"
+                        | Ok _ -> ()
+
+                        match at.RemoveWorktree("wt", true).GetAwaiter().GetResult() with
+                        | Error e -> Assert.Fail $"RemoveWorktree used the process cwd: {e.Message}"
+                        | Ok() -> ()))
+        }
+
+    [<Test>]
+    member _.AbsolutePathsRemainUnchangedForEveryConstructor() =
+        withTempDir (fun root ->
+            let cwd = Path.Combine(root, "cwd")
+            Directory.CreateDirectory(Path.Combine(cwd, ".git")) |> ignore
+            let git = Repo.FromGit(root, cwd, Git.WithRunner(ScriptedRunner()))
+            let jj = Repo.FromJj(root, cwd, Jj.WithRunner(ScriptedRunner()))
+
+            match Repo.Open cwd with
+            | Error e -> Assert.Fail $"Repo.Open(absolute) failed: {e.Message}"
+            | Ok opened ->
+                Assert.That(opened.Cwd, Is.EqualTo cwd)
+                Assert.That(opened.Root, Is.EqualTo cwd)
+
+            Assert.That(git.Root, Is.EqualTo root)
+            Assert.That(git.Cwd, Is.EqualTo cwd)
+            Assert.That(jj.Root, Is.EqualTo root)
+            Assert.That(jj.Cwd, Is.EqualTo cwd)
+            Assert.That(git.At(cwd).Cwd, Is.EqualTo cwd))
+
+    [<Test>]
+    member _.InvalidPathsProduceDiagnosticInputErrors() =
+        let invalid = string (char 0)
+        let client = Git.WithRunner(ScriptedRunner())
+        let jj = Jj.WithRunner(ScriptedRunner())
+
+        match Repo.Open invalid with
+        | Error(RepoError.InvalidInput message) -> Assert.That(message, Does.Contain "dir")
+        | Error e -> Assert.Fail $"expected InvalidInput, got: {e.Message}"
+        | Ok _ -> Assert.Fail "an invalid path must be refused"
+
+        let fromGit =
+            Assert.Throws<ArgumentException>(Action(fun () -> Repo.FromGit(invalid, ".", client) |> ignore))
+
+        let fromJj =
+            Assert.Throws<ArgumentException>(Action(fun () -> Repo.FromJj(".", invalid, jj) |> ignore))
+
+        let repo = Repo.FromGit(".", ".", client)
+
+        let at =
+            Assert.Throws<ArgumentException>(Action(fun () -> repo.At invalid |> ignore))
+
+        Assert.That(fromGit.ParamName, Is.EqualTo "root")
+        Assert.That(fromJj.ParamName, Is.EqualTo "cwd")
+        Assert.That(at.ParamName, Is.EqualTo "dir")
+// ---------------------------------------------------------------------------
 // DTOs and the facade error type
 // ---------------------------------------------------------------------------
 
@@ -216,8 +355,8 @@ type DispatchTests() =
         Assert.That(jj.Kind, Is.EqualTo BackendKind.Jj)
         Assert.That(jj.Jj.IsSome, Is.True)
         Assert.That(jj.Jj.IsSome && jj.Git.IsNone, Is.True, "jj-backed: Git accessor is None")
-        Assert.That(jj.Cwd, Is.EqualTo "/repo")
-        Assert.That(jj.At("/elsewhere").Cwd, Is.EqualTo "/elsewhere", "At re-anchors the cwd")
+        Assert.That(jj.Cwd, Is.EqualTo(Path.GetFullPath "/repo"))
+        Assert.That(jj.At("/elsewhere").Cwd, Is.EqualTo(Path.GetFullPath "/elsewhere"), "At re-anchors the cwd")
 
         let git = gitRepo [ "status" ] (Reply.Ok "")
         Assert.That(git.Kind, Is.EqualTo BackendKind.Git)
@@ -1043,7 +1182,7 @@ type PathAnchoringTests() =
             | Some cmd ->
                 Assert.That(
                     cmd.WorkingDirectory,
-                    Is.EqualTo(Some "/repo"),
+                    Is.EqualTo(Some(Path.GetFullPath "/repo")),
                     "commit runs from Root, not the subdirectory Cwd"
                 )
 
@@ -1069,7 +1208,7 @@ type PathAnchoringTests() =
             | Some cmd ->
                 Assert.That(
                     cmd.WorkingDirectory,
-                    Is.EqualTo(Some "/repo"),
+                    Is.EqualTo(Some(Path.GetFullPath "/repo")),
                     "log runs from Root, not the subdirectory Cwd"
                 )
             | None -> Assert.Fail "no command captured"
