@@ -282,16 +282,25 @@ type RepoConstructionTests() =
         | Error e -> Assert.Fail $"expected InvalidInput, got: {e.Message}"
         | Ok _ -> Assert.Fail "an invalid path must be refused"
 
-        let fromGit =
-            Assert.Throws<ArgumentException>(Action(fun () -> Repo.FromGit(invalid, ".", client) |> ignore))
+        let requireArgumentException (action: Action) : ArgumentException =
+            let caughtException = Assert.Throws<ArgumentException>(action)
 
-        let fromJj =
-            Assert.Throws<ArgumentException>(Action(fun () -> Repo.FromJj(".", invalid, jj) |> ignore))
+            match caughtException with
+            | null ->
+                raise (InvalidOperationException "Assert.Throws returned null unexpectedly")
+            | nonNullException ->
+                nonNullException
+
+        let fromGit: ArgumentException =
+            requireArgumentException (Action(fun () -> Repo.FromGit(invalid, ".", client) |> ignore))
+
+        let fromJj: ArgumentException =
+            requireArgumentException (Action(fun () -> Repo.FromJj(".", invalid, jj) |> ignore))
 
         let repo = Repo.FromGit(".", ".", client)
 
-        let at =
-            Assert.Throws<ArgumentException>(Action(fun () -> repo.At invalid |> ignore))
+        let at: ArgumentException =
+            requireArgumentException (Action(fun () -> repo.At invalid |> ignore))
 
         Assert.That(fromGit.ParamName, Is.EqualTo "root")
         Assert.That(fromJj.ParamName, Is.EqualTo "cwd")
