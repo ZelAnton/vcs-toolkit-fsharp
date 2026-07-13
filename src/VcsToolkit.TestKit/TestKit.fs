@@ -293,14 +293,17 @@ type BareRemote private (dir: TempDir, bare: string) =
 [<Sealed>]
 type JjSandbox private (dir: TempDir) =
 
-    /// Create and initialise the repository (`jj git init` + repo-scoped identity). The
-    /// identity is supplied to *every* jj invocation as `JJ_USER`/`JJ_EMAIL` env, so the
-    /// working-copy commit `jj git init` creates is authored deterministically.
-    static member Init(tag: string) : JjSandbox =
+    /// Shared init: `jj git init` with an explicit colocation flag (whether colocation is
+    /// jj's default depends on the jj version *and* the user's `git.colocate` config, so
+    /// `colocate` decides deterministically — see `Jj.GitClone`), then a repo-scoped
+    /// identity. The identity is supplied to *every* jj invocation as `JJ_USER`/`JJ_EMAIL`
+    /// env, so the working-copy commit `jj git init` creates is authored deterministically.
+    static member private InitWith(tag: string, colocate: bool) : JjSandbox =
         let dir = new TempDir(tag)
 
         try
-            run "jj" dir.Path [ "git"; "init" ]
+            let colocateFlag = if colocate then "--colocate" else "--no-colocate"
+            run "jj" dir.Path [ "git"; "init"; colocateFlag ]
             run "jj" dir.Path [ "config"; "set"; "--repo"; "user.name"; "Test" ]
             run "jj" dir.Path [ "config"; "set"; "--repo"; "user.email"; "test@example.com" ]
             new JjSandbox(dir)
@@ -309,6 +312,16 @@ type JjSandbox private (dir: TempDir) =
             // fixture doesn't leak a dir (Rust's Drop fires during unwind; an F# `let` won't).
             (dir :> IDisposable).Dispose()
             reraise ()
+
+    /// Create and initialise a **colocated** repository (`jj git init --colocate`) — a root
+    /// `.git` alongside `.jj`. This is jj's current actual default, pinned explicitly rather
+    /// than relied on (see `InitWith`).
+    static member Init(tag: string) : JjSandbox = JjSandbox.InitWith(tag, true)
+
+    /// Create and initialise a **non-colocated** repository (`jj git init --no-colocate`) —
+    /// no root `.git`, only `.jj`. For scenarios that specifically need to exercise
+    /// non-colocated behaviour (e.g. jj-native forge detection without a git working tree).
+    static member InitNonColocated(tag: string) : JjSandbox = JjSandbox.InitWith(tag, false)
 
     /// The workspace root path.
     member _.Path = dir.Path

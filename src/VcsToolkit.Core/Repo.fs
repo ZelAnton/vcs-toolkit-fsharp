@@ -25,18 +25,31 @@ type internal Backend =
 [<Sealed>]
 type Repo private (root: string, cwd: string, backend: Backend) =
 
+    /// Make a caller-supplied path stable before storing it on a cwd-bound handle. Keeping
+    /// this in one place means every constructor applies the same lexical interpretation.
+    static member private NormalizePath(parameterName: string, path: string) : Result<string, RepoError> =
+        try
+            Ok(Path.GetFullPath path)
+        with ex ->
+            // Invalid paths must be reported as caller input, never leak a platform-specific
+            // Path exception from the public facade.
+            Error(RepoError.InvalidInput $"{parameterName} must be a valid path: {ex.Message}")
+
+    /// Static factories retain their non-Result public shape, so turn the shared diagnostic
+    /// into ArgumentException rather than introduce a breaking Result return type. `Open`
+    /// already returns Result and therefore exposes the same failure as InvalidInput.
+    static member private NormalizePathOrThrow(parameterName: string, path: string) =
+        match Repo.NormalizePath(parameterName, path) with
+        | Ok absPath -> absPath
+        | Error(RepoError.InvalidInput message) -> invalidArg parameterName message
+        | Error _ -> failwith "unreachable: path normalization only returns InvalidInput"
+
     /// Detect the repository at or above `dir` and open a handle bound to `dir`, using
     /// the real job-backed runner. `NotARepository` when no `.git`/`.jj` is found.
     static member Open(dir: string) : Result<Repo, RepoError> =
         // Absolutise first: `detect` walks parents, and a relative path like "." has no
         // real ancestor chain, so a relative input would never find a repo above the cwd.
-        let absResult =
-            try
-                Ok(Path.GetFullPath dir)
-            with ex ->
-                // `GetFullPath` throws on an invalid path (bad chars / too long); report
-                // the caller's invalid input rather than letting it escape.
-                Error(RepoError.InvalidInput ex.Message)
+        let absResult = Repo.NormalizePath("dir", dir)
 
         match absResult with
         | Error e -> Error e
@@ -52,11 +65,19 @@ type Repo private (root: string, cwd: string, backend: Backend) =
                 Ok(Repo(located.Root, absDir, backend))
 
     /// Build a git-backed handle from an explicit client — for a custom runner (e.g. a
-    /// test seam) or a pre-configured `Git`.
-    static member FromGit(root: string, cwd: string, client: Git) = Repo(root, cwd, Backend.Git client)
+    /// test seam) or a pre-configured `Git`. Both paths are absolutised at construction so
+    /// later operations remain bound to this handle rather than the process's current directory.
+    static member FromGit(root: string, cwd: string, client: Git) =
+        let absRoot = Repo.NormalizePathOrThrow("root", root)
+        let absCwd = Repo.NormalizePathOrThrow("cwd", cwd)
+        Repo(absRoot, absCwd, Backend.Git client)
 
-    /// Build a jj-backed handle from an explicit client.
-    static member FromJj(root: string, cwd: string, client: Jj) = Repo(root, cwd, Backend.Jj client)
+    /// Build a jj-backed handle from an explicit client. Both paths are absolutised at
+    /// construction for the same cwd-stability contract as `FromGit`.
+    static member FromJj(root: string, cwd: string, client: Jj) =
+        let absRoot = Repo.NormalizePathOrThrow("root", root)
+        let absCwd = Repo.NormalizePathOrThrow("cwd", cwd)
+        Repo(absRoot, absCwd, Backend.Jj client)
 
     // --- Identity / re-anchoring / escape hatches ----------------------------
 
@@ -72,8 +93,11 @@ type Repo private (root: string, cwd: string, backend: Backend) =
     /// The directory operations run against.
     member _.Cwd = cwd
 
-    /// A sibling handle bound to `dir`, sharing this handle's client and root.
-    member _.At(dir: string) = Repo(root, dir, backend)
+    /// A sibling handle bound to `dir`, sharing this handle's client and root. `dir` is
+    /// absolutised now so later worktree operations do not inherit the process cwd.
+    member _.At(dir: string) =
+        let absDir = Repo.NormalizePathOrThrow("dir", dir)
+        Repo(root, absDir, backend)
 
     /// The underlying `Git` client, or `None` when jj-backed — an escape hatch to
     /// git-only operations not on the common surface (pass this handle's `Cwd` as `dir`).

@@ -33,16 +33,10 @@ let private requireBinary (name: string) (probe: unit -> unit) =
     if not (binaryAvailable probe) then
         Assert.Ignore $"{name} not available on PATH"
 
-/// A throwaway **non-colocated** jj repo (`jj git init --no-colocate`) — the scenario
-/// this task's fallback targets. `JjSandbox.Init` (`jj git init` with no flag) is
-/// *colocated* by jj's current default, so it always has a root `.git` and never
-/// exercises the fallback; building it by hand here (rather than extending `TestKit`,
-/// out of this task's declared domain) via the `Raw` escape hatch is deliberate.
-let private nonColocatedJjRepo (tag: string) : TempDir =
-    let dir = new TempDir(tag)
-    Raw.jj dir.Path [ "git"; "init"; "--no-colocate" ]
-    dir
-
+/// A throwaway **non-colocated** jj repo (`JjSandbox.InitNonColocated`, i.e. `jj git init
+/// --no-colocate`) — the scenario this task's fallback targets. `JjSandbox.Init` is
+/// colocated (`--colocate`), so it always has a root `.git` and never exercises the
+/// fallback.
 // ---------------------------------------------------------------------------
 // The jj fallback (T-043): non-colocated jj repo, origin remote via `jj git remote list`.
 // ---------------------------------------------------------------------------
@@ -54,7 +48,7 @@ type JjForgeDetectionTests() =
     member _.NonColocatedJjRepoResolvesForgeFromOriginRemote() : Task =
         task {
             requireBinary "jj" (fun () -> Raw.jj "." [ "--version" ])
-            use dir = nonColocatedJjRepo "jj-noncolo-forge"
+            use dir = JjSandbox.InitNonColocated "jj-noncolo-forge"
 
             // Confirm the scenario is genuinely non-colocated: no root `.git` for
             // `Git.RemoteUrl` to find. If a future jj version flips this default back,
@@ -75,7 +69,7 @@ type JjForgeDetectionTests() =
     member _.NonColocatedJjRepoWithoutOriginReturnsNone() : Task =
         task {
             requireBinary "jj" (fun () -> Raw.jj "." [ "--version" ])
-            use dir = nonColocatedJjRepo "jj-noncolo-noremote"
+            use dir = JjSandbox.InitNonColocated "jj-noncolo-noremote"
 
             let repo = Repo.FromJj(dir.Path, dir.Path, Jj.Create())
 
@@ -114,7 +108,7 @@ type ForgeOverrideTests() =
             requireBinary "jj" (fun () -> Raw.jj "." [ "--version" ])
             // No `origin` remote at all — detection alone would yield `None` — yet the
             // explicit `--forge` override must still win.
-            use dir = nonColocatedJjRepo "jj-forge-override"
+            use dir = JjSandbox.InitNonColocated "jj-forge-override"
 
             let repo = Repo.FromJj(dir.Path, dir.Path, Jj.Create())
 

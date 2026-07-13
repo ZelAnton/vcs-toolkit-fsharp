@@ -715,6 +715,8 @@ type Git private (core: ManagedClient) =
                 return Ok(helper.ConfigArgs, helper.Env)
         }
 
+    // Both read-only `ls-remote` queries inherit the caller's `DefaultTimeout` and have no
+    // `TimeoutGrace`: unlike fetch/push, they cannot leave local or remote state half-applied.
     /// Branch names on `remote`, without fetching (`ls-remote --heads <remote>`).
     member this.RemoteBranches(dir: string, remote: string) =
         task {
@@ -747,7 +749,7 @@ type Git private (core: ManagedClient) =
                     let args = pre @ [ "ls-remote"; "origin"; refname ]
 
                     let cmd =
-                        (core.CommandIn(dir, args)).Env("GIT_TERMINAL_PROMPT", "0").Timeout(TimeSpan.FromSeconds 10.0)
+                        (core.CommandIn(dir, args)).Env("GIT_TERMINAL_PROMPT", "0")
                         |> applySecretEnv envs
 
                     match! core.Output cmd with
@@ -1708,6 +1710,8 @@ and [<Sealed>] GitAt internal (git: Git, dir: string) =
     /// The current branch's upstream, e.g. `Some "origin/main"`; `None` when unset.
     member _.Upstream() = git.Upstream dir
 
+    // Both read-only `ls-remote` queries inherit the caller's `DefaultTimeout` and have no
+    // `TimeoutGrace`: unlike fetch/push, they cannot leave local or remote state half-applied.
     /// Branch names on `remote`, without fetching (`ls-remote --heads <remote>`).
     member _.RemoteBranches(remote: string) = git.RemoteBranches(dir, remote)
 
