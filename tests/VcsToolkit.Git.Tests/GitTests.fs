@@ -329,6 +329,40 @@ type QueryTests() =
         }
 
     [<Test>]
+    member _.RemoteBranchesInheritsTheCallerTimeout() : Task =
+        task {
+            // A slow read-only remote must receive the full budget configured by the caller.
+            let budget = TimeSpan.FromMinutes 2.0
+            let captured, runner = capturing (Reply.Ok "abc123\trefs/heads/feature/slow\n")
+            let git = (Git.WithRunner runner).DefaultTimeout budget
+
+            match! git.RemoteBranches(".", "origin") with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"remote_branches failed: {e}"
+
+            match captured.Value with
+            | Some cmd -> Assert.That(cmd.ConfiguredTimeout, Is.EqualTo(Some budget))
+            | None -> Assert.Fail "RemoteBranches did not spawn git"
+        }
+
+    [<Test>]
+    member _.RemoteBranchExistsInheritsTheCallerTimeout() : Task =
+        task {
+            // This must match RemoteBranches rather than restoring a hidden 10-second cap.
+            let budget = TimeSpan.FromMinutes 2.0
+            let captured, runner = capturing (Reply.Ok "abc123\trefs/heads/feature/slow\n")
+            let git = (Git.WithRunner runner).DefaultTimeout budget
+
+            match! git.RemoteBranchExists(".", "feature/slow") with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"remote_branch_exists failed: {e}"
+
+            match captured.Value with
+            | Some cmd -> Assert.That(cmd.ConfiguredTimeout, Is.EqualTo(Some budget))
+            | None -> Assert.Fail "RemoteBranchExists did not spawn git"
+        }
+
+    [<Test>]
     member _.RemoteBranchExistsRejectsEmptyGlobAndControlNames() : Task =
         task {
             // T-002: an empty name, or one carrying a glob (`*?[:`), a space, or a control

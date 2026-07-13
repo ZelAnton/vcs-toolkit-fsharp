@@ -651,6 +651,34 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.CommitPathsRefusesEmptyFilesetsBeforeSpawning() : Task =
+        task {
+            let captured, runner = capturing (Reply.Ok "")
+            let jj = Jj.WithRunner runner
+
+            let assertRefusal result =
+                match result with
+                | Error(ProcessError.Spawn(program, reason)) ->
+                    Assert.That(program, Is.EqualTo "jj")
+
+                    Assert.That(
+                        reason,
+                        Is.EqualTo
+                            "commit requires at least one fileset — an empty commit would commit the entire working copy"
+                    )
+                | Error e -> Assert.Fail $"expected a Spawn refusal, got {e}"
+                | Ok() -> Assert.Fail "an empty fileset set must be refused before spawning"
+
+            let! direct = jj.CommitPaths(".", [], "msg")
+            assertRefusal direct
+
+            let! bound = jj.At(".").CommitPaths([], "msg")
+            assertRefusal bound
+
+            Assert.That(captured.Value.IsNone, "the guard must refuse before any spawn")
+        }
+
+    [<Test>]
     member _.LogPathsScopesToFilesetsLiterally() : Task =
         task {
             // A glob metacharacter proves the fileset is exact-path (`root-file:"…"`), matched
