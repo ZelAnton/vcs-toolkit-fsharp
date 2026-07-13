@@ -214,23 +214,53 @@ module internal Paths =
             // repo), so behaviour falls back to the single state-dir watch.
             None
 
+    /// The shared jj store for a secondary workspace, or `None` for a main workspace. A
+    /// secondary workspace has `.jj/repo` as a UTF-8 path-pointer file, rather than the main
+    /// workspace's directory: jj 0.42 writes one path with no trailing newline, normally
+    /// relative to `.jj` (e.g. `../../main/.jj/repo`), though an absolute path is accepted.
+    let sharedJjStore (stateDir: string) : string option =
+        let repoPointer = Path.Combine(stateDir, "repo")
+
+        try
+            if not (File.Exists repoPointer) then
+                None
+            else
+                let path = File.ReadAllText(repoPointer).Trim()
+
+                if path = "" then
+                    None
+                else
+                    let joined =
+                        if Path.IsPathRooted path then
+                            path
+                        else
+                            Path.Combine(stateDir, path)
+
+                    Some(lexicallyNormalized joined)
+        with _ ->
+            // best-effort: an unreadable/invalid pointer falls back to the private `.jj` watch.
+            None
+
     /// The directories to watch for a backend, deduplicated. Normally one (the state dir);
-    /// a linked git worktree adds its shared git dir (where branch create/delete lands). A
-    /// **colocated** jj repository (`.jj` *and* `.git` side by side in `root`) additionally
-    /// watches the resolved git state dir (and its shared dir, if it's itself a linked
-    /// worktree) — git-side ref writes (`refs/heads/*`, branch create/delete) land there and
-    /// would otherwise go unnoticed.
+    /// a linked git worktree adds its shared git dir (where branch create/delete lands); a jj
+    /// secondary workspace adds its shared `.jj/repo` store. A **colocated** jj repository
+    /// (`.jj` *and* `.git` side by side in `root`) additionally watches the resolved git state
+    /// dir (and its shared dir, if it's itself a linked worktree) — git-side ref writes
+    /// (`refs/heads/*`, branch create/delete) land there and would otherwise go unnoticed.
     let stateDirs (kind: BackendKind) (root: string) : Result<string list, WatchError> =
-        // Append `dir`'s shared commondir (worktree case) to `paths`, deduped.
-        let addShared (paths: string list) (dir: string) : string list =
-            match commonDir dir with
+        // Append `dir`'s shared store (worktree/secondary-workspace case) to `paths`, deduped.
+        let addShared (resolve: string -> string option) (paths: string list) (dir: string) : string list =
+            match resolve dir with
             | Some shared when not (List.exists (pathsEqual shared) paths) -> paths @ [ shared ]
             | _ -> paths
 
         match stateDir kind root with
         | Error e -> Error e
         | Ok sd ->
-            let baseDirs = addShared [ sd ] sd
+            let baseDirs =
+                match kind with
+                | BackendKind.Jj -> addShared sharedJjStore [ sd ] sd
+                | BackendKind.Git -> addShared commonDir [ sd ] sd
 
             match kind with
             | BackendKind.Jj when Path.Exists(Path.Combine(root, ".git")) ->
@@ -244,7 +274,7 @@ module internal Paths =
                         else
                             baseDirs @ [ gitSd ]
 
-                    Ok(addShared withGit gitSd)
+                    Ok(addShared commonDir withGit gitSd)
             | _ -> Ok baseDirs
 
 /// The debounce → ceiling → re-query → diff pipeline, plus the FileSystemWatcher bridge.
