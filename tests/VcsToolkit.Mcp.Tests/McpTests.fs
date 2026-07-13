@@ -697,6 +697,65 @@ type CatalogTests() =
         }
 
     [<Test>]
+    member _.CallToolBooleanOptionsAcceptAbsentAndBooleanValues() : Task =
+        task {
+            let runner =
+                ScriptedRunner().On([ "--version" ], Reply.Ok "gh version 2.40.0\n").Fallback(Reply.Ok "")
+
+            let repoServer = gitServer runner WriteGate.All
+            let forgeServer = gitServerWithForge runner WriteGate.All
+
+            let assertOk server tool args =
+                task {
+                    match! Catalog.callTool server tool (argsOf args) with
+                    | Ok _ -> ()
+                    | Error e -> Assert.Fail $"{tool} should accept {args}: {e.Message}"
+                }
+
+            do! assertOk repoServer "repo_remove_worktree" """{"path":"/worktree"}"""
+            do! assertOk repoServer "repo_remove_worktree" """{"path":"/worktree","force":true}"""
+            do! assertOk repoServer "repo_remove_worktree" """{"path":"/worktree","force":false}"""
+            do! assertOk forgeServer "forge_pr_merge" """{"number":1,"strategy":"merge"}"""
+
+            do!
+                assertOk
+                    forgeServer
+                    "forge_pr_merge"
+                    """{"number":1,"strategy":"merge","auto":true,"delete_branch":false}"""
+
+            do!
+                assertOk
+                    forgeServer
+                    "forge_pr_merge"
+                    """{"number":1,"strategy":"merge","auto":false,"delete_branch":true}"""
+
+            do! assertOk forgeServer "forge_pr_close" """{"number":1}"""
+            do! assertOk forgeServer "forge_pr_close" """{"number":1,"delete_branch":true}"""
+            do! assertOk forgeServer "forge_pr_close" """{"number":1,"delete_branch":false}"""
+        }
+
+    [<Test>]
+    member _.CallToolBooleanOptionsRejectNonBooleanValues() : Task =
+        task {
+            let server = gitServer (ScriptedRunner()) WriteGate.All
+
+            let assertInvalid tool args argument =
+                task {
+                    match! Catalog.callTool server tool (argsOf args) with
+                    | Error(McpError.InvalidParams message) ->
+                        Assert.That(message, Does.Contain argument)
+                        Assert.That(message, Does.Contain "must be a boolean")
+                    | Error e -> Assert.Fail $"{tool} should return InvalidParams, got: {e.Message}"
+                    | Ok _ -> Assert.Fail $"{tool} should reject {argument} with a non-boolean value"
+                }
+
+            do! assertInvalid "repo_remove_worktree" """{"path":"/worktree","force":"true"}""" "force"
+            do! assertInvalid "forge_pr_merge" """{"number":1,"strategy":"merge","auto":1}""" "auto"
+            do! assertInvalid "forge_pr_merge" """{"number":1,"strategy":"merge","delete_branch":{}}""" "delete_branch"
+            do! assertInvalid "forge_pr_close" """{"number":1,"delete_branch":"true"}""" "delete_branch"
+        }
+
+    [<Test>]
     member _.CallToolRejectsUnknownTool() : Task =
         task {
             let server = gitServer (ScriptedRunner()) WriteGate.None

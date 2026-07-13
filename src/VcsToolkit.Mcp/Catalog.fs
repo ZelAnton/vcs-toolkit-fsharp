@@ -79,11 +79,13 @@ module internal Catalog =
         | _ -> Error(missing name)
 
     /// `optBool` — a missing/absent boolean defaults to `false` (matches the Rust
-    /// `#[serde(default)]` on `force`/`delete_branch`).
-    let private optBool (args: JsonElement) (name: string) : bool =
+    /// `#[serde(default)]` on `force`/`delete_branch`); a present value must be boolean.
+    let private optBool (args: JsonElement) (name: string) : Result<bool, McpError> =
         match args.TryGetProperty name with
-        | true, v when v.ValueKind = JsonValueKind.True -> true
-        | _ -> false
+        | false, _ -> Ok false
+        | true, v when v.ValueKind = JsonValueKind.True -> Ok true
+        | true, v when v.ValueKind = JsonValueKind.False -> Ok false
+        | true, _ -> Error(McpError.InvalidParams(sprintf "argument %A must be a boolean" name))
 
     // --- reusable param specs ---------------------------------------------
 
@@ -434,7 +436,8 @@ module internal Catalog =
                 bind (reqStr args "branch") (fun branch ->
                     bind (reqStr args "base") (fun baseRef -> server.RepoCreateWorktree(path, branch, baseRef))))
         | "repo_remove_worktree" ->
-            bind (reqStr args "path") (fun path -> server.RepoRemoveWorktree(path, optBool args "force"))
+            bind (reqStr args "path") (fun path ->
+                bind (optBool args "force") (fun force -> server.RepoRemoveWorktree(path, force)))
         | "forge_auth_status" -> server.ForgeAuthStatus()
         | "forge_repo_view" -> server.ForgeRepoView()
         | "forge_info" -> server.ForgeInfo()
@@ -455,9 +458,12 @@ module internal Catalog =
         | "forge_pr_merge" ->
             bind (reqU64 args "number") (fun number ->
                 bind (reqStr args "strategy") (fun strategy ->
-                    server.ForgePrMerge(number, strategy, optBool args "auto", optBool args "delete_branch")))
+                    bind (optBool args "auto") (fun auto ->
+                        bind (optBool args "delete_branch") (fun deleteBranch ->
+                            server.ForgePrMerge(number, strategy, auto, deleteBranch)))))
         | "forge_pr_close" ->
-            bind (reqU64 args "number") (fun number -> server.ForgePrClose(number, optBool args "delete_branch"))
+            bind (reqU64 args "number") (fun number ->
+                bind (optBool args "delete_branch") (fun deleteBranch -> server.ForgePrClose(number, deleteBranch)))
         | "forge_pr_mark_ready" -> bind (reqU64 args "number") server.ForgePrMarkReady
         | "forge_pr_comment" ->
             bind (reqU64 args "number") (fun number ->
