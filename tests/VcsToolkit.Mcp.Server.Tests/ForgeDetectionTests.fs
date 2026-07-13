@@ -33,15 +33,11 @@ let private requireBinary (name: string) (probe: unit -> unit) =
     if not (binaryAvailable probe) then
         Assert.Ignore $"{name} not available on PATH"
 
-/// A throwaway **non-colocated** jj repo (`jj git init --no-colocate`) — the scenario
-/// this task's fallback targets. `JjSandbox.Init` (`jj git init` with no flag) is
-/// *colocated* by jj's current default, so it always has a root `.git` and never
-/// exercises the fallback; building it by hand here (rather than extending `TestKit`,
-/// out of this task's declared domain) via the `Raw` escape hatch is deliberate.
-let private nonColocatedJjRepo (tag: string) : TempDir =
-    let dir = new TempDir(tag)
-    Raw.jj dir.Path [ "git"; "init"; "--no-colocate" ]
-    dir
+/// A throwaway **non-colocated** jj repo (`JjSandbox.InitNonColocated`, i.e. `jj git init
+/// --no-colocate`) — the scenario this task's fallback targets. `JjSandbox.Init` is
+/// colocated (`--colocate`), so it always has a root `.git` and never exercises the
+/// fallback.
+let private nonColocatedJjRepo (tag: string) : JjSandbox = JjSandbox.InitNonColocated tag
 
 // ---------------------------------------------------------------------------
 // The jj fallback (T-043): non-colocated jj repo, origin remote via `jj git remote list`.
