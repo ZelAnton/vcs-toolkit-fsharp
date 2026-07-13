@@ -1,6 +1,7 @@
 module VcsToolkit.Watch.Tests
 
 open System
+open System.Diagnostics
 open System.IO
 open System.Threading
 open System.Threading.Channels
@@ -225,6 +226,48 @@ let private withTemp (f: string -> unit) =
             // best-effort cleanup; a leaked temp dir must not fail the run.
             ()
 
+/// Whether an actual jj process can run; the integration test skips on CI agents without it.
+let private jjAvailable () =
+    try
+        use proc = new Process()
+        proc.StartInfo <- ProcessStartInfo(FileName = "jj", UseShellExecute = false)
+        proc.StartInfo.ArgumentList.Add "--version"
+        proc.Start() && proc.WaitForExit(5000) && proc.ExitCode = 0
+    with _ ->
+        false
+
+let private requireJj () =
+    if not (jjAvailable ()) then
+        Assert.Ignore "jj not available on PATH"
+
+/// Run a real jj command with a hermetic identity/configuration for the integration fixture.
+let private runJj (dir: string) (args: string list) =
+    use proc = new Process()
+
+    let psi =
+        ProcessStartInfo(FileName = "jj", WorkingDirectory = dir, UseShellExecute = false)
+
+    psi.RedirectStandardOutput <- true
+    psi.RedirectStandardError <- true
+    psi.Environment.["JJ_CONFIG"] <- Path.Combine(dir, "vcs-watch-no-such-jj-config.toml")
+    psi.Environment.["JJ_USER"] <- "test"
+    psi.Environment.["JJ_EMAIL"] <- "test@example.com"
+
+    for arg in args do
+        psi.ArgumentList.Add arg
+
+    proc.StartInfo <- psi
+
+    if not (proc.Start()) then
+        failwithf "failed to start `jj %s`" (String.concat " " args)
+
+    let stdout = proc.StandardOutput.ReadToEndAsync()
+    let stderr = proc.StandardError.ReadToEndAsync()
+    proc.WaitForExit()
+
+    if proc.ExitCode <> 0 then
+        failwithf "`jj %s` exited with %d: %s%s" (String.concat " " args) proc.ExitCode stderr.Result stdout.Result
+
 [<TestFixture>]
 type PathTests() =
 
@@ -310,6 +353,29 @@ type PathTests() =
             | Error e -> Assert.Fail $"stateDirs failed: {e.Message}")
 
     [<Test>]
+    member _.SecondaryJjRepoIncludesSharedStoreWithoutDuplicates() =
+        withTemp (fun scratch ->
+            let root = Path.Combine(scratch, "secondary")
+            let jjDir = Path.Combine(root, ".jj")
+            let shared = Path.Combine(scratch, "main", ".jj", "repo")
+            Directory.CreateDirectory jjDir |> ignore
+            Directory.CreateDirectory shared |> ignore
+            File.WriteAllText(Path.Combine(jjDir, "repo"), "../../main/.jj/repo")
+
+            match Paths.stateDirs BackendKind.Jj root with
+            | Ok dirs ->
+                Assert.That(dirs.Length, Is.EqualTo 2, "secondary .jj + shared store")
+                Assert.That(List.exists (Paths.pathsEqual jjDir) dirs, Is.True, "secondary .jj is watched")
+                Assert.That(List.exists (Paths.pathsEqual shared) dirs, Is.True, "shared store is watched")
+
+                Assert.That(
+                    (dirs |> List.distinctBy Paths.normalize).Length,
+                    Is.EqualTo dirs.Length,
+                    "the watched directories are deduplicated"
+                )
+            | Error e -> Assert.Fail $"stateDirs failed: {e.Message}")
+
+    [<Test>]
     member _.PureGitRepoBehaviourIsUnchanged() =
         withTemp (fun scratch ->
             let root = Path.Combine(scratch, "pure-git")
@@ -386,7 +452,7 @@ let private isOrderedSubsequence (pattern: string list) (args: string list) =
 
     go pattern args
 
-/// A jj runner whose snapshot `log` command fails with a **transient** process error
+/// A jj runner whose snapshot `log` command fails with a **transient** proc error
 /// (`ProcessError.Spawn` — a momentary spawn hiccup) the first `failCount` calls, then
 /// succeeds and reads `head`. `ScriptedRunner` tries rules in registration order and stops
 /// at the first match, so the stateful `When` (registered first) wins while its predicate
@@ -703,5 +769,88 @@ type PipelineTests() =
                     Directory.Delete(dir, true)
                 with _ ->
                     // best-effort cleanup.
+                    ()
+        }
+
+    [<Test>]
+    member _.SecondaryJjWorkspaceObservesBookmarkCreatedFromMainWorkspace() : Task =
+        task {
+            requireJj ()
+
+            let scratch =
+                Path.Combine(Path.GetTempPath(), $"vcs-watch-secondary-{Guid.NewGuid():N}")
+
+            let main = Path.Combine(scratch, "main")
+            let secondary = Path.Combine(scratch, "secondary")
+            Directory.CreateDirectory main |> ignore
+
+            try
+                // These are real jj commands: `workspace add` produces the secondary `.jj/repo`
+                // pointer, then the bookmark mutation below writes to its shared store.
+                runJj main [ "git"; "init"; "--no-colocate" ]
+                runJj main [ "workspace"; "add"; secondary; "--name"; "secondary" ]
+
+                let secondaryJj = Path.Combine(secondary, ".jj")
+                let pointer = Path.Combine(secondaryJj, "repo")
+                Assert.That(File.Exists pointer, Is.True, "a secondary workspace has a .jj/repo pointer file")
+
+                let sharedStore =
+                    File.ReadAllText(pointer).Trim()
+                    |> fun path ->
+                        if Path.IsPathRooted path then
+                            path
+                        else
+                            Path.Combine(secondaryJj, path)
+                    |> Paths.lexicallyNormalized
+
+                match Paths.stateDirs BackendKind.Jj secondary with
+                | Ok dirs ->
+                    Assert.That(List.exists (Paths.pathsEqual sharedStore) dirs, Is.True, "the shared store is watched")
+
+                    Assert.That(
+                        (dirs |> List.distinctBy Paths.normalize).Length,
+                        Is.EqualTo dirs.Length,
+                        "the watched directories are deduplicated"
+                    )
+                | Error e -> Assert.Fail $"stateDirs failed: {e.Message}"
+
+                let repo = Repo.FromJj(secondary, secondary, Jj.Create())
+
+                match!
+                    RepoWatcher
+                        .Builder(repo)
+                        .Debounce(TimeSpan.FromMilliseconds 50.0)
+                        .MaxWait(TimeSpan.FromMilliseconds 250.0)
+                        .Build()
+                with
+                | Error e when
+                    e.Message.Contains("failed to spawn 'jj'")
+                    && e.Message.Contains("Access to the path is denied.")
+                    ->
+                    Assert.Ignore "sandbox prevents the ProcessKit jj runner from spawning"
+                | Error e -> Assert.Fail $"watch build failed: {e.Message}"
+                | Ok watcher ->
+                    use watcher = watcher
+                    runJj main [ "bookmark"; "create"; "observed-from-main"; "-r"; "@" ]
+
+                    let recv = watcher.Recv()
+                    let! winner = Task.WhenAny(recv :> Task, Task.Delay(TimeSpan.FromSeconds 10.0))
+                    Assert.That(Object.ReferenceEquals(winner, recv), Is.True, "shared-store write was observed")
+
+                    let! change = recv
+
+                    match change with
+                    | Some change ->
+                        Assert.That(
+                            List.contains (RepoEvent.BranchCreated "observed-from-main") change.Events,
+                            Is.True,
+                            "the secondary watcher reports the bookmark created from the main workspace"
+                        )
+                    | None -> Assert.Fail "watcher stopped before reporting the shared-store change"
+            finally
+                try
+                    Directory.Delete(scratch, true)
+                with _ ->
+                    // jj or the watcher can still hold a file handle while Windows tears down.
                     ()
         }
