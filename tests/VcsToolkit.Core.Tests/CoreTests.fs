@@ -286,10 +286,8 @@ type RepoConstructionTests() =
             let caughtException = Assert.Throws<ArgumentException>(action)
 
             match caughtException with
-            | null ->
-                raise (InvalidOperationException "Assert.Throws returned null unexpectedly")
-            | nonNullException ->
-                nonNullException
+            | null -> raise (InvalidOperationException "Assert.Throws returned null unexpectedly")
+            | nonNullException -> nonNullException
 
         let fromGit: ArgumentException =
             requireArgumentException (Action(fun () -> Repo.FromGit(invalid, ".", client) |> ignore))
