@@ -479,7 +479,10 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
     member _.DiffStat(dir: string, revset: string) =
         core.Parse(cmdInRead dir [ "diff"; "-r"; revset; "--stat" ], JjParse.parseDiffStat)
 
-    /// Raw git-format unified diff text for `spec` (`diff -r <spec> --git`).
+    /// Raw git-format unified diff text for `spec` (`diff -r <spec> --git`), untrimmed and
+    /// UTF-8-decoded — jj emits this as text; a non-UTF-8 byte quoted inside the diff would decode
+    /// to U+FFFD (jj escapes such content in its own diff format, so this is not a byte-exactness
+    /// concern here).
     member _.DiffText(dir: string, spec: DiffSpec) =
         let revset =
             match spec with
@@ -561,7 +564,9 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
             @ [ "-T"; template ]
 
         // Untrimmed: a template's output can be significant to the trailing byte (a consumer
-        // may render or round-trip it), matching the Rust `run_untrimmed`.
+        // may render or round-trip it), matching the Rust `run_untrimmed`. UTF-8-decoded text —
+        // jj templates render text, so U+FFFD would only appear if a template embedded raw
+        // non-UTF-8 bytes; a verbatim byte read of blob content is `FileShowBytes`.
         runUntrimmed core (cmdInRead dir args)
 
     /// The full (possibly multiline) description of the commit `revset` resolves to,
@@ -630,11 +635,25 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
 
     /// A file's content at a revision (`jj file show -r <revset> root-file:"<path>"` — the
     /// path is wrapped as an exact-path fileset, so metacharacters stay literal and the path is
-    /// resolved relative to the workspace root regardless of `dir`).
+    /// resolved relative to the workspace root regardless of `dir`), untrimmed and UTF-8-decoded.
+    /// Byte-exact for UTF-8/text blobs (the trailing newline survives a read-modify-write); a
+    /// non-UTF-8 byte (a binary or legacy-encoded blob) is replaced with U+FFFD and does NOT
+    /// round-trip — use `FileShowBytes` for a verbatim byte-for-byte read of such content.
     member _.FileShow(dir: string, revset: string, path: string) =
         let fileset = JjFileset.Path path
-        // Untrimmed: a blob's trailing newline(s) must survive for a byte-exact read-modify-write.
+        // Untrimmed so a text blob's trailing newline survives; UTF-8-decoded, so this is NOT
+        // byte-exact for non-UTF-8 content (see the doc-comment / `FileShowBytes`).
         runUntrimmed core (cmdInRead dir [ "file"; "show"; "-r"; revset; fileset.Value ])
+
+    /// A file's content at a revision as raw, verbatim **bytes** (`jj file show -r <revset>
+    /// root-file:"<path>"`) — arbitrary (binary, legacy-encoded, non-UTF-8) content round-trips
+    /// byte-for-byte, unlike `FileShow`, which UTF-8-decodes and replaces any non-UTF-8 byte with
+    /// U+FFFD. The path is wrapped as an exact-path fileset (metacharacters stay literal; resolved
+    /// relative to the workspace root regardless of `dir`). Use this for a byte-exact
+    /// read-modify-write of blob content.
+    member _.FileShowBytes(dir: string, revset: string, path: string) =
+        let fileset = JjFileset.Path path
+        runUntrimmedBytes core (cmdInRead dir [ "file"; "show"; "-r"; revset; fileset.Value ])
 
     // --- Mutations -----------------------------------------------------------
 
@@ -1196,8 +1215,13 @@ and [<Sealed>] JjAt internal (jj: Jj, dir: string) =
     /// Per-line authorship of `path` (`jj file annotate <path> [-r <revset>]`).
     member _.FileAnnotate(path: string, revset: string option) = jj.FileAnnotate(dir, path, revset)
 
-    /// A file's content at a revision (`jj file show -r <revset> root-file:"<path>"`).
+    /// A file's content at a revision (`jj file show -r <revset> root-file:"<path>"`),
+    /// UTF-8-decoded (non-UTF-8 bytes become U+FFFD — use `FileShowBytes` for verbatim binary
+    /// content).
     member _.FileShow(revset: string, path: string) = jj.FileShow(dir, revset, path)
+
+    /// A file's content at a revision as raw, verbatim bytes (`jj file show -r <revset> root-file:"<path>"`).
+    member _.FileShowBytes(revset: string, path: string) = jj.FileShowBytes(dir, revset, path)
 
     /// Fold working-copy edits into the ancestors that introduced the touched lines.
     member _.Absorb(from: string option, filesets: JjFileset list) = jj.Absorb(dir, from, filesets)

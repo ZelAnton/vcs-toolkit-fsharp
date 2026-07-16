@@ -610,9 +610,17 @@ module internal JjBackend =
         }
 
     /// The content of `path` as it exists at `revset` (`file show -r <revset> <path>`),
-    /// untrimmed.
+    /// untrimmed and UTF-8-decoded (non-UTF-8 bytes become U+FFFD — see `showFileBytes` for a
+    /// verbatim read).
     let showFile (jj: Jj) (dir: string) (revset: string) (path: string) =
         task {
             let! r = jj.FileShow(dir, revset, path)
+            return ofVcs r
+        }
+
+    /// The content of `path` at `revset` (`file show -r <revset> <path>`) as raw, verbatim bytes.
+    let showFileBytes (jj: Jj) (dir: string) (revset: string) (path: string) =
+        task {
+            let! r = jj.FileShowBytes(dir, revset, path)
             return ofVcs r
         }

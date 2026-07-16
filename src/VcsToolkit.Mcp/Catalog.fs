@@ -151,7 +151,7 @@ module internal Catalog =
           read "repo_worktrees" "Attached worktrees (git) / workspaces (jj)." []
           read
               "repo_show_file"
-              "The content of a file as it exists at a revision, untrimmed up to the server's output budget (--output-budget; default 200000 bytes, 0 disables). Content beyond the budget is truncated with a trailing '[truncated: showing N of M bytes]' marker. `rev` is passed through as-is to the backend — a git commit-ish or a jj revset; the two syntaxes are NOT cross-backend portable."
+              "The content of a file as it exists at a revision, untrimmed up to the server's output budget (--output-budget; default 200000 bytes, 0 disables). Content beyond the budget is truncated with a trailing '[truncated: showing N of M bytes]' marker. The content is UTF-8-decoded text: a non-UTF-8 byte (a binary or legacy-encoded blob) is replaced with U+FFFD and does NOT round-trip, so this tool is for text files — a byte-exact read of arbitrary binary content is a library-level concern (VcsToolkit.Core Repo.ShowFileBytes), not exposed over this text-only MCP surface. `rev` is passed through as-is to the backend — a git commit-ish or a jj revset; the two syntaxes are NOT cross-backend portable."
               [ { Name = "rev"
                   JsonType = "string"
                   Description = "The revision (git: commit-ish) or revset (jj) to read the file at."

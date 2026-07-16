@@ -1321,3 +1321,109 @@ type PathAnchoringTests() =
                         Assert.That(paths, Does.Not.Contain "sub/a.txt", "the committed file must no longer be pending")
                         Assert.That(paths, Does.Contain "sub/b.txt", "the uncommitted sibling must remain in @")
         }
+
+// ---------------------------------------------------------------------------
+// T-067: ShowFileBytes reads blob content byte-for-byte verbatim, where the
+// UTF-8-decoding string ShowFile silently replaces non-UTF-8 bytes with U+FFFD.
+// Real git/jj, both backends, the flagged non-UTF-8 read-modify-write case.
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type ShowFileBytesTests() =
+
+    let requireGit () =
+        try
+            Raw.git "." [ "--version" ]
+        with _ ->
+            // git isn't on PATH — a hermetic CI without it must skip, not fail, this fixture.
+            Assert.Ignore "git not available on PATH"
+
+    let requireJj () =
+        try
+            Raw.jj "." [ "--version" ]
+        with _ ->
+            // jj isn't on PATH — skip rather than fail.
+            Assert.Ignore "jj not available on PATH"
+
+    /// A blob whose bytes are NOT valid UTF-8: `0xFF`/`0xFE` are invalid UTF-8 lead bytes, so a
+    /// UTF-8 decode replaces each with U+FFFD and can never reproduce the original bytes. Ends in
+    /// `\n` so the trailing-newline capture is exercised too.
+    let nonUtf8Blob: byte[] = [| 0x48uy; 0x69uy; 0xFFuy; 0xFEuy; 0x0Auy |] // "Hi" + 0xFF 0xFE + '\n'
+
+    [<Test>]
+    member _.GitShowFileBytesRoundTripsNonUtf8BlobWhereShowFileReplacesWithUFFFD() : Task =
+        task {
+            requireGit ()
+            use sandbox = GitSandbox.Init "t067-git-bytes"
+            // Write the raw bytes directly (the sandbox's string `Write` would UTF-8-encode them).
+            File.WriteAllBytes(Path.Combine(sandbox.Path, "blob.bin"), nonUtf8Blob)
+            sandbox.AddAll()
+            sandbox.Commit "seed non-UTF-8 blob"
+
+            let repo = Repo.FromGit(sandbox.Path, sandbox.Path, Git.Create())
+
+            // The bytes API round-trips the blob verbatim — the whole point of the new API.
+            match! repo.ShowFileBytes("HEAD", "blob.bin") with
+            // Compare via F# structural equality (Assert.That(byte[], Is.EqualTo byte[]) is
+            // FS0041-ambiguous under NUnit's overload set — see the Set/Nullable cases elsewhere).
+            | Ok bytes ->
+                Assert.That((bytes = nonUtf8Blob), Is.True, "ShowFileBytes must return the blob byte-for-byte")
+            | Error e -> Assert.Fail $"ShowFileBytes failed: {e.Message}"
+
+            // The string API UTF-8-decodes, silently corrupting the non-UTF-8 bytes to U+FFFD — the
+            // documented limitation this task pins down.
+            match! repo.ShowFile("HEAD", "blob.bin") with
+            | Ok text ->
+                // U+FFFD spelled via its code point so the source stays plain ASCII.
+                let replacementChar = System.Char.ConvertFromUtf32 0xFFFD
+
+                Assert.That(
+                    text.Contains replacementChar,
+                    Is.True,
+                    "ShowFile UTF-8-decodes, so non-UTF-8 bytes become U+FFFD"
+                )
+
+                Assert.That(
+                    System.Text.Encoding.UTF8.GetBytes text,
+                    Is.Not.EqualTo nonUtf8Blob,
+                    "the UTF-8-decoded string does NOT round-trip back to the original bytes"
+                )
+            | Error e -> Assert.Fail $"ShowFile failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.JjShowFileBytesRoundTripsNonUtf8BlobWhereShowFileReplacesWithUFFFD() : Task =
+        task {
+            requireJj ()
+            use sandbox = JjSandbox.Init "t067-jj-bytes"
+            File.WriteAllBytes(Path.Combine(sandbox.Path, "blob.bin"), nonUtf8Blob)
+
+            let repo = Repo.FromJj(sandbox.Path, sandbox.Path, Jj.Create())
+
+            // `@` is the working-copy change; jj snapshots the freshly-written (auto-tracked) file
+            // on the read command.
+            match! repo.ShowFileBytes("@", "blob.bin") with
+            // Compare via F# structural equality (Assert.That(byte[], Is.EqualTo byte[]) is
+            // FS0041-ambiguous under NUnit's overload set — see the Set/Nullable cases elsewhere).
+            | Ok bytes ->
+                Assert.That((bytes = nonUtf8Blob), Is.True, "ShowFileBytes must return the blob byte-for-byte")
+            | Error e -> Assert.Fail $"ShowFileBytes failed: {e.Message}"
+
+            match! repo.ShowFile("@", "blob.bin") with
+            | Ok text ->
+                // U+FFFD spelled via its code point so the source stays plain ASCII.
+                let replacementChar = System.Char.ConvertFromUtf32 0xFFFD
+
+                Assert.That(
+                    text.Contains replacementChar,
+                    Is.True,
+                    "ShowFile UTF-8-decodes, so non-UTF-8 bytes become U+FFFD"
+                )
+
+                Assert.That(
+                    System.Text.Encoding.UTF8.GetBytes text,
+                    Is.Not.EqualTo nonUtf8Blob,
+                    "the UTF-8-decoded string does NOT round-trip back to the original bytes"
+                )
+            | Error e -> Assert.Fail $"ShowFile failed: {e.Message}"
+        }
