@@ -156,18 +156,33 @@ type ParseTests() =
 
     [<Test>]
     member _.ResolveListExtractsPathsAndNormalises() =
-        let got =
-            JjParse.parseResolveList "src/a.rs    2-sided conflict\nb.txt    2-sided conflict including 1 deletion\n"
+        // Input mirrors `CONFLICTED_PATHS_TEMPLATE`'s output: one `.escape_json()`-framed
+        // path per line.
+        let got = JjParse.parseResolveList "\"src/a.rs\"\n\"b.txt\"\n"
 
         Assert.That(got.Length, Is.EqualTo 2)
         Assert.That(got.[0], Is.EqualTo "src/a.rs")
         Assert.That(got.[1], Is.EqualTo "b.txt")
         Assert.That(JjParse.parseResolveList("").Length, Is.EqualTo 0)
-        // OS-native backslash separators (Windows) are normalised to `/`.
+        // OS-native backslash separators (Windows, from `path.display()`) are normalised to
+        // `/`; `.escape_json()` renders a literal backslash doubled (`\\`), which
+        // `decodeJsonField` unescapes to one backslash before normalisation.
         let win =
-            JjParse.parseResolveList $"sub{string (char 92)}c.txt    2-sided conflict\n"
+            JjParse.parseResolveList $"\"sub{string (char 92)}{string (char 92)}c.txt\"\n"
 
         Assert.That(win.[0], Is.EqualTo "sub/c.txt")
+
+    [<Test>]
+    member _.ResolveListPreservesInternalRunsOfSpacesInPaths() =
+        // The `jj resolve --list` human-readable format cannot reliably distinguish an
+        // internal run of spaces in a path from its dynamically sized column padding
+        // (investigated on jj 0.42.0 — see `parseResolveList`'s doc comment), so
+        // `parseResolveList` now reads `jj file list -T CONFLICTED_PATHS_TEMPLATE`'s
+        // JSON-framed output instead, which has no such ambiguity.
+        let got = JjParse.parseResolveList "\"src/has  two   spaces.txt\"\n"
+
+        Assert.That(got.Length, Is.EqualTo 1)
+        Assert.That(got.[0], Is.EqualTo "src/has  two   spaces.txt")
 
     [<Test>]
     member _.WorkspacesSplitTabFieldsAndBookmarks() =
@@ -1047,22 +1062,22 @@ type SemanticsTests() =
     [<Test>]
     member _.ResolveListDistinguishesNoConflictsFromErrors() : Task =
         task {
-            // Benign "no conflicts" non-zero exit → empty list.
-            let none =
-                scripted [ "resolve" ] (Reply.Fail(2, "Error: No conflicts found at this revision"))
+            // A conflict-free revision is a normal, empty-output success on `jj file list`
+            // (unlike `resolve --list`, it never exits non-zero just for "nothing matched").
+            let none = scripted [ "file"; "list" ] (Reply.Ok "")
 
             match! none.ResolveList(".", "@") with
             | Ok xs -> Assert.That(xs, Is.Empty)
             | Error e -> Assert.Fail $"resolve_list (none) failed: {e}"
 
-            // A real failure must surface, not read as "no conflicts".
+            // A real failure (bad revset, …) must surface as an error.
             let bad =
-                scripted [ "resolve" ] (Reply.Fail(1, "Error: Revision `bogus` doesn't exist"))
+                scripted [ "file"; "list" ] (Reply.Fail(1, "Error: Revision `bogus` doesn't exist"))
 
             let! r2 = bad.ResolveList(".", "bogus")
             Assert.That(Result.isError r2, Is.True)
-            // Success with conflicts → parsed paths.
-            let some = scripted [ "resolve" ] (Reply.Ok "a.rs    2-sided conflict\n")
+            // Success with conflicts → parsed, JSON-decoded paths.
+            let some = scripted [ "file"; "list" ] (Reply.Ok "\"a.rs\"\n")
 
             match! some.ResolveList(".", "@") with
             | Ok xs ->

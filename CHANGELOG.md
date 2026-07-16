@@ -59,8 +59,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `vcs-mcp`'s `forge_pr_close` tool now holds the same per-repo write lock as `forge_pr_checkout`/`forge_pr_merge` and the `repo_*` mutations for its whole call (previously it only checked the write gate, without serializing): with `delete_branch` (and even without it, for symmetry with `forge_pr_merge`) it can touch the same working tree the `repo_*` mutations do, so it must not race a concurrent repo mutation.
 
 ### Fixed
+- `Jj.ResolveList` (and consequently `Repo.ConflictedFiles` and jj merge probes) now preserves internal double-or-more spaces in conflicted paths instead of truncating the path at the first such run.
 - `Repo.At`, `Repo.FromGit`, and `Repo.FromJj` now capture absolute `Cwd`/`Root` paths just like `Repo.Open`, so a handle created with a relative path remains bound to the intended directory after the process current directory changes; invalid factory paths now fail with a descriptive input error instead of leaking a raw path exception.
 - MCP boolean tool arguments now reject non-boolean JSON values instead of silently treating them as false.
+- Fixed silent acceptance of wrong-typed optional string arguments in `forge_pr_create` and `forge_pr_edit`.
 - `Git.RemoteBranchExists` now inherits the client's `DefaultTimeout`, matching `Git.RemoteBranches`, instead of unconditionally replacing it with a 10-second deadline.
 - `VcsToolkit.Watch` now observes shared jj stores when watching a secondary workspace.
 - `Jj.CommitPaths` and `JjAt.CommitPaths` now refuse an empty fileset before spawning `jj commit`, preventing a direct client call from committing the entire working copy.

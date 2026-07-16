@@ -533,24 +533,22 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
     /// Whether the working copy has unresolved conflicts.
     member this.HasWorkingCopyConflict(dir: string) = this.IsConflicted(dir, "@")
 
-    /// Paths with unresolved conflicts in `revset` (`jj resolve --list -r <revset>`).
-    /// Empty when there are none.
+    /// Paths with unresolved conflicts in `revset` (`jj file list -r <revset> -T
+    /// CONFLICTED_PATHS_TEMPLATE` — see `JjParse.parseResolveList`'s doc comment for why
+    /// this is used instead of parsing `jj resolve --list` directly). Empty when there
+    /// are none; a conflict-free revision is simply a normal, empty-output success here
+    /// (unlike `resolve --list`, `file list` never exits non-zero just because nothing
+    /// matched the template's `if(conflict, …)`).
     member _.ResolveList(dir: string, revset: string) =
         task {
-            match! core.Output(cmdInRead dir [ "resolve"; "--list"; "-r"; revset ]) with
+            match!
+                core.Output(cmdInRead dir [ "file"; "list"; "-r"; revset; "-T"; JjParse.CONFLICTED_PATHS_TEMPLATE ])
+            with
             | Error e -> return Error e
             | Ok res ->
-                match res.Code with
-                | Some 0 -> return Ok(JjParse.parseResolveList res.Stdout)
-                // jj exits non-zero with "No conflicts found …" when the revision is
-                // conflict-free — the one non-zero we read as an empty list. Any other
-                // failure (bad revset, not a repo, …) must surface. jj's output is
-                // English-only, matched case-insensitively on the stable core phrase.
-                | _ when res.Stderr.Contains("no conflicts", StringComparison.OrdinalIgnoreCase) -> return Ok []
-                | _ ->
-                    match ProcessResult.ensureSuccess res with
-                    | Error e -> return Error e
-                    | Ok _ -> return Ok [] // unreachable: a non-zero exit always errors above.
+                match ProcessResult.ensureSuccess res with
+                | Error e -> return Error e
+                | Ok ok -> return Ok(JjParse.parseResolveList ok.Stdout)
         }
 
     /// Run an arbitrary templated `jj log` query and return raw stdout
@@ -1199,7 +1197,8 @@ and [<Sealed>] JjAt internal (jj: Jj, dir: string) =
     /// Whether the working copy has unresolved conflicts.
     member _.HasWorkingCopyConflict() = jj.HasWorkingCopyConflict dir
 
-    /// Paths with unresolved conflicts in `revset` (`jj resolve --list -r <revset>`).
+    /// Paths with unresolved conflicts in `revset` (`jj file list -r <revset> -T
+    /// CONFLICTED_PATHS_TEMPLATE`; see the low-level `ResolveList` doc comment).
     member _.ResolveList(revset: string) = jj.ResolveList(dir, revset)
 
     /// Run an arbitrary templated `jj log` query and return raw stdout.
