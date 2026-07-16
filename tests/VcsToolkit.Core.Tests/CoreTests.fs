@@ -704,14 +704,15 @@ type AssemblyTests() =
     [<Test>]
     member _.JjTryMergeReportsConflicts() : Task =
         task {
-            // is_conflicted(true) → resolve --list → MergeProbe.Conflicts, still rolled back.
+            // is_conflicted(true) → jj file list (conflicted-paths template) → MergeProbe.Conflicts,
+            // still rolled back.
             let runner =
                 ScriptedRunner()
                     .On([ "op"; "log"; "--limit"; "1" ], Reply.Ok "opabc\n") // op-head capture
                     .On([ "op"; "log"; "--limit"; "32" ], Reply.Ok(opRow "opabc")) // divergence probe: captured op present
                     .On([ "new" ], Reply.Ok "")
                     .On([ "log"; "-T" ], Reply.Ok "1\n") // conflicted
-                    .On([ "resolve"; "--list" ], Reply.Ok "a.rs    2-sided conflict\n")
+                    .On([ "file"; "list" ], Reply.Ok "\"a.rs\"\n")
                     .On([ "op"; "restore"; "opabc" ], Reply.Ok "")
 
             let repo = Repo.FromJj("/repo", "/repo", Jj.WithRunner runner)
