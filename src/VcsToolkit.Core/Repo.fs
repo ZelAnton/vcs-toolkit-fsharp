@@ -437,11 +437,23 @@ type Repo private (root: string, cwd: string, backend: Backend) =
 
     // --- File content ----------------------------------------------------------
 
-    /// The content of `path` as it exists at `rev`, untrimmed (trailing newlines survive,
-    /// for a byte-exact read-modify-write). `rev` is passed through as-is to the
+    /// The content of `path` as it exists at `rev`, untrimmed and UTF-8-decoded. Byte-exact for
+    /// UTF-8/text content (trailing newlines survive a read-modify-write); a non-UTF-8 byte (a
+    /// binary or legacy-encoded blob) is replaced with U+FFFD and does NOT round-trip — use
+    /// `ShowFileBytes` for a verbatim read of such content. `rev` is passed through as-is to the
     /// underlying client — git accepts a commit-ish, jj a revset; the two syntaxes are NOT
     /// interchangeable, so this is not a cross-backend-portable revision string.
     member _.ShowFile(rev: string, path: string) =
         match backend with
         | Backend.Git g -> GitBackend.showFile g cwd rev path
         | Backend.Jj j -> JjBackend.showFile j cwd rev path
+
+    /// The content of `path` at `rev` as raw, verbatim **bytes** — arbitrary (binary,
+    /// legacy-encoded, non-UTF-8) content round-trips byte-for-byte, unlike `ShowFile`, which
+    /// UTF-8-decodes and replaces any non-UTF-8 byte with U+FFFD. The byte-exact form for a
+    /// read-modify-write of blob content that may not be UTF-8 text. `rev` is passed through as
+    /// for `ShowFile` (git commit-ish / jj revset, not cross-backend-portable).
+    member _.ShowFileBytes(rev: string, path: string) =
+        match backend with
+        | Backend.Git g -> GitBackend.showFileBytes g cwd rev path
+        | Backend.Jj j -> JjBackend.showFileBytes j cwd rev path

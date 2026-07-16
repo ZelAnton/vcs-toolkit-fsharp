@@ -429,9 +429,17 @@ module internal GitBackend =
             return ofVcs r
         }
 
-    /// The content of `path` as it exists at `rev` (`show <rev>:<path>`), untrimmed.
+    /// The content of `path` as it exists at `rev` (`show <rev>:<path>`), untrimmed and
+    /// UTF-8-decoded (non-UTF-8 bytes become U+FFFD — see `showFileBytes` for a verbatim read).
     let showFile (git: Git) (dir: string) (rev: string) (path: string) =
         task {
             let! r = git.ShowFile(dir, rev, path)
+            return ofVcs r
+        }
+
+    /// The content of `path` at `rev` (`show <rev>:<path>`) as raw, verbatim bytes.
+    let showFileBytes (git: Git) (dir: string) (rev: string) (path: string) =
+        task {
+            let! r = git.ShowFileBytes(dir, rev, path)
             return ofVcs r
         }

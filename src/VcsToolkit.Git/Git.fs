@@ -851,7 +851,10 @@ type Git private (core: ManagedClient) =
                     core.Parse(cLocale (core.CommandIn(dir, [ "diff"; "--shortstat"; range ])), GitParse.parseShortstat)
         }
 
-    /// Raw git-format unified diff text for `spec`.
+    /// Raw git-format unified diff text for `spec`, untrimmed and UTF-8-decoded — the trailing
+    /// blank context line is preserved so the last hunk's `@@` count stays valid on re-parse. git
+    /// emits this as text; a non-UTF-8 byte quoted inside the diff would decode to U+FFFD (git
+    /// escapes such content in its own diff format, so this is not a byte-exactness concern here).
     member this.DiffText(dir: string, spec: DiffSpec) =
         task {
             let args target =
@@ -1380,7 +1383,10 @@ type Git private (core: ManagedClient) =
             | Ok() -> return! core.RunUnit(core.CommandIn(dir, [ "tag"; "-d"; name ]))
         }
 
-    /// A file's content at a revision (`git show <rev>:<path>`).
+    /// A file's content at a revision (`git show <rev>:<path>`), untrimmed and UTF-8-decoded.
+    /// Byte-exact for UTF-8/text blobs (the trailing newline survives a read-modify-write); a
+    /// non-UTF-8 byte (a binary or legacy-encoded blob) is replaced with U+FFFD and does NOT
+    /// round-trip — use `ShowFileBytes` for a verbatim byte-for-byte read of such content.
     member _.ShowFile(dir: string, rev: string, path: string) =
         task {
             match checkFlags BINARY [ "revision", rev ] with
@@ -1394,9 +1400,29 @@ type Git private (core: ManagedClient) =
                         path
 
                 let spec = sprintf "%s:%s" rev p
-                // Untrimmed: a blob's trailing newline(s) must survive for a byte-exact
-                // read-modify-write.
+                // Untrimmed so a text blob's trailing newline survives; UTF-8-decoded, so this is
+                // NOT byte-exact for non-UTF-8 content (see the doc-comment / `ShowFileBytes`).
                 return! runUntrimmed core (core.CommandIn(dir, [ "show"; spec ]))
+        }
+
+    /// A file's content at a revision as raw, verbatim **bytes** (`git show <rev>:<path>`) —
+    /// arbitrary (binary, legacy-encoded, non-UTF-8) content round-trips byte-for-byte, unlike
+    /// `ShowFile`, which UTF-8-decodes and replaces any non-UTF-8 byte with U+FFFD. Use this for a
+    /// byte-exact read-modify-write of blob content.
+    member _.ShowFileBytes(dir: string, rev: string, path: string) =
+        task {
+            match checkFlags BINARY [ "revision", rev ] with
+            | Error e -> return Error e
+            | Ok() ->
+                // Windows: git rejects backslash separators in the <rev>:<path> spec.
+                let p =
+                    if OperatingSystem.IsWindows() then
+                        path.Replace(char 92, '/')
+                    else
+                        path
+
+                let spec = sprintf "%s:%s" rev p
+                return! runUntrimmedBytes core (core.CommandIn(dir, [ "show"; spec ]))
         }
 
     /// The value of a config key, or `None` when unset (`config --get <key>`).
@@ -1463,10 +1489,10 @@ type Git private (core: ManagedClient) =
             | Error e -> return Error e
             | Ok() ->
                 let args = [ "blame"; "--line-porcelain" ] @ Option.toList rev @ [ "--"; path ]
-                // Untrimmed feed: a file ending in a blank line has a final `\t` (empty) content
-                // line, and `parseBlamePorcelain` closes a record only on that `\t`-prefixed line —
-                // trimming it (as `core.Parse` does) would silently drop the last blame entry.
-                // Mirrors the jj `FileAnnotate` workaround.
+                // Untrimmed feed (UTF-8-decoded porcelain text): a file ending in a blank line has
+                // a final `\t` (empty) content line, and `parseBlamePorcelain` closes a record only
+                // on that `\t`-prefixed line — trimming it (as `core.Parse` does) would silently
+                // drop the last blame entry. Mirrors the jj `FileAnnotate` workaround.
                 match! runUntrimmed core (core.CommandIn(dir, args)) with
                 | Error e -> return Error e
                 | Ok out -> return Ok(GitParse.parseBlamePorcelain out)
@@ -1867,8 +1893,12 @@ and [<Sealed>] GitAt internal (git: Git, dir: string) =
     /// Delete a tag (`tag -d <name>`).
     member _.TagDelete(name: string) = git.TagDelete(dir, name)
 
-    /// A file's content at a revision (`git show <rev>:<path>`).
+    /// A file's content at a revision (`git show <rev>:<path>`), UTF-8-decoded (non-UTF-8 bytes
+    /// become U+FFFD — use `ShowFileBytes` for verbatim binary content).
     member _.ShowFile(rev: string, path: string) = git.ShowFile(dir, rev, path)
+
+    /// A file's content at a revision as raw, verbatim bytes (`git show <rev>:<path>`).
+    member _.ShowFileBytes(rev: string, path: string) = git.ShowFileBytes(dir, rev, path)
 
     /// The value of a config key, or `None` when unset (`config --get <key>`).
     member _.ConfigGet(key: string) = git.ConfigGet(dir, key)
