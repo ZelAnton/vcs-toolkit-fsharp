@@ -22,7 +22,11 @@ module Detect =
     /// rejected, so it can't shadow a real repository higher up the tree; a binary or
     /// unreadable file is rejected too. Symmetric with the `.jj` `is-dir` probe: both
     /// require a *valid* marker, not mere existence.
-    let private isGitMarker (path: string) : bool =
+    ///
+    /// Not `private`: `VcsToolkit.Watch`'s colocation probe (`Paths.stateDirs`) reuses this
+    /// exact predicate to decide whether a `.jj` repo is genuinely colocated with git,
+    /// rather than re-deriving (and risking drifting from) the same "valid marker" rule.
+    let isGitMarker (path: string) : bool =
         if Directory.Exists path then
             true
         elif File.Exists path then

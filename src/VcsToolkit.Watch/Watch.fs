@@ -263,8 +263,13 @@ module internal Paths =
                 | BackendKind.Git -> addShared commonDir [ sd ] sd
 
             match kind with
-            | BackendKind.Jj when Path.Exists(Path.Combine(root, ".git")) ->
-                // colocated: also watch the git-side state dir (gitlink/commondir-resolved).
+            | BackendKind.Jj when Detect.isGitMarker (Path.Combine(root, ".git")) ->
+                // Colocated: also watch the git-side state dir (gitlink/commondir-resolved).
+                // Reuse `Detect.isGitMarker` (rather than a bare existence check) so this
+                // colocation probe agrees with `Detect.detect`'s own notion of "valid `.git`
+                // marker" — a stray/garbage file merely *named* `.git` must not be treated as
+                // colocation (it would resolve `stateDir BackendKind.Git` to that file, and
+                // `FileSystemWatcher`'s constructor throws on a file path).
                 match stateDir BackendKind.Git root with
                 | Error e -> Error e
                 | Ok gitSd ->
