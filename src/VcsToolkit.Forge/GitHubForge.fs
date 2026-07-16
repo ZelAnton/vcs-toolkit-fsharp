@@ -1,6 +1,17 @@
 namespace VcsToolkit.Forge
 
 open System
+open System.Threading.Tasks
+open ProcessKit
+
+/// A handle's one-shot, per-handle cache of the `gh --version` probe (`GitHub.Capabilities()`).
+/// `Lazy<Task<...>>`'s default thread-safety mode evaluates the factory at most once — the
+/// first `.Value` access spawns `--version` and every later access (including a concurrent
+/// one racing an in-flight probe) replays the same `Task`/result instead of spawning again.
+/// Constructed once per `Backend` case (see `Forge.fs`), so two separately-built `Forge`
+/// handles never share a cache, while a `.At` sibling — which reuses the same `Backend`
+/// value — does (same underlying CLI, whose version cannot vary by bound directory).
+type internal GitHubVersionProbe = Lazy<Task<Result<VcsToolkit.GitHub.GitHubCapabilities, ProcessError>>>
 
 /// GitHub-backed implementations of the facade operations: thin calls to the
 /// `VcsToolkit.GitHub` client plus pure mappers from its types into the unified DTOs.
@@ -103,9 +114,14 @@ module internal GitHubForge =
 
     /// Fail-open version probe for `Capabilities`: the parsed CLI version, or `None` when
     /// the `--version` probe failed or didn't parse (never blocks capability reporting).
-    let detectVersion (gh: VcsToolkit.GitHub.GitHub) =
+    /// `probe` is the handle's cached one-shot version probe (`GitHubVersionProbe`) —
+    /// awaiting `probe.Value` replays the already-fetched result instead of spawning
+    /// `--version` again. `Capabilities()` reuses the same cache (see `Forge.fs`) rather
+    /// than probing independently, since the installed CLI's version cannot change within
+    /// the handle's lifetime.
+    let detectVersion (probe: GitHubVersionProbe) =
         task {
-            match! gh.Capabilities() with
+            match! probe.Value with
             | Ok caps -> return Some caps.Version
             | Error _ -> return None
         }
@@ -114,9 +130,10 @@ module internal GitHubForge =
     /// `UnsupportedVersion` when the detected gh version is confirmed below the wrapper's
     /// floor. A version that can't be probed or parsed falls through (fail-open) — the gate
     /// only ever blocks a *confirmed* too-old CLI, never fails a call that would otherwise run.
-    let ensureVersion (gh: VcsToolkit.GitHub.GitHub) (op: string) =
+    /// `probe` is the handle's cached one-shot version probe — see `detectVersion`.
+    let ensureVersion (probe: GitHubVersionProbe) (op: string) =
         task {
-            match! gh.Capabilities() with
+            match! probe.Value with
             | Ok caps when not caps.IsSupported ->
                 return
                     Error(

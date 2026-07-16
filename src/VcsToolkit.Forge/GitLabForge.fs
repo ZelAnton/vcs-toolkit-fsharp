@@ -1,6 +1,12 @@
 namespace VcsToolkit.Forge
 
 open System
+open System.Threading.Tasks
+open ProcessKit
+
+/// A handle's one-shot, per-handle cache of the `glab` version probe
+/// (`GitLab.Capabilities()`) — see `GitHubVersionProbe` for the caching rationale.
+type internal GitLabVersionProbe = Lazy<Task<Result<VcsToolkit.GitLab.GitLabCapabilities, ProcessError>>>
 
 /// GitLab-backed implementations of the facade operations: thin calls to the
 /// `VcsToolkit.GitLab` client plus pure mappers from its types into the unified DTOs.
@@ -94,9 +100,14 @@ module internal GitLabForge =
 
     /// Fail-open version probe for `Capabilities`: the parsed CLI version, or `None` when
     /// the `--version` probe failed or didn't parse (never blocks capability reporting).
-    let detectVersion (glab: VcsToolkit.GitLab.GitLab) =
+    /// `probe` is the handle's cached one-shot version probe (`GitLabVersionProbe`) —
+    /// awaiting `probe.Value` replays the already-fetched result instead of spawning
+    /// `--version` again. `Capabilities()` reuses the same cache (see `Forge.fs`) rather
+    /// than probing independently, since the installed CLI's version cannot change within
+    /// the handle's lifetime.
+    let detectVersion (probe: GitLabVersionProbe) =
         task {
-            match! glab.Capabilities() with
+            match! probe.Value with
             | Ok caps -> return Some caps.Version
             | Error _ -> return None
         }
@@ -105,9 +116,10 @@ module internal GitLabForge =
     /// `UnsupportedVersion` when the detected glab version is confirmed below the wrapper's
     /// floor. A version that can't be probed or parsed falls through (fail-open) — the gate
     /// only ever blocks a *confirmed* too-old CLI, never fails a call that would otherwise run.
-    let ensureVersion (glab: VcsToolkit.GitLab.GitLab) (op: string) =
+    /// `probe` is the handle's cached one-shot version probe — see `detectVersion`.
+    let ensureVersion (probe: GitLabVersionProbe) (op: string) =
         task {
-            match! glab.Capabilities() with
+            match! probe.Value with
             | Ok caps when not caps.IsSupported ->
                 return
                     Error(

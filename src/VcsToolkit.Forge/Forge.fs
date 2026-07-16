@@ -2,16 +2,35 @@ namespace VcsToolkit.Forge
 
 open System.Threading.Tasks
 
-/// The per-CLI client behind a `Forge`. `Unknown` carries no client — the remote URL
-/// didn't classify as a known forge, so no CLI can be picked; the handle exists only to
-/// surface the all-`false` capability map. Clients are reference types, so a sibling
-/// handle from `Forge.At` shares the same client instance.
+/// The per-CLI client behind a `Forge`, paired with that handle's one-shot version-probe
+/// cache (`GitHubVersionProbe`/`GitLabVersionProbe`/`GiteaVersionProbe` — see
+/// `GitHubVersionProbe`'s doc comment for the caching rationale). The cache is built once,
+/// alongside the client, wherever a `Backend` case is constructed (`Forge`'s constructors
+/// below) — so two separately-constructed handles never share one, while a `.At` sibling,
+/// which reuses this same `Backend` value, shares both the client and its cache. `Unknown`
+/// carries no client and no cache — the remote URL didn't classify as a known forge, so no
+/// CLI can be picked; the handle exists only to surface the all-`false` capability map.
 [<RequireQualifiedAccess>]
 type internal Backend =
-    | GitHub of VcsToolkit.GitHub.GitHub
-    | GitLab of VcsToolkit.GitLab.GitLab
-    | Gitea of VcsToolkit.Gitea.Gitea
+    | GitHub of client: VcsToolkit.GitHub.GitHub * versionProbe: GitHubVersionProbe
+    | GitLab of client: VcsToolkit.GitLab.GitLab * versionProbe: GitLabVersionProbe
+    | Gitea of client: VcsToolkit.Gitea.Gitea * versionProbe: GiteaVersionProbe
     | Unknown
+
+/// Build the `Backend` case for a freshly created client, wiring up its version-probe
+/// cache. Kept in one place so every construction site (below) gets the caching wired
+/// identically.
+[<AutoOpen>]
+module private BackendCtor =
+
+    let githubBackend (c: VcsToolkit.GitHub.GitHub) : Backend =
+        Backend.GitHub(c, GitHubVersionProbe(fun () -> c.Capabilities()))
+
+    let gitlabBackend (c: VcsToolkit.GitLab.GitLab) : Backend =
+        Backend.GitLab(c, GitLabVersionProbe(fun () -> c.Capabilities()))
+
+    let giteaBackend (c: VcsToolkit.Gitea.Gitea) : Backend =
+        Backend.Gitea(c, GiteaVersionProbe(fun () -> c.Capabilities()))
 
 /// Static capability maps and the auth-intersection helper.
 [<AutoOpen>]
@@ -72,9 +91,9 @@ module private VersionGate =
         task {
             let! gate =
                 match backend with
-                | Backend.GitHub c -> GitHubForge.ensureVersion c op
-                | Backend.GitLab c -> GitLabForge.ensureVersion c op
-                | Backend.Gitea c -> GiteaForge.ensureVersion c op
+                | Backend.GitHub(_, probe) -> GitHubForge.ensureVersion probe op
+                | Backend.GitLab(_, probe) -> GitLabForge.ensureVersion probe op
+                | Backend.Gitea(_, probe) -> GiteaForge.ensureVersion probe op
                 | Backend.Unknown -> task { return Ok() }
 
             match gate with
@@ -97,37 +116,37 @@ type Forge private (cwd: string, backend: Backend) =
     /// A GitHub-backed handle bound to `cwd`, using the real job-backed runner (gh's
     /// ambient login).
     static member GitHub(cwd: string) =
-        Forge(cwd, Backend.GitHub(VcsToolkit.GitHub.GitHub.Create()))
+        Forge(cwd, githubBackend (VcsToolkit.GitHub.GitHub.Create()))
 
     /// A GitLab-backed handle bound to `cwd` (glab's ambient login).
     static member GitLab(cwd: string) =
-        Forge(cwd, Backend.GitLab(VcsToolkit.GitLab.GitLab.Create()))
+        Forge(cwd, gitlabBackend (VcsToolkit.GitLab.GitLab.Create()))
 
     /// A Gitea-backed handle bound to `cwd`. Gitea authenticates **only** through `tea`'s
     /// ambient login (`tea login add`) — there is no `GiteaWithToken`, because `tea` has
     /// no token-via-environment override the way `gh`/`glab` do.
     static member Gitea(cwd: string) =
-        Forge(cwd, Backend.Gitea(VcsToolkit.Gitea.Gitea.Create()))
+        Forge(cwd, giteaBackend (VcsToolkit.Gitea.Gitea.Create()))
 
     /// A GitHub-backed handle that authenticates with an explicit `token` (injected as
     /// `GH_TOKEN`) instead of gh's ambient login.
     static member GitHubWithToken(cwd: string, token: string) =
-        Forge(cwd, Backend.GitHub(VcsToolkit.GitHub.GitHub.Create().WithToken token))
+        Forge(cwd, githubBackend (VcsToolkit.GitHub.GitHub.Create().WithToken token))
 
     /// A GitLab-backed handle that authenticates with an explicit `token` (injected as
     /// `GITLAB_TOKEN`) instead of glab's ambient login.
     static member GitLabWithToken(cwd: string, token: string) =
-        Forge(cwd, Backend.GitLab(VcsToolkit.GitLab.GitLab.Create().WithToken token))
+        Forge(cwd, gitlabBackend (VcsToolkit.GitLab.GitLab.Create().WithToken token))
 
     /// Build a GitHub-backed handle from an explicit client — for a custom runner (e.g. a
     /// test seam) or a pre-configured `GitHub`.
-    static member FromGitHub(cwd: string, client: VcsToolkit.GitHub.GitHub) = Forge(cwd, Backend.GitHub client)
+    static member FromGitHub(cwd: string, client: VcsToolkit.GitHub.GitHub) = Forge(cwd, githubBackend client)
 
     /// Build a GitLab-backed handle from an explicit `GitLab` client.
-    static member FromGitLab(cwd: string, client: VcsToolkit.GitLab.GitLab) = Forge(cwd, Backend.GitLab client)
+    static member FromGitLab(cwd: string, client: VcsToolkit.GitLab.GitLab) = Forge(cwd, gitlabBackend client)
 
     /// Build a Gitea-backed handle from an explicit `Gitea` client.
-    static member FromGitea(cwd: string, client: VcsToolkit.Gitea.Gitea) = Forge(cwd, Backend.Gitea client)
+    static member FromGitea(cwd: string, client: VcsToolkit.Gitea.Gitea) = Forge(cwd, giteaBackend client)
 
     /// Build a handle for a remote that didn't classify as a known forge. The handle has
     /// no CLI client — every operation returns `Unsupported`, and `Capabilities` returns
@@ -159,7 +178,7 @@ type Forge private (cwd: string, backend: Backend) =
     /// `GitHub`/`GitLab`/`Gitea` names are the handle's constructors.)
     member _.GitHubClient =
         match backend with
-        | Backend.GitHub c -> Some c
+        | Backend.GitHub(c, _) -> Some c
         | _ -> None
 
     /// The underlying `GitLab` client, or `None` when another forge backs this handle — the
@@ -167,14 +186,14 @@ type Forge private (cwd: string, backend: Backend) =
     /// via `GitLabWithToken`/`FromGitLab`.
     member _.GitLabClient =
         match backend with
-        | Backend.GitLab c -> Some c
+        | Backend.GitLab(c, _) -> Some c
         | _ -> None
 
     /// The underlying `Gitea`/Forgejo (`tea`) client, or `None` when another forge backs this
     /// handle — the escape hatch to `tea`-only operations (see `GitHubClient`).
     member _.GiteaClient =
         match backend with
-        | Backend.Gitea c -> Some c
+        | Backend.Gitea(c, _) -> Some c
         | _ -> None
 
     /// Whether this handle's backend supports `op`. The capability-varying operations
@@ -195,46 +214,51 @@ type Forge private (cwd: string, backend: Backend) =
     /// Gitea: at least one configured login). An `Unknown` handle returns `Ok false`.
     member _.AuthStatus() =
         match backend with
-        | Backend.GitHub c -> GitHubForge.authStatus c
-        | Backend.GitLab c -> GitLabForge.authStatus c
-        | Backend.Gitea c -> GiteaForge.authStatus c
+        | Backend.GitHub(c, _) -> GitHubForge.authStatus c
+        | Backend.GitLab(c, _) -> GitLabForge.authStatus c
+        | Backend.Gitea(c, _) -> GiteaForge.authStatus c
         | Backend.Unknown -> task { return Ok false }
 
     /// The repository/project for the bound directory. **`Unsupported` on Gitea** (`tea`
     /// has no current-repo view).
     member _.RepoView() =
         match backend with
-        | Backend.GitHub c -> GitHubForge.repoView c cwd
-        | Backend.GitLab c -> GitLabForge.repoView c cwd
+        | Backend.GitHub(c, _) -> GitHubForge.repoView c cwd
+        | Backend.GitLab(c, _) -> GitLabForge.repoView c cwd
         | Backend.Gitea _ -> task { return Error(ForgeError.Unsupported(ForgeKind.Gitea, "repoView")) }
         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "repoView")) }
 
     /// The forge's flat capability map — the intersection of "the CLI ships this command"
     /// and "the CLI is authenticated", plus the detected CLI version and backend kind.
-    /// Spawns the auth probe, and (on an authenticated CLI) a `--version` probe. The
-    /// version/kind are reported independently of auth; a `--version` banner that doesn't
-    /// parse degrades to `Version = None` without failing the call. The `Unknown` handle's
-    /// map is the all-`false` shape (`Version = None`, `Kind = Unknown`), spawning nothing.
+    /// Spawns the auth probe, and (on an authenticated CLI) a `--version` probe — but the
+    /// version probe reuses this handle's cached `versionProbe` (see `Backend`) rather than
+    /// spawning `--version` independently: the installed CLI's version is reported as
+    /// "current state" here just like anywhere else on the handle, and it cannot actually
+    /// change mid-process, so replaying the cached result costs nothing in accuracy while
+    /// still saving the spawn. The version/kind are reported independently of auth; a
+    /// `--version` banner that doesn't parse degrades to `Version = None` without failing
+    /// the call. The `Unknown` handle's map is the all-`false` shape (`Version = None`,
+    /// `Kind = Unknown`), spawning nothing.
     member _.Capabilities() =
         task {
             match backend with
-            | Backend.GitHub c ->
+            | Backend.GitHub(c, probe) ->
                 match! GitHubForge.authStatus c with
                 | Error e -> return Error e
                 | Ok authed ->
-                    let! version = GitHubForge.detectVersion c
+                    let! version = GitHubForge.detectVersion probe
                     return Ok(applyAuth staticGitHubCaps ForgeKind.GitHub version authed)
-            | Backend.GitLab c ->
+            | Backend.GitLab(c, probe) ->
                 match! GitLabForge.authStatus c with
                 | Error e -> return Error e
                 | Ok authed ->
-                    let! version = GitLabForge.detectVersion c
+                    let! version = GitLabForge.detectVersion probe
                     return Ok(applyAuth staticGitLabCaps ForgeKind.GitLab version authed)
-            | Backend.Gitea c ->
+            | Backend.Gitea(c, probe) ->
                 match! GiteaForge.authStatus c with
                 | Error e -> return Error e
                 | Ok authed ->
-                    let! version = GiteaForge.detectVersion c
+                    let! version = GiteaForge.detectVersion probe
                     return Ok(applyAuth staticGiteaCaps ForgeKind.Gitea version authed)
             | Backend.Unknown -> return Ok ForgeCapabilities.AllFalse
         }
@@ -244,17 +268,17 @@ type Forge private (cwd: string, backend: Backend) =
     /// Open pull/merge requests for the bound directory.
     member _.PrList() =
         match backend with
-        | Backend.GitHub c -> GitHubForge.prList c cwd
-        | Backend.GitLab c -> GitLabForge.prList c cwd
-        | Backend.Gitea c -> GiteaForge.prList c cwd
+        | Backend.GitHub(c, _) -> GitHubForge.prList c cwd
+        | Backend.GitLab(c, _) -> GitLabForge.prList c cwd
+        | Backend.Gitea(c, _) -> GiteaForge.prList c cwd
         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prList")) }
 
     /// A single PR/MR by number (GitLab `iid`). On Gitea this lists and filters.
     member _.PrView(number: uint64) =
         match backend with
-        | Backend.GitHub c -> GitHubForge.prView c cwd number
-        | Backend.GitLab c -> GitLabForge.prView c cwd number
-        | Backend.Gitea c -> GiteaForge.prView c cwd number
+        | Backend.GitHub(c, _) -> GitHubForge.prView c cwd number
+        | Backend.GitLab(c, _) -> GitLabForge.prView c cwd number
+        | Backend.Gitea(c, _) -> GiteaForge.prView c cwd number
         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prView")) }
 
     /// Open a PR/MR (see `PrCreate`), returning the CLI's success output — a URL on
@@ -263,9 +287,9 @@ type Forge private (cwd: string, backend: Backend) =
     member _.PrCreate(spec: PrCreate) =
         gated backend "prCreate" (fun () ->
             match backend with
-            | Backend.GitHub c -> GitHubForge.prCreate c cwd spec
-            | Backend.GitLab c -> GitLabForge.prCreate c cwd spec
-            | Backend.Gitea c -> GiteaForge.prCreate c cwd spec
+            | Backend.GitHub(c, _) -> GitHubForge.prCreate c cwd spec
+            | Backend.GitLab(c, _) -> GitLabForge.prCreate c cwd spec
+            | Backend.Gitea(c, _) -> GiteaForge.prCreate c cwd spec
             | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prCreate")) })
 
     /// Post a comment to an existing PR/MR. An empty (or whitespace-only) body is rejected
@@ -277,9 +301,9 @@ type Forge private (cwd: string, backend: Backend) =
                 return Error(ForgeError.InvalidInput "prComment: comment body must not be empty")
             else
                 match backend with
-                | Backend.GitHub c -> return! GitHubForge.prComment c cwd number body
-                | Backend.GitLab c -> return! GitLabForge.prComment c cwd number body
-                | Backend.Gitea c -> return! GiteaForge.prComment c cwd number body
+                | Backend.GitHub(c, _) -> return! GitHubForge.prComment c cwd number body
+                | Backend.GitLab(c, _) -> return! GitLabForge.prComment c cwd number body
+                | Backend.Gitea(c, _) -> return! GiteaForge.prComment c cwd number body
                 | Backend.Unknown -> return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prComment"))
         }
 
@@ -295,9 +319,9 @@ type Forge private (cwd: string, backend: Backend) =
                 return!
                     gated backend "prEdit" (fun () ->
                         match backend with
-                        | Backend.GitHub c -> GitHubForge.prEdit c cwd number edit
-                        | Backend.GitLab c -> GitLabForge.prEdit c cwd number edit
-                        | Backend.Gitea c -> GiteaForge.prEdit c cwd number edit
+                        | Backend.GitHub(c, _) -> GitHubForge.prEdit c cwd number edit
+                        | Backend.GitLab(c, _) -> GitLabForge.prEdit c cwd number edit
+                        | Backend.Gitea(c, _) -> GiteaForge.prEdit c cwd number edit
                         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prEdit")) })
         }
 
@@ -323,17 +347,17 @@ type Forge private (cwd: string, backend: Backend) =
         | None ->
             gated backend "prMerge" (fun () ->
                 match backend with
-                | Backend.GitHub c -> GitHubForge.prMerge c cwd number merge
-                | Backend.GitLab c -> GitLabForge.prMerge c cwd number merge.Strategy
-                | Backend.Gitea c -> GiteaForge.prMerge c cwd number merge.Strategy
+                | Backend.GitHub(c, _) -> GitHubForge.prMerge c cwd number merge
+                | Backend.GitLab(c, _) -> GitLabForge.prMerge c cwd number merge.Strategy
+                | Backend.Gitea(c, _) -> GiteaForge.prMerge c cwd number merge.Strategy
                 | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prMerge")) })
 
     /// Mark a draft PR/MR as ready for review. **`Unsupported` on Gitea** (`tea` has no
     /// draft toggle — a Gitea draft is a `WIP:` title prefix, edited via the raw client).
     member _.PrMarkReady(number: uint64) =
         match backend with
-        | Backend.GitHub c -> GitHubForge.prMarkReady c cwd number
-        | Backend.GitLab c -> GitLabForge.prMarkReady c cwd number
+        | Backend.GitHub(c, _) -> GitHubForge.prMarkReady c cwd number
+        | Backend.GitLab(c, _) -> GitLabForge.prMarkReady c cwd number
         | Backend.Gitea _ -> task { return Error(ForgeError.Unsupported(ForgeKind.Gitea, "prMarkReady")) }
         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prMarkReady")) }
 
@@ -355,9 +379,9 @@ type Forge private (cwd: string, backend: Backend) =
         | Some e -> task { return Error e }
         | None ->
             match backend with
-            | Backend.GitHub c -> GitHubForge.prClose c cwd number deleteBranch
-            | Backend.GitLab c -> GitLabForge.prClose c cwd number
-            | Backend.Gitea c -> GiteaForge.prClose c cwd number
+            | Backend.GitHub(c, _) -> GitHubForge.prClose c cwd number deleteBranch
+            | Backend.GitLab(c, _) -> GitLabForge.prClose c cwd number
+            | Backend.Gitea(c, _) -> GiteaForge.prClose c cwd number
             | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prClose")) }
 
     /// Check out a PR/MR's branch into the bound directory (`gh pr checkout` /
@@ -368,17 +392,17 @@ type Forge private (cwd: string, backend: Backend) =
     /// `Unsupported`, without spawning.
     member _.PrCheckout(number: uint64) =
         match backend with
-        | Backend.GitHub c -> GitHubForge.prCheckout c cwd number
-        | Backend.GitLab c -> GitLabForge.prCheckout c cwd number
-        | Backend.Gitea c -> GiteaForge.prCheckout c cwd number
+        | Backend.GitHub(c, _) -> GitHubForge.prCheckout c cwd number
+        | Backend.GitLab(c, _) -> GitLabForge.prCheckout c cwd number
+        | Backend.Gitea(c, _) -> GiteaForge.prCheckout c cwd number
         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prCheckout")) }
 
     /// The PR/MR's coarse CI status (see `CiStatus`). **`Unsupported` on Gitea** (`tea`
     /// has no checks command).
     member _.PrChecks(number: uint64) =
         match backend with
-        | Backend.GitHub c -> GitHubForge.prChecks c cwd number
-        | Backend.GitLab c -> GitLabForge.prChecks c cwd number
+        | Backend.GitHub(c, _) -> GitHubForge.prChecks c cwd number
+        | Backend.GitLab(c, _) -> GitLabForge.prChecks c cwd number
         | Backend.Gitea _ -> task { return Error(ForgeError.Unsupported(ForgeKind.Gitea, "prChecks")) }
         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prChecks")) }
 
@@ -387,8 +411,8 @@ type Forge private (cwd: string, backend: Backend) =
     /// **`Unsupported` on Gitea** (`tea` has no diff command) and on an `Unknown` handle.
     member _.PrDiff(number: uint64) =
         match backend with
-        | Backend.GitHub c -> GitHubForge.prDiff c cwd number
-        | Backend.GitLab c -> GitLabForge.prDiff c cwd number
+        | Backend.GitHub(c, _) -> GitHubForge.prDiff c cwd number
+        | Backend.GitLab(c, _) -> GitLabForge.prDiff c cwd number
         | Backend.Gitea _ -> task { return Error(ForgeError.Unsupported(ForgeKind.Gitea, "prDiff")) }
         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prDiff")) }
 
@@ -397,17 +421,17 @@ type Forge private (cwd: string, backend: Backend) =
     /// Open issues for the bound directory (up to 100; drop to the underlying client for more).
     member _.IssueList() =
         match backend with
-        | Backend.GitHub c -> GitHubForge.issueList c cwd
-        | Backend.GitLab c -> GitLabForge.issueList c cwd
-        | Backend.Gitea c -> GiteaForge.issueList c cwd
+        | Backend.GitHub(c, _) -> GitHubForge.issueList c cwd
+        | Backend.GitLab(c, _) -> GitLabForge.issueList c cwd
+        | Backend.Gitea(c, _) -> GiteaForge.issueList c cwd
         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "issueList")) }
 
     /// A single issue by number (GitLab `iid`), with `Body`/`Url` filled.
     member _.IssueView(number: uint64) =
         match backend with
-        | Backend.GitHub c -> GitHubForge.issueView c cwd number
-        | Backend.GitLab c -> GitLabForge.issueView c cwd number
-        | Backend.Gitea c -> GiteaForge.issueView c cwd number
+        | Backend.GitHub(c, _) -> GitHubForge.issueView c cwd number
+        | Backend.GitLab(c, _) -> GitLabForge.issueView c cwd number
+        | Backend.Gitea(c, _) -> GiteaForge.issueView c cwd number
         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "issueView")) }
 
     /// Open an issue, returning the CLI's success output — a URL on GitHub/GitLab; `tea`
@@ -416,24 +440,24 @@ type Forge private (cwd: string, backend: Backend) =
     member _.IssueCreate(title: string, body: string) =
         gated backend "issueCreate" (fun () ->
             match backend with
-            | Backend.GitHub c -> GitHubForge.issueCreate c cwd title body
-            | Backend.GitLab c -> GitLabForge.issueCreate c cwd title body
-            | Backend.Gitea c -> GiteaForge.issueCreate c cwd title body
+            | Backend.GitHub(c, _) -> GitHubForge.issueCreate c cwd title body
+            | Backend.GitLab(c, _) -> GitLabForge.issueCreate c cwd title body
+            | Backend.Gitea(c, _) -> GiteaForge.issueCreate c cwd title body
             | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "issueCreate")) })
 
     /// Releases for the bound directory, newest first (up to 100).
     member _.ReleaseList() =
         match backend with
-        | Backend.GitHub c -> GitHubForge.releaseList c cwd
-        | Backend.GitLab c -> GitLabForge.releaseList c cwd
-        | Backend.Gitea c -> GiteaForge.releaseList c cwd
+        | Backend.GitHub(c, _) -> GitHubForge.releaseList c cwd
+        | Backend.GitLab(c, _) -> GitLabForge.releaseList c cwd
+        | Backend.Gitea(c, _) -> GiteaForge.releaseList c cwd
         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "releaseList")) }
 
     /// A single release by tag. **`Unsupported` on Gitea** (`tea releases` always lists —
     /// filter `ReleaseList` instead).
     member _.ReleaseView(tag: string) =
         match backend with
-        | Backend.GitHub c -> GitHubForge.releaseView c cwd tag
-        | Backend.GitLab c -> GitLabForge.releaseView c cwd tag
+        | Backend.GitHub(c, _) -> GitHubForge.releaseView c cwd tag
+        | Backend.GitLab(c, _) -> GitLabForge.releaseView c cwd tag
         | Backend.Gitea _ -> task { return Error(ForgeError.Unsupported(ForgeKind.Gitea, "releaseView")) }
         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "releaseView")) }

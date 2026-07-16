@@ -1,6 +1,12 @@
 namespace VcsToolkit.Forge
 
 open System
+open System.Threading.Tasks
+open ProcessKit
+
+/// A handle's one-shot, per-handle cache of the `tea` version probe
+/// (`Gitea.Capabilities()`) — see `GitHubVersionProbe` for the caching rationale.
+type internal GiteaVersionProbe = Lazy<Task<Result<VcsToolkit.Gitea.GiteaCapabilities, ProcessError>>>
 
 /// Gitea-backed implementations of the facade operations: thin calls to the
 /// `VcsToolkit.Gitea` client plus pure mappers from its types into the unified DTOs.
@@ -68,9 +74,14 @@ module internal GiteaForge =
 
     /// Fail-open version probe for `Capabilities`: the parsed CLI version, or `None` when
     /// the `--version` probe failed or didn't parse (never blocks capability reporting).
-    let detectVersion (tea: VcsToolkit.Gitea.Gitea) =
+    /// `probe` is the handle's cached one-shot version probe (`GiteaVersionProbe`) —
+    /// awaiting `probe.Value` replays the already-fetched result instead of spawning
+    /// `--version` again. `Capabilities()` reuses the same cache (see `Forge.fs`) rather
+    /// than probing independently, since the installed CLI's version cannot change within
+    /// the handle's lifetime.
+    let detectVersion (probe: GiteaVersionProbe) =
         task {
-            match! tea.Capabilities() with
+            match! probe.Value with
             | Ok caps -> return Some caps.Version
             | Error _ -> return None
         }
@@ -79,9 +90,10 @@ module internal GiteaForge =
     /// `UnsupportedVersion` when the detected tea version is confirmed below the wrapper's
     /// floor. A version that can't be probed or parsed falls through (fail-open) — the gate
     /// only ever blocks a *confirmed* too-old CLI, never fails a call that would otherwise run.
-    let ensureVersion (tea: VcsToolkit.Gitea.Gitea) (op: string) =
+    /// `probe` is the handle's cached one-shot version probe — see `detectVersion`.
+    let ensureVersion (probe: GiteaVersionProbe) (op: string) =
         task {
-            match! tea.Capabilities() with
+            match! probe.Value with
             | Ok caps when not caps.IsSupported ->
                 return
                     Error(

@@ -949,6 +949,128 @@ type VersionGateTests() =
         }
 
 // ---------------------------------------------------------------------------
+// Per-handle caching of the version probe (VersionGate.gated / ensureVersion): the CLI's
+// `--version` is spawned at most once per handle, however many gated calls run on it, and
+// two separately-built handles never share that cache. GitHub is the showcase below;
+// GitLab/Gitea route through the identical `ensureVersion`/`GitHubVersionProbe`-shaped
+// caching (`GitLabVersionProbe`/`GiteaVersionProbe`), so their behaviour is mirrored, not
+// re-demonstrated per backend.
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type VersionProbeCachingTests() =
+
+    // A GitHub-backed forge whose runner counts `--version` spawns via a `When` predicate
+    // (as a side effect) while still answering the gated op itself through `Fallback` — so
+    // several gated calls on the same handle can all succeed while the count is observed.
+    let countingGitHubForge (banner: string) =
+        let versionSpawns = ref 0
+
+        let forge =
+            Forge.FromGitHub(
+                ".",
+                VcsToolkit.GitHub.GitHub.WithRunner(
+                    ScriptedRunner()
+                        .When(
+                            (fun (cmd: Command) ->
+                                if cmd.Arguments |> Seq.contains "--version" then
+                                    versionSpawns.Value <- versionSpawns.Value + 1
+                                    true
+                                else
+                                    false),
+                            Reply.Ok banner
+                        )
+                        .Fallback(Reply.Ok "https://github.com/o/r/pull/1\n")
+                )
+            )
+
+        forge, versionSpawns
+
+    [<Test>]
+    member _.SeveralGatedCallsOnOneHandleSpawnVersionOnlyOnce() : Task =
+        task {
+            let forge, versionSpawns = countingGitHubForge "gh version 2.40.0\n"
+
+            match! forge.PrCreate(PrCreate.Create("t", "b")) with
+            | Error e -> Assert.Fail $"prCreate failed: {e.Message}"
+            | Ok _ -> ()
+
+            match! forge.PrEdit(1UL, PrEdit.Create().WithTitle "t2") with
+            | Error e -> Assert.Fail $"prEdit failed: {e.Message}"
+            | Ok _ -> ()
+
+            match! forge.IssueCreate("t", "b") with
+            | Error e -> Assert.Fail $"issueCreate failed: {e.Message}"
+            | Ok _ -> ()
+
+            Assert.That(
+                versionSpawns.Value,
+                Is.EqualTo 1,
+                "three gated calls on the same handle must probe `--version` only once"
+            )
+        }
+
+    [<Test>]
+    member _.CapabilitiesReusesTheSameCacheAsGatedCalls() : Task =
+        task {
+            // `Capabilities()` is documented to reuse the handle's cache rather than probing
+            // independently — a gated call followed by `Capabilities()` still spawns once.
+            let forge, versionSpawns = countingGitHubForge "gh version 2.40.0\n"
+
+            match! forge.PrCreate(PrCreate.Create("t", "b")) with
+            | Error e -> Assert.Fail $"prCreate failed: {e.Message}"
+            | Ok _ -> ()
+
+            match! forge.Capabilities() with
+            | Error e -> Assert.Fail $"capabilities failed: {e.Message}"
+            | Ok caps ->
+                match caps.Version with
+                | Some v -> Assert.That(v.ToString(), Is.EqualTo "2.40.0")
+                | None -> Assert.Fail "expected a parsed version"
+
+            Assert.That(versionSpawns.Value, Is.EqualTo 1, "Capabilities() must reuse the cached probe, not re-spawn")
+        }
+
+    [<Test>]
+    member _.TwoSeparatelyBuiltHandlesDoNotShareTheCache() : Task =
+        task {
+            // Two independently-constructed handles (distinct clients/runners) each probe
+            // `--version` on their own first gated call — no global/static sharing.
+            let forgeA, spawnsA = countingGitHubForge "gh version 2.40.0\n"
+            let forgeB, spawnsB = countingGitHubForge "gh version 2.40.0\n"
+
+            match! forgeA.PrCreate(PrCreate.Create("t", "b")) with
+            | Error e -> Assert.Fail $"forgeA prCreate failed: {e.Message}"
+            | Ok _ -> ()
+
+            match! forgeB.PrCreate(PrCreate.Create("t", "b")) with
+            | Error e -> Assert.Fail $"forgeB prCreate failed: {e.Message}"
+            | Ok _ -> ()
+
+            Assert.That(spawnsA.Value, Is.EqualTo 1, "forgeA's own probe")
+            Assert.That(spawnsB.Value, Is.EqualTo 1, "forgeB's own probe, independent of forgeA's")
+        }
+
+    [<Test>]
+    member _.AtSiblingSharesTheParentHandlesCache() : Task =
+        task {
+            // `.At` rebinds the directory but reuses this handle's `Backend` (client + cache)
+            // — a gated call on the sibling must not re-spawn `--version`.
+            let forge, versionSpawns = countingGitHubForge "gh version 2.40.0\n"
+            let sibling = forge.At "../other"
+
+            match! forge.PrCreate(PrCreate.Create("t", "b")) with
+            | Error e -> Assert.Fail $"prCreate on the original handle failed: {e.Message}"
+            | Ok _ -> ()
+
+            match! sibling.PrCreate(PrCreate.Create("t", "b")) with
+            | Error e -> Assert.Fail $"prCreate on the `.At` sibling failed: {e.Message}"
+            | Ok _ -> ()
+
+            Assert.That(versionSpawns.Value, Is.EqualTo 1, "an `.At` sibling shares the parent's cached probe")
+        }
+
+// ---------------------------------------------------------------------------
 // Unified merge-spec: auto/delete-branch reach gh flags on GitHub; are refused
 // as Unsupported on GitLab/Gitea before spawning; plain strategies still merge.
 // ---------------------------------------------------------------------------
