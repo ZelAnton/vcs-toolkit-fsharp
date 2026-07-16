@@ -811,6 +811,75 @@ type CatalogTests() =
         }
 
     [<Test>]
+    member _.CallToolOptionalStringArgumentsRejectNonStringsAndNull() : Task =
+        task {
+            let server = gitServerWithForge (ScriptedRunner()) WriteGate.All
+
+            let assertInvalid tool args argument =
+                task {
+                    match! Catalog.callTool server tool (argsOf args) with
+                    | Error(McpError.InvalidParams message) ->
+                        Assert.That(message, Does.Contain argument)
+                        Assert.That(message, Does.Contain "must be a string")
+                    | Error e -> Assert.Fail $"{tool} should return InvalidParams, got: {e.Message}"
+                    | Ok _ -> Assert.Fail $"{tool} should reject {argument} with a non-string value"
+                }
+
+            do! assertInvalid "forge_pr_create" """{"title":"title","body":"body","source":1}""" "source"
+            do! assertInvalid "forge_pr_create" """{"title":"title","body":"body","target":false}""" "target"
+            do! assertInvalid "forge_pr_edit" """{"number":1,"title":[]}""" "title"
+            do! assertInvalid "forge_pr_edit" """{"number":1,"body":{}}""" "body"
+            do! assertInvalid "forge_pr_create" """{"title":"title","body":"body","source":null}""" "source"
+            do! assertInvalid "forge_pr_create" """{"title":"title","body":"body","target":null}""" "target"
+            do! assertInvalid "forge_pr_edit" """{"number":1,"title":null}""" "title"
+            do! assertInvalid "forge_pr_edit" """{"number":1,"body":null}""" "body"
+        }
+
+    [<Test>]
+    member _.CallToolOptionalStringArgumentsAcceptAbsentAndStringValues() : Task =
+        task {
+            let runner =
+                ScriptedRunner()
+                    .On([ "--version" ], Reply.Ok "gh version 2.40.0\n")
+                    .On([ "pr"; "create" ], Reply.Ok "https://x/2\n")
+                    .On([ "pr"; "edit" ], Reply.Ok "")
+
+            let server = gitServerWithForge runner WriteGate.All
+
+            match! Catalog.callTool server "forge_pr_create" (argsOf """{"title":"title","body":"body"}""") with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"forge_pr_create should accept absent source/target: {e.Message}"
+
+            match!
+                Catalog.callTool
+                    server
+                    "forge_pr_create"
+                    (argsOf """{"title":"title","body":"body","source":"feature","target":"main"}""")
+            with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"forge_pr_create should accept string source/target: {e.Message}"
+
+            match!
+                Catalog.callTool
+                    server
+                    "forge_pr_edit"
+                    (argsOf """{"number":1,"title":"new title","body":"new body"}""")
+            with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"forge_pr_edit should accept string title/body: {e.Message}"
+        }
+
+    [<Test>]
+    member _.CallToolForgePrEditStillRequiresAStringField() : Task =
+        task {
+            let server = gitServerWithForge (ScriptedRunner()) WriteGate.All
+
+            match! Catalog.callTool server "forge_pr_edit" (argsOf """{"number":1}""") with
+            | Error e -> Assert.That(e.Message, Does.Contain "at least one of title or body must be set")
+            | Ok _ -> Assert.Fail "forge_pr_edit should require title or body when both are absent"
+        }
+
+    [<Test>]
     member _.CallToolRejectsUnknownTool() : Task =
         task {
             let server = gitServer (ScriptedRunner()) WriteGate.None

@@ -46,10 +46,15 @@ module internal Catalog =
             | s -> Ok s
         | _ -> Error(missing name)
 
-    let private optStr (args: JsonElement) (name: string) : string option =
+    /// `optStr` — a missing/absent string is optional; a present value must be a string.
+    let private optStr (args: JsonElement) (name: string) : Result<string option, McpError> =
         match args.TryGetProperty name with
-        | true, v when v.ValueKind = JsonValueKind.String -> v.GetString() |> Option.ofObj
-        | _ -> None
+        | false, _ -> Ok Option.None
+        | true, v when v.ValueKind = JsonValueKind.String ->
+            match v.GetString() with
+            | null -> Error(McpError.InvalidParams(sprintf "argument %A must be a string" name))
+            | s -> Ok(Some s)
+        | true, _ -> Error(McpError.InvalidParams(sprintf "argument %A must be a string" name))
 
     let private reqU64 (args: JsonElement) (name: string) : Result<uint64, McpError> =
         match args.TryGetProperty name with
@@ -454,7 +459,8 @@ module internal Catalog =
         | "forge_pr_create" ->
             bind (reqStr args "title") (fun title ->
                 bind (reqStr args "body") (fun body ->
-                    server.ForgePrCreate(title, body, optStr args "source", optStr args "target")))
+                    bind (optStr args "source") (fun source ->
+                        bind (optStr args "target") (fun target -> server.ForgePrCreate(title, body, source, target)))))
         | "forge_pr_merge" ->
             bind (reqU64 args "number") (fun number ->
                 bind (reqStr args "strategy") (fun strategy ->
@@ -470,6 +476,7 @@ module internal Catalog =
                 bind (reqStr args "body") (fun body -> server.ForgePrComment(number, body)))
         | "forge_pr_edit" ->
             bind (reqU64 args "number") (fun number ->
-                server.ForgePrEdit(number, optStr args "title", optStr args "body"))
+                bind (optStr args "title") (fun title ->
+                    bind (optStr args "body") (fun body -> server.ForgePrEdit(number, title, body))))
         | "forge_pr_checkout" -> bind (reqU64 args "number") server.ForgePrCheckout
         | unknown -> task { return Error(McpError.InvalidParams(sprintf "unknown tool %A" unknown)) }
