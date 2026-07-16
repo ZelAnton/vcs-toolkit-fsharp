@@ -4,6 +4,7 @@ open System.Threading.Tasks
 open NUnit.Framework
 open ProcessKit
 open ProcessKit.Testing
+open VcsToolkit.CliSupport
 open VcsToolkit.Forge
 open VcsToolkit.Diff
 
@@ -129,6 +130,22 @@ type ErrorTests() =
         Assert.That((exit "Could not resolve to a PullRequest with the number of 401.").IsUnauthorized, Is.False)
         Assert.That((exit "Could not resolve to an Issue with the number of 429.").IsRateLimited, Is.False)
         Assert.That((exit "no pull requests found").IsUnauthorized, Is.False)
+
+    [<Test>]
+    member _.DoesNotFullyUnicodeFoldNonAsciiInput() =
+        // `CliOutput` lowercases via `Classify.asciiLower` (the same ASCII-only fold
+        // `Classify.exitOutputMatches` uses for git/jj), not `ToLowerInvariant`. U+212A
+        // KELVIN SIGN is the textbook case: it folds to ASCII 'k' under a full Unicode
+        // invariant fold, but `asciiLower` only touches 'A'-'Z' and leaves it untouched —
+        // so it can never spuriously complete an ASCII marker word the way a full fold
+        // could. Confirm the shared helper itself preserves that contract...
+        let kelvin = "K"
+        Assert.That(asciiLower kelvin, Is.EqualTo kelvin)
+        Assert.That(kelvin.ToLowerInvariant(), Is.EqualTo "k")
+        // ...and that feeding it through `ForgeError.CliOutput` still classifies as
+        // neither auth nor rate-limit: a lone non-ASCII character carries no marker.
+        Assert.That((exit kelvin).IsUnauthorized, Is.False)
+        Assert.That((exit kelvin).IsRateLimited, Is.False)
 
     [<Test>]
     member _.ClassifiesNotFoundAndUnsupported() =

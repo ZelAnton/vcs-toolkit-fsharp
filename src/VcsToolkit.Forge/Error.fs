@@ -60,7 +60,7 @@ type ForgeError =
     /// variants, which carry no CLI message.
     member private this.CliOutput =
         match this with
-        | ForgeError.Forge(ProcessError.Exit(_, _, stdout, stderr)) -> Some((stdout + "\n" + stderr).ToLowerInvariant())
+        | ForgeError.Forge(ProcessError.Exit(_, _, stdout, stderr)) -> Some(asciiLower (stdout + "\n" + stderr))
         | _ -> None
 
     /// Whether the forge CLI reported an **authentication** failure — a missing, expired,
