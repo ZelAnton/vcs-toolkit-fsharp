@@ -47,6 +47,19 @@ type Repo private (root: string, cwd: string, backend: Backend) =
     /// Detect the repository at or above `dir` and open a handle bound to `dir`, using
     /// the real job-backed runner. `NotARepository` when no `.git`/`.jj` is found.
     static member Open(dir: string) : Result<Repo, RepoError> =
+        // The plain-default case of `OpenWith`: build the standard client for whichever
+        // backend is detected. Both factories are lazy, so only the detected one is built.
+        Repo.OpenWith(dir, (fun () -> Git.Create()), (fun () -> Jj.Create()))
+
+    /// Like `Open`, but the client for the detected backend is built by an injected factory
+    /// instead of the plain `Git.Create()`/`Jj.Create()` default — for a caller that needs a
+    /// pre-configured client (e.g. a hardened, timeout-bound one) without re-implementing
+    /// detection, path absolutisation, and error mapping. Only the factory for the backend
+    /// `detect` actually finds is invoked, so hardening/configuring both clients costs nothing
+    /// for the backend this repository does not use. Same contract as `Open`: `dir` is
+    /// absolutised first (via the shared `NormalizePath`, so `detect` can walk parents),
+    /// `InvalidInput` on a bad path, `NotARepository` when no `.git`/`.jj` is found at or above it.
+    static member OpenWith(dir: string, git: unit -> Git, jj: unit -> Jj) : Result<Repo, RepoError> =
         // Absolutise first: `detect` walks parents, and a relative path like "." has no
         // real ancestor chain, so a relative input would never find a repo above the cwd.
         let absResult = Repo.NormalizePath("dir", dir)
@@ -59,8 +72,8 @@ type Repo private (root: string, cwd: string, backend: Backend) =
             | Some located ->
                 let backend =
                     match located.Kind with
-                    | BackendKind.Git -> Backend.Git(Git.Create())
-                    | BackendKind.Jj -> Backend.Jj(Jj.Create())
+                    | BackendKind.Git -> Backend.Git(git ())
+                    | BackendKind.Jj -> Backend.Jj(jj ())
 
                 Ok(Repo(located.Root, absDir, backend))
 

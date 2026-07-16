@@ -162,6 +162,14 @@ module internal JjParse =
     /// `jj log -T` template: `"1"` when the commit has a conflict, else `"0"`.
     let CONFLICT_TEMPLATE = "if(conflict, \"1\", \"0\")"
 
+    /// `jj file list -T` template driving `parseResolveList`: nothing for a non-conflicted
+    /// entry, or a single `.escape_json()`-framed field holding `path.display()` (the
+    /// cwd-relative, OS-native-separator rendering — mirrors `jj resolve --list`'s own
+    /// path rendering) followed by `\n` for a conflicted one. See `parseResolveList`'s
+    /// doc comment for why this replaced parsing `jj resolve --list` directly.
+    let CONFLICTED_PATHS_TEMPLATE =
+        "if(conflict, path.display().escape_json() ++ \"\\n\")"
+
     /// `jj log -T` template emitting one short commit id per line — for counting a revset.
     let COUNT_TEMPLATE = "commit_id.short() ++ \"\\n\""
 
@@ -423,16 +431,29 @@ module internal JjParse =
 
     // --- Resolve / workspaces ------------------------------------------------
 
-    /// Parse `jj resolve --list` output: each line is a conflicted path left-aligned
-    /// in a column, then a run of spaces, then a human conflict description. Take the
-    /// path (the text before the first 2-space gap), forward-slash normalised (jj
-    /// emits the OS-native separator here, like `--summary`).
+    /// Parse `jj file list -T CONFLICTED_PATHS_TEMPLATE` output: one `.escape_json()`-framed
+    /// conflicted path per line (the framing contract), decoded and forward-slash normalised.
+    ///
+    /// This intentionally does **not** parse `jj resolve --list`'s human-readable output.
+    /// Investigated on jj 0.42.0: that format renders each conflicted path followed by a
+    /// *dynamically sized* run of spaces — padding aligned to the width of the longest
+    /// conflicted path in the same invocation, with a minimum of one space — then a human
+    /// description (e.g. `file    2-sided conflict`). Because the padding width depends on
+    /// the other paths present in that specific call, no fixed separator (neither the
+    /// original "first double space" nor a later "last N-space run" attempt) reliably
+    /// distinguishes an internal run of spaces in the path from column padding: a single
+    /// long conflicted path collapses the padding to exactly one space, indistinguishable
+    /// from a real single space in the name, and can even make a naive multi-space search
+    /// find no separator at all. `jj file list -T` sidesteps this entirely — it names
+    /// exactly the conflicted paths, unambiguously JSON-framed — so it is the reliable
+    /// alternative source used here instead.
     let parseResolveList (output: string) : string list =
         lines output
         |> List.choose (fun line ->
-            let path = (line.Split([| "  " |], StringSplitOptions.None)).[0].Trim()
-
-            if path = "" then None else Some(path.Replace(char 92, '/')))
+            if line = "" then
+                None
+            else
+                Some(normalize (decodeJsonField line)))
 
     /// Parse rows produced by `WORKSPACE_TEMPLATE`:
     /// `"<name>"\t<full-commit>\t<bookmarks>`, where the name is `.escape_json()`-framed
