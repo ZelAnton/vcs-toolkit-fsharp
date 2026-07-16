@@ -317,6 +317,107 @@ type RepoConstructionTests() =
         Assert.That(fromGit.ParamName, Is.EqualTo "root")
         Assert.That(fromJj.ParamName, Is.EqualTo "cwd")
         Assert.That(at.ParamName, Is.EqualTo "dir")
+
+    // --- OpenWith: inject the per-backend client via a lazy factory (T-071) ------
+
+    [<Test>]
+    member _.OpenWithDetectsGitAndUsesOnlyTheInjectedGitClient() =
+        withTempDir (fun sandbox ->
+            Directory.CreateDirectory(Path.Combine(sandbox, ".git")) |> ignore
+            let injected = Git.WithRunner(ScriptedRunner().Fallback(Reply.Ok ""))
+            let mutable gitBuilt = 0
+            let mutable jjBuilt = 0
+
+            let makeGit () =
+                gitBuilt <- gitBuilt + 1
+                injected
+
+            let makeJj () =
+                jjBuilt <- jjBuilt + 1
+                Jj.WithRunner(ScriptedRunner())
+
+            match Repo.OpenWith(sandbox, makeGit, makeJj) with
+            | Error e -> Assert.Fail $"OpenWith(git) failed: {e.Message}"
+            | Ok repo ->
+                Assert.That(repo.Kind, Is.EqualTo BackendKind.Git)
+                Assert.That(repo.Root, Is.EqualTo sandbox, "detection anchors the root exactly like Open")
+                Assert.That(gitBuilt, Is.EqualTo 1, "the detected backend's factory is invoked exactly once")
+                Assert.That(jjBuilt, Is.EqualTo 0, "the unused backend's factory is never invoked")
+
+                match repo.Git with
+                | Some g ->
+                    Assert.That(obj.ReferenceEquals(g, injected), Is.True, "the handle drives the injected client")
+                | None -> Assert.Fail "a git-backed handle must expose its injected Git client")
+
+    [<Test>]
+    member _.OpenWithDetectsJjAndUsesOnlyTheInjectedJjClient() =
+        withTempDir (fun sandbox ->
+            // A valid jj marker requires a `.jj/repo` store (see Detect.isJjMarker).
+            Directory.CreateDirectory(Path.Combine(sandbox, ".jj", "repo")) |> ignore
+            let injected = Jj.WithRunner(ScriptedRunner())
+            let mutable gitBuilt = 0
+            let mutable jjBuilt = 0
+
+            let makeGit () =
+                gitBuilt <- gitBuilt + 1
+                Git.WithRunner(ScriptedRunner())
+
+            let makeJj () =
+                jjBuilt <- jjBuilt + 1
+                injected
+
+            match Repo.OpenWith(sandbox, makeGit, makeJj) with
+            | Error e -> Assert.Fail $"OpenWith(jj) failed: {e.Message}"
+            | Ok repo ->
+                Assert.That(repo.Kind, Is.EqualTo BackendKind.Jj)
+                Assert.That(repo.Root, Is.EqualTo sandbox, "detection anchors the root exactly like Open")
+                Assert.That(jjBuilt, Is.EqualTo 1, "the detected backend's factory is invoked exactly once")
+                Assert.That(gitBuilt, Is.EqualTo 0, "the unused backend's factory is never invoked")
+
+                match repo.Jj with
+                | Some j ->
+                    Assert.That(obj.ReferenceEquals(j, injected), Is.True, "the handle drives the injected client")
+                | None -> Assert.Fail "a jj-backed handle must expose its injected Jj client")
+
+    [<Test>]
+    member _.OpenWithReturnsNotARepositoryWithoutBuildingAnyClient() =
+        withTempDir (fun sandbox ->
+            let mutable built = 0
+
+            let makeGit () =
+                built <- built + 1
+                Git.WithRunner(ScriptedRunner())
+
+            let makeJj () =
+                built <- built + 1
+                Jj.WithRunner(ScriptedRunner())
+
+            match Repo.OpenWith(sandbox, makeGit, makeJj) with
+            | Error(RepoError.NotARepository dir) ->
+                Assert.That(dir, Is.EqualTo sandbox, "the absolutised start dir is reported, like Open")
+                Assert.That(built, Is.EqualTo 0, "no client is built when there is no repository")
+            | Error e -> Assert.Fail $"expected NotARepository, got: {e.Message}"
+            | Ok _ -> Assert.Fail "no repository exists at the temp dir")
+
+    [<Test>]
+    member _.OpenWithReturnsInvalidInputForABadPathWithoutBuildingAnyClient() =
+        let invalid = string (char 0)
+        let mutable built = 0
+
+        let makeGit () =
+            built <- built + 1
+            Git.WithRunner(ScriptedRunner())
+
+        let makeJj () =
+            built <- built + 1
+            Jj.WithRunner(ScriptedRunner())
+
+        match Repo.OpenWith(invalid, makeGit, makeJj) with
+        | Error(RepoError.InvalidInput message) ->
+            Assert.That(message, Does.Contain "dir", "the diagnostic names the offending parameter, like Open")
+            Assert.That(built, Is.EqualTo 0, "a rejected path builds no client")
+        | Error e -> Assert.Fail $"expected InvalidInput, got: {e.Message}"
+        | Ok _ -> Assert.Fail "an invalid path must be refused"
 // ---------------------------------------------------------------------------
 // DTOs and the facade error type
 // ---------------------------------------------------------------------------

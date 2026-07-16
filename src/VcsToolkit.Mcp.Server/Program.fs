@@ -27,33 +27,20 @@ let private hardenedGit (timeout: TimeSpan option) : Git =
     | Some t -> Git.Hardened().DefaultTimeout t
     | None -> Git.Hardened()
 
-/// Open the repo at `dir` with a hardened, timeout-bound client. Mirrors `Repo.Open`'s
-/// detection but injects the hardened/timeout client instead of the plain default.
+/// A default jj client carrying the optional per-command timeout. jj has no repo-config/hooks
+/// to harden the way git's `Hardened` does, so only the timeout is applied.
+let private timeoutJj (timeout: TimeSpan option) : Jj =
+    match timeout with
+    | Some t -> Jj.Create().DefaultTimeout t
+    | None -> Jj.Create()
+
+/// Open the repo at `dir` with a hardened, timeout-bound client. Delegates detection, path
+/// absolutisation, and error mapping to the Core facade (`Repo.OpenWith`); the binary only
+/// injects the hardened/timeout client configuration and flattens `RepoError` to its message.
+/// The factories are lazy, so only the detected backend's client is built.
 let private openRepo (dir: string) (timeout: TimeSpan option) : Result<Repo, string> =
-    // `Path.GetFullPath` throws on an empty/invalid path (e.g. `--repo ""`); surface that as a
-    // clean error rather than an unhandled crash.
-    let absResult =
-        try
-            Ok(IO.Path.GetFullPath dir)
-        with ex ->
-            Error(sprintf "invalid repository path %A: %s" dir ex.Message)
-
-    match absResult with
-    | Error e -> Error e
-    | Ok abs ->
-
-        match Detect.detect abs with
-        | Option.None -> Error(sprintf "no git or jj repository found at or above %s" abs)
-        | Some located ->
-            match located.Kind with
-            | BackendKind.Git -> Ok(Repo.FromGit(located.Root, abs, hardenedGit timeout))
-            | BackendKind.Jj ->
-                let jj =
-                    match timeout with
-                    | Some t -> Jj.Create().DefaultTimeout t
-                    | None -> Jj.Create()
-
-                Ok(Repo.FromJj(located.Root, abs, jj))
+    Repo.OpenWith(dir, (fun () -> hardenedGit timeout), (fun () -> timeoutJj timeout))
+    |> Result.mapError (fun (e: RepoError) -> e.Message)
 
 /// Parse `jj git remote list` output (one `<name> <url>` line per configured remote,
 /// space-separated — verified against jj 0.42) and return the URL configured for
