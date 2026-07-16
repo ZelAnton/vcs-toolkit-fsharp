@@ -123,10 +123,10 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
         }
 
     /// Gate a forge tool that mutates the LOCAL working copy (i.e. `forge_pr_checkout`, which
-    /// switches the working tree to a PR/MR branch, and `forge_pr_merge`, which can delete the
-    /// local branch and switch the checkout via `--delete-branch`): check the write gate,
-    /// resolve the forge, then hold the per-repo write lock for the action's duration. Unlike
-    /// the remote-only forge writes (`forge_pr_create`, `forge_pr_close`,
+    /// switches the working tree to a PR/MR branch, `forge_pr_merge`, and `forge_pr_close`,
+    /// which can delete the local branch and switch the checkout via `--delete-branch`): check
+    /// the write gate, resolve the forge, then hold the per-repo write lock for the action's
+    /// duration. Unlike the remote-only forge writes (`forge_pr_create`,
     /// `forge_pr_mark_ready`, `forge_pr_comment`, `forge_pr_edit`, `forge_issue_create`, ...),
     /// this touches the same working tree the `repo_*` mutations do, so it must serialize on
     /// that lock the way `repo_checkout` does — otherwise a concurrent
@@ -415,9 +415,12 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
                     | Ok() -> return Ok(Json.ok {| merged = number |})
             })
 
-    /// Close a pull/merge request without merging.
+    /// Close a pull/merge request without merging. With `DeleteBranch = true` this can delete
+    /// the local branch and switch the checkout, so it holds the per-repo write lock
+    /// unconditionally (see `WithForgeRepoWrite`) rather than only when `deleteBranch` is set —
+    /// simpler, and avoids a lock decision that races the branch.
     member this.ForgePrClose(number: uint64, deleteBranch: bool) =
-        this.WithForgeWrite "forge_pr_close" (fun f ->
+        this.WithForgeRepoWrite "forge_pr_close" (fun f ->
             task {
                 match! f.PrClose(number, deleteBranch) with
                 | Error e -> return Error(forgeErr e)

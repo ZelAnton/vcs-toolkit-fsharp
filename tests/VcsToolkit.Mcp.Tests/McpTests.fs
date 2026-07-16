@@ -395,6 +395,61 @@ type ToolTests() =
         }
 
     [<Test>]
+    member _.ForgePrCloseAndRepoCheckoutSerializeOnTheRepoWriteLock() : Task =
+        task {
+            // `gh pr close --delete-branch` can delete the current local branch and switch the
+            // working tree to the default branch. It therefore must share the repo write lock
+            // with repo_* mutations even when `deleteBranch` is false, avoiding a lock decision
+            // that races the branch. Block repo_checkout, then prove forge_pr_close cannot run
+            // until that local mutation releases the lock.
+            use checkoutStarted = new SemaphoreSlim(0)
+            use releaseCheckout = new SemaphoreSlim(0)
+
+            let isCheckout (command: Command) =
+                command.Program :: List.ofSeq command.Arguments |> List.contains "checkout"
+
+            let runner =
+                ScriptedRunner()
+                    .When(
+                        (fun (command: Command) ->
+                            if isCheckout command then
+                                checkoutStarted.Release() |> ignore
+                                releaseCheckout.Wait(TimeSpan.FromSeconds 5.0) |> ignore
+                                true
+                            else
+                                false),
+                        Reply.Ok ""
+                    )
+                    .On([ "pr"; "close"; "2" ], Reply.Ok "")
+
+            let server = gitServerWithForge runner WriteGate.All
+
+            let checkoutTask =
+                Task.Run<Result<string, McpError>>(fun () -> server.RepoCheckout "feature")
+
+            Assert.That(checkoutStarted.Wait(TimeSpan.FromSeconds 5.0), Is.True, "checkout must have started")
+
+            let closeTask =
+                Task.Run<Result<string, McpError>>(fun () -> server.ForgePrClose(2UL, false))
+
+            Assert.That(
+                (closeTask :> Task).Wait(TimeSpan.FromMilliseconds 300.0),
+                Is.False,
+                "forge_pr_close must block on the repo write lock held by repo_checkout"
+            )
+
+            releaseCheckout.Release() |> ignore
+
+            match! checkoutTask with
+            | Ok json -> Assert.That(json, Does.Contain "feature")
+            | Error e -> Assert.Fail $"repo_checkout failed: {e.Message}"
+
+            match! closeTask with
+            | Ok json -> Assert.That(json, Does.Contain "closed")
+            | Error e -> Assert.Fail $"forge_pr_close failed: {e.Message}"
+        }
+
+    [<Test>]
     member _.RepoInfoReportsBackendAndNoForge() : Task =
         task {
             let server = gitServer (ScriptedRunner()) WriteGate.None

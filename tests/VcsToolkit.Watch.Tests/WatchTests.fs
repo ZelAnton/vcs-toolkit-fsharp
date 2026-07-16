@@ -353,6 +353,25 @@ type PathTests() =
             | Error e -> Assert.Fail $"stateDirs failed: {e.Message}")
 
     [<Test>]
+    member _.PureJjRepoWithStrayGitFileWatchesOnlyDotJj() =
+        withTemp (fun scratch ->
+            // T-068 regression: a `.git` that merely *exists* but isn't a valid marker (no
+            // `.git` directory, no gitlink-file content starting with `gitdir:`) must not
+            // trigger the colocation branch — otherwise `stateDir BackendKind.Git` resolves to
+            // this stray file, and `FileSystemWatcher`'s constructor throws on a file path.
+            let root = Path.Combine(scratch, "pure-jj-stray-git")
+            Directory.CreateDirectory root |> ignore
+            let jjDir = Path.Combine(root, ".jj")
+            Directory.CreateDirectory jjDir |> ignore
+            File.WriteAllText(Path.Combine(root, ".git"), "not a real gitlink")
+
+            match Paths.stateDirs BackendKind.Jj root with
+            | Ok dirs ->
+                Assert.That(dirs.Length, Is.EqualTo 1, "the stray .git file must not trigger colocation")
+                Assert.That(List.exists (Paths.pathsEqual jjDir) dirs, Is.True)
+            | Error e -> Assert.Fail $"stateDirs failed: {e.Message}")
+
+    [<Test>]
     member _.SecondaryJjRepoIncludesSharedStoreWithoutDuplicates() =
         withTemp (fun scratch ->
             let root = Path.Combine(scratch, "secondary")
