@@ -844,6 +844,26 @@ type AssemblyTests() =
         }
 
     [<Test>]
+    member _.JjTryMergeComposesMergeAndRollbackFailures() : Task =
+        task {
+            let runner =
+                ScriptedRunner()
+                    .On([ "op"; "log"; "--limit"; "1" ], Reply.Ok "opabc\n") // op-head capture
+                    .On([ "op"; "log"; "--limit"; "32" ], Reply.Ok(opRow "opabc")) // rollback divergence probe
+                    .On([ "new" ], Reply.Fail(1, "merge failed"))
+                    .On([ "log"; "-T" ], Reply.Ok "0\n")
+                    .On([ "op"; "restore"; "opabc" ], Reply.Fail(1, "rollback failed"))
+
+            let repo = Repo.FromJj("/repo", "/repo", Jj.WithRunner runner)
+
+            match! repo.TryMerge "feature" with
+            | Error e ->
+                Assert.That(e.Message, Does.Contain "merge failed")
+                Assert.That(e.Message, Does.Contain "rollback failed")
+            | Ok result -> Assert.Fail $"expected composed merge/rollback error, got {result}"
+        }
+
+    [<Test>]
     member _.JjTryMergeRefusesRollbackOnDivergence() : Task =
         task {
             // A concurrent operation advanced the op-log past the captured op between capture
@@ -925,6 +945,42 @@ type AssemblyTests() =
                 Is.False,
                 "MERGE_HEAD must be removed by cleanup — a scripted abort that doesn't actually clear it would let a real regression pass this test"
             ))
+
+    [<Test>]
+    member _.GitTryMergeComposesMergeAndRollbackFailures() =
+        withTempDir (fun dir ->
+            let gitDir = Path.Combine(dir, ".git")
+            Directory.CreateDirectory gitDir |> ignore
+            File.WriteAllText(Path.Combine(gitDir, "MERGE_HEAD"), "x\n")
+
+            let runner =
+                ScriptedRunner()
+                    .On([ "merge"; "--no-commit"; "--no-ff"; "feature" ], Reply.Fail(1, "merge failed"))
+                    .On([ "rev-parse"; "--git-dir" ], Reply.Ok(gitDir + "\n"))
+                    .On([ "merge"; "--abort" ], Reply.Fail(1, "abort failed"))
+
+            let repo = Repo.FromGit(dir, dir, Git.WithRunner runner)
+
+            match repo.TryMerge("feature").GetAwaiter().GetResult() with
+            | Error e ->
+                Assert.That(e.Message, Does.Contain "merge failed")
+                Assert.That(e.Message, Does.Contain "abort failed")
+            | Ok result -> Assert.Fail $"expected composed merge/rollback error, got {result}")
+
+    [<Test>]
+    member _.GitTryMergeProbeMasksFailureAfterMergeFailure() =
+        let runner =
+            ScriptedRunner()
+                .On([ "merge"; "--no-commit"; "--no-ff"; "feature" ], Reply.Fail(1, "merge failed"))
+                .On([ "rev-parse"; "--git-dir" ], Reply.Fail(1, "git dir probe failed"))
+
+        let repo = Repo.FromGit("/repo", "/repo", Git.WithRunner runner)
+
+        match repo.TryMerge("feature").GetAwaiter().GetResult() with
+        | Error e ->
+            Assert.That(e.Message, Does.Contain "merge failed")
+            Assert.That(e.Message, Does.Contain "git dir probe failed")
+        | Ok result -> Assert.Fail $"expected composed merge/probe error, got {result}"
 
     [<Test>]
     member _.JjListWorktreesResolvesRootsAndBookmarks() : Task =
