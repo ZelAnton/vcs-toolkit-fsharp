@@ -1,6 +1,7 @@
 namespace VcsToolkit.Watch
 
 open System
+open System.Collections.Generic
 open System.IO
 open System.Threading
 open System.Threading.Channels
@@ -748,8 +749,50 @@ and [<Sealed>] RepoWatcher
                 return None
         }
 
-    /// The most recent known snapshot — the baseline captured at `Build`, then the snapshot
-    /// from each `Recv`. It advances **only when you call `Recv`**.
+    /// Enumerate settled changes until the watcher is disposed. A terminal re-query failure
+    /// ends the stream by throwing its WatcherTerminated error. Each yielded change advances
+    /// Current; Recv and ReadAll consume the same channel, so using both concurrently divides
+    /// changes between them and shares the last-observed snapshot.
+    member _.ReadAll(?cancellationToken: CancellationToken) : IAsyncEnumerable<RepoChange> =
+        let requestedCancellation = defaultArg cancellationToken CancellationToken.None
+
+        { new IAsyncEnumerable<RepoChange> with
+            member _.GetAsyncEnumerator(enumeratorCancellation) =
+                let effectiveCancellation =
+                    if requestedCancellation.CanBeCanceled then
+                        requestedCancellation
+                    else
+                        enumeratorCancellation
+
+                let inner = out.Reader.ReadAllAsync(effectiveCancellation).GetAsyncEnumerator()
+
+                { new IAsyncEnumerator<RepoChange> with
+                    member _.Current = inner.Current
+
+                    member _.MoveNextAsync() =
+                        let pending = inner.MoveNextAsync()
+
+                        if pending.IsCompletedSuccessfully then
+                            if pending.Result then
+                                current <- inner.Current.Snapshot
+
+                            pending
+                        else
+                            ValueTask<bool>(
+                                task {
+                                    let! hasChange = pending.AsTask()
+
+                                    if hasChange then
+                                        current <- inner.Current.Snapshot
+
+                                    return hasChange
+                                }
+                            )
+
+                    member _.DisposeAsync() = inner.DisposeAsync() } }
+
+    /// The most recent known snapshot — the baseline captured at Build, then the snapshot
+    /// from each Recv or yielded ReadAll change.
     member _.Current = current
 
     /// The watcher's health counters (re-queries run / changes emitted / skips, what the

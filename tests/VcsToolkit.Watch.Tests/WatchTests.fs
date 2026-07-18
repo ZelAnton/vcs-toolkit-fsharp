@@ -679,6 +679,137 @@ type PipelineTests() =
         }
 
     [<Test>]
+    member _.ReadAllYieldsEveryChangeAndAdvancesCurrent() : Task =
+        task {
+            let _, out = channels ()
+            let stats = StatsInner()
+            use cts = new CancellationTokenSource()
+
+            let baselineSnapshot: RepoSnapshot =
+                { Head = Some "aaaa"
+                  Branch = Some "main"
+                  Tracking = None
+                  Dirty = false
+                  ChangeCount = 0UL
+                  Conflicted = false
+                  Operation = OperationState.Clear }
+
+            let first =
+                { Snapshot =
+                    { baselineSnapshot with
+                        Head = Some "bbbb" }
+                  Events = [ RepoEvent.HeadMoved(From = Some "aaaa", To = Some "bbbb") ] }
+
+            let second =
+                { Snapshot =
+                    { baselineSnapshot with
+                        Head = Some "cccc" }
+                  Events = [ RepoEvent.HeadMoved(From = Some "bbbb", To = Some "cccc") ] }
+
+            let watcher =
+                new RepoWatcher(out, baselineSnapshot, stats, ResizeArray<FileSystemWatcher>(), cts, Task.CompletedTask)
+
+            out.Writer.TryWrite first |> ignore
+            out.Writer.TryWrite second |> ignore
+            out.Writer.TryComplete() |> ignore
+
+            let enumerator = watcher.ReadAll().GetAsyncEnumerator()
+            let received = ResizeArray<RepoChange>()
+            let mutable hasChange = true
+
+            while hasChange do
+                let! available = enumerator.MoveNextAsync().AsTask()
+                hasChange <- available
+
+                if available then
+                    received.Add enumerator.Current
+
+            Assert.That(received.Count, Is.EqualTo 2, "the stream yields every queued change")
+            Assert.That(received[0].Snapshot.Head, Is.EqualTo(Some "bbbb"))
+            Assert.That(received[1].Snapshot.Head, Is.EqualTo(Some "cccc"))
+            Assert.That(watcher.Current.Head, Is.EqualTo(Some "cccc"), "the final yielded change updates Current")
+        }
+
+    [<Test>]
+    member _.ReadAllEndsNormallyAfterDispose() : Task =
+        task {
+            let raw, out = channels ()
+            let stats = StatsInner()
+            use cts = new CancellationTokenSource()
+
+            let baselineSnapshot: RepoSnapshot =
+                { Head = Some "aaaa"
+                  Branch = Some "main"
+                  Tracking = None
+                  Dirty = false
+                  ChangeCount = 0UL
+                  Conflicted = false
+                  Operation = OperationState.Clear }
+
+            let loopTask =
+                Loop.watchLoop (scriptedJj "aaaa") raw out baseState fastConfig stats cts.Token
+
+            use watcher =
+                new RepoWatcher(out, baselineSnapshot, stats, ResizeArray<FileSystemWatcher>(), cts, loopTask)
+
+            (watcher :> IDisposable).Dispose()
+
+            let enumerator = watcher.ReadAll().GetAsyncEnumerator()
+            let moveNext = enumerator.MoveNextAsync().AsTask()
+            let! winner = Task.WhenAny(moveNext :> Task, Task.Delay(TimeSpan.FromSeconds 5.0))
+
+            Assert.That(Object.ReferenceEquals(winner, moveNext), Is.True, "dispose completes the stream promptly")
+
+            let! hasChange = moveNext
+            Assert.That(hasChange, Is.False, "dispose ends the stream without an exception")
+        }
+
+    [<Test>]
+    member _.ReadAllRethrowsTheTerminalWatcherFailure() : Task =
+        task {
+            let raw, out = channels ()
+            let stats = StatsInner()
+            use cts = new CancellationTokenSource()
+            let repo = Repo.FromJj("/r", "/r", Jj.WithRunner(terminalFailureRunner ()))
+
+            let baselineSnapshot: RepoSnapshot =
+                { Head = Some "aaaa"
+                  Branch = Some "main"
+                  Tracking = None
+                  Dirty = false
+                  ChangeCount = 0UL
+                  Conflicted = false
+                  Operation = OperationState.Clear }
+
+            let loopTask = Loop.watchLoop repo raw out baseState fastConfig stats cts.Token
+
+            use watcher =
+                new RepoWatcher(out, baselineSnapshot, stats, ResizeArray<FileSystemWatcher>(), cts, loopTask)
+
+            raw.Writer.TryWrite(()) |> ignore
+
+            let moveNext = watcher.ReadAll().GetAsyncEnumerator().MoveNextAsync().AsTask()
+            let! winner = Task.WhenAny(moveNext :> Task, Task.Delay(TimeSpan.FromSeconds 5.0))
+
+            Assert.That(
+                Object.ReferenceEquals(winner, moveNext),
+                Is.True,
+                "ReadAll should surface the terminal failure promptly"
+            )
+
+            try
+                let! _ = moveNext
+                Assert.Fail "expected ReadAll to throw once the loop signals a terminal failure"
+            with :? WatcherTerminated as terminal ->
+                match terminal :> exn with
+                | WatcherTerminated err ->
+                    Assert.That(err.IsTransient, Is.False, "a plain exit failure is not transient")
+                | _ -> Assert.Fail "unreachable"
+
+            Assert.That(loopTask.IsCompleted, Is.True, "the loop must stop after the terminal stream failure")
+        }
+
+    [<Test>]
     member _.CancellingTheLoopCompletesTheOutputChannel() : Task =
         task {
             let raw, out = channels ()
