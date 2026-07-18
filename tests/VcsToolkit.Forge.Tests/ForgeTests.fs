@@ -21,11 +21,25 @@ let private teaForge (tokens: string list) (reply: Reply) =
     Forge.FromGitea(".", VcsToolkit.Gitea.Gitea.WithRunner(ScriptedRunner().On(tokens, reply)))
 
 // Create a unique temp directory, run `f` against it, then remove it.
+// On macOS, Path.GetTempPath() returns /var/... which is a symlink to /private/var.
+// Directory.GetCurrentDirectory() after chdir() returns the resolved path /private/var/...
+// To ensure expected paths built via Path.Combine match the OS-level resolved cwd,
+// canonicalize the base directory by round-tripping through SetCurrentDirectory/GetCurrentDirectory.
 let private withTempDir (f: string -> unit) =
-    let dir =
+    let unresolved =
         Path.Combine(Path.GetTempPath(), "vcs-forge-test-" + Guid.NewGuid().ToString("N"))
 
-    Directory.CreateDirectory dir |> ignore
+    Directory.CreateDirectory unresolved |> ignore
+
+    // Canonicalize: chdir to it, get the resolved path, chdir back.
+    let previous = Directory.GetCurrentDirectory()
+
+    let dir =
+        try
+            Directory.SetCurrentDirectory unresolved
+            Directory.GetCurrentDirectory()
+        finally
+            Directory.SetCurrentDirectory previous
 
     try
         f dir
