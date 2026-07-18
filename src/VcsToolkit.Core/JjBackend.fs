@@ -437,9 +437,20 @@ module internal JjBackend =
                     | Error e -> return Error e
                     | Ok() -> return Error(RepoError.Vcs err)
                 | Error err, _ ->
-                    // The merge itself failed — the root cause; a secondary restore/probe
-                    // failure must not mask it.
-                    return Error(RepoError.Vcs err)
+                    // The merge itself failed. If the rollback failed too, preserve both:
+                    // the probe change may still be present and the root cause matters.
+                    match restored with
+                    | Error rollbackError ->
+                        return
+                            Error(
+                                RepoError.Io(
+                                    sprintf
+                                        "try_merge failed: NewMerge failed (%s); rollback cleanup also failed: RollbackTo failed (%s)"
+                                        err.Message
+                                        rollbackError.Message
+                                )
+                            )
+                    | Ok() -> return Error(RepoError.Vcs err)
         }
 
     // jj has no paused operations: abort/continue only *report* the current state (roll
