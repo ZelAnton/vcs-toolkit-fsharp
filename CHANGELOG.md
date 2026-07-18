@@ -61,6 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `VcsToolkit.Forge`'s version-gated mutating operations (`PrCreate`/`PrEdit`/`PrMerge`/`IssueCreate`) now probe the backend CLI's `--version` at most once per `Forge` handle — the result is cached for the handle's lifetime instead of being re-spawned on every gated call — and `Forge.Capabilities()` reuses the same cached probe rather than spawning its own. Fewer `gh`/`glab`/`tea --version` spawns per handle; behavior (fail-open on an unparsed version, `UnsupportedVersion` for a confirmed too-old CLI) is unchanged.
 
 ### Fixed
+- forge auto-detection on jj repositories no longer fails silently when `ui.color = "always"` is set in the user's jj config.
 - `Jj.ResolveList` (and consequently `Repo.ConflictedFiles` and jj merge probes) now preserves internal double-or-more spaces in conflicted paths instead of truncating the path at the first such run.
 - `Repo.At`, `Repo.FromGit`, and `Repo.FromJj` now capture absolute `Cwd`/`Root` paths just like `Repo.Open`, so a handle created with a relative path remains bound to the intended directory after the process current directory changes; invalid factory paths now fail with a descriptive input error instead of leaking a raw path exception.
 - MCP boolean tool arguments now reject non-boolean JSON values instead of silently treating them as false.
