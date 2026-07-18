@@ -80,7 +80,7 @@ let internal detectForgeKind (repo: Repo) : Task<ForgeKind option> =
             match repo.Jj with
             | Option.None -> return Option.None // unreachable: Kind = Jj implies Jj = Some
             | Some jj ->
-                match! jj.Run(repo.Root, [ "git"; "remote"; "list"; "--ignore-working-copy" ]) with
+                match! jj.Run(repo.Root, [ "git"; "remote"; "list"; "--ignore-working-copy"; "--color"; "never" ]) with
                 | Error _ -> return Option.None
                 | Ok output ->
                     match parseJjRemoteUrl "origin" output with

@@ -277,6 +277,8 @@ module internal GitBackend =
                 // actually-started merge. Detached probe: runs on its own cancellation
                 // budget rather than this call's (possibly already-fired) token, so a
                 // cancelled/timed-out probe merge still gets cleaned up.
+                // If this cleanup fails, its error is already the only failure: there is
+                // no failed merge result to preserve alongside it.
                 match! git.IsMergeInProgressDetached dir with
                 | Error e -> return Error(RepoError.Vcs e)
                 | Ok inProgress ->
@@ -302,11 +304,29 @@ module internal GitBackend =
                 // started, but clean up if it did. Detached probe/abort: see the comment
                 // on the success branch above.
                 match! git.IsMergeInProgressDetached dir with
-                | Error e -> return Error(RepoError.Vcs e)
+                | Error e ->
+                    return
+                        Error(
+                            RepoError.Io(
+                                sprintf
+                                    "try_merge failed: MergeNoCommit failed (%s); probe check also failed: IsMergeInProgressDetached failed (%s)"
+                                    err.Message
+                                    e.Message
+                            )
+                        )
                 | Ok inProgress ->
                     if inProgress then
                         match! git.MergeAbortDetached dir with
-                        | Error e -> return Error(RepoError.Vcs e)
+                        | Error abortError ->
+                            return
+                                Error(
+                                    RepoError.Io(
+                                        sprintf
+                                            "try_merge failed: MergeNoCommit failed (%s); rollback cleanup also failed: MergeAbortDetached failed (%s)"
+                                            err.Message
+                                            abortError.Message
+                                    )
+                                )
                         | Ok() -> return Error(RepoError.Vcs err)
                     else
                         return Error(RepoError.Vcs err)

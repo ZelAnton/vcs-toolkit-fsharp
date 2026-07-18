@@ -20,6 +20,7 @@
 		     through a bare `Reference`, so it's declared explicitly (same reasoning as
 		     `VcsToolkit.Mcp.Tests`/`VcsToolkit.Git.Tests`). -->
 		<PackageReference Include="ProcessKit" />
+		<PackageReference Include="ProcessKit.Testing" />
 	</ItemGroup>
 
 	<ItemGroup>
