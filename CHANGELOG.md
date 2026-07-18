@@ -65,6 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MCP boolean tool arguments now reject non-boolean JSON values instead of silently treating them as false.
 - Fixed silent acceptance of wrong-typed optional string arguments in `forge_pr_create` and `forge_pr_edit`.
 - `Git.RemoteBranchExists` now inherits the client's `DefaultTimeout`, matching `Git.RemoteBranches`, instead of unconditionally replacing it with a 10-second deadline.
+- `VcsToolkit.Jj`'s internal `decodeJsonField` no longer emits a NUL character for a truncated `\uXXXX` escape (fewer than four hex digits); decoding now stops instead, matching the parser's own documented total-decoding contract.
 - `VcsToolkit.Watch` now observes shared jj stores when watching a secondary workspace.
 - `Jj.CommitPaths` and `JjAt.CommitPaths` now refuse an empty fileset before spawning `jj commit`, preventing a direct client call from committing the entire working copy.
 - `Git.Log`/`GitAt.Log` now preserve the full commit subject when it contains a literal 0x1f byte (e.g. a commit made with `--cleanup=verbatim`), instead of silently truncating it at the first occurrence.
