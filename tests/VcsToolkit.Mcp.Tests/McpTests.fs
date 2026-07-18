@@ -11,6 +11,7 @@ open VcsToolkit.Forge
 open VcsToolkit.Git
 open VcsToolkit.GitHub
 open VcsToolkit.Mcp
+open VcsToolkit.TestKit
 
 /// A git-backed server over a scripted runner — no real binary, no forge — with an
 /// explicit output budget (`None` = unlimited).
@@ -48,8 +49,9 @@ type WriteGateTests() =
 
     [<Test>]
     member _.WriteToolsCoversTheGatedTools() =
-        Assert.That(List.length WriteTools.all, Is.EqualTo 15)
+        Assert.That(List.length WriteTools.all, Is.EqualTo 21)
         Assert.That(WriteTools.asSet.Contains "repo_commit", Is.True)
+        Assert.That(WriteTools.asSet.Contains "repo_rebase", Is.True, "the new rebase tool is write-gated")
         Assert.That(WriteTools.asSet.Contains "forge_pr_checkout", Is.True, "the local-checkout tool is write-gated")
         Assert.That(WriteTools.asSet.Contains "repo_status", Is.False, "a read tool is not a write tool")
 
@@ -549,6 +551,233 @@ type ToolTests() =
             | Error e -> Assert.Fail $"forge_pr_create failed: {e.Message}"
         }
 
+    // --- the six new repo mutations: write-gate + happy path (scripted) -----
+
+    [<Test>]
+    member _.RepoRebaseIsWriteGated() : Task =
+        task {
+            // No `rebase` rule on the runner: were the gate to fail open, the spawn would error
+            // differently than the gate's --allow-write message.
+            let server = gitServer (ScriptedRunner()) WriteGate.None
+
+            match! server.RepoRebase "main" with
+            | Error e -> Assert.That(e.Message, Does.Contain "allow-write")
+            | Ok _ -> Assert.Fail "repo_rebase must be gated in read-only mode"
+        }
+
+    [<Test>]
+    member _.RepoRebaseReachesRunnerWithAllowWrite() : Task =
+        task {
+            let server =
+                gitServer (ScriptedRunner().On([ "rebase" ], Reply.Ok "")) WriteGate.All
+
+            match! server.RepoRebase "main" with
+            | Ok json -> Assert.That(json, Does.Contain "main")
+            | Error e -> Assert.Fail $"repo_rebase failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.RepoDeleteBranchIsWriteGated() : Task =
+        task {
+            let server = gitServer (ScriptedRunner()) WriteGate.None
+
+            match! server.RepoDeleteBranch("feature", false) with
+            | Error e -> Assert.That(e.Message, Does.Contain "allow-write")
+            | Ok _ -> Assert.Fail "repo_delete_branch must be gated in read-only mode"
+        }
+
+    [<Test>]
+    member _.RepoDeleteBranchReachesRunnerWithAllowWrite() : Task =
+        task {
+            // git branch -d/-D <name>; the `branch` token is enough to match the scripted rule.
+            let server =
+                gitServer (ScriptedRunner().On([ "branch" ], Reply.Ok "")) WriteGate.All
+
+            match! server.RepoDeleteBranch("feature", false) with
+            | Ok json -> Assert.That(json, Does.Contain "feature")
+            | Error e -> Assert.Fail $"repo_delete_branch failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.RepoRenameBranchIsWriteGated() : Task =
+        task {
+            let server = gitServer (ScriptedRunner()) WriteGate.None
+
+            match! server.RepoRenameBranch("old", "renamed") with
+            | Error e -> Assert.That(e.Message, Does.Contain "allow-write")
+            | Ok _ -> Assert.Fail "repo_rename_branch must be gated in read-only mode"
+        }
+
+    [<Test>]
+    member _.RepoRenameBranchReachesRunnerWithAllowWrite() : Task =
+        task {
+            let server =
+                gitServer (ScriptedRunner().On([ "branch" ], Reply.Ok "")) WriteGate.All
+
+            match! server.RepoRenameBranch("old", "renamed") with
+            | Ok json -> Assert.That(json, Does.Contain "renamed")
+            | Error e -> Assert.Fail $"repo_rename_branch failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.RepoNewChildIsWriteGated() : Task =
+        task {
+            let server = gitServer (ScriptedRunner()) WriteGate.None
+
+            match! server.RepoNewChild "main" with
+            | Error e -> Assert.That(e.Message, Does.Contain "allow-write")
+            | Ok _ -> Assert.Fail "repo_new_child must be gated in read-only mode"
+        }
+
+    [<Test>]
+    member _.RepoNewChildReachesRunnerWithAllowWrite() : Task =
+        task {
+            // On git, NewChild maps to checkout (append-on-top is already non-destructive there).
+            let server =
+                gitServer (ScriptedRunner().On([ "checkout" ], Reply.Ok "")) WriteGate.All
+
+            match! server.RepoNewChild "main" with
+            | Ok json -> Assert.That(json, Does.Contain "main")
+            | Error e -> Assert.Fail $"repo_new_child failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.RepoAbortInProgressIsWriteGated() : Task =
+        task {
+            // The gate is checked before any spawn, so a bare runner suffices to prove the refusal.
+            let server = gitServer (ScriptedRunner()) WriteGate.None
+
+            match! server.RepoAbortInProgress() with
+            | Error e -> Assert.That(e.Message, Does.Contain "allow-write")
+            | Ok _ -> Assert.Fail "repo_abort_in_progress must be gated in read-only mode"
+        }
+
+    [<Test>]
+    member _.RepoContinueInProgressIsWriteGated() : Task =
+        task {
+            let server = gitServer (ScriptedRunner()) WriteGate.None
+
+            match! server.RepoContinueInProgress() with
+            | Error e -> Assert.That(e.Message, Does.Contain "allow-write")
+            | Ok _ -> Assert.Fail "repo_continue_in_progress must be gated in read-only mode"
+        }
+
+    [<Test>]
+    member _.RepoRebaseIsGatedPerToolAllowlist() : Task =
+        task {
+            // Only repo_rebase is enabled — repo_delete_branch stays gated. Proves the new tools
+            // participate in the per-tool allowlist by their own names.
+            let server =
+                gitServer (ScriptedRunner().On([ "rebase" ], Reply.Ok "")) (WriteGate.Set(Set.ofList [ "repo_rebase" ]))
+
+            match! server.RepoRebase "main" with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"repo_rebase should be allowed: {e.Message}"
+
+            match! server.RepoDeleteBranch("feature", false) with
+            | Error e ->
+                Assert.That(e.Message, Does.Contain "allow-write", "repo_delete_branch is not in the allowlist")
+            | Ok _ -> Assert.Fail "repo_delete_branch must stay gated"
+        }
+
+// ---------------------------------------------------------------------------
+// repo_abort_in_progress / repo_continue_in_progress over a REAL merge-in-progress
+// (a genuine git conflict in a throwaway sandbox — not a scripted "nothing to abort")
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type RepoOperationStateIntegrationTests() =
+
+    let requireGit () =
+        try
+            Raw.git "." [ "--version" ]
+        with _ ->
+            // git isn't on PATH (or failed to spawn) — a hermetic CI without it must skip,
+            // not fail, this fixture.
+            Assert.Ignore "git not available on PATH"
+
+    /// Build a throwaway git repo left mid-merge with a real, unresolved conflict on `a.txt`:
+    /// `main` and `feature` edit the same line, so `git merge feature` stops with `MERGE_HEAD`
+    /// present and the index unmerged. Returns the live sandbox (the caller `use`s it).
+    let conflictedMerge (tag: string) : GitSandbox =
+        let sandbox = GitSandbox.Init tag
+        sandbox.CommitFile("a.txt", "base\n", "seed")
+        sandbox.Branch "feature"
+        sandbox.Checkout "feature"
+        sandbox.CommitFile("a.txt", "feature change\n", "feature")
+        sandbox.Checkout "main"
+        sandbox.CommitFile("a.txt", "main change\n", "main")
+
+        // Conflicting by construction — the non-zero exit is the expected outcome, not a fixture
+        // failure, so the raising sandbox helper is caught.
+        try
+            sandbox.Git [ "merge"; "-q"; "--no-edit"; "feature" ]
+        with _ ->
+            ()
+
+        sandbox
+
+    /// A write-enabled server over the real `git` binary bound to `path`.
+    let realServer (path: string) =
+        new VcsMcpServer(Repo.FromGit(path, path, Git.Create()), Option.None, WriteGate.All, Option.None)
+
+    [<Test>]
+    member _.AbortInProgressClearsARealMergeConflict() : Task =
+        task {
+            requireGit ()
+            use sandbox = conflictedMerge "mcp-abort"
+            use server = realServer sandbox.Path
+
+            // Pre-condition: the merge really is in progress with an unresolved path.
+            match! server.RepoConflicts() with
+            | Ok json -> Assert.That(json, Does.Contain "a.txt", "the fixture must leave a real conflict")
+            | Error e -> Assert.Fail $"repo_conflicts failed: {e.Message}"
+
+            match! server.RepoAbortInProgress() with
+            | Ok json -> Assert.That(json, Does.Contain "Clear", "aborting the merge returns to a Clear state")
+            | Error e -> Assert.Fail $"repo_abort_in_progress failed: {e.Message}"
+
+            // Post-condition: the conflict is gone (the abort really ran, not just reported Clear).
+            match! server.RepoConflicts() with
+            | Ok json -> Assert.That(json, Does.Not.Contain "a.txt", "the abort must clear the unmerged index")
+            | Error e -> Assert.Fail $"repo_conflicts failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.ContinueInProgressReportsConflictWhileUnresolved() : Task =
+        task {
+            requireGit ()
+            use sandbox = conflictedMerge "mcp-continue-blocked"
+            use server = realServer sandbox.Path
+
+            // git refuses to continue while unmerged paths remain; the facade reports that as the
+            // Conflict state rather than surfacing a hard error.
+            match! server.RepoContinueInProgress() with
+            | Ok json -> Assert.That(json, Does.Contain "Conflict", "an unresolved merge cannot be continued")
+            | Error e -> Assert.Fail $"repo_continue_in_progress failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.ContinueInProgressFinishesAResolvedMerge() : Task =
+        task {
+            requireGit ()
+            use sandbox = conflictedMerge "mcp-continue-resolved"
+            use server = realServer sandbox.Path
+
+            // Resolve the conflict, then continue: git commits the merge and the state clears.
+            sandbox.Write("a.txt", "resolved\n")
+            sandbox.AddAll()
+
+            match! server.RepoContinueInProgress() with
+            | Ok json -> Assert.That(json, Does.Contain "Clear", "a resolved merge continues to completion")
+            | Error e -> Assert.Fail $"repo_continue_in_progress failed: {e.Message}"
+
+            // The merge is committed — nothing left in progress, no residual conflict.
+            match! server.RepoConflicts() with
+            | Ok json -> Assert.That(json, Does.Not.Contain "a.txt")
+            | Error e -> Assert.Fail $"repo_conflicts failed: {e.Message}"
+        }
+
 // ---------------------------------------------------------------------------
 // repo_show_file output-budget truncation
 // ---------------------------------------------------------------------------
@@ -652,8 +881,8 @@ type CatalogTests() =
 
     [<Test>]
     member _.CatalogCoversEveryTool() =
-        // 10 repo-read + repo_try_merge + 6 repo-write + 10 forge-read + 8 forge-write = 35.
-        Assert.That(List.length Catalog.all, Is.EqualTo 35)
+        // 10 repo-read + repo_try_merge + 12 repo-write + 10 forge-read + 8 forge-write = 41.
+        Assert.That(List.length Catalog.all, Is.EqualTo 41)
         // Every write-gated tool name appears in the catalogue.
         let names = Catalog.all |> List.map (fun t -> t.Name) |> Set.ofList
         Assert.That(WriteTools.all |> List.forall names.Contains, Is.True, "every write tool is catalogued")
@@ -673,6 +902,12 @@ type CatalogTests() =
               "repo_push", false, true
               "repo_create_worktree", false, false
               "repo_remove_worktree", true, false
+              "repo_rebase", true, false
+              "repo_abort_in_progress", true, true
+              "repo_continue_in_progress", false, false
+              "repo_delete_branch", true, false
+              "repo_rename_branch", false, false
+              "repo_new_child", false, false
               "forge_issue_create", false, false
               "forge_pr_create", false, false
               "forge_pr_merge", true, false
@@ -937,3 +1172,63 @@ type CatalogTests() =
             | Error e -> Assert.That(e.Message, Does.Contain "max")
             | Ok _ -> Assert.Fail "a missing required argument must be refused"
         }
+
+    [<Test>]
+    member _.CallToolDispatchesTheNewRepoMutations() : Task =
+        task {
+            // Each argv-bearing new tool is reachable through the dispatcher with its wire
+            // arguments (the no-arg abort/continue are covered against a real merge in the
+            // integration fixture, where their on-disk state probes have something to read).
+            let runner =
+                ScriptedRunner()
+                    .On([ "rebase" ], Reply.Ok "")
+                    .On([ "branch" ], Reply.Ok "")
+                    .On([ "checkout" ], Reply.Ok "")
+
+            let server = gitServer runner WriteGate.All
+
+            let assertOk tool args needle =
+                task {
+                    match! Catalog.callTool server tool (argsOf args) with
+                    | Ok json -> Assert.That(json, Does.Contain needle, tool)
+                    | Error e -> Assert.Fail $"{tool} dispatch failed: {e.Message}"
+                }
+
+            do! assertOk "repo_rebase" """{"onto":"main"}""" "main"
+            do! assertOk "repo_delete_branch" """{"name":"feature"}""" "feature"
+            do! assertOk "repo_delete_branch" """{"name":"feature","force":true}""" "feature"
+            do! assertOk "repo_rename_branch" """{"old_name":"old","new_name":"renamed"}""" "renamed"
+            do! assertOk "repo_new_child" """{"reference":"main"}""" "main"
+        }
+
+    [<Test>]
+    member _.CallToolNewRepoMutationsRejectMissingArguments() : Task =
+        task {
+            let server = gitServer (ScriptedRunner()) WriteGate.All
+
+            let assertMissing tool args argument =
+                task {
+                    match! Catalog.callTool server tool (argsOf args) with
+                    | Error e -> Assert.That(e.Message, Does.Contain argument, tool)
+                    | Ok _ -> Assert.Fail $"{tool} must refuse a missing {argument}"
+                }
+
+            do! assertMissing "repo_rebase" "{}" "onto"
+            do! assertMissing "repo_delete_branch" "{}" "name"
+            do! assertMissing "repo_rename_branch" """{"old_name":"old"}""" "new_name"
+            do! assertMissing "repo_new_child" "{}" "reference"
+        }
+
+    [<Test>]
+    member _.DeleteBranchSchemaAdvertisesOptionalForce() =
+        // `name` is required; `force` is an optional boolean (like repo_remove_worktree's force).
+        let del = Catalog.all |> List.find (fun t -> t.Name = "repo_delete_branch")
+        let schema = Catalog.inputSchema del
+        Assert.That(schema, Does.Contain "\"force\"")
+        Assert.That(schema, Does.Contain "\"required\":[\"name\"]", "force is optional")
+
+    [<Test>]
+    member _.AbortAndContinueSchemasTakeNoArguments() =
+        for name in [ "repo_abort_in_progress"; "repo_continue_in_progress" ] do
+            let tool = Catalog.all |> List.find (fun t -> t.Name = name)
+            Assert.That(Catalog.inputSchema tool, Does.Contain "\"required\":[]", name)

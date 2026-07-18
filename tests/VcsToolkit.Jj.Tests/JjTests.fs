@@ -226,6 +226,25 @@ type ParseTests() =
         Assert.That(got.[0].Target, Is.EqualTo "f5d07685")
 
     [<Test>]
+    member _.BookmarksTruncatedUnicodeEscapeStopsDecoding() =
+        // A `\u` escape with zero hex digits must not fall back to a literal NUL char
+        // (code 0) — decoding stops instead, per decodeJsonField's own doc-comment
+        // ("a truncated or malformed escape simply stops decoding").
+        let got = JjParse.parseBookmarks $"\"no\\u\"{tab}f5d07685\n"
+        Assert.That(got.Length, Is.EqualTo 1)
+        Assert.That(got.[0].Name, Is.EqualTo "no", "decoding stops at the truncated escape, no NUL char")
+        Assert.That(got.[0].Name, Does.Not.Contain('\000'))
+
+    [<Test>]
+    member _.BookmarksPartiallyTruncatedUnicodeEscapeStopsDecoding() =
+        // Same contract for a partially-truncated escape (1-3 valid hex digits followed
+        // by end of string): still a truncated escape, still stops decoding rather than
+        // building a partial code point.
+        let got = JjParse.parseBookmarks $"\"no\\u12\"{tab}f5d07685\n"
+        Assert.That(got.Length, Is.EqualTo 1)
+        Assert.That(got.[0].Name, Is.EqualTo "no", "decoding stops at the partially truncated escape")
+
+    [<Test>]
     member _.ReachableBookmarksDecodeEscapedNames() =
         // Space-joined escaped names: a comma in a name survives (a name never holds a
         // space, so the join stays reversible), and each token decodes on its own.

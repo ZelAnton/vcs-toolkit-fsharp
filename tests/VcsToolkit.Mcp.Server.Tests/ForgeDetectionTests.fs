@@ -3,6 +3,8 @@ module VcsToolkit.Mcp.Server.Tests.ForgeDetectionTests
 open System.IO
 open System.Threading.Tasks
 open NUnit.Framework
+open ProcessKit
+open ProcessKit.Testing
 open VcsToolkit.Core
 open VcsToolkit.Forge
 open VcsToolkit.Git
@@ -43,6 +45,40 @@ let private requireBinary (name: string) (probe: unit -> unit) =
 
 [<TestFixture>]
 type JjForgeDetectionTests() =
+
+    [<Test>]
+    member _.JjRemoteListForcesColorNever() : Task =
+        task {
+            let captured = ref (None: Command option)
+
+            let runner =
+                ScriptedRunner()
+                    .When(
+                        (fun (command: Command) ->
+                            captured.Value <- Some command
+                            true),
+                        Reply.Ok "origin https://github.com/example/repo.git\n"
+                    )
+
+            let repo = Repo.FromJj("/repo", "/repo", Jj.WithRunner runner)
+
+            match! Main.detectForgeKind repo with
+            | Some ForgeKind.GitHub -> ()
+            | other -> Assert.Fail $"expected Some GitHub, got {other}"
+
+            match captured.Value with
+            | Some command ->
+                Assert.That(
+                    (command.Arguments |> Seq.toList = [ "git"
+                                                         "remote"
+                                                         "list"
+                                                         "--ignore-working-copy"
+                                                         "--color"
+                                                         "never" ]),
+                    Is.True
+                )
+            | Option.None -> Assert.Fail "detectForgeKind must run jj git remote list"
+        }
 
     [<Test>]
     member _.NonColocatedJjRepoResolvesForgeFromOriginRemote() : Task =

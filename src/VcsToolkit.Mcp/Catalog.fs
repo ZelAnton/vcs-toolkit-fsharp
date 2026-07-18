@@ -253,6 +253,78 @@ module internal Catalog =
                   JsonType = "boolean"
                   Description = "Force removal even when the worktree has uncommitted changes."
                   Required = false } ]
+          // Destructive: rewrites the current work's commits onto a new base; not idempotent:
+          // rebasing again onto the same target is not a guaranteed no-op (the work has already
+          // moved, and a second run can conflict or re-rewrite).
+          write
+              "repo_rebase"
+              "Rebase the current work onto `onto` (git rebase / jj rebase -d). Rewrites the current branch's commits onto a new base."
+              true
+              false
+              [ { Name = "onto"
+                  JsonType = "string"
+                  Description = "The branch/revision to rebase the current work onto."
+                  Required = true } ]
+          // Destructive: discards the in-progress operation's partial progress (git merge/rebase
+          // --abort throws away the paused state); idempotent: aborting when nothing is in
+          // progress is a no-op that reports the same Clear state.
+          write
+              "repo_abort_in_progress"
+              "Abort the in-progress operation, if any (git: merge/rebase --abort; jj: a no-op). Reports the fresh post-call operation state (Clear once nothing is in progress)."
+              true
+              true
+              []
+          // Non-destructive: completes the paused operation (commits the merge / advances the
+          // rebase) without discarding commits; not idempotent: a second call on an
+          // already-finished operation reports the (Clear/Conflict) state rather than re-running it.
+          write
+              "repo_continue_in_progress"
+              "Continue the in-progress operation after conflict resolution (git: commit --no-edit for a merge / rebase --continue; jj: a no-op). Reports the fresh post-call operation state (Conflict when unresolved paths still block, Clear when finished)."
+              false
+              false
+              []
+          // Destructive: with `force` (git only) it deletes even an unmerged branch, discarding
+          // its unique commits; not idempotent: deleting an already-absent branch errors.
+          write
+              "repo_delete_branch"
+              "Delete a local branch (git) / bookmark (jj)."
+              true
+              false
+              [ { Name = "name"
+                  JsonType = "string"
+                  Description = "The local branch (git) / bookmark (jj) to delete."
+                  Required = true }
+                { Name = "force"
+                  JsonType = "boolean"
+                  Description =
+                    "Delete even an unmerged branch, discarding its unique commits (git only; jj ignores it)."
+                  Required = false } ]
+          // Non-destructive: moves the ref name, keeping the commits; not idempotent: renaming an
+          // already-renamed (now-absent) branch errors.
+          write
+              "repo_rename_branch"
+              "Rename a local branch (git) / bookmark (jj). Preserves the commits."
+              false
+              false
+              [ { Name = "old_name"
+                  JsonType = "string"
+                  Description = "The existing local branch (git) / bookmark (jj) to rename."
+                  Required = true }
+                { Name = "new_name"
+                  JsonType = "string"
+                  Description = "The new name."
+                  Required = true } ]
+          // Non-destructive: starts fresh work on top of `reference` and leaves it untouched; not
+          // idempotent: on jj each call creates a new child change.
+          write
+              "repo_new_child"
+              "Start new work on top of `reference` WITHOUT modifying it (git checkout <reference> / jj new <reference>) — the backend-agnostic 'start fresh on top of main' that, unlike repo_checkout, does not rewrite `reference` in place on jj."
+              false
+              false
+              [ { Name = "reference"
+                  JsonType = "string"
+                  Description = "The branch, bookmark, or revision to start the new child work on top of."
+                  Required = true } ]
 
           read "forge_auth_status" "Whether the forge CLI reports an authenticated session." []
           read "forge_repo_view" "The repository/project on the configured forge (Unsupported on Gitea)." []
@@ -443,6 +515,16 @@ module internal Catalog =
         | "repo_remove_worktree" ->
             bind (reqStr args "path") (fun path ->
                 bind (optBool args "force") (fun force -> server.RepoRemoveWorktree(path, force)))
+        | "repo_rebase" -> bind (reqStr args "onto") server.RepoRebase
+        | "repo_abort_in_progress" -> server.RepoAbortInProgress()
+        | "repo_continue_in_progress" -> server.RepoContinueInProgress()
+        | "repo_delete_branch" ->
+            bind (reqStr args "name") (fun name ->
+                bind (optBool args "force") (fun force -> server.RepoDeleteBranch(name, force)))
+        | "repo_rename_branch" ->
+            bind (reqStr args "old_name") (fun oldName ->
+                bind (reqStr args "new_name") (fun newName -> server.RepoRenameBranch(oldName, newName)))
+        | "repo_new_child" -> bind (reqStr args "reference") server.RepoNewChild
         | "forge_auth_status" -> server.ForgeAuthStatus()
         | "forge_repo_view" -> server.ForgeRepoView()
         | "forge_info" -> server.ForgeInfo()

@@ -300,6 +300,75 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
                 | Ok() -> return Ok(Json.ok {| removed = path |})
             })
 
+    /// Rebase the current work onto `onto` (git `rebase` / jj `rebase -d`). Rewrites the
+    /// branch's commits onto a new base, so it holds the per-repo write lock like the other
+    /// history-touching mutations.
+    member this.RepoRebase(onto: string) =
+        this.WithRepoWrite "repo_rebase" (fun () ->
+            task {
+                match! repo.Rebase onto with
+                | Error e -> return Error(coreErr e)
+                | Ok() -> return Ok(Json.ok {| rebasedOnto = onto |})
+            })
+
+    /// Abort the in-progress operation, if any (git: `merge`/`rebase --abort`; jj: a no-op).
+    /// Reports the fresh post-call operation state (`Clear` once nothing is in progress) so the
+    /// caller sees the result of the abort rather than assuming it.
+    member this.RepoAbortInProgress() =
+        this.WithRepoWrite "repo_abort_in_progress" (fun () ->
+            task {
+                match! repo.AbortInProgress() with
+                | Error e -> return Error(coreErr e)
+                | Ok state -> return Ok(Json.ok {| operation = state |})
+            })
+
+    /// Continue the in-progress operation after conflict resolution (git: `commit --no-edit`
+    /// for a merge / `rebase --continue`; jj: a no-op). Reports the fresh post-call operation
+    /// state: `Conflict` when unresolved paths still block, `Clear` when finished.
+    member this.RepoContinueInProgress() =
+        this.WithRepoWrite "repo_continue_in_progress" (fun () ->
+            task {
+                match! repo.ContinueInProgress() with
+                | Error e -> return Error(coreErr e)
+                | Ok state -> return Ok(Json.ok {| operation = state |})
+            })
+
+    /// Delete a local branch (git) / bookmark (jj). `force` (git only) deletes even an unmerged
+    /// branch, discarding its unique commits, so this is write-gated and flagged destructive.
+    member this.RepoDeleteBranch(name: string, force: bool) =
+        this.WithRepoWrite "repo_delete_branch" (fun () ->
+            task {
+                match! repo.DeleteBranch(name, force) with
+                | Error e -> return Error(coreErr e)
+                | Ok() -> return Ok(Json.ok {| deleted = name |})
+            })
+
+    /// Rename a local branch (git) / bookmark (jj). Non-destructive — it preserves the commits.
+    member this.RepoRenameBranch(oldName: string, newName: string) =
+        this.WithRepoWrite "repo_rename_branch" (fun () ->
+            task {
+                match! repo.RenameBranch(oldName, newName) with
+                | Error e -> return Error(coreErr e)
+                | Ok() ->
+                    return
+                        Ok(
+                            Json.ok
+                                {| renamedFrom = oldName
+                                   renamedTo = newName |}
+                        )
+            })
+
+    /// Start new work on top of `reference` **without modifying it** (git `checkout <reference>`;
+    /// jj `new <reference>`) — the backend-agnostic "start fresh on top of main" that, unlike
+    /// `repo_checkout`, does not rewrite `reference` in place on jj.
+    member this.RepoNewChild(reference: string) =
+        this.WithRepoWrite "repo_new_child" (fun () ->
+            task {
+                match! repo.NewChild reference with
+                | Error e -> return Error(coreErr e)
+                | Ok() -> return Ok(Json.ok {| newChild = reference |})
+            })
+
     // --- forge: read (always available; error when no forge) ---------------
 
     /// Whether the forge CLI reports an authenticated session.
