@@ -69,8 +69,13 @@ type JjForgeDetectionTests() =
             match captured.Value with
             | Some command ->
                 Assert.That(
-                    command.Arguments |> Seq.toList,
-                    Is.EqualTo([ "git"; "remote"; "list"; "--ignore-working-copy"; "--color"; "never" ])
+                    (command.Arguments |> Seq.toList = [ "git"
+                                                         "remote"
+                                                         "list"
+                                                         "--ignore-working-copy"
+                                                         "--color"
+                                                         "never" ]),
+                    Is.True
                 )
             | Option.None -> Assert.Fail "detectForgeKind must run jj git remote list"
         }
