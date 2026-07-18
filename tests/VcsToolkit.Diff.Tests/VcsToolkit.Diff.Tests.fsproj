@@ -7,6 +7,7 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+		<Compile Include="DiffPropertyTests.fs" />
 		<Compile Include="DiffTests.fs" />
 	</ItemGroup>
 
@@ -15,6 +16,7 @@
 		<PackageReference Include="Microsoft.NET.Test.Sdk" />
 		<PackageReference Include="NUnit" />
 		<PackageReference Include="NUnit3TestAdapter" />
+		<PackageReference Include="FsCheck.NUnit" />
 	</ItemGroup>
 
 	<ItemGroup>
