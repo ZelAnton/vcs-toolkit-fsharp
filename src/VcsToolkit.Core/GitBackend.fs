@@ -304,7 +304,16 @@ module internal GitBackend =
                 // started, but clean up if it did. Detached probe/abort: see the comment
                 // on the success branch above.
                 match! git.IsMergeInProgressDetached dir with
-                | Error e -> return Error(RepoError.Vcs e)
+                | Error e ->
+                    return
+                        Error(
+                            RepoError.Io(
+                                sprintf
+                                    "try_merge failed: MergeNoCommit failed (%s); probe check also failed: IsMergeInProgressDetached failed (%s)"
+                                    err.Message
+                                    e.Message
+                            )
+                        )
                 | Ok inProgress ->
                     if inProgress then
                         match! git.MergeAbortDetached dir with

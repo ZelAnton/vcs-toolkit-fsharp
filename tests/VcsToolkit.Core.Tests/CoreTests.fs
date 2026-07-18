@@ -968,6 +968,21 @@ type AssemblyTests() =
             | Ok result -> Assert.Fail $"expected composed merge/rollback error, got {result}")
 
     [<Test>]
+    member _.GitTryMergeProbeMasksFailureAfterMergeFailure() =
+        let runner =
+            ScriptedRunner()
+                .On([ "merge"; "--no-commit"; "--no-ff"; "feature" ], Reply.Fail(1, "merge failed"))
+                .On([ "rev-parse"; "--git-dir" ], Reply.Fail(1, "git dir probe failed"))
+
+        let repo = Repo.FromGit("/repo", "/repo", Git.WithRunner runner)
+
+        match repo.TryMerge("feature").GetAwaiter().GetResult() with
+        | Error e ->
+            Assert.That(e.Message, Does.Contain "merge failed")
+            Assert.That(e.Message, Does.Contain "git dir probe failed")
+        | Ok result -> Assert.Fail $"expected composed merge/probe error, got {result}"
+
+    [<Test>]
     member _.JjListWorktreesResolvesRootsAndBookmarks() : Task =
         task {
             // workspace list (name/commit/bookmarks) + a `workspace root` fan-out per name.
