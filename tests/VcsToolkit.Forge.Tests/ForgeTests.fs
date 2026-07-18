@@ -1,5 +1,7 @@
 module VcsToolkit.Forge.Tests
 
+open System
+open System.IO
 open System.Threading.Tasks
 open NUnit.Framework
 open ProcessKit
@@ -17,6 +19,109 @@ let private glForge (tokens: string list) (reply: Reply) =
 
 let private teaForge (tokens: string list) (reply: Reply) =
     Forge.FromGitea(".", VcsToolkit.Gitea.Gitea.WithRunner(ScriptedRunner().On(tokens, reply)))
+
+// Create a unique temp directory, run `f` against it, then remove it.
+let private withTempDir (f: string -> unit) =
+    let dir =
+        Path.Combine(Path.GetTempPath(), "vcs-forge-test-" + Guid.NewGuid().ToString("N"))
+
+    Directory.CreateDirectory dir |> ignore
+
+    try
+        f dir
+    finally
+        try
+            Directory.Delete(dir, true)
+        with
+        | :? IOException ->
+            // A test may still hold a file, or have removed its sandbox itself; cleanup must not hide its result.
+            ()
+        | :? UnauthorizedAccessException ->
+            // Windows can briefly deny removal while a test-created handle is being released; preserve the test result.
+            ()
+
+// Change the process cwd only for the scope that needs to prove a handle captured its path.
+let private withCurrentDirectory (dir: string) (f: unit -> unit) =
+    let previous = Directory.GetCurrentDirectory()
+
+    try
+        Directory.SetCurrentDirectory dir
+        f ()
+    finally
+        Directory.SetCurrentDirectory previous
+
+// ---------------------------------------------------------------------------
+// Forge construction — stored paths must be independent of process cwd
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+[<NonParallelizable>]
+type ForgeConstructionTests() =
+
+    [<Test>]
+    member _.RelativePathsAreCapturedByEveryConstructor() =
+        withTempDir (fun sandbox ->
+            let initial = Path.Combine(sandbox, "initial")
+            let later = Path.Combine(sandbox, "later")
+            let expectedCwd = Path.Combine(initial, "bound")
+            let expectedAt = Path.Combine(initial, "at")
+            let handles: (string * Forge) list ref = ref []
+            let atHolder: Forge option ref = ref None
+            Directory.CreateDirectory initial |> ignore
+            Directory.CreateDirectory later |> ignore
+
+            withCurrentDirectory initial (fun () ->
+                handles.Value <-
+                    [ "GitHub", Forge.GitHub "bound"
+                      "GitLab", Forge.GitLab "bound"
+                      "Gitea", Forge.Gitea "bound"
+                      "GitHubWithToken", Forge.GitHubWithToken("bound", "token")
+                      "GitLabWithToken", Forge.GitLabWithToken("bound", "token")
+                      "FromGitHub", Forge.FromGitHub("bound", VcsToolkit.GitHub.GitHub.WithRunner(ScriptedRunner()))
+                      "FromGitLab", Forge.FromGitLab("bound", VcsToolkit.GitLab.GitLab.WithRunner(ScriptedRunner()))
+                      "FromGitea", Forge.FromGitea("bound", VcsToolkit.Gitea.Gitea.WithRunner(ScriptedRunner()))
+                      "FromUnknown", Forge.FromUnknown "bound" ]
+
+                atHolder.Value <- Some((Forge.FromUnknown "bound").At "at"))
+
+            withCurrentDirectory later (fun () ->
+                for name, forge in handles.Value do
+                    Assert.That(forge.Cwd, Is.EqualTo expectedCwd, $"{name} captures its relative cwd now")
+
+                match atHolder.Value with
+                | Some at -> Assert.That(at.Cwd, Is.EqualTo expectedAt, "At captures its relative dir now")
+                | None -> Assert.Fail "the relative Forge.At handle was not created"))
+
+    [<Test>]
+    member _.InvalidPathsThrowArgumentExceptionWithTheInputParameterName() =
+        let invalidPaths = [ ""; string (char 0) ]
+
+        let constructors: (string * (string -> Forge)) list =
+            [ "GitHub", Forge.GitHub
+              "GitLab", Forge.GitLab
+              "Gitea", Forge.Gitea
+              "GitHubWithToken", fun cwd -> Forge.GitHubWithToken(cwd, "token")
+              "GitLabWithToken", fun cwd -> Forge.GitLabWithToken(cwd, "token")
+              "FromGitHub", fun cwd -> Forge.FromGitHub(cwd, VcsToolkit.GitHub.GitHub.WithRunner(ScriptedRunner()))
+              "FromGitLab", fun cwd -> Forge.FromGitLab(cwd, VcsToolkit.GitLab.GitLab.WithRunner(ScriptedRunner()))
+              "FromGitea", fun cwd -> Forge.FromGitea(cwd, VcsToolkit.Gitea.Gitea.WithRunner(ScriptedRunner()))
+              "FromUnknown", Forge.FromUnknown ]
+
+        let requireArgumentException (action: Action) : ArgumentException =
+            let caughtException = Assert.Throws<ArgumentException>(action)
+
+            match caughtException with
+            | null -> raise (InvalidOperationException "Assert.Throws returned null unexpectedly")
+            | nonNullException -> nonNullException
+
+        for invalid in invalidPaths do
+            for name, makeForge in constructors do
+                let ex = requireArgumentException (Action(fun () -> makeForge invalid |> ignore))
+                Assert.That(ex.ParamName, Is.EqualTo "cwd", $"{name} must report the cwd parameter")
+
+            let forge = Forge.FromUnknown "."
+            let at = requireArgumentException (Action(fun () -> forge.At invalid |> ignore))
+            Assert.That(at.ParamName, Is.EqualTo "dir", "At must report the dir parameter")
 
 // ---------------------------------------------------------------------------
 // ForgeKind.OfRemoteUrl — the security-sensitive host classifier
@@ -177,7 +282,7 @@ type DispatchTests() =
         Assert.That(gh.Kind, Is.EqualTo ForgeKind.GitHub)
         Assert.That(gh.Supports ForgeOp.PrChecks, Is.True)
         Assert.That(gh.Supports ForgeOp.PrDiff, Is.True)
-        Assert.That(gh.Cwd, Is.EqualTo ".")
+        Assert.That(gh.Cwd, Is.EqualTo(Directory.GetCurrentDirectory()))
 
         let gl = glForge [ "mr"; "list" ] (Reply.Ok "[]")
         Assert.That(gl.Kind, Is.EqualTo ForgeKind.GitLab)

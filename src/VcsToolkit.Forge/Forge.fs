@@ -1,5 +1,6 @@
 namespace VcsToolkit.Forge
 
+open System.IO
 open System.Threading.Tasks
 
 /// The per-CLI client behind a `Forge`, paired with that handle's one-shot version-probe
@@ -113,45 +114,67 @@ type Forge private (cwd: string, backend: Backend) =
 
     // --- Construction --------------------------------------------------------
 
+    /// Make a caller-supplied path stable before storing it on a cwd-bound handle.
+    static member private NormalizePathOrThrow(parameterName: string, path: string) =
+        try
+            Path.GetFullPath path
+        with ex ->
+            // Invalid paths must be reported as caller input, never leak a platform-specific
+            // Path exception from the public facade.
+            invalidArg parameterName $"{parameterName} must be a valid path: {ex.Message}"
+
     /// A GitHub-backed handle bound to `cwd`, using the real job-backed runner (gh's
     /// ambient login).
     static member GitHub(cwd: string) =
-        Forge(cwd, githubBackend (VcsToolkit.GitHub.GitHub.Create()))
+        let absCwd = Forge.NormalizePathOrThrow("cwd", cwd)
+        Forge(absCwd, githubBackend (VcsToolkit.GitHub.GitHub.Create()))
 
     /// A GitLab-backed handle bound to `cwd` (glab's ambient login).
     static member GitLab(cwd: string) =
-        Forge(cwd, gitlabBackend (VcsToolkit.GitLab.GitLab.Create()))
+        let absCwd = Forge.NormalizePathOrThrow("cwd", cwd)
+        Forge(absCwd, gitlabBackend (VcsToolkit.GitLab.GitLab.Create()))
 
     /// A Gitea-backed handle bound to `cwd`. Gitea authenticates **only** through `tea`'s
     /// ambient login (`tea login add`) — there is no `GiteaWithToken`, because `tea` has
     /// no token-via-environment override the way `gh`/`glab` do.
     static member Gitea(cwd: string) =
-        Forge(cwd, giteaBackend (VcsToolkit.Gitea.Gitea.Create()))
+        let absCwd = Forge.NormalizePathOrThrow("cwd", cwd)
+        Forge(absCwd, giteaBackend (VcsToolkit.Gitea.Gitea.Create()))
 
     /// A GitHub-backed handle that authenticates with an explicit `token` (injected as
     /// `GH_TOKEN`) instead of gh's ambient login.
     static member GitHubWithToken(cwd: string, token: string) =
-        Forge(cwd, githubBackend (VcsToolkit.GitHub.GitHub.Create().WithToken token))
+        let absCwd = Forge.NormalizePathOrThrow("cwd", cwd)
+        Forge(absCwd, githubBackend (VcsToolkit.GitHub.GitHub.Create().WithToken token))
 
     /// A GitLab-backed handle that authenticates with an explicit `token` (injected as
     /// `GITLAB_TOKEN`) instead of glab's ambient login.
     static member GitLabWithToken(cwd: string, token: string) =
-        Forge(cwd, gitlabBackend (VcsToolkit.GitLab.GitLab.Create().WithToken token))
+        let absCwd = Forge.NormalizePathOrThrow("cwd", cwd)
+        Forge(absCwd, gitlabBackend (VcsToolkit.GitLab.GitLab.Create().WithToken token))
 
     /// Build a GitHub-backed handle from an explicit client — for a custom runner (e.g. a
     /// test seam) or a pre-configured `GitHub`.
-    static member FromGitHub(cwd: string, client: VcsToolkit.GitHub.GitHub) = Forge(cwd, githubBackend client)
+    static member FromGitHub(cwd: string, client: VcsToolkit.GitHub.GitHub) =
+        let absCwd = Forge.NormalizePathOrThrow("cwd", cwd)
+        Forge(absCwd, githubBackend client)
 
     /// Build a GitLab-backed handle from an explicit `GitLab` client.
-    static member FromGitLab(cwd: string, client: VcsToolkit.GitLab.GitLab) = Forge(cwd, gitlabBackend client)
+    static member FromGitLab(cwd: string, client: VcsToolkit.GitLab.GitLab) =
+        let absCwd = Forge.NormalizePathOrThrow("cwd", cwd)
+        Forge(absCwd, gitlabBackend client)
 
     /// Build a Gitea-backed handle from an explicit `Gitea` client.
-    static member FromGitea(cwd: string, client: VcsToolkit.Gitea.Gitea) = Forge(cwd, giteaBackend client)
+    static member FromGitea(cwd: string, client: VcsToolkit.Gitea.Gitea) =
+        let absCwd = Forge.NormalizePathOrThrow("cwd", cwd)
+        Forge(absCwd, giteaBackend client)
 
     /// Build a handle for a remote that didn't classify as a known forge. The handle has
     /// no CLI client — every operation returns `Unsupported`, and `Capabilities` returns
     /// the all-`false` shape without spawning.
-    static member FromUnknown(cwd: string) = Forge(cwd, Backend.Unknown)
+    static member FromUnknown(cwd: string) =
+        let absCwd = Forge.NormalizePathOrThrow("cwd", cwd)
+        Forge(absCwd, Backend.Unknown)
 
     // --- Identity / re-anchoring / capability introspection ------------------
 
@@ -166,8 +189,11 @@ type Forge private (cwd: string, backend: Backend) =
     /// The directory operations run against.
     member _.Cwd = cwd
 
-    /// A sibling handle bound to `dir`, sharing this handle's client.
-    member _.At(dir: string) = Forge(dir, backend)
+    /// A sibling handle bound to `dir`, sharing this handle's client. `dir` is absolutised
+    /// now so later operations do not inherit the process cwd.
+    member _.At(dir: string) =
+        let absDir = Forge.NormalizePathOrThrow("dir", dir)
+        Forge(absDir, backend)
 
     /// The underlying `GitHub` client, or `None` when another forge backs this handle — an escape
     /// hatch to `gh`-only operations off the forge-agnostic surface (Actions runs, `prReview`/
