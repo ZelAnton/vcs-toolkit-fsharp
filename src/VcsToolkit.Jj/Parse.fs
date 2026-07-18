@@ -267,7 +267,9 @@ module internal JjParse =
                      | 't' -> sb.Append('\t') |> ignore
                      | 'u' ->
                          // `\uXXXX` — up to four hex digits. jj only escapes control chars
-                         // this way, so the BMP scalar always builds a single char.
+                         // this way, so a full escape always builds a single BMP char. A
+                         // truncated or malformed escape (fewer than four valid hex
+                         // digits) stops decoding instead of emitting a partial/NUL char.
                          let mutable code = 0
                          let mutable k = 0
                          let mutable go = true
@@ -279,7 +281,10 @@ module internal JjParse =
                                  code <- code * 16 + d
                                  k <- k + 1
 
-                         sb.Append(char code) |> ignore
+                         if k = 4 then
+                             sb.Append(char code) |> ignore
+                         else
+                             stop <- true
                          // Skip the hex digits consumed (the `\u` pair is skipped below).
                          i <- i + k
                      | other -> sb.Append(other) |> ignore)

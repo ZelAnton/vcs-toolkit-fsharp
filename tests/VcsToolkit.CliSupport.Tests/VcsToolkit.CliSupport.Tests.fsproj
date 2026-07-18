@@ -7,6 +7,7 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+		<Compile Include="PropertyTests.fs" />
 		<Compile Include="CliSupportTests.fs" />
 	</ItemGroup>
 
@@ -17,6 +18,7 @@
 		<PackageReference Include="NUnit3TestAdapter" />
 		<PackageReference Include="ProcessKit" />
 		<PackageReference Include="ProcessKit.Testing" />
+		<PackageReference Include="FsCheck.NUnit" />
 	</ItemGroup>
 
 	<ItemGroup>

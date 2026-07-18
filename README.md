@@ -32,6 +32,14 @@ The toolkit is split into one package per concern, mirroring the Rust workspace.
 | `VcsToolkit.Watch` | ✅ available | Filesystem-watch a git/jj repository and emit typed state-change events. A `RepoWatcher` watches the `.git`/`.jj` state dir (and, optionally, the working tree), debounces the write burst a VCS operation makes, re-queries `Repo.Snapshot`, and diffs it against the previous state to yield typed `RepoEvent`s (`HeadMoved`, `BranchSwitched`, `BranchCreated`/`Deleted`, `WorkingCopyChanged`, upstream/ahead-behind/operation/conflict). Re-query-and-diff (not raw FS events) makes it robust to ref temp-file renames and `index.lock` churn. The foundation for prompts, status bars, and TUIs. |
 | `VcsToolkit.Mcp` | ✅ available | A Model Context Protocol server exposing the toolkit's typed git/jj + forge operations as agent-callable tools. The `VcsToolkit.Mcp` library is the hermetically-testable core — `VcsMcpServer` with the `repo_*` / `forge_*` tools over `Core`/`Forge`, the `WriteGate` write policy (read tools always available, mutations gated by `--allow-write`/`--allow-tools`), the tool catalogue and dispatcher, and the CLI parser. The thin `vcs-mcp` binary (`VcsToolkit.Mcp.Server`) wires it to the `ModelContextProtocol` SDK over stdio, with a hardened git client (repo hooks/config disabled) and a per-command timeout. |
 
+## Architecture
+
+For the package dependency graph, what each layer is responsible for, the
+design principles that repeat across the wrapper clients (CLI subprocess
+driving, total/tolerant parsing, argv guards, credential provisioning, error
+classification, cancellation-safe cleanup), and the escape hatches available
+at each layer, see [docs/architecture.md](docs/architecture.md).
+
 ## Building from source
 
 `VcsToolkit` restores every dependency — ProcessKit (the runtime process-execution
