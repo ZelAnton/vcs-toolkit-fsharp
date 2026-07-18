@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub Enterprise Server (GHES) support on `VcsToolkit.GitHub`: a `GitHubHost` classifier (`GitHubHost.GitHubCom`, `GitHubHost.New(host)`, `GitHubHost.OfRemoteUrl(url)` with `Host`/`IsGitHubCom`/`IsEnterprise`) that treats `github.com` (any case) as SaaS and any other valid dotted host as GHES, canonicalising to a lower-cased hostname — an empty, malformed, or ambiguous host (an unparseable/hostless remote, an IPv6 literal, a bare single-label scp authority) is a diagnosable error, never a silent github.com fallback. `GitHub.WithHost(host)` (and the `GitHubAt` chain) binds a client to that host so a supplied credential is injected into the variable `gh` reads for it — `GH_TOKEN` for github.com, `GH_ENTERPRISE_TOKEN` for a GHES host — with `GH_HOST` pinned and the bound host carried in each operation's `CredentialRequest`, so an enterprise secret never lands in the github.com token env (nor vice versa). `GitHub.AuthStatusFor(host)` / `GitHubAt.AuthStatusFor(host)` scope the auth probe to one host (`gh auth status --hostname <host>`), so a broken session on a different host can't read as a false negative for the targeted one.
 
 ### Changed
+- `Forge` constructors and `At` now absolutise `cwd` at bind time, matching `Repo`'s contract.
 - MCP write-tool annotations now report each operation's destructive and idempotent semantics instead of using uniform defaults.
 - `VcsToolkit.Forge`: `Forge.PrClose(..., deleteBranch = true)` now refuses GitLab and Gitea with `ForgeError.Unsupported` before spawning, instead of silently ignoring branch deletion; closing without branch deletion and GitHub behavior are unchanged.
 - MCP clients now see `InvalidParams` instead of `Internal` for input validation errors from the core facade.
@@ -60,11 +61,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `VcsToolkit.Forge`'s version-gated mutating operations (`PrCreate`/`PrEdit`/`PrMerge`/`IssueCreate`) now probe the backend CLI's `--version` at most once per `Forge` handle — the result is cached for the handle's lifetime instead of being re-spawned on every gated call — and `Forge.Capabilities()` reuses the same cached probe rather than spawning its own. Fewer `gh`/`glab`/`tea --version` spawns per handle; behavior (fail-open on an unparsed version, `UnsupportedVersion` for a confirmed too-old CLI) is unchanged.
 
 ### Fixed
+- Repo.TryMerge no longer silently drops the original merge failure (or the rollback failure) when both a merge/probe step and its cleanup/rollback step fail on the same call, on either backend.
+- forge auto-detection on jj repositories no longer fails silently when `ui.color = "always"` is set in the user's jj config.
 - `Jj.ResolveList` (and consequently `Repo.ConflictedFiles` and jj merge probes) now preserves internal double-or-more spaces in conflicted paths instead of truncating the path at the first such run.
 - `Repo.At`, `Repo.FromGit`, and `Repo.FromJj` now capture absolute `Cwd`/`Root` paths just like `Repo.Open`, so a handle created with a relative path remains bound to the intended directory after the process current directory changes; invalid factory paths now fail with a descriptive input error instead of leaking a raw path exception.
 - MCP boolean tool arguments now reject non-boolean JSON values instead of silently treating them as false.
 - Fixed silent acceptance of wrong-typed optional string arguments in `forge_pr_create` and `forge_pr_edit`.
 - `Git.RemoteBranchExists` now inherits the client's `DefaultTimeout`, matching `Git.RemoteBranches`, instead of unconditionally replacing it with a 10-second deadline.
+- `VcsToolkit.Jj`'s internal `decodeJsonField` no longer emits a NUL character for a truncated `\uXXXX` escape (fewer than four hex digits); decoding now stops instead, matching the parser's own documented total-decoding contract.
 - `VcsToolkit.Watch` now observes shared jj stores when watching a secondary workspace.
 - `Jj.CommitPaths` and `JjAt.CommitPaths` now refuse an empty fileset before spawning `jj commit`, preventing a direct client call from committing the entire working copy.
 - `Git.Log`/`GitAt.Log` now preserve the full commit subject when it contains a literal 0x1f byte (e.g. a commit made with `--cleanup=verbatim`), instead of silently truncating it at the first occurrence.
