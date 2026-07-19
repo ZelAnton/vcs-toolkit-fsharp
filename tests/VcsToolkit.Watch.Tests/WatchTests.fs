@@ -226,7 +226,7 @@ let private withTemp (f: string -> unit) =
             // best-effort cleanup; a leaked temp dir must not fail the run.
             ()
 
-/// Whether an actual jj process can run; the integration test skips on CI agents without it.
+/// Whether an actual jj process can run.
 let private jjAvailable () =
     try
         use proc = new Process()
@@ -238,7 +238,10 @@ let private jjAvailable () =
 
 let private requireJj () =
     if not (jjAvailable ()) then
-        Assert.Ignore "jj not available on PATH"
+        if Environment.GetEnvironmentVariable "REQUIRE_JJ" = "1" then
+            Assert.Fail "REQUIRE_JJ=1 but jj not available on PATH"
+        else
+            Assert.Ignore "jj not available on PATH"
 
 /// Run a real jj command with a hermetic identity/configuration for the integration fixture.
 let private runJj (dir: string) (args: string list) =
@@ -977,7 +980,10 @@ type PipelineTests() =
                     e.Message.Contains("failed to spawn 'jj'")
                     && e.Message.Contains("Access to the path is denied.")
                     ->
-                    Assert.Ignore "sandbox prevents the ProcessKit jj runner from spawning"
+                    if Environment.GetEnvironmentVariable "REQUIRE_JJ" = "1" then
+                        Assert.Fail "REQUIRE_JJ=1 but the ProcessKit jj runner could not spawn"
+                    else
+                        Assert.Ignore "sandbox prevents the ProcessKit jj runner from spawning"
                 | Error e -> Assert.Fail $"watch build failed: {e.Message}"
                 | Ok watcher ->
                     use watcher = watcher

@@ -6,7 +6,7 @@ open NUnit.Framework
 open VcsToolkit.TestKit
 
 /// Whether a probe (a `<binary> --version` call) runs without raising — i.e. the binary is
-/// on PATH. The guarded tests below skip when it isn't (a hermetic CI has git but not jj).
+/// on PATH.
 let private binaryAvailable (probe: unit -> unit) : bool =
     try
         probe ()
@@ -17,7 +17,12 @@ let private binaryAvailable (probe: unit -> unit) : bool =
 
 let private requireBinary (name: string) (probe: unit -> unit) =
     if not (binaryAvailable probe) then
-        Assert.Ignore $"{name} not available on PATH"
+        let message = $"{name} not available on PATH"
+
+        if name = "jj" && Environment.GetEnvironmentVariable "REQUIRE_JJ" = "1" then
+            Assert.Fail $"REQUIRE_JJ=1 but {message}"
+        else
+            Assert.Ignore message
 
 // ---------------------------------------------------------------------------
 // TempDir — hermetic (needs no binary)
@@ -98,7 +103,7 @@ type GitSandboxTests() =
         Assert.That((repo.RevParse "origin/main").Length, Is.EqualTo 40, "seed commit fetched")
 
 // ---------------------------------------------------------------------------
-// JjSandbox — requires the jj binary (skipped on a hermetic CI without jj)
+// JjSandbox — requires the jj binary (skipped locally when it is unavailable)
 // ---------------------------------------------------------------------------
 
 [<TestFixture>]
@@ -119,8 +124,8 @@ type JjSandboxTests() =
         Assert.Pass "jj scenario built without error"
 
 // ---------------------------------------------------------------------------
-// Construction failure must not leak the temp dir (only forceable when a binary
-// is absent — runs on a hermetic CI without jj, skips where jj is installed)
+// Construction failure must not leak the temp dir (only forceable when jj is
+// absent, so it skips wherever jj is installed).
 // ---------------------------------------------------------------------------
 
 [<TestFixture>]

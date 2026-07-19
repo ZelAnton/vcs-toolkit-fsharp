@@ -86,7 +86,46 @@ jobs:
       - name: Build
         run: dotnet build --no-restore --configuration Release
 
+      - name: Install jj (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          JJ_VERSION: '0.42.0'
+        run: |
+          install_dir="$RUNNER_TEMP/jj"
+          if [ "$RUNNER_OS" = "macOS" ] && [ "$(uname -m)" = "arm64" ]; then
+            target="aarch64-apple-darwin"
+          elif [ "$RUNNER_OS" = "macOS" ]; then
+            target="x86_64-apple-darwin"
+          else
+            target="x86_64-unknown-linux-musl"
+          fi
+          archive="jj-v${JJ_VERSION}-${target}.tar.gz"
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/$archive" "https://github.com/jj-vcs/jj/releases/download/v${JJ_VERSION}/$archive"
+          mkdir -p "$install_dir"
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$install_dir"
+          test -x "$install_dir/jj"
+          "$install_dir/jj" --version
+          echo "$install_dir" >> "$GITHUB_PATH"
+
+      - name: Install jj (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          JJ_VERSION: '0.42.0'
+        run: |
+          $installDir = Join-Path $env:RUNNER_TEMP 'jj'
+          $archive = "jj-v$env:JJ_VERSION-x86_64-pc-windows-msvc.zip"
+          Invoke-WebRequest -Uri "https://github.com/jj-vcs/jj/releases/download/v$env:JJ_VERSION/$archive" -OutFile (Join-Path $env:RUNNER_TEMP $archive)
+          Expand-Archive -LiteralPath (Join-Path $env:RUNNER_TEMP $archive) -DestinationPath $installDir
+          $binary = Join-Path $installDir 'jj.exe'
+          if (-not (Test-Path -LiteralPath $binary)) { throw "jj binary was not extracted to $binary" }
+          & $binary --version
+          $installDir | Add-Content -LiteralPath $env:GITHUB_PATH
+
       - name: Test
+        env:
+          REQUIRE_JJ: '1'
         run: dotnet test --no-build --configuration Release --logger "trx;LogFileName=test-results.trx" --results-directory ./TestResults
 
       # Test results are uploaded even when the Test step fails, so a red CI run
