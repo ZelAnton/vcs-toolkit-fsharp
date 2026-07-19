@@ -72,6 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Git.RemoteBranchExists` now inherits the client's `DefaultTimeout`, matching `Git.RemoteBranches`, instead of unconditionally replacing it with a 10-second deadline.
 - `VcsToolkit.Jj`'s internal `decodeJsonField` no longer emits a NUL character for a truncated `\uXXXX` escape (fewer than four hex digits); decoding now stops instead, matching the parser's own documented total-decoding contract.
 - `VcsToolkit.Watch` now observes shared jj stores when watching a secondary workspace.
+- `vcs-mcp`'s MCP handshake no longer advertises a hardcoded `1.0.0` `ServerInfo.Version`; it now tracks the actual built assembly version.
 - `Jj.CommitPaths` and `JjAt.CommitPaths` now refuse an empty fileset before spawning `jj commit`, preventing a direct client call from committing the entire working copy.
 - `Git.Log`/`GitAt.Log` now preserve the full commit subject when it contains a literal 0x1f byte (e.g. a commit made with `--cleanup=verbatim`), instead of silently truncating it at the first occurrence.
 - `GitHub.PrDiff` and `GitLab.MrDiff` now preserve the complete raw CLI diff output, including a trailing newline and a final blank context line, so their parsed `FileDiff.Raw` values remain byte-exact and the final hunk stays valid.

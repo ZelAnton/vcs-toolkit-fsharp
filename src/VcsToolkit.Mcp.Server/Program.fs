@@ -8,6 +8,7 @@ module Main
 // didn't create can't execute its hooks, and every command carries a `--timeout`.
 
 open System
+open System.Reflection
 open System.Text.Json
 open System.Threading.Tasks
 open Microsoft.Extensions.Hosting
@@ -129,6 +130,21 @@ let internal resolveForge (repo: Repo) (forced: ForgeKind option) (timeout: Time
         | _ -> return Option.None
     }
 
+/// The server's advertised version, read from the entry assembly's
+/// `AssemblyInformationalVersionAttribute` (set from the shared `<Version>` in
+/// `src/Directory.Build.props`, overridden at release time via `/p:Version=...` — see
+/// CLAUDE.md "Release packaging"). Falls back to `"0.0.0-unknown"` when the attribute is
+/// absent (e.g. some non-standard launch scenario without a full assembly build), so the
+/// handshake never silently reverts to a stale hardcoded literal.
+let internal serverVersion () : string =
+    match Assembly.GetEntryAssembly() with
+    | null -> "0.0.0-unknown"
+    | asm ->
+        match asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>() with
+        | null -> "0.0.0-unknown"
+        | attr when String.IsNullOrWhiteSpace attr.InformationalVersion -> "0.0.0-unknown"
+        | attr -> attr.InformationalVersion
+
 /// Build the MCP `Tool` list from the library's catalogue (schema + annotation hints).
 let private buildTools () : ResizeArray<Tool> =
     let tools = ResizeArray<Tool>()
@@ -192,7 +208,7 @@ let private runServer (server: VcsMcpServer) : Task =
 
     builder.Services
         .AddMcpServer(fun options ->
-            options.ServerInfo <- Implementation(Name = "vcs-mcp", Version = "1.0.0")
+            options.ServerInfo <- Implementation(Name = "vcs-mcp", Version = serverVersion ())
             let caps = ServerCapabilities()
             caps.Tools <- ToolsCapability()
             options.Capabilities <- caps
