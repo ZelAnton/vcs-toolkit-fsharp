@@ -61,6 +61,30 @@ Run `vcs-mcp --help` for the full flag list. The forge is auto-detected from the
 config disabled) so serving a repository you did not create cannot execute its hooks. The `git` /
 `jj` and `gh` / `glab` / `tea` CLIs you intend to drive must be on `PATH` (see Requirements).
 
+## Quick start
+
+Install `VcsToolkit.Core`, then open a Git or Jujutsu repository. `Repo.Open` detects the
+backend; `CommitPaths` accepts repository-root-relative paths and never commits an empty list.
+
+```fsharp
+open VcsToolkit.Core
+
+let commitReadme repoDir =
+    task {
+        match Repo.Open repoDir with
+        | Error error -> return Error error
+        | Ok repo ->
+            match! repo.Snapshot() with
+            | Error error -> return Error error
+            | Ok snapshot ->
+                printfn "Current head: %A" snapshot.Head
+                return! repo.CommitPaths([ "README.md" ], "Document the quick start")
+    }
+```
+
+See [the examples cookbook](docs/examples.md) for repository, forge, watcher, conflict, and
+credential-provider examples.
+
 ## Architecture
 
 For the package dependency graph, what each layer is responsible for, the
