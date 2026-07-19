@@ -29,6 +29,10 @@
 		<!-- Property-based testing on top of NUnit; pinned to the FsCheck.NUnit release whose
 		     NUnit dependency range ([4.0.0, 5.0.0)) covers the NUnit pin above. -->
 		<PackageVersion Include="FsCheck.NUnit" Version="3.3.3" />
+		<!-- Public-API snapshot generation for the PublicApi.Tests project: renders each
+		     library's public surface as text (via Mono.Cecil) to diff against a committed
+		     .approved baseline, catching accidental SemVer breaks. -->
+		<PackageVersion Include="PublicApiGenerator" Version="11.5.4" />
 	</ItemGroup>
 
 	<!-- Production dependency: the process-execution layer every CLI wrapper drives

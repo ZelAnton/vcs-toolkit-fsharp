@@ -21,19 +21,15 @@ let private binaryAvailable (probe: unit -> unit) : bool =
         // the binary isn't on PATH (or failed to spawn) — the guarded test can't run.
         false
 
-/// Skip (rather than fail) when a required binary is unavailable. `.github/workflows/ci.yml`
-/// installs no jj on any of the three OS runners, and `VcsToolkit.Jj.Tests` passing green proves
-/// nothing about real jj availability — it drives a scripted fake runner, never the real binary
-/// (see `tests/VcsToolkit.Jj.Tests/JjTests.fs`). The only tests in this repo that actually invoke
-/// real jj (`tests/VcsToolkit.TestKit.Tests/TestKitTests.fs`, via `JjSandbox.Init`) skip when it's
-/// absent — "a hermetic CI has git but not jj" is documented there. This jj fallback is a
-/// best-effort, jj-only convenience: the git-backed detection path and the `--forge` override path
-/// are covered unconditionally by the other tests in this file, which don't need jj. Skipping here
-/// when jj is missing matches that established convention rather than turning CI red on every
-/// runner that lacks jj.
+/// Skip unavailable binaries locally, except jj when CI explicitly requires it.
 let private requireBinary (name: string) (probe: unit -> unit) =
     if not (binaryAvailable probe) then
-        Assert.Ignore $"{name} not available on PATH"
+        let message = $"{name} not available on PATH"
+
+        if name = "jj" && System.Environment.GetEnvironmentVariable "REQUIRE_JJ" = "1" then
+            Assert.Fail $"REQUIRE_JJ=1 but {message}"
+        else
+            Assert.Ignore message
 
 /// A throwaway **non-colocated** jj repo (`JjSandbox.InitNonColocated`, i.e. `jj git init
 /// --no-colocate`) — the scenario this task's fallback targets. `JjSandbox.Init` is

@@ -1376,8 +1376,11 @@ type PathAnchoringTests() =
         try
             Raw.jj "." [ "--version" ]
         with _ ->
-            // jj isn't on PATH — skip rather than fail.
-            Assert.Ignore "jj not available on PATH"
+            if Environment.GetEnvironmentVariable "REQUIRE_JJ" = "1" then
+                Assert.Fail "REQUIRE_JJ=1 but jj not available on PATH"
+            else
+                // Local development does not require jj, so the integration fixture remains optional.
+                Assert.Ignore "jj not available on PATH"
 
     // --- git: the pathspec command must run from Root, not the subdir Cwd (mock) ------------
 
@@ -1537,8 +1540,11 @@ type ShowFileBytesTests() =
         try
             Raw.jj "." [ "--version" ]
         with _ ->
-            // jj isn't on PATH — skip rather than fail.
-            Assert.Ignore "jj not available on PATH"
+            if Environment.GetEnvironmentVariable "REQUIRE_JJ" = "1" then
+                Assert.Fail "REQUIRE_JJ=1 but jj not available on PATH"
+            else
+                // Local development does not require jj, so the integration fixture remains optional.
+                Assert.Ignore "jj not available on PATH"
 
     /// A blob whose bytes are NOT valid UTF-8: `0xFF`/`0xFE` are invalid UTF-8 lead bytes, so a
     /// UTF-8 decode replaces each with U+FFFD and can never reproduce the original bytes. Ends in
