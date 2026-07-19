@@ -1,6 +1,5 @@
 namespace VcsToolkit.Core
 
-open System.IO
 open ProcessKit
 open VcsToolkit.CliSupport
 open VcsToolkit.Diff
@@ -114,26 +113,15 @@ module internal GitBackend =
                     return ofVcs r
         }
 
-    let private classifyOperationState (gitDir: string) : OperationState =
-        // `git am` and an apply-backend rebase share `rebase-apply/`, but am marks it
-        // `applying` — check that first so an am reads `ApplyMailbox`, not `Rebase`.
-        if File.Exists(Path.Combine(gitDir, "MERGE_HEAD")) then
-            OperationState.Merge
-        elif File.Exists(Path.Combine(gitDir, "rebase-apply", "applying")) then
-            OperationState.ApplyMailbox
-        elif
-            Directory.Exists(Path.Combine(gitDir, "rebase-merge"))
-            || Directory.Exists(Path.Combine(gitDir, "rebase-apply"))
-        then
-            OperationState.Rebase
-        elif File.Exists(Path.Combine(gitDir, "CHERRY_PICK_HEAD")) then
-            OperationState.CherryPick
-        elif File.Exists(Path.Combine(gitDir, "REVERT_HEAD")) then
-            OperationState.Revert
-        elif File.Exists(Path.Combine(gitDir, "BISECT_LOG")) then
-            OperationState.Bisect
-        else
-            OperationState.Clear
+    let private classifyOperationState (markers: GitOperationMarkers) : OperationState =
+        // Preserve the existing Core priority when several markers are present at once.
+        if markers.IsMerge then OperationState.Merge
+        elif markers.IsAm then OperationState.ApplyMailbox
+        elif markers.IsRebase then OperationState.Rebase
+        elif markers.IsCherryPick then OperationState.CherryPick
+        elif markers.IsRevert then OperationState.Revert
+        elif markers.IsBisect then OperationState.Bisect
+        else OperationState.Clear
 
     let snapshot (git: Git) (dir: string) =
         task {
@@ -146,16 +134,10 @@ module internal GitBackend =
                 // git conflict is part of that paused state, so `operation` is one of the git
                 // sequencer states here (matching `inProgressState`); the unresolved-files signal
                 // is `conflicted`.
-                match! git.GitDir dir with
+                match! git.ResolvedGitDir dir with
                 | Error e -> return Error(RepoError.Vcs e)
-                | Ok raw ->
-                    let gitDir =
-                        if Path.IsPathRooted raw then
-                            raw
-                        else
-                            Path.Combine(dir, raw)
-
-                    let operation = classifyOperationState gitDir
+                | Ok gitDir ->
+                    let operation = gitDir |> GitOperationMarkers.classify |> classifyOperationState
 
                     let changeCount = bs.TrackedChanges + bs.Untracked
                     // Upstream + ahead/behind travel together: git reports the counts only when an
@@ -253,16 +235,9 @@ module internal GitBackend =
     let inProgressState (git: Git) (dir: string) =
         task {
             // Resolve git-dir once, then classify the on-disk interrupted-operation markers.
-            match! git.GitDir dir with
+            match! git.ResolvedGitDir dir with
             | Error e -> return Error(RepoError.Vcs e)
-            | Ok raw ->
-                let gitDir =
-                    if Path.IsPathRooted raw then
-                        raw
-                    else
-                        Path.Combine(dir, raw)
-
-                return Ok(classifyOperationState gitDir)
+            | Ok gitDir -> return Ok(gitDir |> GitOperationMarkers.classify |> classifyOperationState)
         }
 
     let tryMerge (git: Git) (dir: string) (source: string) =
