@@ -1,6 +1,5 @@
 namespace VcsToolkit.Forge
 
-open System
 open System.Threading.Tasks
 open ProcessKit
 
@@ -15,8 +14,6 @@ type internal GiteaVersionProbe = Lazy<Task<Result<VcsToolkit.Gitea.GiteaCapabil
 /// `Forge` dispatch returns `Unsupported` for the Gitea backend instead.
 module internal GiteaForge =
 
-    let private strOpt (s: string) : string option = if s = "" then None else Some s
-
     let private mapPr (pr: VcsToolkit.Gitea.PullRequest) : ForgePr =
         { Number = pr.Number
           Title = pr.Title
@@ -25,7 +22,7 @@ module internal GiteaForge =
           State =
             if pr.Merged then
                 ForgePrState.Merged
-            elif pr.State.Equals("closed", StringComparison.OrdinalIgnoreCase) then
+            elif Common.stateEquals pr.State "closed" then
                 ForgePrState.Closed
             else
                 ForgePrState.Open
@@ -43,7 +40,7 @@ module internal GiteaForge =
         { Number = i.Number
           Title = i.Title
           State =
-            if i.State.Equals("closed", StringComparison.OrdinalIgnoreCase) then
+            if Common.stateEquals i.State "closed" then
                 ForgeIssueState.Closed
             else
                 ForgeIssueState.Open
@@ -57,7 +54,7 @@ module internal GiteaForge =
         { Tag = r.Tag
           Title = r.Title
           Url = r.Url
-          PublishedAt = strOpt r.PublishedAt
+          PublishedAt = Common.strOpt r.PublishedAt
           // `tea` has no release body/notes column.
           Body = Option.None
           // tea's release `Status` column carries draft/prerelease → Some.

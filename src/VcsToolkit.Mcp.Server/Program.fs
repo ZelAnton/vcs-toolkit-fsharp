@@ -8,6 +8,7 @@ module Main
 // didn't create can't execute its hooks, and every command carries a `--timeout`.
 
 open System
+open System.Reflection
 open System.Text.Json
 open System.Threading.Tasks
 open Microsoft.Extensions.Hosting
@@ -129,6 +130,32 @@ let internal resolveForge (repo: Repo) (forced: ForgeKind option) (timeout: Time
         | _ -> return Option.None
     }
 
+/// Read an assembly's informational version with a safe fallback for unusual launch contexts.
+let internal readVersionFromAssembly (asm: Assembly | null) : string =
+    match asm with
+    | null -> "0.0.0-unknown"
+    | asm ->
+        match asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>() with
+        | null -> "0.0.0-unknown"
+        | attr when String.IsNullOrWhiteSpace attr.InformationalVersion -> "0.0.0-unknown"
+        | attr -> attr.InformationalVersion
+
+/// The server's advertised version, read from the entry assembly's
+/// `AssemblyInformationalVersionAttribute` (set from the shared `<Version>` in
+/// `src/Directory.Build.props`, overridden at release time via `/p:Version=...` — see
+/// CLAUDE.md "Release packaging"). Falls back to `"0.0.0-unknown"` when the attribute is
+/// absent (e.g. some non-standard launch scenario without a full assembly build), so the
+/// handshake never silently reverts to a stale hardcoded literal.
+let internal serverVersion () : string =
+    Assembly.GetEntryAssembly() |> readVersionFromAssembly
+
+/// The `Implementation` metadata advertised in the MCP handshake: the fixed server name paired
+/// with `serverVersion()`. Extracted out of `runServer` so tests can prove `ServerInfo.Version`
+/// is actually wired to `serverVersion()` end to end, not merely that `serverVersion()` itself
+/// happens not to be the old hardcoded literal in isolation.
+let internal buildServerInfo () : Implementation =
+    Implementation(Name = "vcs-mcp", Version = serverVersion ())
+
 /// Build the MCP `Tool` list from the library's catalogue (schema + annotation hints).
 let private buildTools () : ResizeArray<Tool> =
     let tools = ResizeArray<Tool>()
@@ -192,7 +219,7 @@ let private runServer (server: VcsMcpServer) : Task =
 
     builder.Services
         .AddMcpServer(fun options ->
-            options.ServerInfo <- Implementation(Name = "vcs-mcp", Version = "1.0.0")
+            options.ServerInfo <- buildServerInfo ()
             let caps = ServerCapabilities()
             caps.Tools <- ToolsCapability()
             options.Capabilities <- caps
