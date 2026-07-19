@@ -1199,6 +1199,43 @@ type GitSequencerStateTests() =
             Assert.That(stateOf (), Is.EqualTo OperationState.Clear, "a clean git dir is Clear"))
 
     [<Test>]
+    member _.InProgressStatePreservesMarkerPriority() =
+        // Multiple markers should not occur in a healthy repository, but preserve the established
+        // order if stale state does leave more than one behind: merge, am, rebase, cherry-pick,
+        // revert, then bisect.
+        withTempDir (fun dir ->
+            let gitDir, repo = repoWithGitDir dir []
+
+            let stateOf () =
+                match repo.InProgressState().GetAwaiter().GetResult() with
+                | Ok state -> state
+                | Error e -> failwithf "InProgressState failed: %s" e.Message
+
+            let touch name =
+                File.WriteAllText(Path.Combine(gitDir, name), "x\n")
+
+            let rebaseApply = Path.Combine(gitDir, "rebase-apply")
+
+            touch "BISECT_LOG"
+            Assert.That(stateOf (), Is.EqualTo OperationState.Bisect)
+
+            touch "REVERT_HEAD"
+            Assert.That(stateOf (), Is.EqualTo OperationState.Revert)
+
+            touch "CHERRY_PICK_HEAD"
+            Assert.That(stateOf (), Is.EqualTo OperationState.CherryPick)
+
+            Directory.CreateDirectory(Path.Combine(gitDir, "rebase-merge")) |> ignore
+            Assert.That(stateOf (), Is.EqualTo OperationState.Rebase)
+
+            Directory.CreateDirectory rebaseApply |> ignore
+            touch (Path.Combine("rebase-apply", "applying"))
+            Assert.That(stateOf (), Is.EqualTo OperationState.ApplyMailbox)
+
+            touch "MERGE_HEAD"
+            Assert.That(stateOf (), Is.EqualTo OperationState.Merge))
+
+    [<Test>]
     member _.AbortDuringCherryPickDispatchesCherryPickAbort() =
         // A cherry-pick abort must route `cherry-pick --abort` — the scripted runner fails any
         // other command, so a wrong route (e.g. `merge --abort`) surfaces as an error.
