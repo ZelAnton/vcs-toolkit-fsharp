@@ -1,0 +1,163 @@
+namespace VcsToolkit.Watch
+{
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.ObjectType)]
+    [Microsoft.FSharp.Core.Sealed]
+    [System.Serializable]
+    public sealed class Builder
+    {
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Watch.RepoWatcher, VcsToolkit.Watch.WatchError>> Build() { }
+        public VcsToolkit.Watch.Builder Debounce(System.TimeSpan window) { }
+        public VcsToolkit.Watch.Builder MaxWait(System.TimeSpan ceiling) { }
+        public VcsToolkit.Watch.Builder RequeryTimeout(Microsoft.FSharp.Core.FSharpOption<System.TimeSpan>? timeout) { }
+        public VcsToolkit.Watch.Builder WorkingTree(bool yes) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class RepoChange : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Watch.RepoChange>, System.IEquatable<VcsToolkit.Watch.RepoChange>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Watch.RepoChange))]
+        public RepoChange(VcsToolkit.Core.RepoSnapshot snapshot, Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Watch.RepoEvent> events) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Watch.RepoEvent> Events { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public VcsToolkit.Core.RepoSnapshot Snapshot { get; }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+    [System.Serializable]
+    public abstract class RepoEvent : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Watch.RepoEvent>, System.IEquatable<VcsToolkit.Watch.RepoEvent>
+    {
+        [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+        [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.Watch.RepoEvent.AheadBehindChanged@DebugTypeProxy))]
+        [System.Serializable]
+        public class AheadBehindChanged : VcsToolkit.Watch.RepoEvent { }
+        [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+        [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.Watch.RepoEvent.BranchCreated@DebugTypeProxy))]
+        [System.Serializable]
+        public class BranchCreated : VcsToolkit.Watch.RepoEvent { }
+        [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+        [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.Watch.RepoEvent.BranchDeleted@DebugTypeProxy))]
+        [System.Serializable]
+        public class BranchDeleted : VcsToolkit.Watch.RepoEvent { }
+        [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+        [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.Watch.RepoEvent.BranchSwitched@DebugTypeProxy))]
+        [System.Serializable]
+        public class BranchSwitched : VcsToolkit.Watch.RepoEvent { }
+        [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+        [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.Watch.RepoEvent.ConflictChanged@DebugTypeProxy))]
+        [System.Serializable]
+        public class ConflictChanged : VcsToolkit.Watch.RepoEvent { }
+        [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+        [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.Watch.RepoEvent.HeadMoved@DebugTypeProxy))]
+        [System.Serializable]
+        public class HeadMoved : VcsToolkit.Watch.RepoEvent { }
+        [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+        [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.Watch.RepoEvent.OperationChanged@DebugTypeProxy))]
+        [System.Serializable]
+        public class OperationChanged : VcsToolkit.Watch.RepoEvent { }
+        public static class Tags
+        {
+            public const int AheadBehindChanged = 6;
+            public const int BranchCreated = 2;
+            public const int BranchDeleted = 3;
+            public const int BranchSwitched = 1;
+            public const int ConflictChanged = 8;
+            public const int HeadMoved = 0;
+            public const int OperationChanged = 7;
+            public const int UpstreamChanged = 5;
+            public const int WorkingCopyChanged = 4;
+        }
+        [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+        [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.Watch.RepoEvent.UpstreamChanged@DebugTypeProxy))]
+        [System.Serializable]
+        public class UpstreamChanged : VcsToolkit.Watch.RepoEvent { }
+        [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+        [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.Watch.RepoEvent.WorkingCopyChanged@DebugTypeProxy))]
+        [System.Serializable]
+        public class WorkingCopyChanged : VcsToolkit.Watch.RepoEvent { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.ObjectType)]
+    [Microsoft.FSharp.Core.Sealed]
+    [System.Serializable]
+    public sealed class RepoWatcher : System.IDisposable
+    {
+        public VcsToolkit.Core.RepoSnapshot Current { get; }
+        public VcsToolkit.Watch.WatcherStats Stats { get; }
+        public static System.TimeSpan DefaultRequeryTimeout { get; }
+        public System.Collections.Generic.IAsyncEnumerable<VcsToolkit.Watch.RepoChange> ReadAll([Microsoft.FSharp.Core.OptionalArgument] Microsoft.FSharp.Core.FSharpOption<System.Threading.CancellationToken>? cancellationToken) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Watch.RepoChange>?> Recv() { }
+        public static VcsToolkit.Watch.Builder Builder(VcsToolkit.Core.Repo repo) { }
+        public static System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Watch.RepoWatcher, VcsToolkit.Watch.WatchError>> Watch(VcsToolkit.Core.Repo repo) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+    [System.Serializable]
+    public abstract class WatchError : System.Collections.IStructuralEquatable, System.IEquatable<VcsToolkit.Watch.WatchError>
+    {
+        public bool IsNotFound { get; }
+        public bool IsTransient { get; }
+        public string Message { get; }
+        public Microsoft.FSharp.Core.FSharpOption<ProcessKit.ProcessError>? ProcessError { get; }
+        [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+        [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.Watch.WatchError.Io@DebugTypeProxy))]
+        [System.Serializable]
+        public class Io : VcsToolkit.Watch.WatchError { }
+        [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+        [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.Watch.WatchError.Notify@DebugTypeProxy))]
+        [System.Serializable]
+        public class Notify : VcsToolkit.Watch.WatchError { }
+        public static class Tags
+        {
+            public const int Io = 2;
+            public const int Notify = 0;
+            public const int Vcs = 1;
+        }
+        [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+        [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.Watch.WatchError.Vcs@DebugTypeProxy))]
+        [System.Serializable]
+        public class Vcs : VcsToolkit.Watch.WatchError { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+    [System.Serializable]
+    public sealed class WatcherErrorKind : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Watch.WatcherErrorKind>, System.IEquatable<VcsToolkit.Watch.WatcherErrorKind>
+    {
+        public static class Tags
+        {
+            public const int Branches = 1;
+            public const int Snapshot = 0;
+            public const int Timeout = 2;
+        }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class WatcherStats : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Watch.WatcherStats>, System.IEquatable<VcsToolkit.Watch.WatcherStats>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Watch.WatcherStats))]
+        public WatcherStats(ulong requeries, ulong changes, ulong skipped, Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Watch.WatcherErrorKind>? lastError, ulong watchErrors) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public ulong Changes { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+        public Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Watch.WatcherErrorKind>? LastError { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public ulong Requeries { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public ulong Skipped { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+        public ulong WatchErrors { get; }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Exception)]
+    [System.Serializable]
+    public class WatcherTerminated : System.Exception, System.Collections.IStructuralEquatable
+    {
+        public WatcherTerminated() { }
+        public WatcherTerminated(VcsToolkit.Watch.WatchError error) { }
+        protected WatcherTerminated(System.Runtime.Serialization.SerializationInfo info, System.Runtime.Serialization.StreamingContext context) { }
+        public override string Message { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public VcsToolkit.Watch.WatchError error { get; }
+    }
+}

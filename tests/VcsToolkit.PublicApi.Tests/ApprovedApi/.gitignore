@@ -1,0 +1,3 @@
+# Public-API snapshots written by a failing test run — transient, never committed.
+# Only the *.approved.txt baselines belong in version control.
+*.received.txt

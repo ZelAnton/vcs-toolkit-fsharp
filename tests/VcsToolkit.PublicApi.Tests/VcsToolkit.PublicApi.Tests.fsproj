@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<IsPackable>false</IsPackable>
+		<!-- Resolve every src/* library through assembly search paths (no ProjectReference);
+		     build ordering after all twelve libraries is enforced by BuildDependency entries
+		     in VcsToolkit.slnx. Each referenced assembly is copied into this project's output,
+		     where the test loads it via Assembly.LoadFrom and PublicApiGenerator (Cecil) reads
+		     it, resolving its dependencies from the same directory. -->
+		<AssemblySearchPaths>$(AssemblySearchPaths);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework);$(DiffDir)bin\$(Configuration)\$(TargetFramework);$(GitDir)bin\$(Configuration)\$(TargetFramework);$(JjDir)bin\$(Configuration)\$(TargetFramework);$(GitHubDir)bin\$(Configuration)\$(TargetFramework);$(GitLabDir)bin\$(Configuration)\$(TargetFramework);$(GiteaDir)bin\$(Configuration)\$(TargetFramework);$(CoreDir)bin\$(Configuration)\$(TargetFramework);$(ForgeDir)bin\$(Configuration)\$(TargetFramework);$(WatchDir)bin\$(Configuration)\$(TargetFramework);$(TestKitDir)bin\$(Configuration)\$(TargetFramework);$(McpDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
+	</PropertyGroup>
+
+	<!-- Embed the project directory so the test reads/writes the .approved / .received
+	     snapshots in the source tree (not the build output), keeping an intentional API
+	     change a plain file diff in review. MSBuildProjectDirectory uses OS-native
+	     separators; the test appends the "ApprovedApi" segment via Path.Combine. -->
+	<ItemGroup>
+		<AssemblyMetadata Include="PublicApiTestsProjectDir" Value="$(MSBuildProjectDirectory)" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Compile Include="PublicApiTests.fs" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="FSharp.Core" />
+		<PackageReference Include="Microsoft.NET.Test.Sdk" />
+		<PackageReference Include="NUnit" />
+		<PackageReference Include="NUnit3TestAdapter" />
+		<PackageReference Include="PublicApiGenerator" />
+		<!-- The libraries surface ProcessKit types (CliSupport) and FSharp.SystemTextJson
+		     types (Mcp) in their public signatures; those assemblies must sit in the output
+		     directory for Cecil to resolve the referenced types while rendering the API. -->
+		<PackageReference Include="ProcessKit" />
+		<PackageReference Include="FSharp.SystemTextJson" />
+	</ItemGroup>
+
+	<!-- All twelve publishable src/* libraries whose public surface is snapshot-tested. -->
+	<ItemGroup>
+		<Reference Include="VcsToolkit.CliSupport" />
+		<Reference Include="VcsToolkit.Diff" />
+		<Reference Include="VcsToolkit.Git" />
+		<Reference Include="VcsToolkit.Jj" />
+		<Reference Include="VcsToolkit.GitHub" />
+		<Reference Include="VcsToolkit.GitLab" />
+		<Reference Include="VcsToolkit.Gitea" />
+		<Reference Include="VcsToolkit.Core" />
+		<Reference Include="VcsToolkit.Forge" />
+		<Reference Include="VcsToolkit.Watch" />
+		<Reference Include="VcsToolkit.TestKit" />
+		<Reference Include="VcsToolkit.Mcp" />
+	</ItemGroup>
+
+</Project>

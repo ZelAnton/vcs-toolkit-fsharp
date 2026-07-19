@@ -1,0 +1,253 @@
+namespace VcsToolkit.Core
+{
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+    [System.Serializable]
+    public sealed class BackendKind : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Core.BackendKind>, System.IEquatable<VcsToolkit.Core.BackendKind>
+    {
+        public string AsString { get; }
+        public static class Tags
+        {
+            public const int Git = 0;
+            public const int Jj = 1;
+        }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class Commit : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Core.Commit>, System.IEquatable<VcsToolkit.Core.Commit>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Core.Commit))]
+        public Commit(string id, string description, Microsoft.FSharp.Core.FSharpOption<string>? author, Microsoft.FSharp.Core.FSharpOption<string>? date) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? Author { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? Date { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public string Description { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public string Id { get; }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+    [System.Serializable]
+    public sealed class CreateOutcome : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Core.CreateOutcome>, System.IEquatable<VcsToolkit.Core.CreateOutcome>
+    {
+        public static class Tags
+        {
+            public const int CowCloned = 1;
+            public const int Plain = 0;
+        }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Module)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    public static class Detect
+    {
+        public static Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Core.Located>? detect(string start) { }
+        public static bool isGitMarker(string path) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class FileChange : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Core.FileChange>, System.IEquatable<VcsToolkit.Core.FileChange>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Core.FileChange))]
+        public FileChange(string path, Microsoft.FSharp.Core.FSharpOption<string>? oldPath, VcsToolkit.Diff.ChangeKind kind) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public VcsToolkit.Diff.ChangeKind Kind { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? OldPath { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public string Path { get; }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class Located : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Core.Located>, System.IEquatable<VcsToolkit.Core.Located>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Core.Located))]
+        public Located(VcsToolkit.Core.BackendKind kind, string root) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public VcsToolkit.Core.BackendKind Kind { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public string Root { get; }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+    [System.Serializable]
+    public abstract class MergeProbe : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Core.MergeProbe>, System.IEquatable<VcsToolkit.Core.MergeProbe>
+    {
+        [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+        [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.Core.MergeProbe.Conflicts@DebugTypeProxy))]
+        [System.Serializable]
+        public class Conflicts : VcsToolkit.Core.MergeProbe { }
+        public static class Tags
+        {
+            public const int Clean = 0;
+            public const int Conflicts = 1;
+        }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+    [System.Serializable]
+    public sealed class OperationState : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Core.OperationState>, System.IEquatable<VcsToolkit.Core.OperationState>
+    {
+        public static class Tags
+        {
+            public const int ApplyMailbox = 3;
+            public const int Bisect = 6;
+            public const int CherryPick = 4;
+            public const int Clear = 0;
+            public const int Conflict = 7;
+            public const int Merge = 1;
+            public const int Rebase = 2;
+            public const int Revert = 5;
+        }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.ObjectType)]
+    [Microsoft.FSharp.Core.Sealed]
+    [System.Serializable]
+    public sealed class Repo
+    {
+        public string Cwd { get; }
+        public Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Git.Git>? Git { get; }
+        public Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Git.GitAt>? GitAt { get; }
+        public Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Jj.Jj>? Jj { get; }
+        public Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Jj.JjAt>? JjAt { get; }
+        public VcsToolkit.Core.BackendKind Kind { get; }
+        public string Root { get; }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Core.OperationState, VcsToolkit.Core.RepoError>> AbortInProgress() { }
+        public VcsToolkit.Core.Repo At(string dir) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<bool, VcsToolkit.Core.RepoError>> BranchExists(string name) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Core.FileChange>, VcsToolkit.Core.RepoError>> ChangedFiles() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> Checkout(string reference) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> CommitPaths(Microsoft.FSharp.Collections.FSharpList<string> paths, string message) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<string>, VcsToolkit.Core.RepoError>> ConflictedFiles() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Core.OperationState, VcsToolkit.Core.RepoError>> ContinueInProgress() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Core.CreateOutcome, VcsToolkit.Core.RepoError>> CreateWorktree(string path, string branch, string baseRef) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.FSharpOption<string>?, VcsToolkit.Core.RepoError>> CurrentBranch() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> DeleteBranch(string name, bool force) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Diff.DiffStat, VcsToolkit.Core.RepoError>> DiffStat() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> Fetch() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> FetchBranch(string branch) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> FetchFrom(string remote) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<bool, VcsToolkit.Core.RepoError>> HasTrackedChanges() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<bool, VcsToolkit.Core.RepoError>> HasUncommittedChanges() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Core.OperationState, VcsToolkit.Core.RepoError>> InProgressState() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Core.WorktreeInfo>, VcsToolkit.Core.RepoError>> ListWorktrees() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<string>, VcsToolkit.Core.RepoError>> LocalBranches() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Core.Commit>, VcsToolkit.Core.RepoError>> Log(string revspecOrRevset, int max) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Core.Commit>, VcsToolkit.Core.RepoError>> LogPaths(string revspecOrRevset, int max, Microsoft.FSharp.Collections.FSharpList<string> paths) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> NewChild(string reference) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> Push(string branch) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> Rebase(string onto) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> RemoveWorktree(string path, bool force) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> RenameBranch(string oldName, string newName) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Core.RepoError>> ShowFile(string rev, string path) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<byte[], VcsToolkit.Core.RepoError>> ShowFileBytes(string rev, string path) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Core.RepoSnapshot, VcsToolkit.Core.RepoError>> Snapshot() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.FSharpOption<string>?, VcsToolkit.Core.RepoError>> Trunk() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Core.MergeProbe, VcsToolkit.Core.RepoError>> TryMerge(string source) { }
+        public static VcsToolkit.Core.Repo FromGit(string root, string cwd, VcsToolkit.Git.Git client) { }
+        public static VcsToolkit.Core.Repo FromJj(string root, string cwd, VcsToolkit.Jj.Jj client) { }
+        public static Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Core.Repo, VcsToolkit.Core.RepoError> Open(string dir) { }
+        public static Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Core.Repo, VcsToolkit.Core.RepoError> OpenWith(string dir, Microsoft.FSharp.Core.FSharpFunc<Microsoft.FSharp.Core.Unit, VcsToolkit.Git.Git> git, Microsoft.FSharp.Core.FSharpFunc<Microsoft.FSharp.Core.Unit, VcsToolkit.Jj.Jj> jj) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+    [System.Serializable]
+    public abstract class RepoError : System.Collections.IStructuralEquatable, System.IEquatable<VcsToolkit.Core.RepoError>
+    {
+        public bool IsLockContention { get; }
+        public bool IsMergeConflict { get; }
+        public bool IsNotFound { get; }
+        public bool IsNothingToCommit { get; }
+        public bool IsTransient { get; }
+        public bool IsTransientFetchError { get; }
+        public string Message { get; }
+        [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+        [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.Core.RepoError.InvalidInput@DebugTypeProxy))]
+        [System.Serializable]
+        public class InvalidInput : VcsToolkit.Core.RepoError { }
+        [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+        [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.Core.RepoError.Io@DebugTypeProxy))]
+        [System.Serializable]
+        public class Io : VcsToolkit.Core.RepoError { }
+        [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+        [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.Core.RepoError.NotARepository@DebugTypeProxy))]
+        [System.Serializable]
+        public class NotARepository : VcsToolkit.Core.RepoError { }
+        public static class Tags
+        {
+            public const int InvalidInput = 2;
+            public const int Io = 3;
+            public const int NotARepository = 0;
+            public const int Unsupported = 4;
+            public const int Vcs = 5;
+            public const int WorktreeNotFound = 1;
+        }
+        [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+        [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.Core.RepoError.Unsupported@DebugTypeProxy))]
+        [System.Serializable]
+        public class Unsupported : VcsToolkit.Core.RepoError { }
+        [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+        [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.Core.RepoError.Vcs@DebugTypeProxy))]
+        [System.Serializable]
+        public class Vcs : VcsToolkit.Core.RepoError { }
+        [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+        [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.Core.RepoError.WorktreeNotFound@DebugTypeProxy))]
+        [System.Serializable]
+        public class WorktreeNotFound : VcsToolkit.Core.RepoError { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class RepoSnapshot : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Core.RepoSnapshot>, System.IEquatable<VcsToolkit.Core.RepoSnapshot>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Core.RepoSnapshot))]
+        public RepoSnapshot(Microsoft.FSharp.Core.FSharpOption<string>? head, Microsoft.FSharp.Core.FSharpOption<string>? branch, Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Core.UpstreamTracking>? tracking, bool dirty, ulong changeCount, bool conflicted, VcsToolkit.Core.OperationState operation) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? Branch { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+        public ulong ChangeCount { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 5)]
+        public bool Conflicted { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+        public bool Dirty { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? Head { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 6)]
+        public VcsToolkit.Core.OperationState Operation { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Core.UpstreamTracking>? Tracking { get; }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class UpstreamTracking : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Core.UpstreamTracking>, System.IEquatable<VcsToolkit.Core.UpstreamTracking>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Core.UpstreamTracking))]
+        public UpstreamTracking(string branch, Microsoft.FSharp.Core.FSharpOption<ulong>? ahead, Microsoft.FSharp.Core.FSharpOption<ulong>? behind) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public Microsoft.FSharp.Core.FSharpOption<ulong>? Ahead { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public Microsoft.FSharp.Core.FSharpOption<ulong>? Behind { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public string Branch { get; }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class WorktreeInfo : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Core.WorktreeInfo>, System.IEquatable<VcsToolkit.Core.WorktreeInfo>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Core.WorktreeInfo))]
+        public WorktreeInfo(string path, Microsoft.FSharp.Core.FSharpOption<string>? branch, Microsoft.FSharp.Core.FSharpOption<string>? commit, bool isBare) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? Branch { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? Commit { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+        public bool IsBare { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public string Path { get; }
+    }
+}

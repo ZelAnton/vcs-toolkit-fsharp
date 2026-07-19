@@ -1,0 +1,66 @@
+namespace VcsToolkit.TestKit
+{
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.ObjectType)]
+    [Microsoft.FSharp.Core.Sealed]
+    [System.Serializable]
+    public sealed class BareRemote : System.IDisposable
+    {
+        public string Path { get; }
+        public string TempDir { get; }
+        public string Url { get; }
+        public static VcsToolkit.TestKit.BareRemote Seeded(string tag) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.ObjectType)]
+    [Microsoft.FSharp.Core.Sealed]
+    [System.Serializable]
+    public sealed class GitSandbox : System.IDisposable
+    {
+        public string Path { get; }
+        public void AddAll() { }
+        public void Branch(string name) { }
+        public void Checkout(string name) { }
+        public void Commit(string message) { }
+        public void CommitFile(string path, string content, string message) { }
+        public void Git(Microsoft.FSharp.Collections.FSharpList<string> args) { }
+        public string RevParse(string rev) { }
+        public void Write(string path, string content) { }
+        public static VcsToolkit.TestKit.GitSandbox Init(string tag) { }
+        public static VcsToolkit.TestKit.GitSandbox InitSha256(string tag) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.ObjectType)]
+    [Microsoft.FSharp.Core.Sealed]
+    [System.Serializable]
+    public sealed class JjSandbox : System.IDisposable
+    {
+        public string Path { get; }
+        public void Bookmark(string name) { }
+        public void Describe(string message) { }
+        public void Jj(Microsoft.FSharp.Collections.FSharpList<string> args) { }
+        public void NewChange(string message) { }
+        public void Write(string path, string content) { }
+        public static VcsToolkit.TestKit.JjSandbox Init(string tag) { }
+        public static VcsToolkit.TestKit.JjSandbox InitNonColocated(string tag) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Module)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    public static class Raw
+    {
+        public static void configureIdentity(string dir) { }
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1})]
+        public static void git(string dir, Microsoft.FSharp.Collections.FSharpList<string> args) { }
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1})]
+        public static void jj(string dir, Microsoft.FSharp.Collections.FSharpList<string> args) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.ObjectType)]
+    [Microsoft.FSharp.Core.Sealed]
+    [System.Serializable]
+    public sealed class TempDir : System.IDisposable
+    {
+        public TempDir(string tag) { }
+        public string Path { get; }
+    }
+}

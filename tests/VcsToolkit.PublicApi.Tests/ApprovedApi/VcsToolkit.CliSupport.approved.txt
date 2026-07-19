@@ -1,0 +1,283 @@
+namespace VcsToolkit.CliSupport
+{
+    [Microsoft.FSharp.Core.AutoOpen]
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Module)]
+    public static class Classify
+    {
+        [Microsoft.FSharp.Core.Literal]
+        [System.Diagnostics.DebuggerBrowsable(System.Diagnostics.DebuggerBrowsableState.Never)]
+        public const int FetchAttempts = 3;
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Value)]
+        public static System.TimeSpan FetchBackoff { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Value)]
+        public static System.TimeSpan FetchTimeoutGrace { get; }
+        public static string asciiLower(string s) { }
+        public static bool isLockContention(ProcessKit.ProcessError err) { }
+        public static bool isMergeConflict(ProcessKit.ProcessError err) { }
+        public static bool isNothingToCommit(ProcessKit.ProcessError err) { }
+        public static bool isTransientFetchError(ProcessKit.ProcessError err) { }
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1,
+                1})]
+        public static Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError> rejectFlagLike(string program, string what, string value) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.ObjectType)]
+    [Microsoft.FSharp.Core.NoComparison]
+    [Microsoft.FSharp.Core.NoEquality]
+    [Microsoft.FSharp.Core.Sealed]
+    [System.Serializable]
+    public sealed class Credential
+    {
+        public VcsToolkit.CliSupport.Secret Secret { get; }
+        public Microsoft.FSharp.Core.FSharpOption<string>? Username { get; }
+        public override string ToString() { }
+        public static VcsToolkit.CliSupport.Credential Token(VcsToolkit.CliSupport.Secret secret) { }
+        public static VcsToolkit.CliSupport.Credential Token(string secret) { }
+        public static VcsToolkit.CliSupport.Credential Userpass(string username, VcsToolkit.CliSupport.Secret secret) { }
+        public static VcsToolkit.CliSupport.Credential Userpass(string username, string secret) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class CredentialRequest : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.CliSupport.CredentialRequest>, System.IEquatable<VcsToolkit.CliSupport.CredentialRequest>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.CliSupport.CredentialRequest))]
+        public CredentialRequest(VcsToolkit.CliSupport.CredentialService service, Microsoft.FSharp.Core.FSharpOption<string>? host) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? Host { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public VcsToolkit.CliSupport.CredentialService Service { get; }
+        public VcsToolkit.CliSupport.CredentialRequest WithHost(string host) { }
+        public static VcsToolkit.CliSupport.CredentialRequest Create(VcsToolkit.CliSupport.CredentialService service) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+    [System.Serializable]
+    public sealed class CredentialService : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.CliSupport.CredentialService>, System.IEquatable<VcsToolkit.CliSupport.CredentialService>
+    {
+        public static class Tags
+        {
+            public const int Git = 0;
+            public const int GitHub = 1;
+            public const int GitLab = 2;
+            public const int Gitea = 3;
+        }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Module)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    public static class Credentials
+    {
+        [Microsoft.FSharp.Core.Literal]
+        [System.Diagnostics.DebuggerBrowsable(System.Diagnostics.DebuggerBrowsableState.Never)]
+        public const string DefaultGitUsername = "x-access-token";
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1})]
+        public static VcsToolkit.CliSupport.GitCredentialHelper gitCredentialHelper(VcsToolkit.CliSupport.Credential cred, Microsoft.FSharp.Core.FSharpOption<string>? expectHost) { }
+        public static Microsoft.FSharp.Core.FSharpOption<string>? httpsHost(string url) { }
+        public static VcsToolkit.CliSupport.ICredentialProvider providerFn(Microsoft.FSharp.Core.FSharpFunc<VcsToolkit.CliSupport.CredentialRequest, Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.FSharpOption<VcsToolkit.CliSupport.Credential>?, ProcessKit.ProcessError>> f) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.ObjectType)]
+    [Microsoft.FSharp.Core.Sealed]
+    [System.Serializable]
+    public sealed class EnvToken : VcsToolkit.CliSupport.ICredentialProvider
+    {
+        public EnvToken(string var) { }
+        public EnvToken(string var, Microsoft.FSharp.Core.FSharpOption<string>? username) { }
+        public VcsToolkit.CliSupport.EnvToken WithUsername(string username) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.ObjectType)]
+    [Microsoft.FSharp.Core.Sealed]
+    [System.Serializable]
+    public sealed class FnProvider : VcsToolkit.CliSupport.ICredentialProvider
+    {
+        public FnProvider(Microsoft.FSharp.Core.FSharpFunc<VcsToolkit.CliSupport.CredentialRequest, Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.FSharpOption<VcsToolkit.CliSupport.Credential>?, ProcessKit.ProcessError>> f) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.ObjectType)]
+    [Microsoft.FSharp.Core.NoComparison]
+    [Microsoft.FSharp.Core.NoEquality]
+    [Microsoft.FSharp.Core.Sealed]
+    [System.Serializable]
+    public sealed class GitCredentialHelper
+    {
+        public GitCredentialHelper(Microsoft.FSharp.Collections.FSharpList<string> configArgs, Microsoft.FSharp.Collections.FSharpList<System.Tuple<string, VcsToolkit.CliSupport.Secret>> env) { }
+        public Microsoft.FSharp.Collections.FSharpList<string> ConfigArgs { get; }
+        public Microsoft.FSharp.Collections.FSharpList<System.Tuple<string, VcsToolkit.CliSupport.Secret>> Env { get; }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.ObjectType)]
+    [System.Serializable]
+    public interface ICredentialProvider
+    {
+        System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.FSharpOption<VcsToolkit.CliSupport.Credential>?, ProcessKit.ProcessError>> Credential(VcsToolkit.CliSupport.CredentialRequest request);
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Module)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    public static class Json
+    {
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1})]
+        public static Microsoft.FSharp.Collections.FSharpList<System.Text.Json.JsonElement> arrayOf(System.Text.Json.JsonElement el, string name) { }
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1})]
+        public static bool boolOr(System.Text.Json.JsonElement el, string name) { }
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1,
+                1})]
+        public static string nestedStr(System.Text.Json.JsonElement el, string objName, string field) { }
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1})]
+        public static Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<T>, string> parseArray<T>(Microsoft.FSharp.Core.FSharpFunc<System.Text.Json.JsonElement, T> toItem, string json) { }
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1})]
+        public static Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<T>, string> parseArrayResult<T>(Microsoft.FSharp.Core.FSharpFunc<System.Text.Json.JsonElement, Microsoft.FSharp.Core.FSharpResult<T, string>> toItem, string json) { }
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1})]
+        public static Microsoft.FSharp.Core.FSharpResult<T, string> parseObject<T>(Microsoft.FSharp.Core.FSharpFunc<System.Text.Json.JsonElement, T> toItem, string json) { }
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1})]
+        public static string strFirst(System.Text.Json.JsonElement el, Microsoft.FSharp.Collections.FSharpList<string> names) { }
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1})]
+        public static Microsoft.FSharp.Core.FSharpOption<string>? strOpt(System.Text.Json.JsonElement el, string name) { }
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1})]
+        public static string strOr(System.Text.Json.JsonElement el, string name) { }
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1})]
+        public static ulong u64Or(System.Text.Json.JsonElement el, string name) { }
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1})]
+        public static Microsoft.FSharp.Core.FSharpResult<T, string> withDoc<T>(string json, Microsoft.FSharp.Core.FSharpFunc<System.Text.Json.JsonElement, Microsoft.FSharp.Core.FSharpResult<T, string>> parse) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.ObjectType)]
+    [Microsoft.FSharp.Core.Sealed]
+    [System.Serializable]
+    public sealed class ManagedClient
+    {
+        public bool HasCredentials { get; }
+        public VcsToolkit.CliSupport.RetryPolicy RetryPolicy { get; }
+        public ProcessKit.IProcessRunner Runner { get; }
+        public ProcessKit.Command Command(System.Collections.Generic.IEnumerable<string> args) { }
+        public ProcessKit.Command CommandIn(string dir, System.Collections.Generic.IEnumerable<string> args) { }
+        public VcsToolkit.CliSupport.ManagedClient DefaultCancelOn(System.Threading.CancellationToken token) { }
+        public VcsToolkit.CliSupport.ManagedClient DefaultEnv(string key, string value) { }
+        public VcsToolkit.CliSupport.ManagedClient DefaultEnvRemove(string key) { }
+        public VcsToolkit.CliSupport.ManagedClient DefaultTimeout(System.TimeSpan timeout) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<int, ProcessKit.ProcessError>> ExitCode(ProcessKit.Command cmd) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<ProcessKit.ProcessResult<string>, ProcessKit.ProcessError>> Output(ProcessKit.Command cmd) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<ProcessKit.ProcessResult<byte[]>, ProcessKit.ProcessError>> OutputBytes(ProcessKit.Command cmd) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<T, ProcessKit.ProcessError>> Parse<T>(ProcessKit.Command cmd, Microsoft.FSharp.Core.FSharpFunc<string, T> parser) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<bool, ProcessKit.ProcessError>> Probe(ProcessKit.Command cmd) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.FSharpOption<VcsToolkit.CliSupport.Credential>?, ProcessKit.ProcessError>> ResolveCredential(VcsToolkit.CliSupport.CredentialService service, Microsoft.FSharp.Core.FSharpOption<string>? host) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> Run(ProcessKit.Command cmd) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> RunUnit(ProcessKit.Command cmd) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<T, ProcessKit.ProcessError>> TryParse<T>(ProcessKit.Command cmd, Microsoft.FSharp.Core.FSharpFunc<string, Microsoft.FSharp.Core.FSharpResult<T, string>> parser) { }
+        public VcsToolkit.CliSupport.ManagedClient WithCredentials(VcsToolkit.CliSupport.ICredentialProvider provider) { }
+        public VcsToolkit.CliSupport.ManagedClient WithExpectedHost(string host) { }
+        public VcsToolkit.CliSupport.ManagedClient WithRetry(VcsToolkit.CliSupport.RetryPolicy policy) { }
+        public VcsToolkit.CliSupport.ManagedClient WithTokenEnv(VcsToolkit.CliSupport.CredentialService service, string var) { }
+        public static VcsToolkit.CliSupport.ManagedClient Create(string program) { }
+        public static VcsToolkit.CliSupport.ManagedClient WithRunner(string program, ProcessKit.IProcessRunner runner) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Module)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    public static class RemoteUrl
+    {
+        public static Microsoft.FSharp.Core.FSharpOption<string>? afterScheme(string url) { }
+        public static string authority(string afterSchemeText) { }
+        public static string dropUserinfo(string s) { }
+        public static string stripPort(string hostPort) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Module)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    public static class Retry
+    {
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1,
+                1,
+                1})]
+        public static System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<T, ProcessKit.ProcessError>> retryAsync<T>(VcsToolkit.CliSupport.RetryPolicy policy, Microsoft.FSharp.Core.FSharpFunc<ProcessKit.ProcessError, bool> shouldRetry, System.Threading.CancellationToken ct, Microsoft.FSharp.Core.FSharpFunc<Microsoft.FSharp.Core.Unit, System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<T, ProcessKit.ProcessError>>> op) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [Microsoft.FSharp.Core.NoComparison]
+    [System.Serializable]
+    public sealed class RetryPolicy : System.Collections.IStructuralEquatable, System.IEquatable<VcsToolkit.CliSupport.RetryPolicy>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.CliSupport.RetryPolicy))]
+        public RetryPolicy(int attempts, System.TimeSpan baseBackoff, System.TimeSpan maxBackoff, bool jitter) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public int Attempts { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public System.TimeSpan BaseBackoff { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+        public bool Jitter { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public System.TimeSpan MaxBackoff { get; }
+        public static VcsToolkit.CliSupport.RetryPolicy LockContention { get; }
+        public static VcsToolkit.CliSupport.RetryPolicy None { get; }
+        public VcsToolkit.CliSupport.RetryPolicy WithAttempts(int attempts) { }
+        public VcsToolkit.CliSupport.RetryPolicy WithBaseBackoff(System.TimeSpan backoff) { }
+        public VcsToolkit.CliSupport.RetryPolicy WithJitter(bool jitter) { }
+        public VcsToolkit.CliSupport.RetryPolicy WithMaxBackoff(System.TimeSpan maxBackoff) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.ObjectType)]
+    [Microsoft.FSharp.Core.NoComparison]
+    [Microsoft.FSharp.Core.NoEquality]
+    [Microsoft.FSharp.Core.Sealed]
+    [System.Serializable]
+    public sealed class Secret
+    {
+        public Secret(string value) { }
+        public string Expose() { }
+        public override string ToString() { }
+        public static VcsToolkit.CliSupport.Secret New(string value) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.ObjectType)]
+    [Microsoft.FSharp.Core.Sealed]
+    [System.Serializable]
+    public sealed class StaticCredential : VcsToolkit.CliSupport.ICredentialProvider
+    {
+        public StaticCredential(VcsToolkit.CliSupport.Credential credential) { }
+        public static VcsToolkit.CliSupport.StaticCredential Token(string secret) { }
+    }
+    [Microsoft.FSharp.Core.AutoOpen]
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Module)]
+    public static class Wrappers
+    {
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1})]
+        public static Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError> checkFlags(string program, Microsoft.FSharp.Collections.FSharpList<System.Tuple<string, string>> checks) { }
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1,
+                1})]
+        public static Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError> cloneCleanupOnError(string dest, bool cleanable, Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError> result) { }
+        public static bool cloneDestCleanable(string dest) { }
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1})]
+        public static Microsoft.FSharp.Core.FSharpResult<T, ProcessKit.ProcessError> mapParse<T>(string program, Microsoft.FSharp.Core.FSharpResult<T, string> r) { }
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1})]
+        public static System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> runUntrimmed(VcsToolkit.CliSupport.ManagedClient core, ProcessKit.Command cmd) { }
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1})]
+        public static System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<byte[], ProcessKit.ProcessError>> runUntrimmedBytes(VcsToolkit.CliSupport.ManagedClient core, ProcessKit.Command cmd) { }
+    }
+}
