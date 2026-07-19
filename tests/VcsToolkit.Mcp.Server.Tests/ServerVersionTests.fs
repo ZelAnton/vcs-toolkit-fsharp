@@ -33,6 +33,31 @@ type ServerVersionTests() =
         | null -> Assert.Fail "vcs-mcp assembly must carry AssemblyInformationalVersionAttribute"
         | attr -> Assert.That(attr.InformationalVersion, Is.Not.EqualTo "1.0.0")
 
+    [<Test>]
+    member _.ServerVersionReadsFromAssemblyMetadataDynamically() =
+        // `Main.serverVersion` is a function value; its runtime type is compiled into the
+        // `vcs-mcp` assembly, so this reaches the assembly whose metadata the server ships.
+        let asm = Main.serverVersion.GetType().Assembly
+
+        let expectedAssemblyVersion =
+            match asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>() with
+            | null ->
+                Assert.Fail "vcs-mcp assembly must carry AssemblyInformationalVersionAttribute"
+                ""
+            | attr -> attr.InformationalVersion
+
+        let versionReadFromAssembly = Main.readVersionFromAssembly asm
+        Assert.That(versionReadFromAssembly, Is.EqualTo expectedAssemblyVersion)
+        Assert.That(versionReadFromAssembly, Is.Not.EqualTo "0.0.0-unknown")
+        Assert.That(versionReadFromAssembly, Is.Not.EqualTo "1.0.0")
+
+        // The NUnit host is the entry assembly in this process. Comparing `serverVersion()` to
+        // the same assembly read verifies its delegation rather than accepting a hardcoded value.
+        let expectedEntryAssemblyVersion =
+            Main.readVersionFromAssembly (Assembly.GetEntryAssembly())
+
+        Assert.That(Main.serverVersion (), Is.EqualTo expectedEntryAssemblyVersion)
+
     /// Proves the end-to-end wiring, not just that `serverVersion()` in isolation is non-"1.0.0":
     /// `runServer` builds the handshake's `ServerInfo` via
     /// `options.ServerInfo <- Main.buildServerInfo()`, and `buildServerInfo` is
