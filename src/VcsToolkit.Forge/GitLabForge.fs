@@ -1,6 +1,5 @@
 namespace VcsToolkit.Forge
 
-open System
 open System.Threading.Tasks
 open ProcessKit
 
@@ -14,19 +13,18 @@ module internal GitLabForge =
 
     let private stateOf (state: string) : ForgePrState =
         // GitLab REST emits lowercase; match case-insensitively for parity.
-        match state.ToLowerInvariant() with
-        | "merged" -> ForgePrState.Merged
-        | "closed"
-        | "locked" -> ForgePrState.Closed
-        | _ -> ForgePrState.Open
+        if Common.stateEquals state "merged" then
+            ForgePrState.Merged
+        elif Common.stateEquals state "closed" || Common.stateEquals state "locked" then
+            ForgePrState.Closed
+        else
+            ForgePrState.Open
 
     let private issueStateOf (state: string) : ForgeIssueState =
-        if state.Equals("closed", StringComparison.OrdinalIgnoreCase) then
+        if Common.stateEquals state "closed" then
             ForgeIssueState.Closed
         else
             ForgeIssueState.Open
-
-    let private strOpt (s: string) : string option = if s = "" then None else Some s
 
     let private mapMr (mr: VcsToolkit.GitLab.MergeRequest) : ForgePr =
         { Number = mr.Iid
@@ -56,8 +54,8 @@ module internal GitLabForge =
         { Tag = r.TagName
           Title = r.Name
           Url = r.Url
-          PublishedAt = strOpt r.PublishedAt
-          Body = strOpt r.Description
+          PublishedAt = Common.strOpt r.PublishedAt
+          Body = Common.strOpt r.Description
           // GitLab has no draft/pre-release concept on a release → unknown, None (not a
           // fabricated `Some false`).
           Draft = None

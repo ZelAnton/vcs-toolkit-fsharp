@@ -14,6 +14,7 @@
 	<ItemGroup>
 		<Compile Include="Dto.fs" />
 		<Compile Include="Error.fs" />
+		<Compile Include="Common.fs" />
 		<Compile Include="GitHubForge.fs" />
 		<Compile Include="GitLabForge.fs" />
 		<Compile Include="GiteaForge.fs" />

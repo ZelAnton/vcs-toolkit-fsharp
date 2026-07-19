@@ -153,6 +153,35 @@ module private GitHelpers =
                 return Ok resolved
         }
 
+/// The on-disk markers Git writes while an operation is paused for user input.
+/// `git am` and apply-backend rebases share `rebase-apply/`; `IsAm` distinguishes them through
+/// git am's additional `rebase-apply/applying` marker.
+type GitOperationMarkers =
+    { IsRebase: bool
+      IsAm: bool
+      IsMerge: bool
+      IsCherryPick: bool
+      IsRevert: bool
+      IsBisect: bool }
+
+/// Classifies Git's interrupted-operation markers from an already-resolved git directory.
+module GitOperationMarkers =
+
+    /// Probe the complete marker set once. The caller chooses any priority when reducing multiple
+    /// simultaneous markers to one operation state.
+    let classify (gitDir: string) : GitOperationMarkers =
+        let rebaseApply = Path.Combine(gitDir, "rebase-apply")
+        let isAm = File.Exists(Path.Combine(rebaseApply, "applying"))
+
+        { IsRebase =
+            Directory.Exists(Path.Combine(gitDir, "rebase-merge"))
+            || (Directory.Exists rebaseApply && not isAm)
+          IsAm = isAm
+          IsMerge = File.Exists(Path.Combine(gitDir, "MERGE_HEAD"))
+          IsCherryPick = File.Exists(Path.Combine(gitDir, "CHERRY_PICK_HEAD"))
+          IsRevert = File.Exists(Path.Combine(gitDir, "REVERT_HEAD"))
+          IsBisect = File.Exists(Path.Combine(gitDir, "BISECT_LOG")) }
+
 /// The real Git client: typed async methods that run the real `git`, parse its
 /// output, and return structured values. `Git.Create()` uses the job-backed runner;
 /// `Git.WithRunner` injects a fake one for tests. Wraps a `ManagedClient` (enable
@@ -896,7 +925,7 @@ type Git private (core: ManagedClient) =
         core.Probe(core.CommandIn(dir, [ "diff"; "--cached"; "--quiet" ]))
 
     /// `git_dir` resolved to an absolute path.
-    member private _.ResolvedGitDir(dir: string) = resolvedGitDirVia core dir
+    member _.ResolvedGitDir(dir: string) = resolvedGitDirVia core dir
 
     /// Whether a rebase is in progress. `rebase-merge/` is a merge-backend rebase;
     /// `rebase-apply/` is shared by an apply-backend rebase AND `git am` — but `git am` marks
@@ -906,14 +935,7 @@ type Git private (core: ManagedClient) =
         task {
             match! this.ResolvedGitDir dir with
             | Error e -> return Error e
-            | Ok g ->
-                let rebaseApply = Path.Combine(g, "rebase-apply")
-
-                let isRebaseApply =
-                    Directory.Exists rebaseApply
-                    && not (File.Exists(Path.Combine(rebaseApply, "applying")))
-
-                return Ok(Directory.Exists(Path.Combine(g, "rebase-merge")) || isRebaseApply)
+            | Ok gitDir -> return Ok((GitOperationMarkers.classify gitDir).IsRebase)
         }
 
     /// Whether a `git am` (mailbox apply) is in progress (`rebase-apply/applying`). Distinct
@@ -923,7 +945,7 @@ type Git private (core: ManagedClient) =
         task {
             match! this.ResolvedGitDir dir with
             | Error e -> return Error e
-            | Ok g -> return Ok(File.Exists(Path.Combine(g, "rebase-apply", "applying")))
+            | Ok gitDir -> return Ok((GitOperationMarkers.classify gitDir).IsAm)
         }
 
     /// Whether a merge is in progress (a `MERGE_HEAD` exists under the git dir).
@@ -931,7 +953,7 @@ type Git private (core: ManagedClient) =
         task {
             match! this.ResolvedGitDir dir with
             | Error e -> return Error e
-            | Ok g -> return Ok(File.Exists(Path.Combine(g, "MERGE_HEAD")))
+            | Ok gitDir -> return Ok((GitOperationMarkers.classify gitDir).IsMerge)
         }
 
     /// Whether a merge is in progress (a `MERGE_HEAD` exists under the git dir), probed on a
@@ -949,7 +971,7 @@ type Git private (core: ManagedClient) =
 
             match! resolvedGitDirVia cleanupCore dir with
             | Error e -> return Error e
-            | Ok g -> return Ok(File.Exists(Path.Combine(g, "MERGE_HEAD")))
+            | Ok gitDir -> return Ok((GitOperationMarkers.classify gitDir).IsMerge)
         }
 
     /// Whether a cherry-pick is in progress (`CHERRY_PICK_HEAD` under the git dir). A
@@ -960,7 +982,7 @@ type Git private (core: ManagedClient) =
         task {
             match! this.ResolvedGitDir dir with
             | Error e -> return Error e
-            | Ok g -> return Ok(File.Exists(Path.Combine(g, "CHERRY_PICK_HEAD")))
+            | Ok gitDir -> return Ok((GitOperationMarkers.classify gitDir).IsCherryPick)
         }
 
     /// Whether a revert is in progress (`REVERT_HEAD` under the git dir). Like a cherry-pick,
@@ -970,7 +992,7 @@ type Git private (core: ManagedClient) =
         task {
             match! this.ResolvedGitDir dir with
             | Error e -> return Error e
-            | Ok g -> return Ok(File.Exists(Path.Combine(g, "REVERT_HEAD")))
+            | Ok gitDir -> return Ok((GitOperationMarkers.classify gitDir).IsRevert)
         }
 
     /// Whether a `git bisect` session is in progress (`BISECT_LOG` under the git dir).
@@ -981,7 +1003,7 @@ type Git private (core: ManagedClient) =
         task {
             match! this.ResolvedGitDir dir with
             | Error e -> return Error e
-            | Ok g -> return Ok(File.Exists(Path.Combine(g, "BISECT_LOG")))
+            | Ok gitDir -> return Ok((GitOperationMarkers.classify gitDir).IsBisect)
         }
 
     // --- Mutations: fetch / push / clone -------------------------------------
