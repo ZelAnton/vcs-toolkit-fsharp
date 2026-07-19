@@ -1760,3 +1760,50 @@ type CloneTests() =
         | Error(RepoError.InvalidInput message) -> Assert.That(message, Does.Contain "dest")
         | Error e -> Assert.Fail $"expected InvalidInput, got: {e.Message}"
         | Ok _ -> Assert.Fail "an invalid dest path must be refused"
+
+    [<Test>]
+    member _.CloneWithGuardRejectedGitUrlReturnsVcsErrorWithoutSpawning() =
+        // A leading `-` URL would be parsed as a flag by `git clone`, so `Git.CloneRepo`'s own
+        // argv guard on the bare `url` positional refuses it before anything spawns — the
+        // facade must not re-implement or bypass that guard (it isn't the facade's own
+        // `NormalizePath`, so this reaches the caller as `RepoError.Vcs`, not `InvalidInput`).
+        // A bare `ScriptedRunner()` with no rules would raise on any spawn.
+        let badUrl = "-upload-pack=touch /tmp/pwned"
+
+        match
+            Repo
+                .CloneWith(
+                    badUrl,
+                    "dest",
+                    CloneOptions.Create CloneKind.Git,
+                    (fun () -> Git.WithRunner(ScriptedRunner())),
+                    (fun () -> Jj.WithRunner(ScriptedRunner()))
+                )
+                .GetAwaiter()
+                .GetResult()
+        with
+        | Error(RepoError.Vcs _ as e) -> Assert.That(e.Message, Does.Contain "url")
+        | Error e -> Assert.Fail $"expected RepoError.Vcs, got: {e.Message}"
+        | Ok _ -> Assert.Fail "a guard-rejected url must be refused"
+
+    [<Test>]
+    member _.CloneWithGuardRejectedJjUrlReturnsVcsErrorWithoutSpawning() =
+        // Same guard-rejection contract as the git case above, exercised for jj (`Jj.GitClone`'s
+        // own argv guard on `url`) to cover both backends the facade dispatches to.
+        let badUrl = "-badurl"
+
+        match
+            Repo
+                .CloneWith(
+                    badUrl,
+                    "dest",
+                    CloneOptions.Create CloneKind.JjColocated,
+                    (fun () -> Git.WithRunner(ScriptedRunner())),
+                    (fun () -> Jj.WithRunner(ScriptedRunner()))
+                )
+                .GetAwaiter()
+                .GetResult()
+        with
+        | Error(RepoError.Vcs _ as e) -> Assert.That(e.Message, Does.Contain "url")
+        | Error e -> Assert.Fail $"expected RepoError.Vcs, got: {e.Message}"
+        | Ok _ -> Assert.Fail "a guard-rejected url must be refused"

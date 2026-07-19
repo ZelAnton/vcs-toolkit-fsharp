@@ -91,29 +91,23 @@ type Repo private (root: string, cwd: string, backend: Backend) =
     /// `Jj.Create()` default, mirroring `OpenWith`'s rationale. Only the factory for
     /// `spec.Kind`'s backend is ever invoked (the other stays unbuilt).
     ///
-    /// Delegates the clone itself to `Git.CloneRepo`/`Jj.GitClone` — their own argv guards
-    /// on `url`/`dest` (both bare positionals) apply unchanged, nothing about the clone is
-    /// re-implemented here — then reuses `OpenWith` to build the handle, so `dest` is
-    /// absolutised via the shared `NormalizePath` and both a bad `dest` path and a
-    /// post-clone detection failure are reported exactly like `Open`/`OpenWith`.
+    /// Delegates the clone itself to the `GitBackend.cloneRepo`/`JjBackend.gitClone` adapters
+    /// (`Git.CloneRepo`/`Jj.GitClone` under the hood — their own argv guards on `url`/`dest`,
+    /// both bare positionals, apply unchanged, and error normalization stays on the same
+    /// adapter boundary every other facade operation uses, rather than mapping `ofVcs` here)
+    /// — then reuses `OpenWith` to build the handle, so `dest` is absolutised via the shared
+    /// `NormalizePath` and both a bad `dest` path and a post-clone detection failure are
+    /// reported exactly like `Open`/`OpenWith`.
     static member CloneWith(url: string, dest: string, spec: CloneOptions, git: unit -> Git, jj: unit -> Jj) =
         task {
             match Repo.NormalizePath("dest", dest) with
             | Error e -> return Error e
             | Ok absDest ->
                 let! cloned =
-                    task {
-                        match spec.Kind with
-                        | CloneKind.Git ->
-                            let! r = (git ()).CloneRepo(url, absDest, VcsToolkit.Git.CloneSpec.Create())
-                            return ofVcs r
-                        | CloneKind.JjColocated ->
-                            let! r = (jj ()).GitClone(url, absDest, true)
-                            return ofVcs r
-                        | CloneKind.JjNonColocated ->
-                            let! r = (jj ()).GitClone(url, absDest, false)
-                            return ofVcs r
-                    }
+                    match spec.Kind with
+                    | CloneKind.Git -> GitBackend.cloneRepo (git ()) url absDest (VcsToolkit.Git.CloneSpec.Create())
+                    | CloneKind.JjColocated -> JjBackend.gitClone (jj ()) url absDest true
+                    | CloneKind.JjNonColocated -> JjBackend.gitClone (jj ()) url absDest false
 
                 match cloned with
                 | Error e -> return Error e

@@ -142,6 +142,17 @@ module internal JjBackend =
                             )
         }
 
+    /// Clone a git repository into `dest` via jj (`jj git clone`), the adapter
+    /// `Repo.Clone`/`CloneWith` route through instead of calling `Jj.GitClone` and mapping its
+    /// error directly at the facade level — mirrors `GitBackend.cloneRepo`'s rationale. Covers
+    /// both colocated and non-colocated modes (`colocate` selects which). `Jj.GitClone`'s own
+    /// argv guards on `url`/`dest` apply unchanged.
+    let gitClone (jj: Jj) (url: string) (dest: string) (colocate: bool) =
+        task {
+            let! r = jj.GitClone(url, dest, colocate)
+            return ofVcs r
+        }
+
     let currentBranch (jj: Jj) (dir: string) =
         task {
             // jj has no "current branch" in the git sense; report the nearest bookmark
