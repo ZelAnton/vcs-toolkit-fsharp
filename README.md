@@ -32,6 +32,35 @@ The toolkit is split into one package per concern, mirroring the Rust workspace.
 | `VcsToolkit.Watch` | ✅ available | Filesystem-watch a git/jj repository and emit typed state-change events. A `RepoWatcher` watches the `.git`/`.jj` state dir (and, optionally, the working tree), debounces the write burst a VCS operation makes, re-queries `Repo.Snapshot`, and diffs it against the previous state to yield typed `RepoEvent`s (`HeadMoved`, `BranchSwitched`, `BranchCreated`/`Deleted`, `WorkingCopyChanged`, upstream/ahead-behind/operation/conflict). Re-query-and-diff (not raw FS events) makes it robust to ref temp-file renames and `index.lock` churn. The foundation for prompts, status bars, and TUIs. |
 | `VcsToolkit.Mcp` | ✅ available | A Model Context Protocol server exposing the toolkit's typed git/jj + forge operations as agent-callable tools. The `VcsToolkit.Mcp` library is the hermetically-testable core — `VcsMcpServer` with the `repo_*` / `forge_*` tools over `Core`/`Forge`, the `WriteGate` write policy (read tools always available, mutations gated by `--allow-write`/`--allow-tools`), the tool catalogue and dispatcher, and the CLI parser. The thin `vcs-mcp` binary (`VcsToolkit.Mcp.Server`) wires it to the `ModelContextProtocol` SDK over stdio, with a hardened git client (repo hooks/config disabled) and a per-command timeout. |
 
+## The `vcs-mcp` MCP server
+
+The `vcs-mcp` binary (`VcsToolkit.Mcp.Server`) ships as a **.NET global tool**, so the Model
+Context Protocol server installs with a single command:
+
+```sh
+dotnet tool install --global vcs-mcp
+# update it later with:   dotnet tool update    --global vcs-mcp
+# remove it with:         dotnet tool uninstall --global vcs-mcp
+```
+
+It speaks MCP over stdio — an agent harness launches it via an `mcpServers` config entry. Read
+tools (`repo_*` / `forge_*` queries) are always available; the mutating tools stay disabled until
+you opt in, either with `--allow-write` (enable all of them) or `--allow-tools name,...` (a named
+subset):
+
+```sh
+# Serve the repository at ./my-repo with every mutating tool enabled
+vcs-mcp --repo ./my-repo --allow-write
+
+# Read-only by default; force the forge to GitHub with a 60s per-command timeout
+vcs-mcp --repo ./my-repo --forge github --timeout 60
+```
+
+Run `vcs-mcp --help` for the full flag list. The forge is auto-detected from the repository's
+`origin` remote unless `--forge` overrides it, and the git client is hardened (repo hooks and
+config disabled) so serving a repository you did not create cannot execute its hooks. The `git` /
+`jj` and `gh` / `glab` / `tea` CLIs you intend to drive must be on `PATH` (see Requirements).
+
 ## Architecture
 
 For the package dependency graph, what each layer is responsible for, the

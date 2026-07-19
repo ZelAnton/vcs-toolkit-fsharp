@@ -276,8 +276,13 @@ jobs:
         run: dotnet test --no-build --configuration Release
 
       - name: Pack
-        # Packs every packable library in the solution (the test projects are
-        # IsPackable=false), producing one .nupkg/.snupkg per VcsToolkit.* package.
+        # Packs every packable project in the solution (the test projects are
+        # IsPackable=false), producing one .nupkg/.snupkg per VcsToolkit.* library PLUS the
+        # `vcs-mcp` .NET global tool (src/VcsToolkit.Mcp.Server, PackAsTool=true). The tool is
+        # a self-contained DotnetTool package — pack runs a publish that bundles its runtime
+        # assemblies (the VcsToolkit.* siblings included) under tools/<tfm>/, so it needs no
+        # sibling NuGet dependencies. The downstream push/checksum/release steps glob *.nupkg /
+        # *.snupkg, so they pick up the tool alongside the libraries with no per-package wiring.
         run: dotnet pack VcsToolkit.slnx --no-build --configuration Release --output ./artifacts /p:Version=${{ steps.version.outputs.version }}
 
       - name: Generate SHA256SUMS
