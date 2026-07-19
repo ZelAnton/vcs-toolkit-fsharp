@@ -1628,3 +1628,135 @@ type ShowFileBytesTests() =
                 )
             | Error e -> Assert.Fail $"ShowFile failed: {e.Message}"
         }
+
+// ---------------------------------------------------------------------------
+// T-086: Repo.Clone / Repo.CloneWith — the backend-agnostic clone-then-open
+// entry point. Real git/jj against a LOCAL bare remote (no network); the
+// invalid-path case is a pure unit test (the guard fires before any spawn).
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type CloneTests() =
+
+    let requireGit () =
+        try
+            Raw.git "." [ "--version" ]
+        with _ ->
+            // git isn't on PATH — a hermetic CI without it must skip, not fail, this fixture.
+            Assert.Ignore "git not available on PATH"
+
+    let requireJj () =
+        try
+            Raw.jj "." [ "--version" ]
+        with _ ->
+            if Environment.GetEnvironmentVariable "REQUIRE_JJ" = "1" then
+                Assert.Fail "REQUIRE_JJ=1 but jj not available on PATH"
+            else
+                // Local development does not require jj, so the integration fixture remains optional.
+                Assert.Ignore "jj not available on PATH"
+
+    [<Test>]
+    member _.GitCloneOpensAGitBackedHandleOnTheClonedContent() =
+        requireGit ()
+
+        withTempDir (fun sandbox ->
+            use remote = BareRemote.Seeded "t086-git-clone"
+            let dest = Path.Combine(sandbox, "cloned")
+
+            match Repo.Clone(remote.Url, dest, CloneOptions.Create CloneKind.Git).GetAwaiter().GetResult() with
+            | Error e -> Assert.Fail $"Clone(git) failed: {e.Message}"
+            | Ok repo ->
+                Assert.That(repo.Kind, Is.EqualTo BackendKind.Git, "a plain git clone opens a git-backed handle")
+
+                match repo.ShowFile("HEAD", "seed.txt").GetAwaiter().GetResult() with
+                | Ok content -> Assert.That(content, Is.EqualTo "seed\n", "the cloned content is readable")
+                | Error e -> Assert.Fail $"ShowFile on the cloned repo failed: {e.Message}")
+
+    [<Test>]
+    member _.JjColocatedCloneOpensAJjBackedHandleWithAGitWorkingCopy() =
+        requireJj ()
+
+        withTempDir (fun sandbox ->
+            use remote = BareRemote.Seeded "t086-jj-clone-colocated"
+            let dest = Path.Combine(sandbox, "cloned")
+
+            match Repo.Clone(remote.Url, dest, CloneOptions.Create CloneKind.JjColocated).GetAwaiter().GetResult() with
+            | Error e -> Assert.Fail $"Clone(jj colocated) failed: {e.Message}"
+            | Ok repo ->
+                // Detect prefers jj over git when both markers are present, so a colocated clone
+                // must still open as jj-backed even though `.git` also exists at the root.
+                Assert.That(repo.Kind, Is.EqualTo BackendKind.Jj, "jj drives a colocated clone")
+
+                Assert.That(
+                    Directory.Exists(Path.Combine(dest, ".git")),
+                    Is.True,
+                    "a colocated clone has a root .git working copy"
+                )
+
+                match repo.ShowFile("@", "seed.txt").GetAwaiter().GetResult() with
+                | Ok content -> Assert.That(content, Is.EqualTo "seed\n", "the cloned content is readable")
+                | Error e -> Assert.Fail $"ShowFile on the cloned repo failed: {e.Message}")
+
+    [<Test>]
+    member _.JjNonColocatedCloneOpensAJjBackedHandleWithoutAGitDir() =
+        requireJj ()
+
+        withTempDir (fun sandbox ->
+            use remote = BareRemote.Seeded "t086-jj-clone-noncolocated"
+            let dest = Path.Combine(sandbox, "cloned")
+
+            match
+                Repo.Clone(remote.Url, dest, CloneOptions.Create CloneKind.JjNonColocated).GetAwaiter().GetResult()
+            with
+            | Error e -> Assert.Fail $"Clone(jj non-colocated) failed: {e.Message}"
+            | Ok repo ->
+                Assert.That(repo.Kind, Is.EqualTo BackendKind.Jj)
+
+                Assert.That(
+                    Directory.Exists(Path.Combine(dest, ".git")),
+                    Is.False,
+                    "a non-colocated clone has no root .git working copy"
+                )
+
+                match repo.ShowFile("@", "seed.txt").GetAwaiter().GetResult() with
+                | Ok content -> Assert.That(content, Is.EqualTo "seed\n", "the cloned content is readable")
+                | Error e -> Assert.Fail $"ShowFile on the cloned repo failed: {e.Message}")
+
+    [<Test>]
+    member _.GitCloneFromANonexistentSourceSurfacesAsRepoErrorVcs() =
+        requireGit ()
+
+        withTempDir (fun sandbox ->
+            // A source path that cannot exist — the underlying `git clone` fails, and the
+            // failure must reach the caller wrapped exactly like any other backend failure
+            // (`RepoError.Vcs`), the same classification `Open`'s own client calls use.
+            let badSource = Path.Combine(sandbox, "does-not-exist")
+            let dest = Path.Combine(sandbox, "dest")
+
+            match Repo.Clone(badSource, dest, CloneOptions.Create CloneKind.Git).GetAwaiter().GetResult() with
+            | Error(RepoError.Vcs _) -> ()
+            | Error e -> Assert.Fail $"expected RepoError.Vcs, got: {e.Message}"
+            | Ok _ -> Assert.Fail "cloning a non-existent source must fail")
+
+    [<Test>]
+    member _.CloneWithInvalidDestPathReturnsInvalidInputWithoutSpawning() =
+        // The same diagnostic-input contract as `Open`/`OpenWith`: a bad `dest` path is
+        // refused via the shared `NormalizePath` before either client is ever built or
+        // invoked — a bare `ScriptedRunner()` with no rules would raise on any spawn.
+        let invalid = string (char 0)
+
+        match
+            Repo
+                .CloneWith(
+                    "https://example.com/o/r.git",
+                    invalid,
+                    CloneOptions.Create CloneKind.Git,
+                    (fun () -> Git.WithRunner(ScriptedRunner())),
+                    (fun () -> Jj.WithRunner(ScriptedRunner()))
+                )
+                .GetAwaiter()
+                .GetResult()
+        with
+        | Error(RepoError.InvalidInput message) -> Assert.That(message, Does.Contain "dest")
+        | Error e -> Assert.Fail $"expected InvalidInput, got: {e.Message}"
+        | Ok _ -> Assert.Fail "an invalid dest path must be refused"

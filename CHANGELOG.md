@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `Repo.Clone(url, dest, spec)` / `Repo.CloneWith(url, dest, spec, git, jj)` on `VcsToolkit.Core` — a backend-agnostic "URL → open `Repo` handle" entry point for provisioning flows, with a `CloneOptions`/`CloneKind` spec selecting `Git` / `JjColocated` / `JjNonColocated` and delegating to `Git.CloneRepo`/`Jj.GitClone` for the actual clone, then `OpenWith` to build the handle (same path normalisation and `RepoError` mapping as `Open`/`OpenWith`).
 - XML documentation generation for every `src/` library, packaged into the `.nupkg` alongside the assembly (`lib/<tfm>/<Assembly>.xml`) — IntelliSense/IDE tooltips now surface the full `///`-documented public API for consumers of the NuGet packages.
 - RepoWatcher.ReadAll(?cancellationToken) on VcsToolkit.Watch — consume repository changes as an IAsyncEnumerable<RepoChange> for idiomatic await foreach usage, with Current advancing for each yielded change.
 - `Repo.NewChild(reference)` on `VcsToolkit.Core` — start new work on top of `reference` without modifying it (git `checkout <reference> --`; jj `new <reference>`, via the new `Jj.NewChild`/`JjAt.NewChild`). On jj this differs from `Checkout`/`jj edit`: it stacks a fresh, undescribed child change on `reference` instead of rewriting `reference`'s own commit in place.

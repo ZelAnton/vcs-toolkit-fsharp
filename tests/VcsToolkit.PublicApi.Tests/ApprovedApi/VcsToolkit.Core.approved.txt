@@ -13,6 +13,29 @@ namespace VcsToolkit.Core
             public const int Jj = 1;
         }
     }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+    [System.Serializable]
+    public sealed class CloneKind : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Core.CloneKind>, System.IEquatable<VcsToolkit.Core.CloneKind>
+    {
+        public static class Tags
+        {
+            public const int Git = 0;
+            public const int JjColocated = 1;
+            public const int JjNonColocated = 2;
+        }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class CloneOptions : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Core.CloneOptions>, System.IEquatable<VcsToolkit.Core.CloneOptions>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Core.CloneOptions))]
+        public CloneOptions(VcsToolkit.Core.CloneKind kind) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public VcsToolkit.Core.CloneKind Kind { get; }
+        public static VcsToolkit.Core.CloneOptions Create(VcsToolkit.Core.CloneKind kind) { }
+    }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
     [System.Serializable]
     public sealed class Commit : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Core.Commit>, System.IEquatable<VcsToolkit.Core.Commit>
@@ -149,6 +172,8 @@ namespace VcsToolkit.Core
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Core.RepoSnapshot, VcsToolkit.Core.RepoError>> Snapshot() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.FSharpOption<string>?, VcsToolkit.Core.RepoError>> Trunk() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Core.MergeProbe, VcsToolkit.Core.RepoError>> TryMerge(string source) { }
+        public static System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Core.Repo, VcsToolkit.Core.RepoError>> Clone(string url, string dest, VcsToolkit.Core.CloneOptions spec) { }
+        public static System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Core.Repo, VcsToolkit.Core.RepoError>> CloneWith(string url, string dest, VcsToolkit.Core.CloneOptions spec, Microsoft.FSharp.Core.FSharpFunc<Microsoft.FSharp.Core.Unit, VcsToolkit.Git.Git> git, Microsoft.FSharp.Core.FSharpFunc<Microsoft.FSharp.Core.Unit, VcsToolkit.Jj.Jj> jj) { }
         public static VcsToolkit.Core.Repo FromGit(string root, string cwd, VcsToolkit.Git.Git client) { }
         public static VcsToolkit.Core.Repo FromJj(string root, string cwd, VcsToolkit.Jj.Jj client) { }
         public static Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Core.Repo, VcsToolkit.Core.RepoError> Open(string dir) { }

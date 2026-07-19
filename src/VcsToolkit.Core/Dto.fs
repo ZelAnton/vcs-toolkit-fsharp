@@ -24,6 +24,36 @@ type BackendKind =
         | BackendKind.Git -> "git"
         | BackendKind.Jj -> "jj"
 
+/// Which backend (and, for jj, git-colocation) `Repo.Clone`/`Repo.CloneWith` should drive.
+/// Deliberately its own type rather than reusing `BackendKind`: jj's clone has two distinct
+/// modes (`--colocate`/`--no-colocate`) that `BackendKind.Jj` alone doesn't distinguish.
+///
+/// Treat this as potentially extensible (the Rust model is `#[non_exhaustive]`) — add a `| _ ->`
+/// arm when pattern-matching so a future clone mode doesn't break your code.
+[<RequireQualifiedAccess>]
+type CloneKind =
+    /// A plain git clone (`git clone`).
+    | Git
+    /// A jj clone of a git remote, colocated with a `.git` working copy (`jj git clone --colocate`).
+    | JjColocated
+    /// A jj clone of a git remote, NOT colocated with a `.git` working copy
+    /// (`jj git clone --no-colocate`).
+    | JjNonColocated
+
+/// Backend-agnostic options for `Repo.Clone`/`Repo.CloneWith`: at minimum, which
+/// backend/mode to clone with. Neither backend's clone command currently exposes an
+/// option the other one also supports (e.g. jj's `git clone` has no equivalent to git's
+/// `--branch`/`--depth`), so there is nothing to add here yet beyond `Kind` — extend this
+/// record, not `Repo.Clone`'s signature, if/when that changes.
+type CloneOptions =
+    {
+        /// Which backend (and, for jj, colocation) to clone with.
+        Kind: CloneKind
+    }
+
+    /// A plain full clone with the given `kind`.
+    static member Create(kind: CloneKind) = { Kind = kind }
+
 /// One changed path in the working copy, unified across `git status` / `jj diff --summary`.
 type FileChange =
     {
