@@ -4,7 +4,29 @@
 		<OutputType>Exe</OutputType>
 		<TargetFramework>net10.0</TargetFramework>
 		<AssemblyName>vcs-mcp</AssemblyName>
-		<IsPackable>false</IsPackable>
+
+		<!-- Ship `vcs-mcp` as a .NET global tool (`dotnet tool install (global) vcs-mcp`).
+		     PACKAGING MECHANIC (chosen: bundle, not NuGet dependencies). A DotnetTool package is
+		     self-contained: `dotnet pack` on a `PackAsTool` project runs a framework-dependent
+		     `publish` and lays every runtime assembly the tool loads under `tools/<tfm>/any/`, and
+		     `dotnet tool install` extracts and runs that folder WITHOUT restoring NuGet
+		     dependencies. So the sibling `VcsToolkit.*` libraries this binary uses must be *inside*
+		     the package, not declared as sibling <dependency> entries.
+
+		     They already flow in: each `<Reference Include="VcsToolkit.*" />` below resolves from a
+		     build-output directory (via AssemblySearchPaths), not the shared framework, so RAR
+		     marks it copy-local (`Private`) and it is carried into the publish output, hence into
+		     `tools/<tfm>/any/`. This is the tool analogue of, but distinct from, the library
+		     sibling-dependency fix in `Directory.Build.targets`: that target rewrites the packed
+		     .nuspec of *packable libraries* so an external `dotnet restore` pulls the siblings; a
+		     self-contained tool needs the opposite (bundled assemblies, no sibling deps), so
+		     `Directory.Build.targets` excludes `PackAsTool` projects from that rewrite. -->
+		<PackAsTool>true</PackAsTool>
+		<ToolCommandName>vcs-mcp</ToolCommandName>
+		<PackageId>vcs-mcp</PackageId>
+		<Description>The vcs-mcp Model Context Protocol server as a .NET global tool: drives a git/jj repository (and its GitHub/GitLab/Gitea forge) over stdio, exposing the toolkit's typed repo_*/forge_* operations as agent-callable MCP tools. Read tools are always available; mutating tools are gated by --allow-write/--allow-tools.</Description>
+		<PackageTags>fsharp;vcs;git;jujutsu;jj;forge;mcp;model-context-protocol;agent;tools;dotnet-tool</PackageTags>
+
 		<AssemblySearchPaths>$(AssemblySearchPaths);$(McpDir)bin\$(Configuration)\$(TargetFramework);$(CoreDir)bin\$(Configuration)\$(TargetFramework);$(ForgeDir)bin\$(Configuration)\$(TargetFramework);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework);$(DiffDir)bin\$(Configuration)\$(TargetFramework);$(GitDir)bin\$(Configuration)\$(TargetFramework);$(JjDir)bin\$(Configuration)\$(TargetFramework);$(GitHubDir)bin\$(Configuration)\$(TargetFramework);$(GitLabDir)bin\$(Configuration)\$(TargetFramework);$(GiteaDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
 	</PropertyGroup>
 

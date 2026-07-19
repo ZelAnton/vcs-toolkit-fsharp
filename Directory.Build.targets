@@ -97,15 +97,20 @@
 		</Task>
 	</UsingTask>
 
+	<!-- Excludes PackAsTool projects: a .NET tool package is self-contained (its runtime
+	     assemblies, siblings included, are bundled under tools/<tfm>/ by the pack-time publish and
+	     `dotnet tool install` does NOT restore NuGet dependencies), so it must NOT declare its
+	     `VcsToolkit.*` siblings as <dependency> entries — that is the packable-library case only. -->
 	<Target Name="_InjectSiblingPackageDependencies"
 	        AfterTargets="Pack"
-	        Condition="'$(IsPackable)' != 'false' and '$(NuspecFile)' == ''">
+	        Condition="'$(IsPackable)' != 'false' and '$(NuspecFile)' == '' and '$(PackAsTool)' != 'true'">
 		<ItemGroup>
 			<!-- The VcsToolkit.* sibling assembly references become NuGet dependencies. INVARIANT:
 			     every VcsToolkit.* project a *packable* library references must itself be a published
 			     package — else the injected <dependency> points at a package that never reaches
-			     nuget.org. (Today all sibling refs are packable libs; TestKit / Mcp.Server, the only
-			     non-published projects, are referenced by nothing that packs.) -->
+			     nuget.org. (Today all sibling refs are packable libs; TestKit (unpublished) and the
+			     `vcs-mcp` tool — a DotnetTool that bundles its siblings rather than depending on
+			     them — are referenced by no packing library.) -->
 			<_VcsSiblingRef Include="@(Reference)"
 			                Condition="$([System.String]::Copy('%(Reference.Identity)').StartsWith('VcsToolkit.'))" />
 		</ItemGroup>
