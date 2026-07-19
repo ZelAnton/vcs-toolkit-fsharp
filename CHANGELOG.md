@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- XML documentation generation for every `src/` library, packaged into the `.nupkg` alongside the assembly (`lib/<tfm>/<Assembly>.xml`) — IntelliSense/IDE tooltips now surface the full `///`-documented public API for consumers of the NuGet packages.
 - RepoWatcher.ReadAll(?cancellationToken) on VcsToolkit.Watch — consume repository changes as an IAsyncEnumerable<RepoChange> for idiomatic await foreach usage, with Current advancing for each yielded change.
 - `Repo.NewChild(reference)` on `VcsToolkit.Core` — start new work on top of `reference` without modifying it (git `checkout <reference> --`; jj `new <reference>`, via the new `Jj.NewChild`/`JjAt.NewChild`). On jj this differs from `Checkout`/`jj edit`: it stacks a fresh, undescribed child change on `reference` instead of rewriting `reference`'s own commit in place.
 - `Repo.ShowFile(rev, path)` on `VcsToolkit.Core` — the content of a file as it exists at a revision, untrimmed, dispatched over `Git.ShowFile`/`Jj.FileShow` (`rev` is a git commit-ish or a jj revset, passed through as-is) — and the MCP `repo_show_file` read tool exposing it. The string form is UTF-8-decoded, so it is byte-exact only for text: a non-UTF-8 byte (a binary or legacy-encoded blob) is replaced with U+FFFD and does not round-trip — use the `*Bytes` variants below for verbatim binary content.
