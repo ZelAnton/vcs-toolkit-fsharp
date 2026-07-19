@@ -145,6 +145,13 @@ let internal serverVersion () : string =
         | attr when String.IsNullOrWhiteSpace attr.InformationalVersion -> "0.0.0-unknown"
         | attr -> attr.InformationalVersion
 
+/// The `Implementation` metadata advertised in the MCP handshake: the fixed server name paired
+/// with `serverVersion()`. Extracted out of `runServer` so tests can prove `ServerInfo.Version`
+/// is actually wired to `serverVersion()` end to end, not merely that `serverVersion()` itself
+/// happens not to be the old hardcoded literal in isolation.
+let internal buildServerInfo () : Implementation =
+    Implementation(Name = "vcs-mcp", Version = serverVersion ())
+
 /// Build the MCP `Tool` list from the library's catalogue (schema + annotation hints).
 let private buildTools () : ResizeArray<Tool> =
     let tools = ResizeArray<Tool>()
@@ -208,7 +215,7 @@ let private runServer (server: VcsMcpServer) : Task =
 
     builder.Services
         .AddMcpServer(fun options ->
-            options.ServerInfo <- Implementation(Name = "vcs-mcp", Version = serverVersion ())
+            options.ServerInfo <- buildServerInfo ()
             let caps = ServerCapabilities()
             caps.Tools <- ToolsCapability()
             options.Capabilities <- caps

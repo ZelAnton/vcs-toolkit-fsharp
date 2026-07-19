@@ -22,6 +22,10 @@
 		     `VcsToolkit.Mcp.Tests`/`VcsToolkit.Git.Tests`). -->
 		<PackageReference Include="ProcessKit" />
 		<PackageReference Include="ProcessKit.Testing" />
+		<!-- `Main.buildServerInfo()` returns `ModelContextProtocol.Protocol.Implementation`;
+		     asserting on its members needs the type resolvable, not just the transitive
+		     assembly pulled in via `vcs-mcp`. -->
+		<PackageReference Include="ModelContextProtocol" />
 	</ItemGroup>
 
 	<ItemGroup>
