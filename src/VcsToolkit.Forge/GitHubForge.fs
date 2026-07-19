@@ -1,6 +1,5 @@
 namespace VcsToolkit.Forge
 
-open System
 open System.Threading.Tasks
 open ProcessKit
 
@@ -20,18 +19,18 @@ type internal GitHubVersionProbe = Lazy<Task<Result<VcsToolkit.GitHub.GitHubCapa
 module internal GitHubForge =
 
     let private stateOf (state: string) : ForgePrState =
-        match state.ToUpperInvariant() with
-        | "MERGED" -> ForgePrState.Merged
-        | "CLOSED" -> ForgePrState.Closed
-        | _ -> ForgePrState.Open
+        if Common.stateEquals state "merged" then
+            ForgePrState.Merged
+        elif Common.stateEquals state "closed" then
+            ForgePrState.Closed
+        else
+            ForgePrState.Open
 
     let private issueStateOf (state: string) : ForgeIssueState =
-        if state.Equals("closed", StringComparison.OrdinalIgnoreCase) then
+        if Common.stateEquals state "closed" then
             ForgeIssueState.Closed
         else
             ForgeIssueState.Open
-
-    let private strOpt (s: string) : string option = if s = "" then None else Some s
 
     let private mapPr (pr: VcsToolkit.GitHub.PullRequest) : ForgePr =
         { Number = pr.Number
@@ -64,8 +63,8 @@ module internal GitHubForge =
           Title = r.Name
           Url = r.Url
           // gh reports an empty `publishedAt`/`body` for a draft/lean list — surface None.
-          PublishedAt = strOpt r.PublishedAt
-          Body = strOpt r.Body
+          PublishedAt = Common.strOpt r.PublishedAt
+          Body = Common.strOpt r.Body
           // gh's release surface carries both flags on list and view → Some.
           Draft = Some r.IsDraft
           Prerelease = Some r.IsPrerelease }
