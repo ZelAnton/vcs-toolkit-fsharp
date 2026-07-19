@@ -22,6 +22,24 @@ namespace VcsToolkit.CliSupport
                 1})]
         public static Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError> rejectFlagLike(string program, string what, string value) { }
     }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [Microsoft.FSharp.Core.NoComparison]
+    [System.Serializable]
+    public sealed class CommandEvent : System.Collections.IStructuralEquatable, System.IEquatable<VcsToolkit.CliSupport.CommandEvent>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.CliSupport.CommandEvent))]
+        public CommandEvent(string program, Microsoft.FSharp.Collections.FSharpList<string> argv, Microsoft.FSharp.Core.FSharpOption<string>? workingDirectory, int attempt, bool hasSecret) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public Microsoft.FSharp.Collections.FSharpList<string> Argv { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+        public int Attempt { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+        public bool HasSecret { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public string Program { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? WorkingDirectory { get; }
+    }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.ObjectType)]
     [Microsoft.FSharp.Core.NoComparison]
     [Microsoft.FSharp.Core.NoEquality]
@@ -107,6 +125,13 @@ namespace VcsToolkit.CliSupport
     }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.ObjectType)]
     [System.Serializable]
+    public interface ICommandObserver
+    {
+        void OnFinished(VcsToolkit.CliSupport.CommandEvent command, System.TimeSpan duration, Microsoft.FSharp.Core.FSharpResult<int, ProcessKit.ProcessError> outcome);
+        void OnStarted(VcsToolkit.CliSupport.CommandEvent command);
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.ObjectType)]
+    [System.Serializable]
     public interface ICredentialProvider
     {
         System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.FSharpOption<VcsToolkit.CliSupport.Credential>?, ProcessKit.ProcessError>> Credential(VcsToolkit.CliSupport.CredentialRequest request);
@@ -186,6 +211,7 @@ namespace VcsToolkit.CliSupport
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<T, ProcessKit.ProcessError>> TryParse<T>(ProcessKit.Command cmd, Microsoft.FSharp.Core.FSharpFunc<string, Microsoft.FSharp.Core.FSharpResult<T, string>> parser) { }
         public VcsToolkit.CliSupport.ManagedClient WithCredentials(VcsToolkit.CliSupport.ICredentialProvider provider) { }
         public VcsToolkit.CliSupport.ManagedClient WithExpectedHost(string host) { }
+        public VcsToolkit.CliSupport.ManagedClient WithObserver(VcsToolkit.CliSupport.ICommandObserver observer) { }
         public VcsToolkit.CliSupport.ManagedClient WithRetry(VcsToolkit.CliSupport.RetryPolicy policy) { }
         public VcsToolkit.CliSupport.ManagedClient WithTokenEnv(VcsToolkit.CliSupport.CredentialService service, string var) { }
         public static VcsToolkit.CliSupport.ManagedClient Create(string program) { }

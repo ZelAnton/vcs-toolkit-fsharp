@@ -178,6 +178,11 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
     member _.WithRetry(policy: RetryPolicy) =
         Jj(core.WithRetry policy, ignoreWorkingCopy)
 
+    /// Attach a diagnostic observer notified as each `jj` command starts and finishes
+    /// (opt-in, off by default). See `ICommandObserver`.
+    member _.WithObserver(observer: ICommandObserver) =
+        Jj(core.WithObserver observer, ignoreWorkingCopy)
+
     /// A **read-only** view of this client (the analogue of jj's `WorkingCopy::Ignore`): its
     /// read/query methods pass the global `--ignore-working-copy` flag, so a `Status`/`Log`/
     /// `Diff`/bookmark/op-log/workspace query reports the last recorded operation's state

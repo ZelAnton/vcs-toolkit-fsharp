@@ -1300,3 +1300,27 @@ type EnterpriseHostTests() =
                 )
             | Error e -> Assert.Fail $"pr list (github.com host) failed: {e}"
         }
+
+[<TestFixture>]
+type ObserverWiringTests() =
+
+    [<Test>]
+    member _.WithObserverThreadsThroughTheGitHubClient() : Task =
+        task {
+            let events = ResizeArray<CommandEvent>()
+
+            let observer =
+                { new ICommandObserver with
+                    member _.OnStarted(ev) = events.Add ev
+                    member _.OnFinished(_, _, _) = () }
+
+            let gh =
+                GitHub.WithRunner(ScriptedRunner().Fallback(Reply.Ok "gh version 2.62.0")).WithObserver observer
+
+            match! gh.Run [ "--version" ] with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"{e}"
+
+            Assert.That(events.Count, Is.EqualTo 1, "the observer is threaded through the GitHub client")
+            Assert.That(events[0].Program, Is.EqualTo "gh")
+        }

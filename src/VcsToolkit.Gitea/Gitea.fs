@@ -48,6 +48,10 @@ type Gitea private (core: ManagedClient) =
     /// Retry lock-contention failures per `policy` (opt-in, off by default).
     member _.WithRetry(policy: RetryPolicy) = Gitea(core.WithRetry policy)
 
+    /// Attach a diagnostic observer notified as each `tea` command starts and finishes
+    /// (opt-in, off by default). See `ICommandObserver`.
+    member _.WithObserver(observer: ICommandObserver) = Gitea(core.WithObserver observer)
+
     // --- Escape hatches / version / auth -------------------------------------
 
     /// Run `tea <args>` in the process's current directory, returning trimmed stdout. Unguarded
