@@ -53,6 +53,42 @@ jobs:
       - name: Check formatting
         run: dotnet fantomas --check src tests
 
+  # `dotnet pack` otherwise runs only in the release workflow, so a regression
+  # in the packaging mechanics (the post-pack sibling-dependency rewrite in
+  # Directory.Build.targets, README/icon/XML-doc inclusion, the `vcs-mcp`
+  # DotnetTool layout) would surface only at release time. This job packs the
+  # whole solution and validates the resulting .nupkg artifacts on every PR
+  # instead, via scripts/validate-packages.ps1.
+  pack-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
+
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-v2-${{ hashFiles('Directory.Packages.props', 'nuget.config', 'global.json') }}
+          restore-keys: ${{ runner.os }}-nuget-v2-
+
+      - name: Restore
+        run: dotnet restore
+
+      # Packs every packable project in the solution (the test projects are
+      # IsPackable=false), producing one .nupkg/.snupkg per VcsToolkit.*
+      # library plus the vcs-mcp .NET global tool — mirrors the Pack step in
+      # .github/workflows/release.yml, minus the version bump.
+      - name: Pack
+        run: dotnet pack VcsToolkit.slnx --configuration Release --output ./artifacts
+
+      - name: Validate packages
+        shell: pwsh
+        run: ./scripts/validate-packages.ps1 -PackagesDir ./artifacts
+
   test:
     strategy:
       fail-fast: false
