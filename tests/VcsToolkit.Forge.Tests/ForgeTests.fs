@@ -1097,30 +1097,42 @@ type PrListOptionsTests() =
         }
 
     [<Test>]
-    member _.GiteaPrListMergedRequestsAllAndFiltersToMergedOnly() : Task =
+    member _.GiteaPrListMergedIsStructurallyUnsupportedWithoutSpawning() : Task =
         task {
-            // tea has no reliable "merged" CLI filter (see the PrListState doc comment), so a
-            // `Merged` request walks `--state all` — the same proven-safe path `PrView` already
-            // uses — and the mixed open/closed/merged result is split locally by each PR's
-            // mapped `ForgePrState`.
-            let json =
-                """[{"index":"1","title":"open","state":"open","head":"f0","base":"main","url":"u0"},
-                    {"index":"2","title":"closed only","state":"closed","head":"f1","base":"main","url":"u1"},
-                    {"index":"3","title":"merged","state":"merged","head":"f2","base":"main","url":"u2"}]"""
-
-            let forge = teaForge [ "pr"; "list"; "--state"; "all"; "--fields" ] (Reply.Ok json)
+            // tea has no reliable "merged" CLI filter (see the PrListState doc comment):
+            // isolating `Merged` from a `--state all` fetch would require a local split, but
+            // `--limit` caps that raw fetch *before* such a split could run, so it could
+            // silently drop matching PRs beyond the first `limit` raw rows. Refused
+            // structurally instead — an empty `ScriptedRunner` (no fallback) proves this
+            // never reaches a spawn.
+            let forge =
+                Forge.FromGitea(".", VcsToolkit.Gitea.Gitea.WithRunner(ScriptedRunner()))
 
             match! forge.PrList(PrListOptions.Merged) with
-            | Ok [ pr ] ->
-                Assert.That(pr.Number, Is.EqualTo 3UL, "only the merged PR survives the local filter")
-                Assert.That(pr.State, Is.EqualTo ForgePrState.Merged)
-            | Ok other -> Assert.Fail $"expected exactly one merged PR, got {other.Length}"
-            | Error e -> Assert.Fail $"pr list failed: {e.Message}"
+            | Error e -> Assert.That(e.IsUnsupported, Is.True, "Gitea prList(Merged) must be Unsupported")
+            | Ok prs -> Assert.Fail $"expected Unsupported, got Ok with {prs.Length} PR(s)"
         }
 
     [<Test>]
-    member _.GiteaPrListClosedRequestsAllAndFiltersOutMerged() : Task =
+    member _.GiteaPrListClosedIsStructurallyUnsupportedWithoutSpawning() : Task =
         task {
+            // Same rationale as `Merged` above: a bare `closed` row on tea can itself be a
+            // merged PR (see `mapPr`'s `Merged`-flag derivation), so isolating "closed, not
+            // merged" has the identical limit-before-filter data-loss risk.
+            let forge =
+                Forge.FromGitea(".", VcsToolkit.Gitea.Gitea.WithRunner(ScriptedRunner()))
+
+            match! forge.PrList(PrListOptions.Closed) with
+            | Error e -> Assert.That(e.IsUnsupported, Is.True, "Gitea prList(Closed) must be Unsupported")
+            | Ok prs -> Assert.Fail $"expected Unsupported, got Ok with {prs.Length} PR(s)"
+        }
+
+    [<Test>]
+    member _.GiteaPrListAllRequestsAllWithoutLocalFiltering() : Task =
+        task {
+            // Unlike `Closed`/`Merged`, `All` applies no local filter after the fetch, so
+            // truncating at `--limit` cannot drop a "match" — the raw fetch already IS the
+            // requested result, so this keeps working.
             let json =
                 """[{"index":"1","title":"open","state":"open","head":"f0","base":"main","url":"u0"},
                     {"index":"2","title":"closed only","state":"closed","head":"f1","base":"main","url":"u1"},
@@ -1128,11 +1140,8 @@ type PrListOptionsTests() =
 
             let forge = teaForge [ "pr"; "list"; "--state"; "all"; "--fields" ] (Reply.Ok json)
 
-            match! forge.PrList(PrListOptions.Closed) with
-            | Ok [ pr ] ->
-                Assert.That(pr.Number, Is.EqualTo 2UL, "only the plain-closed (not merged) PR survives")
-                Assert.That(pr.State, Is.EqualTo ForgePrState.Closed)
-            | Ok other -> Assert.Fail $"expected exactly one closed (not merged) PR, got {other.Length}"
+            match! forge.PrList(PrListOptions.All) with
+            | Ok prs -> Assert.That(prs.Length, Is.EqualTo 3, "All returns every fetched PR, unfiltered")
             | Error e -> Assert.Fail $"pr list failed: {e.Message}"
         }
 

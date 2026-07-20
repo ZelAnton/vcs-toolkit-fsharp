@@ -449,6 +449,14 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
     /// The repository/project on the configured forge (Unsupported on Gitea).
     member this.ForgeRepoView() = this.ReadForge(fun f -> f.RepoView())
 
+    /// Open pull/merge requests on the configured forge — the previous, options-less
+    /// behaviour (open, up to 100). Kept as a genuine zero-argument overload for CLR binary
+    /// compatibility: an already-compiled caller of the pre-state/limit `ForgePrList()`
+    /// would hit `MissingMethodException` against a build that replaced it outright with
+    /// the two-argument `state`/`limit` overload below.
+    member this.ForgePrList() : Task<Result<string, McpError>> =
+        this.ForgePrList(Option.None, Option.None)
+
     /// Open pull/merge requests on the configured forge, optionally filtered by `state`
     /// (`open`/`closed`/`merged`/`all`; `None` defaults to `open`) and capped at `limit`
     /// (`None` defaults to 100) — mirrors `PrListOptions`'s defaults, so omitting both
@@ -481,6 +489,12 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
     /// The PR/MR's coarse CI status (Unsupported on Gitea).
     member this.ForgePrChecks(number: uint64) =
         this.ReadForge(fun f -> f.PrChecks number)
+
+    /// Open issues on the configured forge — the previous, options-less behaviour (open, up
+    /// to 100). Kept as a genuine zero-argument overload for CLR binary compatibility (see
+    /// `ForgePrList`'s doc comment for the rationale).
+    member this.ForgeIssueList() : Task<Result<string, McpError>> =
+        this.ForgeIssueList(Option.None, Option.None)
 
     /// Open issues on the configured forge, optionally filtered by `state`
     /// (`open`/`closed`/`all`; `None` defaults to `open`) and capped at `limit` (`None`

@@ -314,16 +314,20 @@ type Forge private (cwd: string, backend: Backend) =
 
     // --- PR/MR lifecycle -----------------------------------------------------
 
-    /// Pull/merge requests for the bound directory, filtered and capped by `options`
-    /// (defaulting to `PrListOptions.Default` — open, up to 100; omitting it entirely
-    /// reproduces the facade's previous, options-less behaviour exactly).
-    member _.PrList(?options: PrListOptions) =
-        let opts = defaultArg options PrListOptions.Default
+    /// Pull/merge requests for the bound directory — the facade's previous, options-less
+    /// behaviour (open, up to 100). Kept as a genuine zero-argument overload (rather than
+    /// folding into an `?options` optional parameter) for CLR binary compatibility: F#'s
+    /// `?options` sugar still compiles to a required parameter at the metadata level, so an
+    /// already-compiled caller of the pre-`PrListOptions` `PrList()` would hit
+    /// `MissingMethodException` against a build that replaced it outright.
+    member this.PrList() = this.PrList(PrListOptions.Default)
 
+    /// Pull/merge requests for the bound directory, filtered and capped by `options`.
+    member _.PrList(options: PrListOptions) =
         match backend with
-        | Backend.GitHub(c, _) -> GitHubForge.prList c cwd opts
-        | Backend.GitLab(c, _) -> GitLabForge.prList c cwd opts
-        | Backend.Gitea(c, _) -> GiteaForge.prList c cwd opts
+        | Backend.GitHub(c, _) -> GitHubForge.prList c cwd options
+        | Backend.GitLab(c, _) -> GitLabForge.prList c cwd options
+        | Backend.Gitea(c, _) -> GiteaForge.prList c cwd options
         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prList")) }
 
     /// A single PR/MR by number (GitLab `iid`). On Gitea this lists and filters.
@@ -503,16 +507,18 @@ type Forge private (cwd: string, backend: Backend) =
 
     // --- Issues / releases ---------------------------------------------------
 
-    /// Issues for the bound directory, filtered and capped by `options` (defaulting to
-    /// `IssueListOptions.Default` — open, up to 100; omitting it entirely reproduces the
-    /// facade's previous, options-less behaviour exactly).
-    member _.IssueList(?options: IssueListOptions) =
-        let opts = defaultArg options IssueListOptions.Default
+    /// Issues for the bound directory — the facade's previous, options-less behaviour
+    /// (open, up to 100). Kept as a genuine zero-argument overload for CLR binary
+    /// compatibility (see `PrList`'s doc comment for the rationale).
+    member this.IssueList() =
+        this.IssueList(IssueListOptions.Default)
 
+    /// Issues for the bound directory, filtered and capped by `options`.
+    member _.IssueList(options: IssueListOptions) =
         match backend with
-        | Backend.GitHub(c, _) -> GitHubForge.issueList c cwd opts
-        | Backend.GitLab(c, _) -> GitLabForge.issueList c cwd opts
-        | Backend.Gitea(c, _) -> GiteaForge.issueList c cwd opts
+        | Backend.GitHub(c, _) -> GitHubForge.issueList c cwd options
+        | Backend.GitLab(c, _) -> GitLabForge.issueList c cwd options
+        | Backend.Gitea(c, _) -> GiteaForge.issueList c cwd options
         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "issueList")) }
 
     /// A single issue by number (GitLab `iid`), with `Body`/`Url` filled.

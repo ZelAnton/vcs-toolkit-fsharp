@@ -159,10 +159,12 @@ type ForgePrState =
     | Merged
 
 /// Which PR/MR states `prList` returns — the unified filter, mapped to each CLI's own state
-/// flag(s) in the corresponding backend adapter: `gh pr list --state`, `glab mr list
-/// [--closed|--merged|--all]`, and `tea pr list --state` plus a client-side split for
-/// `Merged` — `tea` only distinguishes open/closed/all natively, so a `Merged` request is
-/// issued as `--state closed` and the result filtered locally by each PR's merged flag.
+/// flag(s) in the corresponding backend adapter: `gh pr list --state` and `glab mr list
+/// [--closed|--merged|--all]` both support every value directly. `tea` only distinguishes
+/// open/closed/all natively, and isolating `Closed` from `Merged` would require fetching
+/// `--state all` and splitting the result locally — `tea`'s `--limit` caps that raw fetch
+/// before such a split could run, so `Closed`/`Merged` are refused with `Unsupported` on
+/// Gitea rather than risking silently dropped matches (see `GiteaForge.prList`).
 [<RequireQualifiedAccess>]
 type PrListState =
     /// Open / awaiting review (the default).

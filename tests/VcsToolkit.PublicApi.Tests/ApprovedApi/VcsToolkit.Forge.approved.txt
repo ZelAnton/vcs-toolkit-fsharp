@@ -32,7 +32,8 @@ namespace VcsToolkit.Forge
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Forge.ForgeError>> IssueClose(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Forge.ForgeError>> IssueComment(ulong number, string body) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Forge.ForgeError>> IssueCreate(string title, string body) { }
-        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Forge.ForgeIssue>, VcsToolkit.Forge.ForgeError>> IssueList([Microsoft.FSharp.Core.OptionalArgument] Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Forge.IssueListOptions>? options) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Forge.ForgeIssue>, VcsToolkit.Forge.ForgeError>> IssueList() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Forge.ForgeIssue>, VcsToolkit.Forge.ForgeError>> IssueList(VcsToolkit.Forge.IssueListOptions options) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Forge.ForgeIssue, VcsToolkit.Forge.ForgeError>> IssueView(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Forge.ForgeError>> PrCheckout(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Forge.CiStatus, VcsToolkit.Forge.ForgeError>> PrChecks(ulong number) { }
@@ -41,7 +42,8 @@ namespace VcsToolkit.Forge
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Forge.ForgeError>> PrCreate(VcsToolkit.Forge.PrCreate spec) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Diff.FileDiff>, VcsToolkit.Forge.ForgeError>> PrDiff(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Forge.ForgeError>> PrEdit(ulong number, VcsToolkit.Forge.PrEdit edit) { }
-        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Forge.ForgePr>, VcsToolkit.Forge.ForgeError>> PrList([Microsoft.FSharp.Core.OptionalArgument] Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Forge.PrListOptions>? options) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Forge.ForgePr>, VcsToolkit.Forge.ForgeError>> PrList() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Forge.ForgePr>, VcsToolkit.Forge.ForgeError>> PrList(VcsToolkit.Forge.PrListOptions options) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Forge.ForgeError>> PrMarkReady(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Forge.ForgeError>> PrMerge(ulong number, VcsToolkit.Forge.PrMerge merge) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Forge.ForgeError>> PrReview(ulong number, VcsToolkit.Forge.ReviewAction action) { }

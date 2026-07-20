@@ -112,39 +112,44 @@ module internal GiteaForge =
         | IssueListState.Closed -> VcsToolkit.Gitea.IssueListState.Closed
         | IssueListState.All -> VcsToolkit.Gitea.IssueListState.All
 
-    /// `tea pr list --state` distinguishes open/closed/all; a **closed** row's `state` column
-    /// can itself read `"merged"` (see `GiteaParse`/`mapPr`'s `Merged`-flag derivation), and
-    /// `PrView` (above) already relies on `--state all` — never a bare `closed` — to reliably
-    /// surface a merged PR too. `Closed`/`Merged` follow that same proven-safe path: both
-    /// request `--state all` and the result is split locally afterwards by each PR's mapped
-    /// `ForgePrState`. `Open`/`All` need no local filtering — tea's own `open`/`all` states
-    /// already match the unified ones exactly.
+    /// `tea pr list --state` distinguishes open/closed/all natively, so `Open`/`All` map onto
+    /// it exactly and need no local filtering. `Closed`/`Merged` do NOT: a **closed** row's
+    /// `state` column can itself read `"merged"` (see `GiteaParse`/`mapPr`'s `Merged`-flag
+    /// derivation), so isolating either one requires fetching `--state all` and splitting the
+    /// result locally — but `tea`'s `--limit` caps that raw fetch *before* the split runs, so a
+    /// `Closed`/`Merged` request capped at `limit` could silently drop matching PRs beyond the
+    /// first `limit` raw rows. Paginating `--state all` until `limit` matches were collected
+    /// would avoid that, but it would layer more state/limit-specific logic onto a `tea pr list
+    /// --output json` call that is *already* broken against the real CLI (K-049) — rewriting
+    /// that parsing strategy is out of this change's scope. So `Closed`/`Merged` are refused
+    /// structurally instead, before any spawn, rather than risking either silent data loss or a
+    /// confusing failure on top of the pre-existing one.
     let prList (tea: VcsToolkit.Gitea.Gitea) (dir: string) (options: PrListOptions) =
         task {
-            let teaState: VcsToolkit.Gitea.PrListState =
-                match options.State with
-                | PrListState.Open -> VcsToolkit.Gitea.PrListState.Open
-                | PrListState.Closed
-                | PrListState.Merged
-                | PrListState.All -> VcsToolkit.Gitea.PrListState.All
-
-            let teaOptions: VcsToolkit.Gitea.PrListOptions =
-                { State = teaState
-                  Limit = options.Limit }
-
-            match! tea.PrList(dir, teaOptions) with
-            | Error e -> return Error(ForgeError.Forge e)
-            | Ok prs ->
-                let mapped = prs |> List.map mapPr
-
-                let filtered =
+            match options.State with
+            | PrListState.Closed
+            | PrListState.Merged ->
+                return
+                    Error(
+                        ForgeError.Unsupported(
+                            ForgeKind.Gitea,
+                            "prList: closed/merged filter is not exactly representable on tea"
+                        )
+                    )
+            | PrListState.Open
+            | PrListState.All ->
+                let teaState: VcsToolkit.Gitea.PrListState =
                     match options.State with
-                    | PrListState.Closed -> mapped |> List.filter (fun pr -> pr.State = ForgePrState.Closed)
-                    | PrListState.Merged -> mapped |> List.filter (fun pr -> pr.State = ForgePrState.Merged)
-                    | PrListState.Open
-                    | PrListState.All -> mapped
+                    | PrListState.Open -> VcsToolkit.Gitea.PrListState.Open
+                    | _ -> VcsToolkit.Gitea.PrListState.All
 
-                return Ok filtered
+                let teaOptions: VcsToolkit.Gitea.PrListOptions =
+                    { State = teaState
+                      Limit = options.Limit }
+
+                match! tea.PrList(dir, teaOptions) with
+                | Error e -> return Error(ForgeError.Forge e)
+                | Ok prs -> return Ok(prs |> List.map mapPr)
         }
 
     let prView (tea: VcsToolkit.Gitea.Gitea) (dir: string) (number: uint64) =

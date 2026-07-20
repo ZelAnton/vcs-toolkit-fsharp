@@ -30,7 +30,8 @@ namespace VcsToolkit.GitLab
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> IssueClose(string dir, ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> IssueComment(string dir, ulong number, string body) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> IssueCreate(string dir, string title, string body) { }
-        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitLab.Issue>, ProcessKit.ProcessError>> IssueList(string dir, [Microsoft.FSharp.Core.OptionalArgument] Microsoft.FSharp.Core.FSharpOption<VcsToolkit.GitLab.IssueListOptions>? options) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitLab.Issue>, ProcessKit.ProcessError>> IssueList(string dir) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitLab.Issue>, ProcessKit.ProcessError>> IssueList(string dir, VcsToolkit.GitLab.IssueListOptions options) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitLab.Issue, ProcessKit.ProcessError>> IssueView(string dir, ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> MrApprove(string dir, ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> MrCheckout(string dir, ulong number) { }
@@ -40,7 +41,8 @@ namespace VcsToolkit.GitLab
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> MrCreate(string dir, VcsToolkit.GitLab.MrCreate spec) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Diff.FileDiff>, ProcessKit.ProcessError>> MrDiff(string dir, ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> MrEdit(string dir, ulong number, VcsToolkit.GitLab.MrEdit edit) { }
-        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitLab.MergeRequest>, ProcessKit.ProcessError>> MrList(string dir, [Microsoft.FSharp.Core.OptionalArgument] Microsoft.FSharp.Core.FSharpOption<VcsToolkit.GitLab.MrListOptions>? options) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitLab.MergeRequest>, ProcessKit.ProcessError>> MrList(string dir) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitLab.MergeRequest>, ProcessKit.ProcessError>> MrList(string dir, VcsToolkit.GitLab.MrListOptions options) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> MrMarkReady(string dir, ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> MrMerge(string dir, ulong number, VcsToolkit.GitLab.MergeStrategy strategy) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> MrRevoke(string dir, ulong number) { }
@@ -72,7 +74,8 @@ namespace VcsToolkit.GitLab
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> IssueClose(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> IssueComment(ulong number, string body) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> IssueCreate(string title, string body) { }
-        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitLab.Issue>, ProcessKit.ProcessError>> IssueList([Microsoft.FSharp.Core.OptionalArgument] Microsoft.FSharp.Core.FSharpOption<VcsToolkit.GitLab.IssueListOptions>? options) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitLab.Issue>, ProcessKit.ProcessError>> IssueList() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitLab.Issue>, ProcessKit.ProcessError>> IssueList(VcsToolkit.GitLab.IssueListOptions options) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitLab.Issue, ProcessKit.ProcessError>> IssueView(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> MrApprove(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> MrCheckout(ulong number) { }
@@ -82,7 +85,8 @@ namespace VcsToolkit.GitLab
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> MrCreate(VcsToolkit.GitLab.MrCreate spec) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Diff.FileDiff>, ProcessKit.ProcessError>> MrDiff(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> MrEdit(ulong number, VcsToolkit.GitLab.MrEdit edit) { }
-        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitLab.MergeRequest>, ProcessKit.ProcessError>> MrList([Microsoft.FSharp.Core.OptionalArgument] Microsoft.FSharp.Core.FSharpOption<VcsToolkit.GitLab.MrListOptions>? options) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitLab.MergeRequest>, ProcessKit.ProcessError>> MrList() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitLab.MergeRequest>, ProcessKit.ProcessError>> MrList(VcsToolkit.GitLab.MrListOptions options) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> MrMarkReady(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> MrMerge(ulong number, VcsToolkit.GitLab.MergeStrategy strategy) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> MrRevoke(ulong number) { }
