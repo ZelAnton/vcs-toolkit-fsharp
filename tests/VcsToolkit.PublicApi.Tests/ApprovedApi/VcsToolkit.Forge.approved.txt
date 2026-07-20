@@ -24,6 +24,8 @@ namespace VcsToolkit.Forge
         public Microsoft.FSharp.Core.FSharpOption<VcsToolkit.GitLab.GitLab>? GitLabClient { get; }
         public Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Gitea.Gitea>? GiteaClient { get; }
         public VcsToolkit.Forge.ForgeKind Kind { get; }
+        public bool SupportsCloseDeleteBranch { get; }
+        public bool SupportsMergeOptions { get; }
         public VcsToolkit.Forge.Forge At(string dir) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<bool, VcsToolkit.Forge.ForgeError>> AuthStatus() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Forge.ForgeCapabilities, VcsToolkit.Forge.ForgeError>> Capabilities() { }
@@ -48,6 +50,7 @@ namespace VcsToolkit.Forge
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Forge.ForgeRelease, VcsToolkit.Forge.ForgeError>> ReleaseView(string tag) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Forge.ForgeRepo, VcsToolkit.Forge.ForgeError>> RepoView() { }
         public bool Supports(VcsToolkit.Forge.ForgeOp op) { }
+        public bool SupportsReview(VcsToolkit.Forge.ReviewKind kind) { }
         public static VcsToolkit.Forge.Forge FromGitHub(string cwd, VcsToolkit.GitHub.GitHub client) { }
         public static VcsToolkit.Forge.Forge FromGitLab(string cwd, VcsToolkit.GitLab.GitLab client) { }
         public static VcsToolkit.Forge.Forge FromGitea(string cwd, VcsToolkit.Gitea.Gitea client) { }

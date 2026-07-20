@@ -22,6 +22,14 @@ namespace VcsToolkit.Watch
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
         public VcsToolkit.Core.RepoSnapshot Snapshot { get; }
     }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Module)]
+    public static class RepoDiff
+    {
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                2,
+                2})]
+        public static Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Watch.RepoEvent> diff(VcsToolkit.Core.RepoSnapshot before_0, Microsoft.FSharp.Collections.FSharpList<string> before_1, VcsToolkit.Core.RepoSnapshot after_0, Microsoft.FSharp.Collections.FSharpList<string> after_1) { }
+    }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
     [Microsoft.FSharp.Core.RequireQualifiedAccess]
     [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]

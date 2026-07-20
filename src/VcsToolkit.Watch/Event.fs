@@ -129,3 +129,24 @@ module internal Diff =
 
           if prev.Conflicted <> next.Conflicted then
               RepoEvent.ConflictChanged(Conflicted = next.Conflicted) ]
+
+/// The public, pure snapshot-diff — the single source of the event semantics. `RepoWatcher`'s
+/// background loop calls `diff` on every settled re-query; a polling-based monitor (network
+/// disks, containers/NFS without inotify, WSL boundaries — anywhere `FileSystemWatcher` is
+/// unreliable or unavailable) can call it directly against two `Repo.Snapshot` +
+/// `Repo.LocalBranches` re-queries, without standing up a `RepoWatcher` at all. `WatchState`
+/// and `Diff` stay `internal` — this is the only public entry point onto that logic.
+module RepoDiff =
+
+    /// Diff two consecutive repository observations — each a `RepoSnapshot` (from
+    /// `Repo.Snapshot`) paired with the full local-branch/bookmark name list (from
+    /// `Repo.LocalBranches`) — into the `RepoEvent`s that changed between `before` and
+    /// `after`. Pure — no filesystem, no process, no async. The order is stable (head,
+    /// branch switch, created, deleted, working copy, upstream, ahead/behind, operation,
+    /// conflict — created/deleted names sorted); see `RepoEvent.OperationChanged`'s doc for
+    /// the `ConflictChanged`-vs-`OperationChanged` exclusion on a transition to/from
+    /// `OperationState.Conflict`.
+    let diff (before: RepoSnapshot * string list) (after: RepoSnapshot * string list) : RepoEvent list =
+        let prev = WatchState.fromSnapshot (fst before) (snd before)
+        let next = WatchState.fromSnapshot (fst after) (snd after)
+        Diff.diff prev next

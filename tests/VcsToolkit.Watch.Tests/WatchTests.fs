@@ -14,134 +14,170 @@ open VcsToolkit.Jj
 open VcsToolkit.Watch
 
 // ---------------------------------------------------------------------------
-// The pure snapshot-diff (event.rs) — fully hermetic, the load-bearing logic
+// The public, pure snapshot-diff (RepoDiff.diff) — fully hermetic, the load-bearing logic.
+// Exercised directly against RepoSnapshot/branches pairs (the publicly-available inputs),
+// not just indirectly through a whole RepoWatcher.
 // ---------------------------------------------------------------------------
 
-/// A clean baseline state on `main` at one commit, one branch.
-let private baseState: WatchState =
+/// A clean baseline snapshot on `main` at one commit, one branch.
+let private baseSnapshot: RepoSnapshot =
     { Head = Some "aaaa"
       Branch = Some "main"
-      Upstream = None
-      Ahead = None
-      Behind = None
+      Tracking = None
       Dirty = false
       ChangeCount = 0UL
       Conflicted = false
-      Operation = OperationState.Clear
-      Branches = [ "main" ] }
+      Operation = OperationState.Clear }
+
+let private baseBranches = [ "main" ]
 
 [<TestFixture>]
-type DiffTests() =
+type RepoDiffTests() =
 
     [<Test>]
     member _.IdenticalStatesYieldNoEvents() =
-        Assert.That(Diff.diff baseState baseState, Is.Empty)
+        Assert.That(RepoDiff.diff (baseSnapshot, baseBranches) (baseSnapshot, baseBranches), Is.Empty)
 
     [<Test>]
     member _.HeadMoveIsDetected() =
-        let next = { baseState with Head = Some "bbbb" }
-        Assert.That((Diff.diff baseState next = [ RepoEvent.HeadMoved(From = Some "aaaa", To = Some "bbbb") ]), Is.True)
+        let next = { baseSnapshot with Head = Some "bbbb" }
+
+        Assert.That(
+            (RepoDiff.diff (baseSnapshot, baseBranches) (next, baseBranches) = [ RepoEvent.HeadMoved(
+                                                                                     From = Some "aaaa",
+                                                                                     To = Some "bbbb"
+                                                                                 ) ]),
+            Is.True
+        )
 
     [<Test>]
     member _.BranchSwitchAndDetachAreDetected() =
         let switched =
-            { baseState with
+            { baseSnapshot with
                 Branch = Some "feature" }
 
         Assert.That(
-            (Diff.diff baseState switched = [ RepoEvent.BranchSwitched(From = Some "main", To = Some "feature") ]),
+            (RepoDiff.diff (baseSnapshot, baseBranches) (switched, baseBranches) = [ RepoEvent.BranchSwitched(
+                                                                                         From = Some "main",
+                                                                                         To = Some "feature"
+                                                                                     ) ]),
             Is.True
         )
 
-        let detached = { baseState with Branch = None }
+        let detached = { baseSnapshot with Branch = None }
 
         Assert.That(
-            (Diff.diff baseState detached = [ RepoEvent.BranchSwitched(From = Some "main", To = None) ]),
+            (RepoDiff.diff (baseSnapshot, baseBranches) (detached, baseBranches) = [ RepoEvent.BranchSwitched(
+                                                                                         From = Some "main",
+                                                                                         To = None
+                                                                                     ) ]),
             Is.True
         )
 
     [<Test>]
     member _.BranchCreateAndDeleteAreSortedAndPaired() =
-        let added =
-            { baseState with
-                Branches = [ "main"; "feat-b"; "feat-a" ] }
+        let added = [ "main"; "feat-b"; "feat-a" ]
+
+        let expected =
+            [ RepoEvent.BranchCreated "feat-a"; RepoEvent.BranchCreated "feat-b" ]
 
         Assert.That(
-            (Diff.diff baseState added = [ RepoEvent.BranchCreated "feat-a"; RepoEvent.BranchCreated "feat-b" ]),
+            (RepoDiff.diff (baseSnapshot, baseBranches) (baseSnapshot, added) = expected),
             Is.True,
             "created names come out sorted"
         )
 
-        let emptied = { baseState with Branches = [] }
-        Assert.That((Diff.diff baseState emptied = [ RepoEvent.BranchDeleted "main" ]), Is.True)
+        Assert.That(
+            (RepoDiff.diff (baseSnapshot, baseBranches) (baseSnapshot, []) = [ RepoEvent.BranchDeleted "main" ]),
+            Is.True
+        )
 
     [<Test>]
     member _.WorkingCopyChangeFiresOnDirtyOrCount() =
         let dirtied =
-            { baseState with
+            { baseSnapshot with
                 Dirty = true
                 ChangeCount = 3UL }
 
         Assert.That(
-            (Diff.diff baseState dirtied = [ RepoEvent.WorkingCopyChanged(Dirty = true, ChangeCount = 3UL) ]),
+            (RepoDiff.diff (baseSnapshot, baseBranches) (dirtied, baseBranches) = [ RepoEvent.WorkingCopyChanged(
+                                                                                        Dirty = true,
+                                                                                        ChangeCount = 3UL
+                                                                                    ) ]),
             Is.True
         )
 
         // A count change while already dirty still fires (1 → 2 edits).
         let one =
-            { baseState with
+            { baseSnapshot with
                 Dirty = true
                 ChangeCount = 1UL }
 
         let two =
-            { baseState with
+            { baseSnapshot with
                 Dirty = true
                 ChangeCount = 2UL }
 
-        Assert.That((Diff.diff one two = [ RepoEvent.WorkingCopyChanged(Dirty = true, ChangeCount = 2UL) ]), Is.True)
+        Assert.That(
+            (RepoDiff.diff (one, baseBranches) (two, baseBranches) = [ RepoEvent.WorkingCopyChanged(
+                                                                           Dirty = true,
+                                                                           ChangeCount = 2UL
+                                                                       ) ]),
+            Is.True
+        )
 
     [<Test>]
     member _.UpstreamAndAheadBehindAreSeparateEvents() =
         let next =
-            { baseState with
-                Upstream = Some "origin/main"
-                Ahead = Some 2UL
-                Behind = Some 0UL }
+            { baseSnapshot with
+                Tracking =
+                    Some
+                        { Branch = "origin/main"
+                          Ahead = Some 2UL
+                          Behind = Some 0UL } }
 
-        Assert.That(
-            (Diff.diff baseState next = [ RepoEvent.UpstreamChanged(Upstream = Some "origin/main")
-                                          RepoEvent.AheadBehindChanged(Ahead = Some 2UL, Behind = Some 0UL) ]),
-            Is.True
-        )
+        let expected =
+            [ RepoEvent.UpstreamChanged(Upstream = Some "origin/main")
+              RepoEvent.AheadBehindChanged(Ahead = Some 2UL, Behind = Some 0UL) ]
+
+        Assert.That((RepoDiff.diff (baseSnapshot, baseBranches) (next, baseBranches) = expected), Is.True)
 
     [<Test>]
     member _.OperationAndConflictTransitionsAreDetected() =
         let merging =
-            { baseState with
+            { baseSnapshot with
                 Operation = OperationState.Merge }
 
         Assert.That(
-            (Diff.diff baseState merging = [ RepoEvent.OperationChanged(
-                                                 From = OperationState.Clear,
-                                                 To = OperationState.Merge
-                                             ) ]),
+            (RepoDiff.diff (baseSnapshot, baseBranches) (merging, baseBranches) = [ RepoEvent.OperationChanged(
+                                                                                        From = OperationState.Clear,
+                                                                                        To = OperationState.Merge
+                                                                                    ) ]),
             Is.True
         )
 
-        let conflicted = { baseState with Conflicted = true }
-        Assert.That((Diff.diff baseState conflicted = [ RepoEvent.ConflictChanged(Conflicted = true) ]), Is.True)
+        let conflicted = { baseSnapshot with Conflicted = true }
+
+        Assert.That(
+            (RepoDiff.diff (baseSnapshot, baseBranches) (conflicted, baseBranches) = [ RepoEvent.ConflictChanged(
+                                                                                           Conflicted = true
+                                                                                       ) ]),
+            Is.True
+        )
 
     [<Test>]
     member _.JjConflictEmitsOnlyConflictChangedNotOperation() =
         // jj derives `operation` and `conflicted` from the same bit, so a conflict flips
         // BOTH (Clear→Conflict and false→true). The redundant OperationChanged is suppressed.
         let next =
-            { baseState with
+            { baseSnapshot with
                 Operation = OperationState.Conflict
                 Conflicted = true }
 
         Assert.That(
-            (Diff.diff baseState next = [ RepoEvent.ConflictChanged(Conflicted = true) ]),
+            (RepoDiff.diff (baseSnapshot, baseBranches) (next, baseBranches) = [ RepoEvent.ConflictChanged(
+                                                                                     Conflicted = true
+                                                                                 ) ]),
             Is.True,
             "Clear→Conflict must not also emit OperationChanged"
         )
@@ -150,18 +186,15 @@ type DiffTests() =
     member _.GitMergeWithConflictEmitsBothOperationAndConflict() =
         // A merge that conflicts is two distinct facts — the Merge endpoint isn't Conflict.
         let next =
-            { baseState with
+            { baseSnapshot with
                 Operation = OperationState.Merge
                 Conflicted = true }
 
-        Assert.That(
-            (Diff.diff baseState next = [ RepoEvent.OperationChanged(
-                                              From = OperationState.Clear,
-                                              To = OperationState.Merge
-                                          )
-                                          RepoEvent.ConflictChanged(Conflicted = true) ]),
-            Is.True
-        )
+        let expected =
+            [ RepoEvent.OperationChanged(From = OperationState.Clear, To = OperationState.Merge)
+              RepoEvent.ConflictChanged(Conflicted = true) ]
+
+        Assert.That((RepoDiff.diff (baseSnapshot, baseBranches) (next, baseBranches) = expected), Is.True)
 
     [<Test>]
     member _.SequencerStateTransitionsAreDetectedAsOperationChanged() =
@@ -169,27 +202,27 @@ type DiffTests() =
         // start (Clear→CherryPick) and a finish (Bisect→Clear) are each an OperationChanged, not
         // swallowed like a jj Conflict transition.
         let picking =
-            { baseState with
+            { baseSnapshot with
                 Operation = OperationState.CherryPick }
 
         Assert.That(
-            (Diff.diff baseState picking = [ RepoEvent.OperationChanged(
-                                                 From = OperationState.Clear,
-                                                 To = OperationState.CherryPick
-                                             ) ]),
+            (RepoDiff.diff (baseSnapshot, baseBranches) (picking, baseBranches) = [ RepoEvent.OperationChanged(
+                                                                                        From = OperationState.Clear,
+                                                                                        To = OperationState.CherryPick
+                                                                                    ) ]),
             Is.True,
             "Clear→CherryPick must emit OperationChanged"
         )
 
         let bisecting =
-            { baseState with
+            { baseSnapshot with
                 Operation = OperationState.Bisect }
 
         Assert.That(
-            (Diff.diff bisecting baseState = [ RepoEvent.OperationChanged(
-                                                   From = OperationState.Bisect,
-                                                   To = OperationState.Clear
-                                               ) ]),
+            (RepoDiff.diff (bisecting, baseBranches) (baseSnapshot, baseBranches) = [ RepoEvent.OperationChanged(
+                                                                                          From = OperationState.Bisect,
+                                                                                          To = OperationState.Clear
+                                                                                      ) ]),
             Is.True,
             "Bisect→Clear (a finished bisect) must emit OperationChanged"
         )
@@ -197,17 +230,17 @@ type DiffTests() =
     [<Test>]
     member _.MultipleChangesEmitInStableOrder() =
         let prev =
-            { baseState with
+            { baseSnapshot with
                 Dirty = true
                 ChangeCount = 2UL }
 
-        let next = { baseState with Head = Some "cccc" } // clean again, new head
+        let next = { baseSnapshot with Head = Some "cccc" } // clean again, new head
 
-        Assert.That(
-            (Diff.diff prev next = [ RepoEvent.HeadMoved(From = Some "aaaa", To = Some "cccc")
-                                     RepoEvent.WorkingCopyChanged(Dirty = false, ChangeCount = 0UL) ]),
-            Is.True
-        )
+        let expected =
+            [ RepoEvent.HeadMoved(From = Some "aaaa", To = Some "cccc")
+              RepoEvent.WorkingCopyChanged(Dirty = false, ChangeCount = 0UL) ]
+
+        Assert.That((RepoDiff.diff (prev, baseBranches) (next, baseBranches) = expected), Is.True)
 
 // ---------------------------------------------------------------------------
 // State-directory resolution (gitlinks + worktree commondir) — needs temp dirs
@@ -530,7 +563,7 @@ type PipelineTests() =
             use cts = new CancellationTokenSource()
 
             let _loop =
-                Loop.watchLoop (scriptedJj "bbbb") raw out baseState fastConfig stats cts.Token
+                Loop.watchLoop (scriptedJj "bbbb") raw out (baseSnapshot, baseBranches) fastConfig stats cts.Token
 
             raw.Writer.TryWrite(()) |> ignore
 
@@ -555,7 +588,7 @@ type PipelineTests() =
             use cts = new CancellationTokenSource()
             // Same head as the baseline → the re-query diffs to nothing.
             let _loop =
-                Loop.watchLoop (scriptedJj "aaaa") raw out baseState fastConfig stats cts.Token
+                Loop.watchLoop (scriptedJj "aaaa") raw out (baseSnapshot, baseBranches) fastConfig stats cts.Token
 
             raw.Writer.TryWrite(()) |> ignore
             do! Task.Delay 250
@@ -578,7 +611,10 @@ type PipelineTests() =
             let raw, out = channels ()
             let stats = StatsInner()
             use cts = new CancellationTokenSource()
-            let _loop = Loop.watchLoop repo raw out baseState fastConfig stats cts.Token
+
+            let _loop =
+                Loop.watchLoop repo raw out (baseSnapshot, baseBranches) fastConfig stats cts.Token
+
             raw.Writer.TryWrite(()) |> ignore
             do! Task.Delay 250
 
@@ -598,7 +634,10 @@ type PipelineTests() =
             let stats = StatsInner()
             use cts = new CancellationTokenSource()
             let repo = Repo.FromJj("/r", "/r", Jj.WithRunner(transientThenOkRunner "bbbb" 2))
-            let _loop = Loop.watchLoop repo raw out baseState fastConfig stats cts.Token
+
+            let _loop =
+                Loop.watchLoop repo raw out (baseSnapshot, baseBranches) fastConfig stats cts.Token
+
             raw.Writer.TryWrite(()) |> ignore
 
             // Generous bound: two retry backoffs (≈200ms + 400ms) plus settle/debounce.
@@ -644,7 +683,8 @@ type PipelineTests() =
                   Conflicted = false
                   Operation = OperationState.Clear }
 
-            let loopTask = Loop.watchLoop repo raw out baseState fastConfig stats cts.Token
+            let loopTask =
+                Loop.watchLoop repo raw out (baseSnapshot, baseBranches) fastConfig stats cts.Token
 
             use watcher =
                 new RepoWatcher(out, baselineSnapshot, stats, ResizeArray<FileSystemWatcher>(), cts, loopTask)
@@ -750,7 +790,7 @@ type PipelineTests() =
                   Operation = OperationState.Clear }
 
             let loopTask =
-                Loop.watchLoop (scriptedJj "aaaa") raw out baseState fastConfig stats cts.Token
+                Loop.watchLoop (scriptedJj "aaaa") raw out (baseSnapshot, baseBranches) fastConfig stats cts.Token
 
             use watcher =
                 new RepoWatcher(out, baselineSnapshot, stats, ResizeArray<FileSystemWatcher>(), cts, loopTask)
@@ -784,7 +824,8 @@ type PipelineTests() =
                   Conflicted = false
                   Operation = OperationState.Clear }
 
-            let loopTask = Loop.watchLoop repo raw out baseState fastConfig stats cts.Token
+            let loopTask =
+                Loop.watchLoop repo raw out (baseSnapshot, baseBranches) fastConfig stats cts.Token
 
             use watcher =
                 new RepoWatcher(out, baselineSnapshot, stats, ResizeArray<FileSystemWatcher>(), cts, loopTask)
@@ -820,7 +861,7 @@ type PipelineTests() =
             let cts = new CancellationTokenSource()
 
             let _loop =
-                Loop.watchLoop (scriptedJj "aaaa") raw out baseState fastConfig stats cts.Token
+                Loop.watchLoop (scriptedJj "aaaa") raw out (baseSnapshot, baseBranches) fastConfig stats cts.Token
 
             cts.Cancel()
 

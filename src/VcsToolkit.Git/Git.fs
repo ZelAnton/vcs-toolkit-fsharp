@@ -1744,6 +1744,9 @@ and [<Sealed>] GitAt internal (git: Git, dir: string) =
     /// This worktree's git directory (`rev-parse --git-dir`).
     member _.GitDir() = git.GitDir dir
 
+    /// `git_dir` resolved to an absolute path.
+    member _.ResolvedGitDir() = git.ResolvedGitDir dir
+
     /// Resolve a revision to a commit hash, peeling tags.
     member _.ResolveCommit(rev: string) = git.ResolveCommit(dir, rev)
 
