@@ -8,6 +8,10 @@ tools as subprocesses rather than binding to libraries, so it stays faithful to
 whatever the installed CLIs actually do. Process execution is handled by
 [ProcessKit](https://github.com/ZelAnton/ProcessKit-fSharp).
 
+**[Browse the documentation site](https://zelanton.github.io/vcs-toolkit-fsharp/)** for the
+full API reference (generated from the XML doc comments of every package below) plus the
+architecture and examples guides.
+
 ## Requirements
 
 - .NET 10.0 or later

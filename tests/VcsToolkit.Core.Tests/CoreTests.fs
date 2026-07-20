@@ -6,6 +6,7 @@ open System.Threading.Tasks
 open NUnit.Framework
 open ProcessKit
 open ProcessKit.Testing
+open VcsToolkit.CliSupport
 open VcsToolkit.Diff
 open VcsToolkit.Git
 open VcsToolkit.Jj
@@ -1225,6 +1226,96 @@ type AssemblyTests() =
                     Does.Contain "no such workspace",
                     "the failed rollback WorkspaceForget must be surfaced, not swallowed"
                 )
+        }
+
+    [<Test>]
+    member _.JjCreateWorktreeDisambiguatesALossyNameCollision() : Task =
+        task {
+            // `workspaceNameFor` is lossy: "/", ".", ":" and whitespace all collapse to "_", so
+            // branches "a/b" and "a.b" both derive the base name "a_b". Simulate "a_b" already
+            // registered (as if a worktree for "a/b" got there first): creating one for "a.b"
+            // must NOT surface jj's raw "already exists" — it must disambiguate to a distinct
+            // name and succeed.
+            let events = ResizeArray<CommandEvent>()
+
+            let observer =
+                { new ICommandObserver with
+                    member _.OnStarted(ev) = events.Add ev
+                    member _.OnFinished(_, _, _) = () }
+
+            let runner =
+                ScriptedRunner()
+                    .On(
+                        [ "workspace"; "add"; "--name"; "a_b"; "-r"; "main"; "wt"; "--color"; "never" ],
+                        Reply.Fail(1, "Workspace already exists")
+                    )
+                    .On([ "workspace"; "list" ], Reply.Ok "a_b\tdeadbeef\t\n")
+                    .Fallback(Reply.Ok "")
+
+            let repo =
+                Repo.FromJj("/repo", "/repo", Jj.WithRunner(runner).WithObserver observer)
+
+            match! repo.CreateWorktree("wt", "a.b", "main") with
+            | Error e -> Assert.Fail $"expected the lossy-name collision to be disambiguated, got: {e.Message}"
+            | Ok _ -> ()
+
+            // The colliding base name must be tried first (so a genuinely non-colliding call
+            // still takes the single-spawn happy path), then retried once with a distinct,
+            // traceable disambiguated name — and the bookmark must anchor to THAT workspace.
+            let addCalls =
+                events
+                |> Seq.filter (fun ev -> ev.Argv |> List.truncate 2 = [ "workspace"; "add" ])
+                |> Seq.toList
+
+            Assert.That(addCalls.Length, Is.EqualTo 2, "the base name is tried first, then the disambiguated retry")
+
+            let retriedName =
+                match addCalls.[1].Argv with
+                | "workspace" :: "add" :: "--name" :: name :: _ -> name
+                | other -> failwith $"unexpected workspace add argv: %A{other}"
+
+            Assert.That(retriedName, Is.Not.EqualTo "a_b", "must not retry with the colliding base name")
+            Assert.That(retriedName, Does.StartWith "a_b_", "the disambiguated name still traces back to the base name")
+
+            let bookmarkCall =
+                events
+                |> Seq.find (fun ev -> ev.Argv |> List.truncate 2 = [ "bookmark"; "create" ])
+
+            Assert.That(
+                bookmarkCall.Argv |> List.truncate 5 = [ "bookmark"; "create"; "a.b"; "-r"; retriedName + "@" ],
+                "the bookmark must anchor to the disambiguated workspace, not the colliding base name"
+            )
+        }
+
+    [<Test>]
+    member _.JjCreateWorktreeSurfacesNonCollisionAddFailuresUnchanged() : Task =
+        task {
+            // A `workspace add` failure that is NOT a name collision (e.g. an invalid base
+            // revision) must surface unchanged: the collision/disambiguation path only kicks in
+            // once `workspace list` actually shows the derived name taken.
+            let runner =
+                ScriptedRunner()
+                    .On(
+                        [ "workspace"
+                          "add"
+                          "--name"
+                          "feature"
+                          "-r"
+                          "no-such-rev"
+                          "wt"
+                          "--color"
+                          "never" ],
+                        Reply.Fail(1, "no such revision: no-such-rev")
+                    )
+                    .On([ "workspace"; "list" ], Reply.Ok "default\te2aa3420\tmain\n")
+
+            let repo = Repo.FromJj("/repo", "/repo", Jj.WithRunner runner)
+
+            match! repo.CreateWorktree("wt", "feature", "no-such-rev") with
+            | Ok _ -> Assert.Fail "expected the non-collision add failure to surface"
+            | Error(RepoError.InvalidInput _) ->
+                Assert.Fail "a genuine jj error must not be reclassified as InvalidInput"
+            | Error e -> Assert.That(e.Message, Does.Contain "no such revision", "the original error must be preserved")
         }
 
     [<Test>]
