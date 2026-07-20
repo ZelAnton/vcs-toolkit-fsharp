@@ -9,6 +9,7 @@
 	<ItemGroup>
 		<Compile Include="GitTests.fs" />
 		<Compile Include="ConflictTests.fs" />
+		<Compile Include="ConflictPropertyTests.fs" />
 		<Compile Include="UpstreamIntegrationTests.fs" />
 		<Compile Include="EmptyTreeOidIntegrationTests.fs" />
 		<Compile Include="PathTransportIntegrationTests.fs" />
@@ -19,6 +20,7 @@
 		<PackageReference Include="Microsoft.NET.Test.Sdk" />
 		<PackageReference Include="NUnit" />
 		<PackageReference Include="NUnit3TestAdapter" />
+		<PackageReference Include="FsCheck.NUnit" />
 		<PackageReference Include="ProcessKit" />
 		<PackageReference Include="ProcessKit.Testing" />
 	</ItemGroup>

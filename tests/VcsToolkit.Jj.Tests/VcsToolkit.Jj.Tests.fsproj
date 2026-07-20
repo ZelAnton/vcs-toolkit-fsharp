@@ -9,6 +9,7 @@
 	<ItemGroup>
 		<Compile Include="JjTests.fs" />
 		<Compile Include="ConflictTests.fs" />
+		<Compile Include="ConflictPropertyTests.fs" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -16,6 +17,7 @@
 		<PackageReference Include="Microsoft.NET.Test.Sdk" />
 		<PackageReference Include="NUnit" />
 		<PackageReference Include="NUnit3TestAdapter" />
+		<PackageReference Include="FsCheck.NUnit" />
 		<PackageReference Include="ProcessKit" />
 		<PackageReference Include="ProcessKit.Testing" />
 	</ItemGroup>
