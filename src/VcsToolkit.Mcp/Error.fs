@@ -4,15 +4,19 @@ open System
 open VcsToolkit.Core
 open VcsToolkit.Forge
 
-/// An error surfaced from a tool call — mapped onto MCP's JSON-RPC error codes by the
-/// server binary: `InvalidParams` is the client's call to fix (a bad argument, a disabled
-/// write, an unsupported forge op), `Internal` is a backend/network failure. This type may gain
-/// cases — add a `| _ ->` arm if you match it, so a future case doesn't break your code.
+/// An error surfaced from a tool call. The `vcs-mcp` server binary routes the two cases onto
+/// the two distinct MCP error channels so a client can tell them apart programmatically:
+/// `InvalidParams` — the caller's call to fix (a bad or missing argument, an unknown tool, a
+/// disabled write, an unsupported forge op) — is raised as a JSON-RPC **protocol** error
+/// (`McpProtocolException` with `McpErrorCode.InvalidParams`); `Internal` — a backend/network
+/// execution failure — is returned inside the tool result with `IsError = true` (the MCP
+/// convention: execution errors travel in the result, protocol errors as JSON-RPC). This type
+/// may gain cases — add a `| _ ->` arm if you match it, so a future case doesn't break your code.
 [<RequireQualifiedAccess>]
 type McpError =
-    /// The caller's input/request was refused (invalid-params on the wire).
+    /// The caller's input/request was refused — raised as a JSON-RPC invalid-params protocol error.
     | InvalidParams of string
-    /// A backend (git/jj/forge) or internal failure (internal-error on the wire).
+    /// A backend (git/jj/forge) or internal execution failure — returned as an `IsError` tool result.
     | Internal of string
 
     /// The human-readable message.

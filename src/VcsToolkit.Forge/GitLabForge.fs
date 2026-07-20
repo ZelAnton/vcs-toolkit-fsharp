@@ -193,25 +193,6 @@ module internal GitLabForge =
             return ofForge r
         }
 
-    /// `glab mr merge` exposes no confirmed auto-merge / delete-source-branch flag, so the
-    /// unified spec's `Auto`/`DeleteBranch` can't be honoured on GitLab. Report a structural
-    /// `Unsupported` when either is asked for (so the facade refuses it before any spawn rather
-    /// than silently dropping the option); `None` for a plain, supportable strategy merge.
-    let unsupportedMerge (merge: PrMerge) : ForgeError option =
-        if merge.Auto || merge.DeleteBranch then
-            Some(ForgeError.Unsupported(ForgeKind.GitLab, "prMerge auto/delete-branch"))
-        else
-            None
-
-    /// `glab mr close` exposes no confirmed delete-source-branch flag. Report a structural
-    /// `Unsupported` when it is requested so the facade refuses it before any spawn rather than
-    /// silently dropping the option; `None` when closing without deleting the branch.
-    let unsupportedClose (deleteBranch: bool) : ForgeError option =
-        if deleteBranch then
-            Some(ForgeError.Unsupported(ForgeKind.GitLab, "prClose delete-branch"))
-        else
-            None
-
     let prMerge (glab: VcsToolkit.GitLab.GitLab) (dir: string) (number: uint64) (strategy: MergeStrategy) =
         task {
             let ms =
@@ -243,29 +224,19 @@ module internal GitLabForge =
             return ofForge r
         }
 
-    /// `glab` has no request-changes or comment-only review verb — only `mr approve`/`mr
-    /// revoke` — so only an `Approve` review is supportable on GitLab. Report a structural
-    /// `Unsupported` for `RequestChanges`/`Comment` so the facade refuses them before any spawn
-    /// (deliberately NOT composing note+revoke, whose two separate calls risk a partial apply
-    /// between steps on a foreign MR); `None` for an `Approve`.
-    let unsupportedReview (action: ReviewAction) : ForgeError option =
-        match action.Kind with
-        | ReviewKind.Approve -> None
-        | ReviewKind.RequestChanges -> Some(ForgeError.Unsupported(ForgeKind.GitLab, "prReview requestChanges"))
-        | ReviewKind.Comment -> Some(ForgeError.Unsupported(ForgeKind.GitLab, "prReview comment"))
-
     let prReview (glab: VcsToolkit.GitLab.GitLab) (dir: string) (number: uint64) (action: ReviewAction) =
         task {
             // Only `Approve` reaches here — `RequestChanges`/`Comment` are refused structurally by
-            // `unsupportedReview` before dispatch. `glab mr approve` carries no comment, so an
-            // approve body has no CLI home and is intentionally not threaded through.
+            // the facade's shared `ForgeSupport.unsupportedReview` gate before dispatch (glab has
+            // no equivalent verb). `glab mr approve` carries no comment, so an approve body has no
+            // CLI home and is intentionally not threaded through.
             match action.Kind with
             | ReviewKind.Approve ->
                 let! r = glab.MrApprove(dir, number)
                 return ofForge r
             | ReviewKind.RequestChanges
             | ReviewKind.Comment ->
-                // Unreachable: refused by `unsupportedReview` before dispatch.
+                // Unreachable: refused by `ForgeSupport.unsupportedReview` before dispatch.
                 return Error(ForgeError.Unsupported(ForgeKind.GitLab, "prReview"))
         }
 

@@ -118,9 +118,13 @@ type ForgeKind =
             else
                 None
 
-/// A facade operation whose availability varies by backend — i.e. one that can return
-/// `Unsupported`. Pass it to `Forge.Supports` to branch *before* calling. Every other
-/// facade operation is supported on all three forges.
+/// A facade operation that is *entirely absent* on some backend's CLI — one that can return
+/// `Unsupported` no matter its arguments. Pass it to `Forge.Supports` to branch *before*
+/// calling. This covers **operation-level** gaps only (chiefly Gitea, whose `tea` lacks these
+/// whole commands). A handful of operations exist on every CLI yet refuse a specific *variant*
+/// — `prReview` by review kind, `prMerge`'s `Auto`/`DeleteBranch` options, and `prClose`'s
+/// delete-branch — and those finer-grained refusals are **not** in `ForgeOp`; query them
+/// through `Forge.SupportsReview`/`SupportsMergeOptions`/`SupportsCloseDeleteBranch` instead.
 [<RequireQualifiedAccess>]
 type ForgeOp =
     /// `repoView` — current repo/project metadata.

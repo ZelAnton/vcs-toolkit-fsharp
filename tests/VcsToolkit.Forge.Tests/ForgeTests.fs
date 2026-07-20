@@ -310,6 +310,42 @@ type DispatchTests() =
         Assert.That(tea.Supports ForgeOp.PrDiff, Is.False)
 
     [<Test>]
+    member _.SupportsReviewMergeOptionsAndCloseReflectTheBackend() =
+        // The kind/variant-dependent introspection queries — the counterpart of `Supports(op)`
+        // for the finer refusals `ForgeOp` can't express. Each value is checked against real
+        // dispatch in the PrReview/PrMerge/PrClose fixtures below; both read the same
+        // `ForgeSupport` predicates, so this table and the dispatch cannot drift.
+        let gh = ghForge [ "pr"; "list" ] (Reply.Ok "[]")
+        let gl = glForge [ "mr"; "list" ] (Reply.Ok "[]")
+        let tea = teaForge [ "pr"; "list" ] (Reply.Ok "[]")
+        let unknown = Forge.FromUnknown "."
+
+        // Review kind: Approve on every real forge; RequestChanges on GitHub/Gitea only; a
+        // Comment-review on GitHub only; the CLI-less Unknown handle none.
+        Assert.That(gh.SupportsReview ReviewKind.Approve, Is.True)
+        Assert.That(gh.SupportsReview ReviewKind.RequestChanges, Is.True)
+        Assert.That(gh.SupportsReview ReviewKind.Comment, Is.True)
+        Assert.That(gl.SupportsReview ReviewKind.Approve, Is.True)
+        Assert.That(gl.SupportsReview ReviewKind.RequestChanges, Is.False)
+        Assert.That(gl.SupportsReview ReviewKind.Comment, Is.False)
+        Assert.That(tea.SupportsReview ReviewKind.Approve, Is.True)
+        Assert.That(tea.SupportsReview ReviewKind.RequestChanges, Is.True)
+        Assert.That(tea.SupportsReview ReviewKind.Comment, Is.False)
+        Assert.That(unknown.SupportsReview ReviewKind.Approve, Is.False)
+        Assert.That(unknown.SupportsReview ReviewKind.RequestChanges, Is.False)
+        Assert.That(unknown.SupportsReview ReviewKind.Comment, Is.False)
+
+        // Merge auto/delete-branch and close delete-branch: honoured on GitHub only.
+        Assert.That(gh.SupportsMergeOptions, Is.True)
+        Assert.That(gl.SupportsMergeOptions, Is.False)
+        Assert.That(tea.SupportsMergeOptions, Is.False)
+        Assert.That(unknown.SupportsMergeOptions, Is.False)
+        Assert.That(gh.SupportsCloseDeleteBranch, Is.True)
+        Assert.That(gl.SupportsCloseDeleteBranch, Is.False)
+        Assert.That(tea.SupportsCloseDeleteBranch, Is.False)
+        Assert.That(unknown.SupportsCloseDeleteBranch, Is.False)
+
+    [<Test>]
     member _.RawClientAccessorsReturnTheBackendClientOnly() =
         // Each `*Client` escape hatch is `Some` only for its own backend — the `Repo.Git`/`Repo.Jj`
         // analogue, letting a consumer reach the raw client (e.g. for `gh`-only ops) after building
@@ -1223,6 +1259,9 @@ type PrMergeSpecTests() =
                     )
                 )
 
+            // Introspection agrees with the dispatch it predicts.
+            Assert.That(forge.SupportsMergeOptions, Is.True)
+
             match! forge.PrMerge(1UL, PrMerge.Merge.WithAuto().WithDeleteBranch()) with
             | Ok() -> ()
             | Error e -> Assert.Fail $"auto/delete-branch must reach the gh flags: {e.Message}"
@@ -1258,6 +1297,7 @@ type PrMergeSpecTests() =
             let forge =
                 Forge.FromGitLab(".", VcsToolkit.GitLab.GitLab.WithRunner(ScriptedRunner()))
 
+            Assert.That(forge.SupportsMergeOptions, Is.False, "GitLab must report merge options unsupported")
             let! auto = isUnsupported (forge.PrMerge(1UL, PrMerge.Merge.WithAuto()))
             let! del = isUnsupported (forge.PrMerge(1UL, PrMerge.Squash.WithDeleteBranch()))
             Assert.That(auto, Is.True, "GitLab auto-merge must be Unsupported without spawning")
@@ -1270,6 +1310,7 @@ type PrMergeSpecTests() =
             let forge =
                 Forge.FromGitea(".", VcsToolkit.Gitea.Gitea.WithRunner(ScriptedRunner()))
 
+            Assert.That(forge.SupportsMergeOptions, Is.False, "Gitea must report merge options unsupported")
             let! auto = isUnsupported (forge.PrMerge(1UL, PrMerge.Rebase.WithAuto()))
             let! del = isUnsupported (forge.PrMerge(1UL, PrMerge.Merge.WithDeleteBranch()))
             Assert.That(auto, Is.True, "Gitea auto-merge must be Unsupported without spawning")
@@ -1343,6 +1384,9 @@ type PrCloseSupportTests() =
                     )
                 )
 
+            // Introspection agrees with the dispatch it predicts.
+            Assert.That(forge.SupportsCloseDeleteBranch, Is.True)
+
             match! forge.PrClose(1UL, true) with
             | Ok() -> ()
             | Error e -> Assert.Fail $"GitHub delete-branch must reach the gh flag: {e.Message}"
@@ -1368,6 +1412,7 @@ type PrCloseSupportTests() =
             let forge =
                 Forge.FromGitLab(".", VcsToolkit.GitLab.GitLab.WithRunner(ScriptedRunner()))
 
+            Assert.That(forge.SupportsCloseDeleteBranch, Is.False, "GitLab must report close delete-branch unsupported")
             let! unsupported = isCloseUnsupported ForgeKind.GitLab (forge.PrClose(1UL, true))
             Assert.That(unsupported, Is.True, "GitLab delete-branch must be Unsupported without spawning")
         }
@@ -1392,6 +1437,7 @@ type PrCloseSupportTests() =
             let forge =
                 Forge.FromGitea(".", VcsToolkit.Gitea.Gitea.WithRunner(ScriptedRunner()))
 
+            Assert.That(forge.SupportsCloseDeleteBranch, Is.False, "Gitea must report close delete-branch unsupported")
             let! unsupported = isCloseUnsupported ForgeKind.Gitea (forge.PrClose(1UL, true))
             Assert.That(unsupported, Is.True, "Gitea delete-branch must be Unsupported without spawning")
         }
@@ -1682,6 +1728,8 @@ type PrReviewTests() =
         task {
             // No op fallback: reaching Ok proves `gh pr review 1 --approve` was the dispatched argv.
             let forge = ghReviewForge [ "pr"; "review"; "1"; "--approve" ] (Reply.Exit 0)
+            // Introspection agrees with the dispatch it predicts.
+            Assert.That(forge.SupportsReview ReviewKind.Approve, Is.True)
 
             match! forge.PrReview(1UL, ReviewAction.Approve) with
             | Ok() -> ()
@@ -1692,6 +1740,7 @@ type PrReviewTests() =
     member _.GitLabApproveDispatchesMrApprove() : Task =
         task {
             let forge = glReviewForge [ "mr"; "approve"; "1" ] (Reply.Exit 0)
+            Assert.That(forge.SupportsReview ReviewKind.Approve, Is.True)
 
             match! forge.PrReview(1UL, ReviewAction.Approve) with
             | Ok() -> ()
@@ -1702,6 +1751,7 @@ type PrReviewTests() =
     member _.GiteaApproveDispatchesPrApprove() : Task =
         task {
             let forge = teaReviewForge [ "pr"; "approve"; "1" ] (Reply.Exit 0)
+            Assert.That(forge.SupportsReview ReviewKind.Approve, Is.True)
 
             match! forge.PrReview(1UL, ReviewAction.Approve) with
             | Ok() -> ()
@@ -1716,6 +1766,8 @@ type PrReviewTests() =
             let forge =
                 ghReviewForge [ "pr"; "review"; "1"; "--request-changes"; "--body"; "fix" ] (Reply.Exit 0)
 
+            Assert.That(forge.SupportsReview ReviewKind.RequestChanges, Is.True)
+
             match! forge.PrReview(1UL, ReviewAction.RequestChanges "fix") with
             | Ok() -> ()
             | Error e -> Assert.Fail $"gh pr review --request-changes must dispatch: {e.Message}"
@@ -1725,6 +1777,7 @@ type PrReviewTests() =
     member _.GiteaRequestChangesDispatchesReject() : Task =
         task {
             let forge = teaReviewForge [ "pr"; "reject"; "1"; "fix" ] (Reply.Exit 0)
+            Assert.That(forge.SupportsReview ReviewKind.RequestChanges, Is.True)
 
             match! forge.PrReview(1UL, ReviewAction.RequestChanges "fix") with
             | Ok() -> ()
@@ -1750,6 +1803,8 @@ type PrReviewTests() =
         task {
             let forge =
                 ghReviewForge [ "pr"; "review"; "1"; "--comment"; "--body"; "note" ] (Reply.Exit 0)
+
+            Assert.That(forge.SupportsReview ReviewKind.Comment, Is.True)
 
             match! forge.PrReview(1UL, ReviewAction.Comment "note") with
             | Ok() -> ()
@@ -1798,4 +1853,48 @@ type PrReviewTests() =
             | Error(ForgeError.UnsupportedVersion(_, op, _, _)) -> Assert.That(op, Is.EqualTo "prReview")
             | Error e -> Assert.Fail $"expected UnsupportedVersion, got: {e.Message}"
             | Ok() -> Assert.Fail "a below-floor CLI must refuse prReview before spawning the op"
+        }
+
+    // --- Introspection congruence: SupportsReview lines up with dispatch on every refusal ---
+
+    [<Test>]
+    member _.UnsupportedReviewKindsRefusedExactlyWhereSupportsReviewIsFalse() : Task =
+        task {
+            // Empty runners RAISE on any spawn, so a returned `Unsupported` proves the refusal was
+            // structural (pre-spawn). Every refused (backend, kind) cell must line up with
+            // `SupportsReview` being false — introspection and dispatch cannot disagree, both read
+            // the same `ForgeSupport.review` predicate. (The supported cells are cross-checked in
+            // the approve/request-changes/comment dispatch tests above, which now also assert
+            // `SupportsReview = true` for the kind they dispatch.)
+            let gl =
+                Forge.FromGitLab(".", VcsToolkit.GitLab.GitLab.WithRunner(ScriptedRunner()))
+
+            let tea = Forge.FromGitea(".", VcsToolkit.Gitea.Gitea.WithRunner(ScriptedRunner()))
+            let unknown = Forge.FromUnknown "."
+
+            let cases =
+                [ "GitLab", gl, ForgeKind.GitLab, [ ReviewAction.RequestChanges "x"; ReviewAction.Comment "x" ]
+                  "Gitea", tea, ForgeKind.Gitea, [ ReviewAction.Comment "x" ]
+                  "Unknown",
+                  unknown,
+                  ForgeKind.Unknown,
+                  [ ReviewAction.Approve
+                    ReviewAction.RequestChanges "x"
+                    ReviewAction.Comment "x" ] ]
+
+            for name, forge, kind, actions in cases do
+                for action in actions do
+                    Assert.That(
+                        forge.SupportsReview action.Kind,
+                        Is.False,
+                        $"{name} {action.Kind}: SupportsReview must be false"
+                    )
+
+                    let! refused = isUnsupported kind (forge.PrReview(1UL, action))
+
+                    Assert.That(
+                        refused,
+                        Is.True,
+                        $"{name} {action.Kind}: dispatch must refuse with Unsupported without spawning"
+                    )
         }

@@ -1441,7 +1441,9 @@ type GitBackendDiffStatUnbornTests() =
 // ---------------------------------------------------------------------------
 // T-048: repo-root path anchoring for CommitPaths/LogPaths on a subdirectory-
 // bound handle (Cwd ≠ Root) — the input-path counterpart of the root-relative
-// output paths ChangedFiles/Status already return.
+// output paths ChangedFiles/Status already return. Extended by T-096 for
+// Annotate, which used to run the jj branch from Cwd (a documented exception)
+// and now anchors at Root on both backends like every other path-scoped op.
 // ---------------------------------------------------------------------------
 
 [<TestFixture>]
@@ -1531,6 +1533,51 @@ type PathAnchoringTests() =
             | None -> Assert.Fail "no command captured"
         }
 
+    // --- T-096: Annotate must anchor at Root on BOTH backends, like CommitPaths/LogPaths ----
+
+    [<Test>]
+    member _.GitAnnotateRunsFromRepoRootNotTheSubdirectoryCwd() : Task =
+        task {
+            let captured, runner = capturing (Reply.Ok "")
+            let repo = Repo.FromGit("/repo", "/repo/sub", Git.WithRunner runner)
+
+            match! repo.Annotate("src/a.fs", Some "HEAD") with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"Annotate failed: {e.Message}"
+
+            match captured.Value with
+            | Some cmd ->
+                Assert.That(
+                    cmd.WorkingDirectory,
+                    Is.EqualTo(Some(Path.GetFullPath "/repo")),
+                    "blame runs from Root, not the subdirectory Cwd"
+                )
+            | None -> Assert.Fail "no command captured"
+        }
+
+    [<Test>]
+    member _.JjAnnotateRunsFromRepoRootNotTheSubdirectoryCwd() : Task =
+        task {
+            // Before T-096, `Repo.Annotate` ran the jj branch from `Cwd` (a documented
+            // exception to the Root-anchoring contract) — this pins it running from `Root`,
+            // matching git's side and CommitPaths/LogPaths.
+            let captured, runner = capturing (Reply.Ok "")
+            let repo = Repo.FromJj("/repo", "/repo/sub", Jj.WithRunner runner)
+
+            match! repo.Annotate("src/a.fs", Some "@-") with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"Annotate failed: {e.Message}"
+
+            match captured.Value with
+            | Some cmd ->
+                Assert.That(
+                    cmd.WorkingDirectory,
+                    Is.EqualTo(Some(Path.GetFullPath "/repo")),
+                    "file annotate runs from Root, not the subdirectory Cwd"
+                )
+            | None -> Assert.Fail "no command captured"
+        }
+
     // --- git: real-`git` end-to-end from a subdirectory-bound handle ------------------------
 
     [<Test>]
@@ -1616,6 +1663,55 @@ type PathAnchoringTests() =
                         let paths = changes |> List.map (fun c -> c.Path)
                         Assert.That(paths, Does.Not.Contain "sub/a.txt", "the committed file must no longer be pending")
                         Assert.That(paths, Does.Contain "sub/b.txt", "the uncommitted sibling must remain in @")
+        }
+
+    // --- T-096: Annotate from a subdirectory-bound handle, both backends --------------------
+
+    [<Test>]
+    member _.GitAnnotateFromASubdirectoryHandleAnnotatesTheRootRelativeFile() : Task =
+        task {
+            requireGit ()
+            use sandbox = GitSandbox.Init "t096-git-subdir"
+            sandbox.CommitFile("sub/a.txt", "a1\n", "touch a")
+
+            // Open the handle IN the subdirectory (Cwd = sub, Root = repo root).
+            match Repo.Open(Path.Combine(sandbox.Path, "sub")) with
+            | Error e -> Assert.Fail $"Repo.Open(subdir) failed: {e.Message}"
+            | Ok repo ->
+                Assert.That(repo.Kind, Is.EqualTo BackendKind.Git)
+                Assert.That(repo.Cwd, Is.Not.EqualTo repo.Root, "the handle is bound to the subdirectory")
+
+                // Annotate via the repo-root-relative path. A subdir-relative resolution would
+                // look for sub/sub/a.txt and error.
+                match! repo.Annotate("sub/a.txt", Some "HEAD") with
+                | Error e -> Assert.Fail $"Annotate from a subdirectory handle failed: {e.Message}"
+                | Ok lines ->
+                    Assert.That(lines.Length, Is.EqualTo 1)
+                    Assert.That(lines.[0].Content, Is.EqualTo "a1")
+        }
+
+    [<Test>]
+    member _.JjAnnotateFromASubdirectoryHandleAnnotatesTheRootRelativeFile() : Task =
+        task {
+            requireJj ()
+            use sandbox = JjSandbox.Init "t096-jj-subdir"
+            sandbox.Write("sub/a.txt", "a1\n")
+
+            // Open the handle IN the subdirectory (Cwd = sub, Root = workspace root).
+            match Repo.Open(Path.Combine(sandbox.Path, "sub")) with
+            | Error e -> Assert.Fail $"Repo.Open(subdir) failed: {e.Message}"
+            | Ok repo ->
+                Assert.That(repo.Kind, Is.EqualTo BackendKind.Jj)
+                Assert.That(repo.Cwd, Is.Not.EqualTo repo.Root, "the handle is bound to the subdirectory")
+
+                // Annotate via the workspace-root-relative path (the working-copy change `@`
+                // owns the file, so `None` annotates it). A cwd-relative resolution would look
+                // for sub/sub/a.txt and error — proving both backends now resolve the SAME file.
+                match! repo.Annotate("sub/a.txt", Option.None) with
+                | Error e -> Assert.Fail $"Annotate from a subdirectory handle failed: {e.Message}"
+                | Ok lines ->
+                    Assert.That(lines.Length, Is.EqualTo 1)
+                    Assert.That(lines.[0].Content, Is.EqualTo "a1")
         }
 
 // ---------------------------------------------------------------------------
