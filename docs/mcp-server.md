@@ -223,10 +223,10 @@ that forge, rather than silently degrading.
 | `forge_auth_status` | Whether the forge CLI reports an authenticated session. | — |
 | `forge_repo_view` | The repository/project on the configured forge. **Unsupported on Gitea.** | — |
 | `forge_info` | The forge's identity and flat capability map. | — |
-| `forge_pr_list` | Open pull/merge requests on the configured forge (up to 100). | — |
+| `forge_pr_list` | Pull/merge requests on the configured forge, open by default and capped at 100 by default. **Unsupported on Gitea for every state** (`tea pr list --output json` does not work against the real CLI). | `state` (string, optional — `open`/`closed`/`merged`/`all`, default `open`), `limit` (integer, optional, default 100) |
 | `forge_pr_view` | A single pull/merge request by number. | `number` (integer, required — GitLab uses the project-scoped iid) |
 | `forge_pr_checks` | The PR/MR's coarse CI status. **Unsupported on Gitea.** | `number` (integer, required) |
-| `forge_issue_list` | Open issues on the configured forge (up to 100). | — |
+| `forge_issue_list` | Issues on the configured forge, open by default and capped at 100 by default. **Unsupported on Gitea for every state** (`tea issues list --output json` does not work against the real CLI). | `state` (string, optional — `open`/`closed`/`all`, default `open`), `limit` (integer, optional, default 100) |
 | `forge_issue_view` | A single issue by number, with body and URL filled. | `number` (integer, required — GitLab uses the project-scoped iid) |
 | `forge_release_list` | Releases on the configured forge, newest first (up to 100). | — |
 | `forge_release_view` | A single release by tag. **Unsupported on Gitea** — filter `forge_release_list` instead. | `tag` (string, required) |

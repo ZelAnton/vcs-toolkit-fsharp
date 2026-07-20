@@ -372,13 +372,13 @@ module internal Catalog =
           read "forge_info" "The forge's identity and flat capability map." []
           read
               "forge_pr_list"
-              "Pull/merge requests on the configured forge, open by default and capped at 100 by default. Optional state/limit filter and cap the results."
+              "Pull/merge requests on the configured forge, open by default and capped at 100 by default. Optional state/limit filter and cap the results. Unsupported on Gitea for every state (tea's `pr list --output json` does not work against the real CLI)."
               [ pPrListState; pListLimit ]
           read "forge_pr_view" "A single pull/merge request by number." [ pNumber ]
           read "forge_pr_checks" "The PR/MR's coarse CI status (Unsupported on Gitea)." [ pNumber ]
           read
               "forge_issue_list"
-              "Issues on the configured forge, open by default and capped at 100 by default. Optional state/limit filter and cap the results."
+              "Issues on the configured forge, open by default and capped at 100 by default. Optional state/limit filter and cap the results. Unsupported on Gitea for every state (tea's `issues list --output json` does not work against the real CLI)."
               [ pIssueListState; pListLimit ]
           read "forge_issue_view" "A single issue by number, with body and URL filled." [ pIssueNumber ]
           read "forge_release_list" "Releases on the configured forge, newest first (up to 100)." []

@@ -323,6 +323,8 @@ type Forge private (cwd: string, backend: Backend) =
     member this.PrList() = this.PrList(PrListOptions.Default)
 
     /// Pull/merge requests for the bound directory, filtered and capped by `options`.
+    /// **`Unsupported` on Gitea for every state** (`tea pr list --output json` does not work
+    /// against the real CLI at all — K-049; see `PrListState`).
     member _.PrList(options: PrListOptions) =
         match backend with
         | Backend.GitHub(c, _) -> GitHubForge.prList c cwd options
@@ -514,6 +516,8 @@ type Forge private (cwd: string, backend: Backend) =
         this.IssueList(IssueListOptions.Default)
 
     /// Issues for the bound directory, filtered and capped by `options`.
+    /// **`Unsupported` on Gitea for every state** (`tea issues list --output json` does not
+    /// work against the real CLI at all — K-049; see `IssueListState`).
     member _.IssueList(options: IssueListOptions) =
         match backend with
         | Backend.GitHub(c, _) -> GitHubForge.issueList c cwd options

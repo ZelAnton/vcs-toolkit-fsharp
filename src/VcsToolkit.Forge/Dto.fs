@@ -160,11 +160,10 @@ type ForgePrState =
 
 /// Which PR/MR states `prList` returns — the unified filter, mapped to each CLI's own state
 /// flag(s) in the corresponding backend adapter: `gh pr list --state` and `glab mr list
-/// [--closed|--merged|--all]` both support every value directly. `tea` only distinguishes
-/// open/closed/all natively, and isolating `Closed` from `Merged` would require fetching
-/// `--state all` and splitting the result locally — `tea`'s `--limit` caps that raw fetch
-/// before such a split could run, so `Closed`/`Merged` are refused with `Unsupported` on
-/// Gitea rather than risking silently dropped matches (see `GiteaForge.prList`).
+/// [--closed|--merged|--all]` both support every value directly. **On Gitea every state is
+/// `Unsupported`**: `tea`'s `pr list --output json` does not work against the real CLI at
+/// all (K-049 — the `--output json` flag itself is rejected, regardless of `--state`), so
+/// there is no working listing path to filter in the first place (see `GiteaForge.prList`).
 [<RequireQualifiedAccess>]
 type PrListState =
     /// Open / awaiting review (the default).
@@ -280,7 +279,9 @@ type ForgeIssueState =
     | Closed
 
 /// Which issue states `issueList` returns — the unified filter (see `PrListState`, the
-/// PR/MR counterpart). Issues have no "merged" state, so only three values.
+/// PR/MR counterpart). Issues have no "merged" state, so only three values. **On Gitea every
+/// state is `Unsupported`**, for the identical K-049 reason as `PrListState` (see
+/// `GiteaForge.issueList`).
 [<RequireQualifiedAccess>]
 type IssueListState =
     /// Open / unresolved (the default).

@@ -104,52 +104,30 @@ module internal GiteaForge =
             | _ -> return Ok()
         }
 
-    /// The unified `IssueListState` maps 1:1 onto tea's own `--state open|closed|all` — tea's
-    /// issue-list state granularity already matches the unified one.
-    let private teaIssueState (state: IssueListState) : VcsToolkit.Gitea.IssueListState =
-        match state with
-        | IssueListState.Open -> VcsToolkit.Gitea.IssueListState.Open
-        | IssueListState.Closed -> VcsToolkit.Gitea.IssueListState.Closed
-        | IssueListState.All -> VcsToolkit.Gitea.IssueListState.All
-
-    /// `tea pr list --state` distinguishes open/closed/all natively, so `Open`/`All` map onto
-    /// it exactly and need no local filtering. `Closed`/`Merged` do NOT: a **closed** row's
-    /// `state` column can itself read `"merged"` (see `GiteaParse`/`mapPr`'s `Merged`-flag
-    /// derivation), so isolating either one requires fetching `--state all` and splitting the
-    /// result locally — but `tea`'s `--limit` caps that raw fetch *before* the split runs, so a
-    /// `Closed`/`Merged` request capped at `limit` could silently drop matching PRs beyond the
-    /// first `limit` raw rows. Paginating `--state all` until `limit` matches were collected
-    /// would avoid that, but it would layer more state/limit-specific logic onto a `tea pr list
-    /// --output json` call that is *already* broken against the real CLI (K-049) — rewriting
-    /// that parsing strategy is out of this change's scope. So `Closed`/`Merged` are refused
-    /// structurally instead, before any spawn, rather than risking either silent data loss or a
-    /// confusing failure on top of the pre-existing one.
-    let prList (tea: VcsToolkit.Gitea.Gitea) (dir: string) (options: PrListOptions) =
+    /// `tea pr list --output json` does not work against the real CLI for ANY state value —
+    /// see K-049: the `--output json` flag itself is rejected regardless of `--state` (`tea`
+    /// prints `unknown output type 'json', available types are: ...` with exit code 0, which
+    /// is exactly what produced the confusing downstream JSON-parse failure), so there is no
+    /// working listing path to reach even for `Open`/`All`. `Closed`/`Merged` previously had
+    /// their own *additional* documented reason on top of that (isolating either from a
+    /// `--state all` fetch risks silently dropping matches past `--limit`, since a closed
+    /// row's `state` column can itself read `"merged"` — see `GiteaParse`/`mapPr`'s
+    /// `Merged`-flag derivation) — that reasoning still holds, but is now subsumed by this
+    /// more fundamental, blanket one. Refuse structurally, before any spawn, for every state:
+    /// this turns what would otherwise be a confusing runtime JSON-parse failure into a
+    /// single honest, consistent "unsupported" signal, rather than only for two of the four
+    /// states.
+    let prList (_tea: VcsToolkit.Gitea.Gitea) (_dir: string) (options: PrListOptions) =
         task {
-            match options.State with
-            | PrListState.Closed
-            | PrListState.Merged ->
-                return
-                    Error(
-                        ForgeError.Unsupported(
-                            ForgeKind.Gitea,
-                            "prList: closed/merged filter is not exactly representable on tea"
-                        )
+            return
+                Error(
+                    ForgeError.Unsupported(
+                        ForgeKind.Gitea,
+                        sprintf
+                            "prList(%A): `tea pr list --output json` does not work against the real CLI (K-049) — no state is listable yet"
+                            options.State
                     )
-            | PrListState.Open
-            | PrListState.All ->
-                let teaState: VcsToolkit.Gitea.PrListState =
-                    match options.State with
-                    | PrListState.Open -> VcsToolkit.Gitea.PrListState.Open
-                    | _ -> VcsToolkit.Gitea.PrListState.All
-
-                let teaOptions: VcsToolkit.Gitea.PrListOptions =
-                    { State = teaState
-                      Limit = options.Limit }
-
-                match! tea.PrList(dir, teaOptions) with
-                | Error e -> return Error(ForgeError.Forge e)
-                | Ok prs -> return Ok(prs |> List.map mapPr)
+                )
         }
 
     let prView (tea: VcsToolkit.Gitea.Gitea) (dir: string) (number: uint64) =
@@ -245,15 +223,21 @@ module internal GiteaForge =
                 return Error(ForgeError.Unsupported(ForgeKind.Gitea, "prReview comment"))
         }
 
-    let issueList (tea: VcsToolkit.Gitea.Gitea) (dir: string) (options: IssueListOptions) =
+    /// `tea issues list --output json` is unsupported by the real CLI for every state — the
+    /// identical K-049 root cause as `prList` above (the `--output json` flag itself is
+    /// rejected, not something state-specific). Refuse structurally, before any spawn, for
+    /// every state.
+    let issueList (_tea: VcsToolkit.Gitea.Gitea) (_dir: string) (options: IssueListOptions) =
         task {
-            let teaOptions: VcsToolkit.Gitea.IssueListOptions =
-                { State = teaIssueState options.State
-                  Limit = options.Limit }
-
-            match! tea.IssueList(dir, teaOptions) with
-            | Error e -> return Error(ForgeError.Forge e)
-            | Ok issues -> return Ok(issues |> List.map mapIssue)
+            return
+                Error(
+                    ForgeError.Unsupported(
+                        ForgeKind.Gitea,
+                        sprintf
+                            "issueList(%A): `tea issues list --output json` does not work against the real CLI (K-049) — no state is listable yet"
+                            options.State
+                    )
+                )
         }
 
     let issueView (tea: VcsToolkit.Gitea.Gitea) (dir: string) (number: uint64) =
