@@ -160,7 +160,16 @@ foreach ($nupkg in $nupkgs) {
         if (-not ($allFiles | Where-Object { $_ -ieq 'icon.png' })) {
             $failures.Add("${id}: package is missing icon.png at its root")
         }
-        $hasXmlDoc = $allFiles | Where-Object { $_ -match '\.xml$' -and ($_ -like 'lib/*' -or $_ -like 'tools/*') }
+        # Excludes DotnetToolSettings.xml (a tool-manifest metadata file dotnet
+        # pack always emits under tools/<tfm>/... for DotnetTool packages, not
+        # the compiler-generated XML API doc this check is looking for) so a
+        # DotnetTool package can't satisfy this purely by virtue of being a
+        # tool — it still needs its own assembly's XML documentation file.
+        $hasXmlDoc = $allFiles | Where-Object {
+            $_ -match '\.xml$' -and
+            ($_ -like 'lib/*' -or $_ -like 'tools/*') -and
+            [System.IO.Path]::GetFileName($_) -ne 'DotnetToolSettings.xml'
+        }
         if (-not $hasXmlDoc) {
             $failures.Add("${id}: package is missing an XML documentation file under lib/ or tools/ (GenerateDocumentationFile)")
         }
