@@ -208,6 +208,35 @@ type ErrorMappingTests() =
         | McpError.Internal message -> Assert.That(message, Is.EqualTo "directory delete failed")
         | McpError.InvalidParams message -> Assert.Fail $"expected internal, got invalid params: {message}"
 
+    [<Test>]
+    member _.ForgeUnsupportedMapsToInvalidParams() =
+        match forgeErr (ForgeError.Unsupported(ForgeKind.Gitea, "prMarkReady")) with
+        | McpError.InvalidParams message -> Assert.That(message, Is.EqualTo "gitea does not support `prMarkReady`")
+        | McpError.Internal message -> Assert.Fail $"expected invalid params, got internal: {message}"
+
+    [<Test>]
+    member _.ForgeUnsupportedVersionMapsToInvalidParams() =
+        let found: VcsToolkit.Diff.Version =
+            { Major = 1UL
+              Minor = 0UL
+              Patch = 0UL }
+
+        let minimum: VcsToolkit.Diff.Version =
+            { Major = 2UL
+              Minor = 0UL
+              Patch = 0UL }
+
+        match forgeErr (ForgeError.UnsupportedVersion(ForgeKind.GitHub, "prReview", found, minimum)) with
+        | McpError.InvalidParams message ->
+            Assert.That(message, Is.EqualTo "github `prReview` requires the CLI at version 2.0.0 or newer, found 1.0.0")
+        | McpError.Internal message -> Assert.Fail $"expected invalid params, got internal: {message}"
+
+    [<Test>]
+    member _.ForgeInvalidInputMapsToInvalidParams() =
+        match forgeErr (ForgeError.InvalidInput "title and body cannot both be empty") with
+        | McpError.InvalidParams message -> Assert.That(message, Is.EqualTo "title and body cannot both be empty")
+        | McpError.Internal message -> Assert.Fail $"expected invalid params, got internal: {message}"
+
 [<TestFixture>]
 type ToolTests() =
 
