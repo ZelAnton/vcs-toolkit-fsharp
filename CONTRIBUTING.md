@@ -9,6 +9,9 @@ Thanks for your interest in improving **VcsToolkit**.
   [Fantomas](https://fsprojects.github.io/fantomas/), the F# formatter.
 - Optional: PowerShell 7+ and Docker/Rancher Desktop to run the Linux test
   helper (`scripts/test-linux.ps1`).
+- Optional: PowerShell 7+ to build the [documentation site](https://zelanton.github.io/vcs-toolkit-fsharp/)
+  locally (`scripts/build-docs.ps1`, or `-Watch` for a live-reloading preview) —
+  see [.github/workflows/docs.yml](.github/workflows/docs.yml) for how it is published.
 
 ## Build and test
 

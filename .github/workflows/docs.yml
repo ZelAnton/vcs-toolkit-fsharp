@@ -1,0 +1,80 @@
+name: Docs
+
+# Publishes the fsdocs API-reference/documentation site to GitHub Pages. This is
+# a separate, non-blocking workflow: it does not touch ci.yml/release.yml and is
+# not a required status check, so a docs build failure never blocks a PR or a
+# release. Push-to-main keeps the site current with the default branch;
+# release publication additionally re-cuts it against the tagged commit so the
+# API reference matches what was actually released.
+#
+# One-time repo setup this workflow assumes: Settings -> Pages -> Build and
+# deployment -> Source: "GitHub Actions". Without that, the deploy job's
+# `actions/deploy-pages` step fails with a 404 telling you to enable it.
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one Pages deployment may run at a time; queue rather than cancel so a
+# push that lands mid-deploy is not silently dropped.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # Actions are pinned to a full commit SHA (supply-chain hardening); the
+      # trailing comment records the human-readable version. Dependabot bumps the
+      # SHA and updates the comment on its weekly run.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
+
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: '10.0.x'
+
+      # fsdocs-tool (FSharp.Formatting) is a local tool alongside Fantomas —
+      # see .config/dotnet-tools.json.
+      - name: Restore tools
+        run: dotnet tool restore
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
+      # scripts/build-docs.ps1 regenerates docs/index.md from README.md, then
+      # runs `dotnet fsdocs build` (API reference for every packable src/
+      # library + the docs/*.md content pages) into ./output. --Root is the
+      # Pages site's own base URL (from the step above) — fsdocs templates use
+      # root-absolute asset/nav links, so this must match where the artifact
+      # below is actually served, not the script's own hardcoded default.
+      - name: Build docs site
+        shell: pwsh
+        run: ./scripts/build-docs.ps1 -Root "${{ steps.pages.outputs.base_url }}/"
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: output
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

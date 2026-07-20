@@ -43,6 +43,16 @@ TestResults/
 *.coveragexml
 
 ## -------
+## fsdocs (scripts/build-docs.ps1 / .github/workflows/docs.yml)
+## -------
+# Generated site output
+/output/
+# fsdocs' incremental-build cache
+/.fsdocs/
+# Regenerated from README.md on every build/watch — never edit or commit directly.
+/docs/index.md
+
+## -------
 ## F# / FSI
 ## -------
 # FSI / dotnet fsi load-script scratch

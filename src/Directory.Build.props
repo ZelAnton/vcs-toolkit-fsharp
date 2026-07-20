@@ -21,6 +21,12 @@
 		<PublishRepositoryUrl>true</PublishRepositoryUrl>
 		<EmbedUntrackedSources>true</EmbedUntrackedSources>
 
+		<!-- fsdocs (scripts/build-docs.ps1 / .github/workflows/docs.yml) nav-bar links.
+		     Without these it guesses `blob/master/RELEASE_NOTES.md`, which 404s here:
+		     the default branch is `main` and release notes live in CHANGELOG.md. -->
+		<FsDocsLicenseLink>$(PackageProjectUrl)/blob/main/LICENSE</FsDocsLicenseLink>
+		<FsDocsReleaseNotesLink>$(PackageProjectUrl)/blob/main/CHANGELOG.md</FsDocsReleaseNotesLink>
+
 		<IncludeSymbols>true</IncludeSymbols>
 		<SymbolPackageFormat>snupkg</SymbolPackageFormat>
 
