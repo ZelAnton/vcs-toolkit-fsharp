@@ -120,7 +120,7 @@ let private mappedPort (containerName: string) : int =
     let result = startProc "docker" [ "port"; containerName; "3000" ] [] None
 
     if result.ExitCode <> 0 then
-        failwithf "`docker port` failed (%d): %s" result.ExitCode result.StdErr
+        failwithf "`docker port` failed (%d): stdout=%s stderr=%s" result.ExitCode result.StdOut result.StdErr
 
     let firstLine =
         result.StdOut.Split('\n')
@@ -286,7 +286,12 @@ let private initRepoWithRemote (dir: string) (remoteUrl: string) : unit =
         let result = startProc "git" args [ "GIT_TERMINAL_PROMPT", "0" ] (Some dir)
 
         if result.ExitCode <> 0 then
-            failwithf "`git %s` failed (%d): %s" (String.Join(" ", args)) result.ExitCode result.StdErr
+            failwithf
+                "`git %s` failed (%d): stdout=%s stderr=%s"
+                (String.Join(" ", args))
+                result.ExitCode
+                result.StdOut
+                result.StdErr
 
     git [ "init"; "-q"; "-b"; "main" ]
     git [ "remote"; "add"; "origin"; remoteUrl ]
@@ -377,7 +382,11 @@ type GiteaLiveTests() =
                     None
 
             if runResult.ExitCode <> 0 then
-                failwithf "`docker run` failed (%d): %s" runResult.ExitCode runResult.StdErr
+                failwithf
+                    "`docker run` failed (%d): stdout=%s stderr=%s"
+                    runResult.ExitCode
+                    runResult.StdOut
+                    runResult.StdErr
 
             let port = mappedPort containerName
             baseUrl <- sprintf "http://localhost:%d" port
@@ -387,7 +396,13 @@ type GiteaLiveTests() =
             let adminResult =
                 startProc
                     "docker"
+                    // `-u git`: the official gitea/gitea image runs Gitea (and owns its data/
+                    // config) as the `git` user; `docker exec` defaults to the image's configured
+                    // user, which does not reliably resolve to `git`, so `gitea admin user create`
+                    // can fail to read the app config / open the sqlite DB. Pin the exec user.
                     [ "exec"
+                      "-u"
+                      "git"
                       containerName
                       "gitea"
                       "admin"
@@ -405,7 +420,11 @@ type GiteaLiveTests() =
                     None
 
             if adminResult.ExitCode <> 0 then
-                failwithf "`gitea admin user create` failed (%d): %s" adminResult.ExitCode adminResult.StdErr
+                failwithf
+                    "`gitea admin user create` failed (%d): stdout=%s stderr=%s"
+                    adminResult.ExitCode
+                    adminResult.StdOut
+                    adminResult.StdErr
 
             let! createdToken = createToken http baseUrl owner password loginName
             token <- createdToken
@@ -422,7 +441,11 @@ type GiteaLiveTests() =
                     None
 
             if loginResult.ExitCode <> 0 then
-                failwithf "`tea login add` failed (%d): %s" loginResult.ExitCode loginResult.StdErr
+                failwithf
+                    "`tea login add` failed (%d): stdout=%s stderr=%s"
+                    loginResult.ExitCode
+                    loginResult.StdOut
+                    loginResult.StdErr
 
             repoParent <- newTempDir "workdir"
             clonePath <- Path.Combine(repoParent, repoName)
