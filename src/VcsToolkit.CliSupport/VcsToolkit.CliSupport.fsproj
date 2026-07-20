@@ -17,6 +17,7 @@
 		<Compile Include="Credentials.fs" />
 		<Compile Include="Classify.fs" />
 		<Compile Include="Retry.fs" />
+		<Compile Include="Observer.fs" />
 		<Compile Include="ManagedClient.fs" />
 		<Compile Include="Wrappers.fs" />
 	</ItemGroup>

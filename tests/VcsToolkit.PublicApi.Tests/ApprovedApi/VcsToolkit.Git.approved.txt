@@ -289,6 +289,7 @@ namespace VcsToolkit.Git
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> Version() { }
         public VcsToolkit.Git.Git WithCredentials(VcsToolkit.CliSupport.ICredentialProvider provider) { }
         public VcsToolkit.Git.Git WithEnvToken(string var) { }
+        public VcsToolkit.Git.Git WithObserver(VcsToolkit.CliSupport.ICommandObserver observer) { }
         public VcsToolkit.Git.Git WithRetry(VcsToolkit.CliSupport.RetryPolicy policy) { }
         public VcsToolkit.Git.Git WithToken(string token) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> WorktreeAdd(string dir, VcsToolkit.Git.WorktreeAdd spec) { }

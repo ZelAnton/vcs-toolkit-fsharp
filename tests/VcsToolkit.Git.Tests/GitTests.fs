@@ -1562,3 +1562,29 @@ type PositionalArgvGuardTests() =
 
             Assert.That(captured.Value.IsNone, "the key guard must refuse before any spawn")
         }
+
+[<TestFixture>]
+type ObserverWiringTests() =
+
+    [<Test>]
+    member _.WithObserverThreadsThroughTheGitClient() : Task =
+        task {
+            // The diagnostic observer attached via the Git client's `WithObserver` is notified
+            // for a command driven through the client (the pass-through to `ManagedClient`).
+            let events = ResizeArray<CommandEvent>()
+
+            let observer =
+                { new ICommandObserver with
+                    member _.OnStarted(ev) = events.Add ev
+                    member _.OnFinished(_, _, _) = () }
+
+            let git =
+                Git.WithRunner(ScriptedRunner().Fallback(Reply.Ok "git version 2.45.0")).WithObserver observer
+
+            match! git.Run [ "--version" ] with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"{e}"
+
+            Assert.That(events.Count, Is.EqualTo 1, "the observer is threaded through the Git client")
+            Assert.That(events[0].Program, Is.EqualTo "git")
+        }

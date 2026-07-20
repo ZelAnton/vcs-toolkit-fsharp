@@ -44,6 +44,10 @@ type GitHub private (core: ManagedClient) =
     /// Retry lock-contention failures per `policy` (opt-in, off by default).
     member _.WithRetry(policy: RetryPolicy) = GitHub(core.WithRetry policy)
 
+    /// Attach a diagnostic observer notified as each `gh` command starts and finishes
+    /// (opt-in, off by default). See `ICommandObserver`.
+    member _.WithObserver(observer: ICommandObserver) = GitHub(core.WithObserver observer)
+
     /// Supply credentials per operation via a provider — opt-in, off by default
     /// (ambient `gh` auth). The resolved token is injected as `GH_TOKEN`.
     member _.WithCredentials(provider: ICredentialProvider) = GitHub(core.WithCredentials provider)

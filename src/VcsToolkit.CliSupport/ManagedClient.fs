@@ -16,7 +16,8 @@ type private ManagedConfig =
       Retry: RetryPolicy
       Credentials: ICredentialProvider option
       TokenEnv: (CredentialService * string) option
-      ExpectedHost: string option }
+      ExpectedHost: string option
+      Observer: ICommandObserver option }
 
 module private ManagedParsing =
 
@@ -52,11 +53,12 @@ module private ManagedParsing =
                     return Error(ProcessError.Parse(program, ex.Message))
         }
 
-/// A ProcessKit-runner wrapper that adds two opt-in concerns the CLI wrappers all
+/// A ProcessKit-runner wrapper that adds three opt-in concerns the CLI wrappers all
 /// share, without touching a call site: lock-contention retry per a `RetryPolicy`
 /// (off by default) on `Run`, `RunUnit`, `Probe`, `ExitCode`, `Parse`, and `TryParse`;
-/// and credential injection from an opt-in `ICredentialProvider` (off by default →
-/// ambient auth). With neither configured it behaves like a bare runner. The default
+/// credential injection from an opt-in `ICredentialProvider` (off by default →
+/// ambient auth); and a diagnostic `ICommandObserver` (off by default) notified around
+/// every spawned command. With none configured it behaves like a bare runner. The default
 /// constructor drives the real job-backed `JobRunner`; pass a `ScriptedRunner` via
 /// `WithRunner` to inject a fake in tests.
 [<Sealed>]
@@ -72,7 +74,8 @@ type ManagedClient private (cfg: ManagedConfig) =
           Retry = RetryPolicy.None
           Credentials = None
           TokenEnv = None
-          ExpectedHost = None }
+          ExpectedHost = None
+          Observer = None }
 
     /// A client driving `program` on the real job-backed runner (no retry until `WithRetry`).
     static member Create(program: string) =
@@ -117,6 +120,14 @@ type ManagedClient private (cfg: ManagedConfig) =
         ManagedClient
             { cfg with
                 ExpectedHost = if String.IsNullOrWhiteSpace host then None else Some host }
+
+    /// Attach a diagnostic observer (opt-in; default is none). It is notified as each command
+    /// this client spawns starts and finishes — once per retry attempt — carrying the program,
+    /// argv, working directory, attempt index, duration, and exit code or classified error.
+    /// Secret values never reach it (see `CommandEvent`). With no observer configured the run
+    /// path is exactly as before (no allocation, no extra work).
+    member _.WithObserver(observer: ICommandObserver) =
+        ManagedClient { cfg with Observer = Some observer }
 
     /// Apply a default timeout to every command this client builds.
     member _.DefaultTimeout(timeout: TimeSpan) =
@@ -194,26 +205,82 @@ type ManagedClient private (cfg: ManagedConfig) =
     /// resolve carries the client-bound `ExpectedHost` (from `WithExpectedHost`) as the request
     /// host — the token-env path has no per-operation host of its own — so a host-keyed provider
     /// serves the secret for this client's host rather than always being asked with `None`.
-    member private this.Prepare(cmd: Command) : Task<Result<Command, ProcessError>> =
+    ///
+    /// Returns the prepared command paired with a flag that is `true` only when a secret was
+    /// actually injected into it — the observer reports that fact (never the value); see `Wrap`.
+    member private this.Prepare(cmd: Command) : Task<Result<Command * bool, ProcessError>> =
         task {
             match cfg.TokenEnv with
-            | None -> return Ok cmd
+            | None -> return Ok(cmd, false)
             | Some(service, var) ->
                 match! this.ResolveCredential(service, cfg.ExpectedHost) with
                 | Error e -> return Error e
-                | Ok None -> return Ok cmd
-                | Ok(Some cred) -> return Ok(cmd.Env(var, cred.Secret.Expose()))
+                | Ok None -> return Ok(cmd, false)
+                | Ok(Some cred) -> return Ok(cmd.Env(var, cred.Secret.Expose()), true)
         }
+
+    /// Instrument one run `op` with the diagnostic observer (if configured): emit a `started`
+    /// event before each attempt and a `finished` event after, carrying the command's identity
+    /// (program/argv/cwd — never its environment, so no secret leaks), the 0-based `Attempt`
+    /// index, the measured duration, and the outcome (`codeOf` maps a success value to the exit
+    /// code; a failure carries its `ProcessError`). Returned as a `unit -> Task<…>` so it slots
+    /// straight into `Retry.retryAsync` and is re-invoked (with an incremented attempt) per retry;
+    /// the non-retrying verbs invoke it once. With no observer configured it returns `op`
+    /// unchanged — zero added work on the hot path.
+    member private _.Wrap
+        (prepared: Command)
+        (hasSecret: bool)
+        (codeOf: 'T -> int)
+        (op: unit -> Task<Result<'T, ProcessError>>)
+        : unit -> Task<Result<'T, ProcessError>> =
+        match cfg.Observer with
+        | None -> op
+        | Some obs ->
+            // Capture the command identity once — it is stable across retry attempts. `Arguments`
+            // is the guarded/credential-helper argv, which by construction holds no secret value.
+            let program = prepared.Program
+            let argv = List.ofSeq prepared.Arguments
+            let cwd = prepared.WorkingDirectory
+            let attempt = ref 0
+
+            fun () ->
+                task {
+                    let n = attempt.Value
+                    attempt.Value <- n + 1
+
+                    let ev =
+                        { Program = program
+                          Argv = argv
+                          WorkingDirectory = cwd
+                          Attempt = n
+                          HasSecret = hasSecret }
+
+                    Observer.started obs ev
+                    let sw = System.Diagnostics.Stopwatch.StartNew()
+                    let! result = op ()
+                    sw.Stop()
+
+                    let outcome =
+                        match result with
+                        | Ok value -> Ok(codeOf value)
+                        | Error err -> Error err
+
+                    Observer.finished obs ev sw.Elapsed outcome
+                    return result
+                }
 
     /// Require a zero exit and return stdout (trimmed), with credential injection and lock-retry.
     member this.Run(cmd: Command) : Task<Result<string, ProcessError>> =
         task {
             match! this.Prepare cmd with
             | Error e -> return Error e
-            | Ok prepared ->
+            | Ok(prepared, hasSecret) ->
                 return!
-                    Retry.retryAsync cfg.Retry isLockContention cfg.Cancel (fun () ->
-                        Runner.run cfg.Runner cfg.Cancel prepared)
+                    Retry.retryAsync
+                        cfg.Retry
+                        isLockContention
+                        cfg.Cancel
+                        (this.Wrap prepared hasSecret (fun _ -> 0) (fun () -> Runner.run cfg.Runner cfg.Cancel prepared))
         }
 
     /// Like `Run`, discarding the output.
@@ -221,10 +288,14 @@ type ManagedClient private (cfg: ManagedConfig) =
         task {
             match! this.Prepare cmd with
             | Error e -> return Error e
-            | Ok prepared ->
+            | Ok(prepared, hasSecret) ->
                 return!
-                    Retry.retryAsync cfg.Retry isLockContention cfg.Cancel (fun () ->
-                        Runner.runUnit cfg.Runner cfg.Cancel prepared)
+                    Retry.retryAsync
+                        cfg.Retry
+                        isLockContention
+                        cfg.Cancel
+                        (this.Wrap prepared hasSecret (fun _ -> 0) (fun () ->
+                            Runner.runUnit cfg.Runner cfg.Cancel prepared))
         }
 
     /// Capture the full `ProcessResult` (a non-zero exit is data). Credential injection
@@ -233,7 +304,14 @@ type ManagedClient private (cfg: ManagedConfig) =
         task {
             match! this.Prepare cmd with
             | Error e -> return Error e
-            | Ok prepared -> return! Runner.outputString cfg.Runner cfg.Cancel prepared
+            | Ok(prepared, hasSecret) ->
+                return!
+                    this.Wrap
+                        prepared
+                        hasSecret
+                        (fun (r: ProcessResult<string>) -> r.Code |> Option.defaultValue 0)
+                        (fun () -> Runner.outputString cfg.Runner cfg.Cancel prepared)
+                        ()
         }
 
     /// Capture the full `ProcessResult` with stdout as **raw bytes** — byte-exact, unlike `Output`,
@@ -243,7 +321,14 @@ type ManagedClient private (cfg: ManagedConfig) =
         task {
             match! this.Prepare cmd with
             | Error e -> return Error e
-            | Ok prepared -> return! Runner.outputBytes cfg.Runner cfg.Cancel prepared
+            | Ok(prepared, hasSecret) ->
+                return!
+                    this.Wrap
+                        prepared
+                        hasSecret
+                        (fun (r: ProcessResult<byte[]>) -> r.Code |> Option.defaultValue 0)
+                        (fun () -> Runner.outputBytes cfg.Runner cfg.Cancel prepared)
+                        ()
         }
 
     /// Read the exit code as a yes/no (0 -> true, 1 -> false), with credential injection and lock-retry.
@@ -251,10 +336,14 @@ type ManagedClient private (cfg: ManagedConfig) =
         task {
             match! this.Prepare cmd with
             | Error e -> return Error e
-            | Ok prepared ->
+            | Ok(prepared, hasSecret) ->
                 return!
-                    Retry.retryAsync cfg.Retry isLockContention cfg.Cancel (fun () ->
-                        Runner.probe cfg.Runner cfg.Cancel prepared)
+                    Retry.retryAsync
+                        cfg.Retry
+                        isLockContention
+                        cfg.Cancel
+                        (this.Wrap prepared hasSecret (fun ok -> if ok then 0 else 1) (fun () ->
+                            Runner.probe cfg.Runner cfg.Cancel prepared))
         }
 
     /// The raw exit code, with credential injection and lock-retry.
@@ -262,10 +351,13 @@ type ManagedClient private (cfg: ManagedConfig) =
         task {
             match! this.Prepare cmd with
             | Error e -> return Error e
-            | Ok prepared ->
+            | Ok(prepared, hasSecret) ->
                 return!
-                    Retry.retryAsync cfg.Retry isLockContention cfg.Cancel (fun () ->
-                        Runner.exitCode cfg.Runner cfg.Cancel prepared)
+                    Retry.retryAsync
+                        cfg.Retry
+                        isLockContention
+                        cfg.Cancel
+                        (this.Wrap prepared hasSecret id (fun () -> Runner.exitCode cfg.Runner cfg.Cancel prepared))
         }
 
     /// Require a zero exit and parse the trimmed stdout (credential injection and lock-retry applied).
@@ -273,11 +365,17 @@ type ManagedClient private (cfg: ManagedConfig) =
         task {
             match! this.Prepare cmd with
             | Error e -> return Error e
-            | Ok prepared ->
-                return!
-                    ManagedParsing.parse cfg.Program parser (fun () ->
-                        Retry.retryAsync cfg.Retry isLockContention cfg.Cancel (fun () ->
-                            Runner.run cfg.Runner cfg.Cancel prepared))
+            | Ok(prepared, hasSecret) ->
+                // The observer wraps the process execution only (inside the retry loop); the parser
+                // still runs once, after a successful output — its work is not a command execution.
+                let runText () =
+                    Retry.retryAsync
+                        cfg.Retry
+                        isLockContention
+                        cfg.Cancel
+                        (this.Wrap prepared hasSecret (fun _ -> 0) (fun () -> Runner.run cfg.Runner cfg.Cancel prepared))
+
+                return! ManagedParsing.parse cfg.Program parser runText
         }
 
     /// Like `Parse`, but the parser returns its own `Result` (credential injection and lock-retry applied).
@@ -285,9 +383,13 @@ type ManagedClient private (cfg: ManagedConfig) =
         task {
             match! this.Prepare cmd with
             | Error e -> return Error e
-            | Ok prepared ->
-                return!
-                    ManagedParsing.tryParse cfg.Program parser (fun () ->
-                        Retry.retryAsync cfg.Retry isLockContention cfg.Cancel (fun () ->
-                            Runner.run cfg.Runner cfg.Cancel prepared))
+            | Ok(prepared, hasSecret) ->
+                let runText () =
+                    Retry.retryAsync
+                        cfg.Retry
+                        isLockContention
+                        cfg.Cancel
+                        (this.Wrap prepared hasSecret (fun _ -> 0) (fun () -> Runner.run cfg.Runner cfg.Cancel prepared))
+
+                return! ManagedParsing.tryParse cfg.Program parser runText
         }

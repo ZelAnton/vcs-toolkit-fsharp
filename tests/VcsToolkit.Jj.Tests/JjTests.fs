@@ -4,6 +4,7 @@ open System.Threading.Tasks
 open NUnit.Framework
 open ProcessKit
 open ProcessKit.Testing
+open VcsToolkit.CliSupport
 open VcsToolkit.Diff
 open VcsToolkit.Jj
 
@@ -1643,4 +1644,28 @@ type ReadOnlyModeTests() =
                     Is.True,
                     "the argv still leads with the subcommand"
                 )
+        }
+
+[<TestFixture>]
+type ObserverWiringTests() =
+
+    [<Test>]
+    member _.WithObserverThreadsThroughTheJjClient() : Task =
+        task {
+            let events = ResizeArray<CommandEvent>()
+
+            let observer =
+                { new ICommandObserver with
+                    member _.OnStarted(ev) = events.Add ev
+                    member _.OnFinished(_, _, _) = () }
+
+            let jj =
+                Jj.WithRunner(ScriptedRunner().Fallback(Reply.Ok "jj 0.42.0")).WithObserver observer
+
+            match! jj.Run [ "--version" ] with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"{e}"
+
+            Assert.That(events.Count, Is.EqualTo 1, "the observer is threaded through the Jj client")
+            Assert.That(events[0].Program, Is.EqualTo "jj")
         }
