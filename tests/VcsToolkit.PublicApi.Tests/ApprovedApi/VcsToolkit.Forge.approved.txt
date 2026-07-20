@@ -32,7 +32,7 @@ namespace VcsToolkit.Forge
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Forge.ForgeError>> IssueClose(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Forge.ForgeError>> IssueComment(ulong number, string body) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Forge.ForgeError>> IssueCreate(string title, string body) { }
-        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Forge.ForgeIssue>, VcsToolkit.Forge.ForgeError>> IssueList() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Forge.ForgeIssue>, VcsToolkit.Forge.ForgeError>> IssueList([Microsoft.FSharp.Core.OptionalArgument] Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Forge.IssueListOptions>? options) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Forge.ForgeIssue, VcsToolkit.Forge.ForgeError>> IssueView(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Forge.ForgeError>> PrCheckout(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Forge.CiStatus, VcsToolkit.Forge.ForgeError>> PrChecks(ulong number) { }
@@ -41,7 +41,7 @@ namespace VcsToolkit.Forge
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Forge.ForgeError>> PrCreate(VcsToolkit.Forge.PrCreate spec) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Diff.FileDiff>, VcsToolkit.Forge.ForgeError>> PrDiff(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Forge.ForgeError>> PrEdit(ulong number, VcsToolkit.Forge.PrEdit edit) { }
-        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Forge.ForgePr>, VcsToolkit.Forge.ForgeError>> PrList() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Forge.ForgePr>, VcsToolkit.Forge.ForgeError>> PrList([Microsoft.FSharp.Core.OptionalArgument] Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Forge.PrListOptions>? options) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Forge.ForgeError>> PrMarkReady(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Forge.ForgeError>> PrMerge(ulong number, VcsToolkit.Forge.PrMerge merge) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Forge.ForgeError>> PrReview(ulong number, VcsToolkit.Forge.ReviewAction action) { }
@@ -264,6 +264,36 @@ namespace VcsToolkit.Forge
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
         public string Url { get; }
     }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class IssueListOptions : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Forge.IssueListOptions>, System.IEquatable<VcsToolkit.Forge.IssueListOptions>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Forge.IssueListOptions))]
+        public IssueListOptions(VcsToolkit.Forge.IssueListState state, int limit) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public int Limit { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public VcsToolkit.Forge.IssueListState State { get; }
+        public static VcsToolkit.Forge.IssueListOptions All { get; }
+        public static VcsToolkit.Forge.IssueListOptions Closed { get; }
+        public static VcsToolkit.Forge.IssueListOptions Default { get; }
+        public static VcsToolkit.Forge.IssueListOptions Open { get; }
+        public VcsToolkit.Forge.IssueListOptions WithLimit(int limit) { }
+        public VcsToolkit.Forge.IssueListOptions WithState(VcsToolkit.Forge.IssueListState state) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+    [System.Serializable]
+    public sealed class IssueListState : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Forge.IssueListState>, System.IEquatable<VcsToolkit.Forge.IssueListState>
+    {
+        public static class Tags
+        {
+            public const int All = 2;
+            public const int Closed = 1;
+            public const int Open = 0;
+        }
+    }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
     [Microsoft.FSharp.Core.RequireQualifiedAccess]
     [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
@@ -308,6 +338,38 @@ namespace VcsToolkit.Forge
         public VcsToolkit.Forge.PrEdit WithBody(string body) { }
         public VcsToolkit.Forge.PrEdit WithTitle(string title) { }
         public static VcsToolkit.Forge.PrEdit Create() { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class PrListOptions : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Forge.PrListOptions>, System.IEquatable<VcsToolkit.Forge.PrListOptions>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Forge.PrListOptions))]
+        public PrListOptions(VcsToolkit.Forge.PrListState state, int limit) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public int Limit { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public VcsToolkit.Forge.PrListState State { get; }
+        public static VcsToolkit.Forge.PrListOptions All { get; }
+        public static VcsToolkit.Forge.PrListOptions Closed { get; }
+        public static VcsToolkit.Forge.PrListOptions Default { get; }
+        public static VcsToolkit.Forge.PrListOptions Merged { get; }
+        public static VcsToolkit.Forge.PrListOptions Open { get; }
+        public VcsToolkit.Forge.PrListOptions WithLimit(int limit) { }
+        public VcsToolkit.Forge.PrListOptions WithState(VcsToolkit.Forge.PrListState state) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+    [System.Serializable]
+    public sealed class PrListState : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Forge.PrListState>, System.IEquatable<VcsToolkit.Forge.PrListState>
+    {
+        public static class Tags
+        {
+            public const int All = 3;
+            public const int Closed = 1;
+            public const int Merged = 2;
+            public const int Open = 0;
+        }
     }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
     [System.Serializable]

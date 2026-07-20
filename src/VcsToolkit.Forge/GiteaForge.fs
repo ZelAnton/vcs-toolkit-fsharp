@@ -104,11 +104,47 @@ module internal GiteaForge =
             | _ -> return Ok()
         }
 
-    let prList (tea: VcsToolkit.Gitea.Gitea) (dir: string) =
+    /// The unified `IssueListState` maps 1:1 onto tea's own `--state open|closed|all` — tea's
+    /// issue-list state granularity already matches the unified one.
+    let private teaIssueState (state: IssueListState) : VcsToolkit.Gitea.IssueListState =
+        match state with
+        | IssueListState.Open -> VcsToolkit.Gitea.IssueListState.Open
+        | IssueListState.Closed -> VcsToolkit.Gitea.IssueListState.Closed
+        | IssueListState.All -> VcsToolkit.Gitea.IssueListState.All
+
+    /// `tea pr list --state` distinguishes open/closed/all; a **closed** row's `state` column
+    /// can itself read `"merged"` (see `GiteaParse`/`mapPr`'s `Merged`-flag derivation), and
+    /// `PrView` (above) already relies on `--state all` — never a bare `closed` — to reliably
+    /// surface a merged PR too. `Closed`/`Merged` follow that same proven-safe path: both
+    /// request `--state all` and the result is split locally afterwards by each PR's mapped
+    /// `ForgePrState`. `Open`/`All` need no local filtering — tea's own `open`/`all` states
+    /// already match the unified ones exactly.
+    let prList (tea: VcsToolkit.Gitea.Gitea) (dir: string) (options: PrListOptions) =
         task {
-            match! tea.PrList dir with
+            let teaState: VcsToolkit.Gitea.PrListState =
+                match options.State with
+                | PrListState.Open -> VcsToolkit.Gitea.PrListState.Open
+                | PrListState.Closed
+                | PrListState.Merged
+                | PrListState.All -> VcsToolkit.Gitea.PrListState.All
+
+            let teaOptions: VcsToolkit.Gitea.PrListOptions =
+                { State = teaState
+                  Limit = options.Limit }
+
+            match! tea.PrList(dir, teaOptions) with
             | Error e -> return Error(ForgeError.Forge e)
-            | Ok prs -> return Ok(prs |> List.map mapPr)
+            | Ok prs ->
+                let mapped = prs |> List.map mapPr
+
+                let filtered =
+                    match options.State with
+                    | PrListState.Closed -> mapped |> List.filter (fun pr -> pr.State = ForgePrState.Closed)
+                    | PrListState.Merged -> mapped |> List.filter (fun pr -> pr.State = ForgePrState.Merged)
+                    | PrListState.Open
+                    | PrListState.All -> mapped
+
+                return Ok filtered
         }
 
     let prView (tea: VcsToolkit.Gitea.Gitea) (dir: string) (number: uint64) =
@@ -204,9 +240,13 @@ module internal GiteaForge =
                 return Error(ForgeError.Unsupported(ForgeKind.Gitea, "prReview comment"))
         }
 
-    let issueList (tea: VcsToolkit.Gitea.Gitea) (dir: string) =
+    let issueList (tea: VcsToolkit.Gitea.Gitea) (dir: string) (options: IssueListOptions) =
         task {
-            match! tea.IssueList dir with
+            let teaOptions: VcsToolkit.Gitea.IssueListOptions =
+                { State = teaIssueState options.State
+                  Limit = options.Limit }
+
+            match! tea.IssueList(dir, teaOptions) with
             | Error e -> return Error(ForgeError.Forge e)
             | Ok issues -> return Ok(issues |> List.map mapIssue)
         }

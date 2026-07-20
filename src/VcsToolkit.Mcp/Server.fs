@@ -20,6 +20,33 @@ module internal ServerHelpers =
         | other ->
             Error(McpError.InvalidParams(sprintf "unknown merge strategy %A (expected merge, squash, or rebase)" other))
 
+    /// Parse the `forge_pr_list` `state` argument (`open`/`closed`/`merged`/`all`).
+    let parsePrListState (s: string) : Result<PrListState, McpError> =
+        match s.ToLowerInvariant() with
+        | "open" -> Ok PrListState.Open
+        | "closed" -> Ok PrListState.Closed
+        | "merged" -> Ok PrListState.Merged
+        | "all" -> Ok PrListState.All
+        | other ->
+            Error(McpError.InvalidParams(sprintf "unknown state %A (expected open, closed, merged, or all)" other))
+
+    /// Parse the `forge_issue_list` `state` argument (`open`/`closed`/`all` — issues have no
+    /// "merged" state, unlike `forge_pr_list`'s).
+    let parseIssueListState (s: string) : Result<IssueListState, McpError> =
+        match s.ToLowerInvariant() with
+        | "open" -> Ok IssueListState.Open
+        | "closed" -> Ok IssueListState.Closed
+        | "all" -> Ok IssueListState.All
+        | other -> Error(McpError.InvalidParams(sprintf "unknown state %A (expected open, closed, or all)" other))
+
+    /// Validate an optional `forge_pr_list`/`forge_issue_list` `limit` argument: `None` keeps
+    /// the caller's default; `Some n` must be a positive count (a zero/negative cap has no
+    /// sane CLI meaning and would otherwise reach `gh`/`glab`/`tea` as a confusing raw value).
+    let parseListLimit (limit: int option) : Result<int option, McpError> =
+        match limit with
+        | Some n when n <= 0 -> Error(McpError.InvalidParams(sprintf "limit must be positive, got %d" n))
+        | _ -> Ok limit
+
     /// Build the `forge_pr_review` action from its `kind`/`body` arguments, enforcing
     /// `ReviewAction`'s body invariant up front (before the client is called): `request_changes`
     /// and `comment` require a non-empty body; `approve`'s body is optional. An unknown kind or a
@@ -422,8 +449,30 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
     /// The repository/project on the configured forge (Unsupported on Gitea).
     member this.ForgeRepoView() = this.ReadForge(fun f -> f.RepoView())
 
-    /// Open pull/merge requests on the configured forge.
-    member this.ForgePrList() = this.ReadForge(fun f -> f.PrList())
+    /// Open pull/merge requests on the configured forge, optionally filtered by `state`
+    /// (`open`/`closed`/`merged`/`all`; `None` defaults to `open`) and capped at `limit`
+    /// (`None` defaults to 100) — mirrors `PrListOptions`'s defaults, so omitting both
+    /// arguments reproduces this tool's previous, options-less behaviour exactly.
+    member this.ForgePrList(state: string option, limit: int option) : Task<Result<string, McpError>> =
+        task {
+            let stateResult =
+                match state with
+                | Some s -> parsePrListState s
+                | Option.None -> Ok PrListState.Open
+
+            match stateResult, parseListLimit limit with
+            | Error e, _ -> return Error e
+            | _, Error e -> return Error e
+            | Ok st, Ok lim ->
+                let opts =
+                    PrListOptions.Default.WithState st
+                    |> fun o ->
+                        match lim with
+                        | Some l -> o.WithLimit l
+                        | Option.None -> o
+
+                return! this.ReadForge(fun f -> f.PrList opts)
+        }
 
     /// A single pull/merge request by number.
     member this.ForgePrView(number: uint64) =
@@ -433,8 +482,30 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
     member this.ForgePrChecks(number: uint64) =
         this.ReadForge(fun f -> f.PrChecks number)
 
-    /// Open issues on the configured forge.
-    member this.ForgeIssueList() = this.ReadForge(fun f -> f.IssueList())
+    /// Open issues on the configured forge, optionally filtered by `state`
+    /// (`open`/`closed`/`all`; `None` defaults to `open`) and capped at `limit` (`None`
+    /// defaults to 100) — mirrors `IssueListOptions`'s defaults, so omitting both arguments
+    /// reproduces this tool's previous, options-less behaviour exactly.
+    member this.ForgeIssueList(state: string option, limit: int option) : Task<Result<string, McpError>> =
+        task {
+            let stateResult =
+                match state with
+                | Some s -> parseIssueListState s
+                | Option.None -> Ok IssueListState.Open
+
+            match stateResult, parseListLimit limit with
+            | Error e, _ -> return Error e
+            | _, Error e -> return Error e
+            | Ok st, Ok lim ->
+                let opts =
+                    IssueListOptions.Default.WithState st
+                    |> fun o ->
+                        match lim with
+                        | Some l -> o.WithLimit l
+                        | Option.None -> o
+
+                return! this.ReadForge(fun f -> f.IssueList opts)
+        }
 
     /// A single issue by number.
     member this.ForgeIssueView(number: uint64) =

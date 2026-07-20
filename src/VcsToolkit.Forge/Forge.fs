@@ -314,12 +314,16 @@ type Forge private (cwd: string, backend: Backend) =
 
     // --- PR/MR lifecycle -----------------------------------------------------
 
-    /// Open pull/merge requests for the bound directory.
-    member _.PrList() =
+    /// Pull/merge requests for the bound directory, filtered and capped by `options`
+    /// (defaulting to `PrListOptions.Default` — open, up to 100; omitting it entirely
+    /// reproduces the facade's previous, options-less behaviour exactly).
+    member _.PrList(?options: PrListOptions) =
+        let opts = defaultArg options PrListOptions.Default
+
         match backend with
-        | Backend.GitHub(c, _) -> GitHubForge.prList c cwd
-        | Backend.GitLab(c, _) -> GitLabForge.prList c cwd
-        | Backend.Gitea(c, _) -> GiteaForge.prList c cwd
+        | Backend.GitHub(c, _) -> GitHubForge.prList c cwd opts
+        | Backend.GitLab(c, _) -> GitLabForge.prList c cwd opts
+        | Backend.Gitea(c, _) -> GiteaForge.prList c cwd opts
         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prList")) }
 
     /// A single PR/MR by number (GitLab `iid`). On Gitea this lists and filters.
@@ -499,12 +503,16 @@ type Forge private (cwd: string, backend: Backend) =
 
     // --- Issues / releases ---------------------------------------------------
 
-    /// Open issues for the bound directory (up to 100; drop to the underlying client for more).
-    member _.IssueList() =
+    /// Issues for the bound directory, filtered and capped by `options` (defaulting to
+    /// `IssueListOptions.Default` — open, up to 100; omitting it entirely reproduces the
+    /// facade's previous, options-less behaviour exactly).
+    member _.IssueList(?options: IssueListOptions) =
+        let opts = defaultArg options IssueListOptions.Default
+
         match backend with
-        | Backend.GitHub(c, _) -> GitHubForge.issueList c cwd
-        | Backend.GitLab(c, _) -> GitLabForge.issueList c cwd
-        | Backend.Gitea(c, _) -> GiteaForge.issueList c cwd
+        | Backend.GitHub(c, _) -> GitHubForge.issueList c cwd opts
+        | Backend.GitLab(c, _) -> GitLabForge.issueList c cwd opts
+        | Backend.Gitea(c, _) -> GiteaForge.issueList c cwd opts
         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "issueList")) }
 
     /// A single issue by number (GitLab `iid`), with `Body`/`Url` filled.

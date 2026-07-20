@@ -248,6 +248,87 @@ type PrMerge =
     /// Delete the head branch after merging (`--delete-branch`).
     member this.WithDeleteBranch() = { this with DeleteBranch = true }
 
+/// Which PR states `prList` returns (`gh pr list --state`).
+[<RequireQualifiedAccess>]
+type PrListState =
+    /// Open PRs (`--state open`, gh's default).
+    | Open
+    /// Closed (not merged) PRs (`--state closed`).
+    | Closed
+    /// Merged PRs (`--state merged`).
+    | Merged
+    /// Every PR regardless of state (`--state all`).
+    | All
+
+    /// The `--state` value this case emits.
+    member internal this.Flag =
+        match this with
+        | PrListState.Open -> "open"
+        | PrListState.Closed -> "closed"
+        | PrListState.Merged -> "merged"
+        | PrListState.All -> "all"
+
+/// Options for `prList` (`gh pr list --state <state> --limit <limit>`). Defaults reproduce
+/// this wrapper's previous, options-less behaviour: open PRs, up to 100.
+type PrListOptions =
+    {
+        /// Which states to include (see `PrListState`).
+        State: PrListState
+        /// `--limit` — the maximum number of results.
+        Limit: int
+    }
+
+    /// Open PRs, up to 100 — this wrapper's previous behaviour before `PrListOptions` existed.
+    static member Default =
+        { State = PrListState.Open
+          Limit = 100 }
+
+    /// Filter by `state` instead of the default `Open`.
+    member this.WithState(state: PrListState) = { this with State = state }
+
+    /// Cap the result count at `limit` instead of the default 100.
+    member this.WithLimit(limit: int) = { this with Limit = limit }
+
+/// Which issue states `issueList` returns (`gh issue list --state`). Issues have no
+/// "merged" state, so only three values (unlike `PrListState`).
+[<RequireQualifiedAccess>]
+type IssueListState =
+    /// Open issues (`--state open`, gh's default).
+    | Open
+    /// Closed issues (`--state closed`).
+    | Closed
+    /// Every issue regardless of state (`--state all`).
+    | All
+
+    /// The `--state` value this case emits.
+    member internal this.Flag =
+        match this with
+        | IssueListState.Open -> "open"
+        | IssueListState.Closed -> "closed"
+        | IssueListState.All -> "all"
+
+/// Options for `issueList` (`gh issue list --state <state> --limit <limit>`). Defaults
+/// reproduce this wrapper's previous, options-less behaviour: open issues, up to 100.
+type IssueListOptions =
+    {
+        /// Which states to include (see `IssueListState`).
+        State: IssueListState
+        /// `--limit` — the maximum number of results.
+        Limit: int
+    }
+
+    /// Open issues, up to 100 — this wrapper's previous behaviour before `IssueListOptions`
+    /// existed.
+    static member Default =
+        { State = IssueListState.Open
+          Limit = 100 }
+
+    /// Filter by `state` instead of the default `Open`.
+    member this.WithState(state: IssueListState) = { this with State = state }
+
+    /// Cap the result count at `limit` instead of the default 100.
+    member this.WithLimit(limit: int) = { this with Limit = limit }
+
 /// Options for `prCreate` (`gh pr create`). Build it through `PrCreate.Create`
 /// (title + body) and the chained `WithHead`/`WithBase` setters.
 type PrCreate =

@@ -373,7 +373,7 @@ type ToolTests() =
         task {
             let server = gitServer (ScriptedRunner()) WriteGate.None
 
-            match! server.ForgePrList() with
+            match! server.ForgePrList(None, None) with
             | Error e -> Assert.That(e.Message, Does.Contain "no forge")
             | Ok _ -> Assert.Fail "a forge tool must error when no forge is configured"
         }
@@ -1534,6 +1534,112 @@ type CatalogTests() =
             match! Catalog.callTool server "forge_pr_edit" (argsOf """{"number":1}""") with
             | Error e -> Assert.That(e.Message, Does.Contain "at least one of title or body must be set")
             | Ok _ -> Assert.Fail "forge_pr_edit should require title or body when both are absent"
+        }
+
+    [<Test>]
+    member _.ForgePrListSchemaAdvertisesOptionalStateAndLimit() =
+        let prList = Catalog.all |> List.find (fun t -> t.Name = "forge_pr_list")
+        let schema = Catalog.inputSchema prList
+        Assert.That(schema, Does.Contain "\"state\"")
+        Assert.That(schema, Does.Contain "\"limit\"")
+        Assert.That(schema, Does.Contain "\"required\":[]", "state/limit are both optional")
+
+    [<Test>]
+    member _.ForgeIssueListSchemaAdvertisesOptionalStateAndLimit() =
+        let issueList = Catalog.all |> List.find (fun t -> t.Name = "forge_issue_list")
+        let schema = Catalog.inputSchema issueList
+        Assert.That(schema, Does.Contain "\"state\"")
+        Assert.That(schema, Does.Contain "\"limit\"")
+        Assert.That(schema, Does.Contain "\"required\":[]", "state/limit are both optional")
+
+    [<Test>]
+    member _.CallToolDispatchesForgePrListWithStateAndLimit() : Task =
+        task {
+            let runner =
+                ScriptedRunner().On([ "pr"; "list"; "--state"; "closed"; "--limit"; "50"; "--json" ], Reply.Ok "[]")
+
+            let server = gitServerWithForge runner WriteGate.None
+
+            match! Catalog.callTool server "forge_pr_list" (argsOf """{"state":"closed","limit":50}""") with
+            | Ok json -> Assert.That(json, Does.Contain "[]")
+            | Error e -> Assert.Fail $"forge_pr_list dispatch failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.CallToolForgePrListOmittedArgumentsUseTheOptionsDefault() : Task =
+        task {
+            // Omitting both arguments must reproduce the previous, options-less behaviour —
+            // open, up to 100 — exactly.
+            let runner =
+                ScriptedRunner().On([ "pr"; "list"; "--state"; "open"; "--limit"; "100"; "--json" ], Reply.Ok "[]")
+
+            let server = gitServerWithForge runner WriteGate.None
+
+            match! Catalog.callTool server "forge_pr_list" (argsOf "{}") with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"forge_pr_list with no args should use the default options: {e.Message}"
+        }
+
+    [<Test>]
+    member _.CallToolDispatchesForgeIssueListWithStateAndLimit() : Task =
+        task {
+            let runner =
+                ScriptedRunner().On([ "issue"; "list"; "--state"; "all"; "--limit"; "5"; "--json" ], Reply.Ok "[]")
+
+            let server = gitServerWithForge runner WriteGate.None
+
+            match! Catalog.callTool server "forge_issue_list" (argsOf """{"state":"all","limit":5}""") with
+            | Ok json -> Assert.That(json, Does.Contain "[]")
+            | Error e -> Assert.Fail $"forge_issue_list dispatch failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.CallToolForgePrListRejectsAnUnknownState() : Task =
+        task {
+            let server = gitServerWithForge (ScriptedRunner()) WriteGate.None
+
+            match! Catalog.callTool server "forge_pr_list" (argsOf """{"state":"bogus"}""") with
+            | Error e -> Assert.That(e.Message, Does.Contain "unknown state")
+            | Ok _ -> Assert.Fail "forge_pr_list must reject an unrecognised state"
+        }
+
+    [<Test>]
+    member _.CallToolForgeIssueListRejectsAnUnknownState() : Task =
+        task {
+            let server = gitServerWithForge (ScriptedRunner()) WriteGate.None
+
+            // "merged" is a valid forge_pr_list state but not a forge_issue_list one — issues
+            // have no merged state.
+            match! Catalog.callTool server "forge_issue_list" (argsOf """{"state":"merged"}""") with
+            | Error e -> Assert.That(e.Message, Does.Contain "unknown state")
+            | Ok _ -> Assert.Fail "forge_issue_list must reject a state it doesn't model"
+        }
+
+    [<Test>]
+    member _.CallToolForgePrListRejectsANonPositiveLimit() : Task =
+        task {
+            let server = gitServerWithForge (ScriptedRunner()) WriteGate.None
+
+            match! Catalog.callTool server "forge_pr_list" (argsOf """{"limit":0}""") with
+            | Error e -> Assert.That(e.Message, Does.Contain "positive")
+            | Ok _ -> Assert.Fail "forge_pr_list must reject a zero limit"
+
+            match! Catalog.callTool server "forge_pr_list" (argsOf """{"limit":-5}""") with
+            | Error e -> Assert.That(e.Message, Does.Contain "positive")
+            | Ok _ -> Assert.Fail "forge_pr_list must reject a negative limit"
+        }
+
+    [<Test>]
+    member _.CallToolForgeListLimitRejectsNonIntegerValues() : Task =
+        task {
+            let server = gitServerWithForge (ScriptedRunner()) WriteGate.None
+
+            match! Catalog.callTool server "forge_pr_list" (argsOf """{"limit":"100"}""") with
+            | Error(McpError.InvalidParams message) ->
+                Assert.That(message, Does.Contain "limit")
+                Assert.That(message, Does.Contain "integer")
+            | Error e -> Assert.Fail $"forge_pr_list should return InvalidParams, got: {e.Message}"
+            | Ok _ -> Assert.Fail "forge_pr_list must reject a string limit"
         }
 
     [<Test>]

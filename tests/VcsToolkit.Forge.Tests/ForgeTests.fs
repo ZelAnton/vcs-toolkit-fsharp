@@ -1015,6 +1015,140 @@ type OptionalFieldTests() =
         }
 
 // ---------------------------------------------------------------------------
+// PrList/IssueList options — unified state filter + result cap, per backend (T-102)
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type PrListOptionsTests() =
+
+    [<Test>]
+    member _.GitHubPrListForwardsStateAndLimit() : Task =
+        task {
+            let forge =
+                ghForge [ "pr"; "list"; "--state"; "closed"; "--limit"; "50"; "--json" ] (Reply.Ok "[]")
+
+            match! forge.PrList(PrListOptions.Closed.WithLimit 50) with
+            | Ok [] -> ()
+            | Ok other -> Assert.Fail $"expected an empty list, got {other.Length}"
+            | Error e -> Assert.Fail $"pr list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitHubPrListOmittedOptionsDefaultToOpenAndLimit100() : Task =
+        task {
+            let forge =
+                ghForge [ "pr"; "list"; "--state"; "open"; "--limit"; "100"; "--json" ] (Reply.Ok "[]")
+
+            match! forge.PrList() with
+            | Ok [] -> ()
+            | Ok other -> Assert.Fail $"expected an empty list, got {other.Length}"
+            | Error e -> Assert.Fail $"pr list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitHubIssueListForwardsStateAndLimit() : Task =
+        task {
+            let forge =
+                ghForge [ "issue"; "list"; "--state"; "all"; "--limit"; "5"; "--json" ] (Reply.Ok "[]")
+
+            match! forge.IssueList(IssueListOptions.All.WithLimit 5) with
+            | Ok [] -> ()
+            | Ok other -> Assert.Fail $"expected an empty list, got {other.Length}"
+            | Error e -> Assert.Fail $"issue list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabPrListOpenSendsNoStateFlag() : Task =
+        task {
+            // glab has no `--state` flag: Open is glab's implicit default (no extra flag). An
+            // empty ScriptedRunner reply proves this exact token list — with none of
+            // --closed/--merged/--all — is what the request carries.
+            let forge =
+                glForge [ "mr"; "list"; "--per-page"; "100"; "--output"; "json" ] (Reply.Ok "[]")
+
+            match! forge.PrList(PrListOptions.Open) with
+            | Ok [] -> ()
+            | Ok other -> Assert.Fail $"expected an empty list, got {other.Length}"
+            | Error e -> Assert.Fail $"mr list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabPrListMergedSendsMergedFlagAndLimit() : Task =
+        task {
+            let forge =
+                glForge [ "mr"; "list"; "--merged"; "--per-page"; "25"; "--output"; "json" ] (Reply.Ok "[]")
+
+            match! forge.PrList(PrListOptions.Merged.WithLimit 25) with
+            | Ok [] -> ()
+            | Ok other -> Assert.Fail $"expected an empty list, got {other.Length}"
+            | Error e -> Assert.Fail $"mr list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabIssueListClosedSendsClosedFlag() : Task =
+        task {
+            let forge =
+                glForge [ "issue"; "list"; "--closed"; "--per-page"; "100"; "--output"; "json" ] (Reply.Ok "[]")
+
+            match! forge.IssueList(IssueListOptions.Closed) with
+            | Ok [] -> ()
+            | Ok other -> Assert.Fail $"expected an empty list, got {other.Length}"
+            | Error e -> Assert.Fail $"issue list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaPrListMergedRequestsAllAndFiltersToMergedOnly() : Task =
+        task {
+            // tea has no reliable "merged" CLI filter (see the PrListState doc comment), so a
+            // `Merged` request walks `--state all` — the same proven-safe path `PrView` already
+            // uses — and the mixed open/closed/merged result is split locally by each PR's
+            // mapped `ForgePrState`.
+            let json =
+                """[{"index":"1","title":"open","state":"open","head":"f0","base":"main","url":"u0"},
+                    {"index":"2","title":"closed only","state":"closed","head":"f1","base":"main","url":"u1"},
+                    {"index":"3","title":"merged","state":"merged","head":"f2","base":"main","url":"u2"}]"""
+
+            let forge = teaForge [ "pr"; "list"; "--state"; "all"; "--fields" ] (Reply.Ok json)
+
+            match! forge.PrList(PrListOptions.Merged) with
+            | Ok [ pr ] ->
+                Assert.That(pr.Number, Is.EqualTo 3UL, "only the merged PR survives the local filter")
+                Assert.That(pr.State, Is.EqualTo ForgePrState.Merged)
+            | Ok other -> Assert.Fail $"expected exactly one merged PR, got {other.Length}"
+            | Error e -> Assert.Fail $"pr list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaPrListClosedRequestsAllAndFiltersOutMerged() : Task =
+        task {
+            let json =
+                """[{"index":"1","title":"open","state":"open","head":"f0","base":"main","url":"u0"},
+                    {"index":"2","title":"closed only","state":"closed","head":"f1","base":"main","url":"u1"},
+                    {"index":"3","title":"merged","state":"merged","head":"f2","base":"main","url":"u2"}]"""
+
+            let forge = teaForge [ "pr"; "list"; "--state"; "all"; "--fields" ] (Reply.Ok json)
+
+            match! forge.PrList(PrListOptions.Closed) with
+            | Ok [ pr ] ->
+                Assert.That(pr.Number, Is.EqualTo 2UL, "only the plain-closed (not merged) PR survives")
+                Assert.That(pr.State, Is.EqualTo ForgePrState.Closed)
+            | Ok other -> Assert.Fail $"expected exactly one closed (not merged) PR, got {other.Length}"
+            | Error e -> Assert.Fail $"pr list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaIssueListForwardsStateAndLimit() : Task =
+        task {
+            let forge =
+                teaForge [ "issues"; "list"; "--state"; "all"; "--limit"; "10"; "--fields" ] (Reply.Ok "[]")
+
+            match! forge.IssueList(IssueListOptions.All.WithLimit 10) with
+            | Ok [] -> ()
+            | Ok other -> Assert.Fail $"expected an empty list, got {other.Length}"
+            | Error e -> Assert.Fail $"issue list failed: {e.Message}"
+        }
+
+// ---------------------------------------------------------------------------
 // Version gate on mutating operations + version/kind in Capabilities
 // ---------------------------------------------------------------------------
 

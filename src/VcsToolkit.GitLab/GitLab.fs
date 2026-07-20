@@ -151,13 +151,19 @@ type GitLab private (core: ManagedClient) =
     member _.RepoView(dir: string) =
         core.TryParse(core.CommandIn(dir, [ "repo"; "view"; "--output"; "json" ]), GitLabParse.parseRepoView)
 
-    /// Open merge requests for `dir` (`glab mr list --per-page 100 --output json`).
-    /// Up to 100 (the GitLab API per-page max).
-    member _.MrList(dir: string) =
-        core.TryParse(
-            core.CommandIn(dir, [ "mr"; "list"; "--per-page"; "100"; "--output"; "json" ]),
-            GitLabParse.parseMrList
-        )
+    /// Open merge requests for `dir` (`glab mr list [--closed|--merged|--all] --per-page
+    /// <limit> --output json`). `options` (defaulting to `MrListOptions.Default` — open, up
+    /// to 100, the GitLab API per-page max) selects the state filter and result cap;
+    /// omitting it reproduces the previous behaviour exactly.
+    member _.MrList(dir: string, ?options: MrListOptions) =
+        let opts = defaultArg options MrListOptions.Default
+
+        let args =
+            [ "mr"; "list" ]
+            @ opts.State.Flags
+            @ [ "--per-page"; string opts.Limit; "--output"; "json" ]
+
+        core.TryParse(core.CommandIn(dir, args), GitLabParse.parseMrList)
 
     /// A single merge request by its project-scoped number — GitLab's `iid`
     /// (`glab mr view <number> --output json`).
@@ -285,13 +291,19 @@ type GitLab private (core: ManagedClient) =
 
     // --- Issues / releases ---------------------------------------------------
 
-    /// Open issues for `dir` (`glab issue list --per-page 100 --output json`).
-    /// Up to 100 (the GitLab API per-page max).
-    member _.IssueList(dir: string) =
-        core.TryParse(
-            core.CommandIn(dir, [ "issue"; "list"; "--per-page"; "100"; "--output"; "json" ]),
-            GitLabParse.parseIssueList
-        )
+    /// Open issues for `dir` (`glab issue list [--closed|--all] --per-page <limit> --output
+    /// json`). `options` (defaulting to `IssueListOptions.Default` — open, up to 100, the
+    /// GitLab API per-page max) selects the state filter and result cap; omitting it
+    /// reproduces the previous behaviour exactly.
+    member _.IssueList(dir: string, ?options: IssueListOptions) =
+        let opts = defaultArg options IssueListOptions.Default
+
+        let args =
+            [ "issue"; "list" ]
+            @ opts.State.Flags
+            @ [ "--per-page"; string opts.Limit; "--output"; "json" ]
+
+        core.TryParse(core.CommandIn(dir, args), GitLabParse.parseIssueList)
 
     /// A single issue by its project-scoped id (`iid`)
     /// (`glab issue view <number> --output json`).
@@ -387,7 +399,7 @@ and [<Sealed>] GitLabAt internal (gitlab: GitLab, dir: string) =
     member _.RepoView() = gitlab.RepoView dir
 
     /// Open merge requests for the bound `dir` (`glab mr list …`).
-    member _.MrList() = gitlab.MrList dir
+    member _.MrList(?options: MrListOptions) = gitlab.MrList(dir, ?options = options)
 
     /// A single merge request by its project-scoped number (`glab mr view <n> …`).
     member _.MrView(number: uint64) = gitlab.MrView(dir, number)
@@ -427,7 +439,8 @@ and [<Sealed>] GitLabAt internal (gitlab: GitLab, dir: string) =
     member _.MrDiff(number: uint64) = gitlab.MrDiff(dir, number)
 
     /// Open issues for the bound `dir` (`glab issue list …`).
-    member _.IssueList() = gitlab.IssueList dir
+    member _.IssueList(?options: IssueListOptions) =
+        gitlab.IssueList(dir, ?options = options)
 
     /// A single issue by its project-scoped id (`glab issue view <n> …`).
     member _.IssueView(number: uint64) = gitlab.IssueView(dir, number)

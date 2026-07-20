@@ -138,9 +138,29 @@ module internal GitLabForge =
             | Ok project -> return Ok(mapProject project)
         }
 
-    let prList (glab: VcsToolkit.GitLab.GitLab) (dir: string) =
+    /// The unified `PrListState` maps 1:1 onto glab's own open/`--closed`/`--merged`/`--all`
+    /// flags.
+    let private glMrState (state: PrListState) : VcsToolkit.GitLab.MrListState =
+        match state with
+        | PrListState.Open -> VcsToolkit.GitLab.MrListState.Open
+        | PrListState.Closed -> VcsToolkit.GitLab.MrListState.Closed
+        | PrListState.Merged -> VcsToolkit.GitLab.MrListState.Merged
+        | PrListState.All -> VcsToolkit.GitLab.MrListState.All
+
+    /// The unified `IssueListState` maps 1:1 onto glab's own open/`--closed`/`--all` flags.
+    let private glIssueState (state: IssueListState) : VcsToolkit.GitLab.IssueListState =
+        match state with
+        | IssueListState.Open -> VcsToolkit.GitLab.IssueListState.Open
+        | IssueListState.Closed -> VcsToolkit.GitLab.IssueListState.Closed
+        | IssueListState.All -> VcsToolkit.GitLab.IssueListState.All
+
+    let prList (glab: VcsToolkit.GitLab.GitLab) (dir: string) (options: PrListOptions) =
         task {
-            match! glab.MrList dir with
+            let glOptions: VcsToolkit.GitLab.MrListOptions =
+                { State = glMrState options.State
+                  Limit = options.Limit }
+
+            match! glab.MrList(dir, glOptions) with
             | Error e -> return Error(ForgeError.Forge e)
             | Ok mrs -> return Ok(mrs |> List.map mapMr)
         }
@@ -253,9 +273,13 @@ module internal GitLabForge =
             return ofForge r
         }
 
-    let issueList (glab: VcsToolkit.GitLab.GitLab) (dir: string) =
+    let issueList (glab: VcsToolkit.GitLab.GitLab) (dir: string) (options: IssueListOptions) =
         task {
-            match! glab.IssueList dir with
+            let glOptions: VcsToolkit.GitLab.IssueListOptions =
+                { State = glIssueState options.State
+                  Limit = options.Limit }
+
+            match! glab.IssueList(dir, glOptions) with
             | Error e -> return Error(ForgeError.Forge e)
             | Ok issues -> return Ok(issues |> List.map mapIssue)
         }

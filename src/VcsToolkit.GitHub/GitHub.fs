@@ -168,10 +168,24 @@ type GitHub private (core: ManagedClient) =
     member _.RepoView(dir: string) =
         core.TryParse(core.CommandIn(dir, [ "repo"; "view"; "--json"; REPO_FIELDS ]), GitHubParse.parseRepo)
 
-    /// Pull requests for `dir` (`gh pr list --limit 100 --json …`). Up to 100 open PRs.
-    member _.PrList(dir: string) =
+    /// Pull requests for `dir` (`gh pr list --state <state> --limit <limit> --json …`).
+    /// `options` (defaulting to `PrListOptions.Default` — open, up to 100) selects the
+    /// state filter and result cap; omitting it reproduces the previous behaviour exactly.
+    member _.PrList(dir: string, ?options: PrListOptions) =
+        let opts = defaultArg options PrListOptions.Default
+
         core.TryParse(
-            core.CommandIn(dir, [ "pr"; "list"; "--limit"; "100"; "--json"; PR_FIELDS ]),
+            core.CommandIn(
+                dir,
+                [ "pr"
+                  "list"
+                  "--state"
+                  opts.State.Flag
+                  "--limit"
+                  string opts.Limit
+                  "--json"
+                  PR_FIELDS ]
+            ),
             GitHubParse.parsePrList
         )
 
@@ -210,10 +224,24 @@ type GitHub private (core: ManagedClient) =
             | Ok raw -> return Ok(parseDiff raw)
         }
 
-    /// Issues for `dir` (`gh issue list --limit 100 --json …`). Up to 100 open issues.
-    member _.IssueList(dir: string) =
+    /// Issues for `dir` (`gh issue list --state <state> --limit <limit> --json …`).
+    /// `options` (defaulting to `IssueListOptions.Default` — open, up to 100) selects the
+    /// state filter and result cap; omitting it reproduces the previous behaviour exactly.
+    member _.IssueList(dir: string, ?options: IssueListOptions) =
+        let opts = defaultArg options IssueListOptions.Default
+
         core.TryParse(
-            core.CommandIn(dir, [ "issue"; "list"; "--limit"; "100"; "--json"; ISSUE_LIST_FIELDS ]),
+            core.CommandIn(
+                dir,
+                [ "issue"
+                  "list"
+                  "--state"
+                  opts.State.Flag
+                  "--limit"
+                  string opts.Limit
+                  "--json"
+                  ISSUE_LIST_FIELDS ]
+            ),
             GitHubParse.parseIssueList
         )
 
@@ -467,7 +495,7 @@ and [<Sealed>] GitHubAt internal (github: GitHub, dir: string) =
     member _.RepoView() = github.RepoView dir
 
     /// Pull requests for the bound `dir` (`gh pr list …`).
-    member _.PrList() = github.PrList dir
+    member _.PrList(?options: PrListOptions) = github.PrList(dir, ?options = options)
 
     /// Pull requests that merge `head` into `baseBranch`, any state.
     member _.PrListForBranch(head: string, baseBranch: string) =
@@ -481,7 +509,8 @@ and [<Sealed>] GitHubAt internal (github: GitHub, dir: string) =
     member _.PrDiff(number: uint64) = github.PrDiff(dir, number)
 
     /// Issues for the bound `dir` (`gh issue list …`).
-    member _.IssueList() = github.IssueList dir
+    member _.IssueList(?options: IssueListOptions) =
+        github.IssueList(dir, ?options = options)
 
     /// Open a pull request, returning its URL (`gh pr create`).
     member _.PrCreate(spec: PrCreate) = github.PrCreate(dir, spec)

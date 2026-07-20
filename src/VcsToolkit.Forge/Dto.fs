@@ -158,6 +158,65 @@ type ForgePrState =
     /// Merged.
     | Merged
 
+/// Which PR/MR states `prList` returns — the unified filter, mapped to each CLI's own state
+/// flag(s) in the corresponding backend adapter: `gh pr list --state`, `glab mr list
+/// [--closed|--merged|--all]`, and `tea pr list --state` plus a client-side split for
+/// `Merged` — `tea` only distinguishes open/closed/all natively, so a `Merged` request is
+/// issued as `--state closed` and the result filtered locally by each PR's merged flag.
+[<RequireQualifiedAccess>]
+type PrListState =
+    /// Open / awaiting review (the default).
+    | Open
+    /// Closed without merging.
+    | Closed
+    /// Merged.
+    | Merged
+    /// Every state.
+    | All
+
+/// Options for `prList` — the unified state + result-count filter, mapped to each CLI's own
+/// flags (see `PrListState`). Build it through the state constructors
+/// (`PrListOptions.Open`/`Closed`/`Merged`/`All`), then optionally `WithLimit`.
+type PrListOptions =
+    {
+        /// Which states to include (see `PrListState`).
+        State: PrListState
+        /// Maximum number of results.
+        Limit: int
+    }
+
+    /// Open PRs/MRs, up to 100 — the facade's behaviour before `PrListOptions` existed
+    /// (`Forge.PrList()` with no argument still defaults to this).
+    static member Default =
+        { State = PrListState.Open
+          Limit = 100 }
+
+    /// Open PRs/MRs, up to 100.
+    static member Open =
+        { PrListOptions.Default with
+            State = PrListState.Open }
+
+    /// Closed (not merged) PRs/MRs, up to 100.
+    static member Closed =
+        { PrListOptions.Default with
+            State = PrListState.Closed }
+
+    /// Merged PRs/MRs, up to 100.
+    static member Merged =
+        { PrListOptions.Default with
+            State = PrListState.Merged }
+
+    /// Every PR/MR regardless of state, up to 100.
+    static member All =
+        { PrListOptions.Default with
+            State = PrListState.All }
+
+    /// Filter by `state` instead of the default `Open`.
+    member this.WithState(state: PrListState) = { this with State = state }
+
+    /// Cap the result count at `limit` instead of the default 100.
+    member this.WithLimit(limit: int) = { this with Limit = limit }
+
 /// A pull request (GitHub/Gitea) / merge request (GitLab), unified across the three forges.
 type ForgePr =
     {
@@ -217,6 +276,55 @@ type ForgeIssueState =
     | Open
     /// Closed.
     | Closed
+
+/// Which issue states `issueList` returns — the unified filter (see `PrListState`, the
+/// PR/MR counterpart). Issues have no "merged" state, so only three values.
+[<RequireQualifiedAccess>]
+type IssueListState =
+    /// Open / unresolved (the default).
+    | Open
+    /// Closed.
+    | Closed
+    /// Every state.
+    | All
+
+/// Options for `issueList` — the unified state + result-count filter (see `PrListOptions`,
+/// the PR/MR counterpart). Build it through the state constructors
+/// (`IssueListOptions.Open`/`Closed`/`All`), then optionally `WithLimit`.
+type IssueListOptions =
+    {
+        /// Which states to include (see `IssueListState`).
+        State: IssueListState
+        /// Maximum number of results.
+        Limit: int
+    }
+
+    /// Open issues, up to 100 — the facade's behaviour before `IssueListOptions` existed
+    /// (`Forge.IssueList()` with no argument still defaults to this).
+    static member Default =
+        { State = IssueListState.Open
+          Limit = 100 }
+
+    /// Open issues, up to 100.
+    static member Open =
+        { IssueListOptions.Default with
+            State = IssueListState.Open }
+
+    /// Closed issues, up to 100.
+    static member Closed =
+        { IssueListOptions.Default with
+            State = IssueListState.Closed }
+
+    /// Every issue regardless of state, up to 100.
+    static member All =
+        { IssueListOptions.Default with
+            State = IssueListState.All }
+
+    /// Filter by `state` instead of the default `Open`.
+    member this.WithState(state: IssueListState) = { this with State = state }
+
+    /// Cap the result count at `limit` instead of the default 100.
+    member this.WithLimit(limit: int) = { this with Limit = limit }
 
 /// An issue, unified across the three forges.
 type ForgeIssue =
