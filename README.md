@@ -61,6 +61,11 @@ Run `vcs-mcp --help` for the full flag list. The forge is auto-detected from the
 config disabled) so serving a repository you did not create cannot execute its hooks. The `git` /
 `jj` and `gh` / `glab` / `tea` CLIs you intend to drive must be on `PATH` (see Requirements).
 
+See [docs/mcp-server.md](docs/mcp-server.md) for the full user guide: every CLI flag, the
+complete `repo_*`/`forge_*` tool reference (arguments, read/write, destructive/idempotent
+semantics), the `WriteGate` write policy and per-repo write lock, forge auto-detection, and an
+example `mcpServers` configuration block.
+
 ## Quick start
 
 Install `VcsToolkit.Core`, then open a Git or Jujutsu repository. `Repo.Open` detects the
