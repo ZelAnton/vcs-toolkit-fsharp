@@ -1,5 +1,22 @@
 namespace VcsToolkit.Core
 {
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class AnnotateLine : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Core.AnnotateLine>, System.IEquatable<VcsToolkit.Core.AnnotateLine>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Core.AnnotateLine))]
+        public AnnotateLine(int line, string content, string id, Microsoft.FSharp.Core.FSharpOption<string>? author, Microsoft.FSharp.Core.FSharpOption<string>? date) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? Author { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public string Content { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? Date { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public string Id { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public int Line { get; }
+    }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
     [Microsoft.FSharp.Core.RequireQualifiedAccess]
     [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
@@ -141,6 +158,7 @@ namespace VcsToolkit.Core
         public VcsToolkit.Core.BackendKind Kind { get; }
         public string Root { get; }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Core.OperationState, VcsToolkit.Core.RepoError>> AbortInProgress() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Core.AnnotateLine>, VcsToolkit.Core.RepoError>> Annotate(string path, Microsoft.FSharp.Core.FSharpOption<string>? rev) { }
         public VcsToolkit.Core.Repo At(string dir) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<bool, VcsToolkit.Core.RepoError>> BranchExists(string name) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Core.FileChange>, VcsToolkit.Core.RepoError>> ChangedFiles() { }

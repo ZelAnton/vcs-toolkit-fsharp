@@ -51,6 +51,7 @@ namespace VcsToolkit.Mcp
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> ForgeReleaseView(string tag) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> ForgeRepoView() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoAbortInProgress() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoAnnotate(string path, Microsoft.FSharp.Core.FSharpOption<string>? rev) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoBranches() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoCheckout(string reference) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoCommit(Microsoft.FSharp.Collections.FSharpList<string> paths, string message) { }

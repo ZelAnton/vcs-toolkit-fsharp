@@ -725,6 +725,104 @@ type DispatchTests() =
         }
 
     [<Test>]
+    member _.GitAnnotateReturnsUnifiedLineWithAuthorAndDate() : Task =
+        task {
+            // Mirrors GitTests.BlameParsesLinePorcelain's porcelain shape; `author-time`
+            // 1700000000 (unix epoch, UTC) + `author-tz` +0000 synthesizes the ISO date.
+            let sha = "0123456789abcdef0123456789abcdef01234567"
+
+            let out =
+                [ sha + " 1 1 1"
+                  "author Alice Example"
+                  "author-time 1700000000"
+                  "author-tz +0000"
+                  tab + "let x = 1" ]
+                |> String.concat "\n"
+
+            let repo =
+                gitRepo [ "blame"; "--line-porcelain"; "HEAD"; "--"; "f.txt" ] (Reply.Ok out)
+
+            match! repo.Annotate("f.txt", Some "HEAD") with
+            | Ok lines ->
+                Assert.That(lines.Length, Is.EqualTo 1)
+                Assert.That(lines.[0].Id, Is.EqualTo sha)
+                Assert.That(lines.[0].Line, Is.EqualTo 1)
+                Assert.That(lines.[0].Content, Is.EqualTo "let x = 1")
+                Assert.That(lines.[0].Author, Is.EqualTo(Some "Alice Example"))
+                Assert.That(lines.[0].Date, Is.EqualTo(Some "2023-11-14T22:13:20+00:00"))
+            | Error e -> Assert.Fail $"Annotate failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitAnnotateWithNoRevBlamesTheWorkingCopy() : Task =
+        task {
+            let sha = "0123456789abcdef0123456789abcdef01234567"
+
+            let out =
+                [ sha + " 1 1 1"
+                  "author Bob"
+                  "author-time 1700000000"
+                  "author-tz +0000"
+                  tab + "line" ]
+                |> String.concat "\n"
+
+            // No revision token in the argv: `rev = None` blames the working copy.
+            let repo = gitRepo [ "blame"; "--line-porcelain"; "--"; "f.txt" ] (Reply.Ok out)
+
+            match! repo.Annotate("f.txt", Option.None) with
+            | Ok lines -> Assert.That(lines.Length, Is.EqualTo 1)
+            | Error e -> Assert.Fail $"Annotate failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.JjAnnotateReturnsUnifiedLineWithAuthorAndDate() : Task =
+        task {
+            // ANNOTATE_TEMPLATE's author name is `.escape_json()`-framed; `decodeJsonField`
+            // strips the quotes back off.
+            let out = $"kz{tab}\"Ada\"{tab}2026-05-31T10:00:00+00:00{tab}line one"
+
+            let repo = jjRepo [ "file"; "annotate"; "-r"; "@-"; "--"; "f.txt" ] (Reply.Ok out)
+
+            match! repo.Annotate("f.txt", Some "@-") with
+            | Ok lines ->
+                Assert.That(lines.Length, Is.EqualTo 1)
+                Assert.That(lines.[0].Id, Is.EqualTo "kz")
+                Assert.That(lines.[0].Line, Is.EqualTo 1)
+                Assert.That(lines.[0].Content, Is.EqualTo "line one")
+                Assert.That(lines.[0].Author, Is.EqualTo(Some "Ada"))
+                Assert.That(lines.[0].Date, Is.EqualTo(Some "2026-05-31T10:00:00+00:00"))
+            | Error e -> Assert.Fail $"Annotate failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.JjAnnotateWithNoRevsetAnnotatesTheWorkingCopy() : Task =
+        task {
+            let out = $"kz{tab}\"Ada\"{tab}2026-05-31T10:00:00+00:00{tab}line one"
+
+            // No `-r` token in the argv: `revset = None` annotates `@`.
+            let repo = jjRepo [ "file"; "annotate"; "--"; "f.txt" ] (Reply.Ok out)
+
+            match! repo.Annotate("f.txt", Option.None) with
+            | Ok lines -> Assert.That(lines.Length, Is.EqualTo 1)
+            | Error e -> Assert.Fail $"Annotate failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.AnnotateGuardRejectedGitRevisionReturnsVcsErrorWithoutSpawning() : Task =
+        task {
+            // K-040: `Repo.Annotate` must go through `GitBackend`, which delegates to
+            // `Git.Blame`'s own argv guard on `rev` (a leading `-` would be parsed as a flag) —
+            // not re-implement or bypass it. A bare `ScriptedRunner()` with no rules would raise
+            // on any spawn, so a guard that let this through would fail the test differently.
+            let repo = Repo.FromGit("/repo", "/repo", Git.WithRunner(ScriptedRunner()))
+
+            match! repo.Annotate("f.txt", Some "--upload-pack=touch /tmp/pwned") with
+            | Error(RepoError.Vcs _ as e) -> Assert.That(e.Message, Does.Contain "revision")
+            | Error e -> Assert.Fail $"expected RepoError.Vcs, got: {e.Message}"
+            | Ok _ -> Assert.Fail "a guard-rejected revision must be refused before spawning"
+        }
+
+    [<Test>]
     member _.GitNewChildIsEquivalentToCheckout() : Task =
         task {
             // On git, NewChild is exactly `checkout <reference> --` — the next commit

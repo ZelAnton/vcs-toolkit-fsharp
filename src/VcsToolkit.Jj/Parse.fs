@@ -86,6 +86,12 @@ type AnnotationLine =
     {
         /// Short change id of the change that introduced the line.
         ChangeId: string
+        /// Author name of the change that introduced the line (`commit.author().name()`).
+        Author: string
+        /// Author date of the change, ISO-8601 with an offset
+        /// (`commit.author().timestamp().format("%Y-%m-%dT%H:%M:%S%:z")` — the same shape as
+        /// `Operation.Time`, and matching the git backend's `%aI` dates).
+        Time: string
         /// Line number in the annotated file (1-based).
         Line: int
         /// The line's content (the raw bytes jj reports for the line, with only the
@@ -193,10 +199,14 @@ module internal JjParse =
     let OP_TEMPLATE =
         "id.short() ++ \"\\t\" ++ user ++ \"\\t\" ++ time.start().format(\"%Y-%m-%dT%H:%M:%S%:z\") ++ \"\\t\" ++ description.first_line() ++ \"\\n\""
 
-    /// `jj file annotate -T` template: `change-id\tcontent`. Annotate emits one row
-    /// per source line and separates them itself — no trailing `\n` here, or every
+    /// `jj file annotate -T` template: `change-id\tauthor-name(escape_json)\tauthor-date\tcontent`.
+    /// The author name is `.escape_json()`-framed (a name can hold a tab/newline; decoded back via
+    /// `decodeJsonField`); the date uses the same `%Y-%m-%dT%H:%M:%S%:z` format as `OP_TEMPLATE`
+    /// (strict ISO-8601, extended `+02:00` offset — matches the git backend's `%aI` shape). Annotate
+    /// emits one row per source line and separates them itself — no trailing `\n` here, or every
     /// row would be double-spaced.
-    let ANNOTATE_TEMPLATE = "commit.change_id().short() ++ \"\\t\" ++ content"
+    let ANNOTATE_TEMPLATE =
+        "commit.change_id().short() ++ \"\\t\" ++ commit.author().name().escape_json() ++ \"\\t\" ++ commit.author().timestamp().format(\"%Y-%m-%dT%H:%M:%S%:z\") ++ \"\\t\" ++ content"
 
     // --- Helpers -------------------------------------------------------------
 
@@ -357,20 +367,26 @@ module internal JjParse =
     /// 1-based line number is the row index.
     ///
     /// Splits on `\n` (not the line helper) so a trailing `\r` belonging to a
-    /// CRLF-terminated source line stays in the content. The empty final segment a
-    /// trailing newline leaves carries no tab, so the tab filter drops it and the
-    /// line numbering stays exact.
+    /// CRLF-terminated source line stays in the content. `line.Split([|'\t'|], 4)` caps the
+    /// split at 4 fields, so a literal tab INSIDE the source line's own content (real code)
+    /// stays part of `Content` instead of being mistaken for a field separator. The empty
+    /// final segment a trailing newline leaves carries no tab, so it fails the `f.Length <
+    /// 4` check below and the line numbering stays exact.
     let parseAnnotate (output: string) : AnnotationLine list =
         output.Split('\n')
         |> Array.mapi (fun idx line -> (idx, line))
         |> Array.choose (fun (idx, line) ->
-            match line.IndexOf('\t') with
-            | -1 -> None
-            | i ->
+            let f = line.Split([| '\t' |], 4)
+
+            if f.Length < 4 then
+                None
+            else
                 Some
-                    { ChangeId = line.Substring(0, i)
+                    { ChangeId = f.[0]
+                      Author = decodeJsonField f.[1]
+                      Time = f.[2]
                       Line = idx + 1
-                      Content = line.Substring(i + 1) })
+                      Content = f.[3] })
         |> Array.toList
 
     // --- Bookmarks -----------------------------------------------------------

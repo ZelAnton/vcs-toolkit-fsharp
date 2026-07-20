@@ -85,6 +85,34 @@ type Commit =
         Date: string option
     }
 
+/// One line of a file's per-line authorship ("blame"/"annotate") — unified across git's typed
+/// `blame --line-porcelain` and jj's `file annotate`. See `Repo.Annotate`.
+///
+/// Unlike `Commit` (whose `Author`/`Date` are `None` on jj because its typed *log* template never
+/// asks jj for them), both fields are modeled as `option` here yet `Some` on **both** backends:
+/// git's porcelain blame always reports an author/date per line, and jj's dedicated annotate
+/// template (`ANNOTATE_TEMPLATE`, `src/VcsToolkit.Jj/Parse.fs`) was extended specifically for this
+/// DTO to render `commit.author().name()`/`commit.author().timestamp()` — a different template
+/// choice than the typed log's, not a jj capability gap. They stay `option` rather than a bare
+/// `string` because git's side is *synthesized* from the porcelain's separate `author-time`
+/// (unix epoch)/`author-tz` fields (see `GitBackend.formatAuthorDate`) and falls back to `None`
+/// on a malformed/missing tz instead of fabricating a UTC-anchored date.
+type AnnotateLine =
+    {
+        /// 1-based line number in the annotated version of the file.
+        Line: int
+        /// The line's content, without a trailing newline.
+        Content: string
+        /// The commit/change that introduced the line: git's full object id (`blame`'s hash) /
+        /// jj's (short) change id.
+        Id: string
+        /// Author name (see the type docs for why this is `Some` on both backends).
+        Author: string option
+        /// Author date, strict ISO-8601 with an offset (matching `Commit.Date`'s `%aI` shape) on
+        /// both backends (see the type docs).
+        Date: string option
+    }
+
 /// One attached worktree (git) / workspace (jj).
 type WorktreeInfo =
     {

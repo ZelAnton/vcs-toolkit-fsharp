@@ -646,3 +646,23 @@ module internal JjBackend =
             let! r = jj.FileShowBytes(dir, revset, path)
             return ofVcs r
         }
+
+    /// Map a jj `AnnotationLine` into the unified `AnnotateLine` DTO. Unlike `commitFromChange`
+    /// (whose `Author`/`Date` are always `None` because the typed log's template never asks jj
+    /// for them), `ANNOTATE_TEMPLATE` renders `commit.author().name()`/`commit.author().timestamp()`
+    /// directly, so both are `Some` here (see `AnnotateLine`'s doc comment).
+    let private annotateLineFromAnnotation (a: VcsToolkit.Jj.AnnotationLine) : AnnotateLine =
+        { Line = a.Line
+          Content = a.Content
+          Id = a.ChangeId
+          Author = Some a.Author
+          Date = Some a.Time }
+
+    /// Per-line authorship of `path` at `revset` (`file annotate <path> [-r <revset>]`;
+    /// `revset = None` annotates `@`).
+    let annotate (jj: Jj) (dir: string) (path: string) (revset: string option) =
+        task {
+            match! jj.FileAnnotate(dir, path, revset) with
+            | Error e -> return Error(RepoError.Vcs e)
+            | Ok lines -> return Ok(lines |> List.map annotateLineFromAnnotation)
+        }

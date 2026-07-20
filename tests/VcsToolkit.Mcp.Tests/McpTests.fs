@@ -246,6 +246,38 @@ type ToolTests() =
         }
 
     [<Test>]
+    member _.RepoAnnotateReturnsAnnotateLineJson() : Task =
+        task {
+            // repo_annotate is a read tool (no write gate) that surfaces the facade's unified
+            // `AnnotateLine` DTO as a JSON array — author/date included on git.
+            let tab = string (char 9)
+            let sha = "0123456789abcdef0123456789abcdef01234567"
+
+            let out =
+                [ sha + " 1 1 1"
+                  "author Alice Example"
+                  "author-time 1700000000"
+                  "author-tz +0000"
+                  tab + "let x = 1" ]
+                |> String.concat "\n"
+
+            let server =
+                gitServer
+                    (ScriptedRunner().On([ "blame"; "--line-porcelain"; "--"; "f.txt" ], Reply.Ok out))
+                    WriteGate.None
+
+            match! server.RepoAnnotate("f.txt", Option.None) with
+            | Ok json ->
+                Assert.That(json, Does.Contain sha)
+                Assert.That(json, Does.Contain "let x = 1")
+                Assert.That(json, Does.Contain "Alice Example")
+                // System.Text.Json's default HTML-safe encoder escapes a literal plus sign, so
+                // match the date only up to the offset sign, not the raw "+00:00" suffix.
+                Assert.That(json, Does.Contain "2023-11-14T22:13:20")
+            | Error e -> Assert.Fail $"repo_annotate failed: {e.Message}"
+        }
+
+    [<Test>]
     member _.MutationIsGatedWithoutAllowWrite() : Task =
         task {
             // The scripted runner has NO checkout rule; if the gate failed and the tool
@@ -846,6 +878,33 @@ type OutputBudgetTests() =
             | Error e -> Assert.Fail $"repo_show_file failed: {e.Message}"
         }
 
+    [<Test>]
+    member _.RepoAnnotateOverBudgetIsTruncatedWithMarker() : Task =
+        task {
+            // repo_annotate applies the SAME budget mechanism as repo_show_file, but to the
+            // serialized JSON array (there is no single "content" string for a list of lines).
+            let tab = string (char 9)
+            let sha = "0123456789abcdef0123456789abcdef01234567"
+
+            let out =
+                [ sha + " 1 1 1"
+                  "author Alice Example"
+                  "author-time 1700000000"
+                  "author-tz +0000"
+                  tab + "let x = 1" ]
+                |> String.concat "\n"
+
+            let server =
+                gitServerWithBudget
+                    (ScriptedRunner().On([ "blame"; "--line-porcelain"; "--"; "f.txt" ], Reply.Ok out))
+                    WriteGate.None
+                    (Some 10)
+
+            match! server.RepoAnnotate("f.txt", Option.None) with
+            | Ok json -> Assert.That(json, Does.Contain "[truncated: showing 10 of")
+            | Error e -> Assert.Fail $"repo_annotate failed: {e.Message}"
+        }
+
 // ---------------------------------------------------------------------------
 // JSON serialization (clean F# → JSON)
 // ---------------------------------------------------------------------------
@@ -881,8 +940,8 @@ type CatalogTests() =
 
     [<Test>]
     member _.CatalogCoversEveryTool() =
-        // 10 repo-read + repo_try_merge + 12 repo-write + 10 forge-read + 8 forge-write = 41.
-        Assert.That(List.length Catalog.all, Is.EqualTo 41)
+        // 11 repo-read + repo_try_merge + 12 repo-write + 10 forge-read + 8 forge-write = 42.
+        Assert.That(List.length Catalog.all, Is.EqualTo 42)
         // Every write-gated tool name appears in the catalogue.
         let names = Catalog.all |> List.map (fun t -> t.Name) |> Set.ofList
         Assert.That(WriteTools.all |> List.forall names.Contains, Is.True, "every write tool is catalogued")
@@ -1170,6 +1229,65 @@ type CatalogTests() =
             // Missing the required `max` argument is refused before the tool runs.
             match! Catalog.callTool server "repo_log" (argsOf """{"revspec_or_revset":"HEAD"}""") with
             | Error e -> Assert.That(e.Message, Does.Contain "max")
+            | Ok _ -> Assert.Fail "a missing required argument must be refused"
+        }
+
+    [<Test>]
+    member _.CallToolDispatchesRepoAnnotate() : Task =
+        task {
+            let tab = string (char 9)
+            let sha = "0123456789abcdef0123456789abcdef01234567"
+
+            let out =
+                [ sha + " 1 1 1"
+                  "author Alice Example"
+                  "author-time 1700000000"
+                  "author-tz +0000"
+                  tab + "let x = 1" ]
+                |> String.concat "\n"
+
+            let server =
+                gitServer
+                    (ScriptedRunner().On([ "blame"; "--line-porcelain"; "HEAD"; "--"; "f.txt" ], Reply.Ok out))
+                    WriteGate.None
+
+            match! Catalog.callTool server "repo_annotate" (argsOf """{"path":"f.txt","rev":"HEAD"}""") with
+            | Ok json -> Assert.That(json, Does.Contain "let x = 1")
+            | Error e -> Assert.Fail $"dispatch failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.CallToolRepoAnnotateAcceptsAnOmittedRev() : Task =
+        task {
+            let tab = string (char 9)
+            let sha = "0123456789abcdef0123456789abcdef01234567"
+
+            let out =
+                [ sha + " 1 1 1"
+                  "author Alice Example"
+                  "author-time 1700000000"
+                  "author-tz +0000"
+                  tab + "let x = 1" ]
+                |> String.concat "\n"
+
+            let server =
+                gitServer
+                    (ScriptedRunner().On([ "blame"; "--line-porcelain"; "--"; "f.txt" ], Reply.Ok out))
+                    WriteGate.None
+
+            match! Catalog.callTool server "repo_annotate" (argsOf """{"path":"f.txt"}""") with
+            | Ok json -> Assert.That(json, Does.Contain "let x = 1")
+            | Error e -> Assert.Fail $"dispatch failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.CallToolRepoAnnotateRejectsMissingArgument() : Task =
+        task {
+            let server = gitServer (ScriptedRunner()) WriteGate.None
+
+            // Missing the required `path` argument is refused before the tool runs.
+            match! Catalog.callTool server "repo_annotate" (argsOf "{}") with
+            | Error e -> Assert.That(e.Message, Does.Contain "path")
             | Ok _ -> Assert.Fail "a missing required argument must be refused"
         }
 

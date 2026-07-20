@@ -507,3 +507,21 @@ type Repo private (root: string, cwd: string, backend: Backend) =
         match backend with
         | Backend.Git g -> GitBackend.showFileBytes g cwd rev path
         | Backend.Jj j -> JjBackend.showFileBytes j cwd rev path
+
+    /// Per-line authorship of `path` — "who last touched this line, and when" (git `blame
+    /// --line-porcelain`; jj `file annotate`). `rev` is passed through as-is to the underlying
+    /// client (git commit-ish / jj revset, not cross-backend-portable) — `None` annotates the
+    /// working copy on git and `@` on jj.
+    ///
+    /// **Path-anchoring asymmetry** (unlike `LogPaths`/`CommitPaths`, which anchor both backends
+    /// at `Root`): git's `blame -- <path>` resolves like most git pathspecs — relative to the
+    /// invocation directory, not root-relative like `ShowFile`'s `<rev>:<path>` syntax — so this
+    /// runs from `Root` (same reasoning as `LogPaths`) to honour the repo-relative contract. jj's
+    /// `file annotate <path>` takes a **plain path**, not a `root-file:` fileset the way `FileShow`
+    /// does, so there is no self-anchoring prefix to reach for here without changing
+    /// `Jj.FileAnnotate`'s own contract — it runs from `Cwd`, resolved the same way jj resolves any
+    /// other cwd-relative path argument.
+    member _.Annotate(path: string, rev: string option) =
+        match backend with
+        | Backend.Git g -> GitBackend.annotate g root path rev
+        | Backend.Jj j -> JjBackend.annotate j cwd path rev

@@ -234,6 +234,20 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
 
         this.ReadRepo(fun () -> repo.Log(revspecOrRevset, capped))
 
+    /// Per-line authorship of `path` at `rev` (git `blame --line-porcelain` / jj `file
+    /// annotate`) — "who last touched this line, and when". Serialized as a JSON array and
+    /// truncated to the server's output budget the same way `repo_show_file` truncates file
+    /// content (a trailing `[truncated: showing N of M bytes]` marker when it is) — an
+    /// annotated file's rendered text easily blows past a reasonable context budget. `rev` is
+    /// passed through as-is (git commit-ish / jj revset, not cross-backend-portable); `None`
+    /// annotates the working copy / `@`.
+    member this.RepoAnnotate(path: string, rev: string option) : Task<Result<string, McpError>> =
+        task {
+            match! repo.Annotate(path, rev) with
+            | Error e -> return Error(coreErr e)
+            | Ok lines -> return Ok(applyOutputBudget outputBudget (Json.ok lines))
+        }
+
     // --- repo: mutations (gated) -------------------------------------------
 
     /// Probe whether merging `source` into the current work would conflict (rolled back).

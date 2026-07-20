@@ -87,11 +87,15 @@ type ParseTests() =
 
     [<Test>]
     member _.AnnotateRowsCarryLineNumbers() =
+        let author = $"{tab}\"Ada\"{tab}2026-05-31T10:00:00+00:00{tab}"
+
         let got =
-            JjParse.parseAnnotate $"kxoyzabc{tab}fn main() {{\nkxoyzabc{tab}}}\nqlmnopqr{tab}// added later"
+            JjParse.parseAnnotate $"kxoyzabc{author}fn main() {{\nkxoyzabc{author}}}\nqlmnopqr{author}// added later"
 
         Assert.That(got.Length, Is.EqualTo 3)
         Assert.That(got.[0].ChangeId, Is.EqualTo "kxoyzabc")
+        Assert.That(got.[0].Author, Is.EqualTo "Ada", "the escape_json-framed author name is decoded")
+        Assert.That(got.[0].Time, Is.EqualTo "2026-05-31T10:00:00+00:00")
         Assert.That(got.[0].Line, Is.EqualTo 1)
         Assert.That(got.[0].Content, Is.EqualTo "fn main() {")
         Assert.That(got.[2].Line, Is.EqualTo 3)
@@ -99,8 +103,10 @@ type ParseTests() =
 
     [<Test>]
     member _.AnnotatePreservesCrAndIgnoresTrailingNewline() =
+        let author = $"{tab}\"Ada\"{tab}2026-05-31T10:00:00+00:00{tab}"
+
         let got =
-            JjParse.parseAnnotate $"kxoyzabc{tab}fn main() {{{cr}\nkxoyzabc{tab}}}{cr}\n"
+            JjParse.parseAnnotate $"kxoyzabc{author}fn main() {{{cr}\nkxoyzabc{author}}}{cr}\n"
 
         Assert.That(got.Length, Is.EqualTo 2, "no phantom row from the trailing newline")
         Assert.That(got.[0].Content, Is.EqualTo $"fn main() {{{cr}", "CR preserved")
@@ -863,12 +869,15 @@ type ClientTests() =
             let annotate =
                 scripted
                     [ "file"; "annotate"; "-r"; "@-"; "--"; "src/a.rs" ]
-                    (Reply.Ok $"kz{tab}line one\nkz{tab}line two")
+                    (Reply.Ok
+                        $"kz{tab}\"Ada\"{tab}2026-05-31T10:00:00+00:00{tab}line one\nkz{tab}\"Ada\"{tab}2026-05-31T10:00:00+00:00{tab}line two")
 
             match! annotate.FileAnnotate(".", "src/a.rs", Some "@-") with
             | Ok lines ->
                 Assert.That(lines.Length, Is.EqualTo 2)
                 Assert.That(lines.[0].ChangeId, Is.EqualTo "kz")
+                Assert.That(lines.[0].Author, Is.EqualTo "Ada", "the escape_json-framed author name is decoded")
+                Assert.That(lines.[0].Time, Is.EqualTo "2026-05-31T10:00:00+00:00")
                 Assert.That(lines.[1].Line, Is.EqualTo 2)
             | Error e -> Assert.Fail $"file_annotate failed: {e}"
 
@@ -891,7 +900,8 @@ type ClientTests() =
             let annotate =
                 scripted
                     [ "file"; "annotate"; "-r"; "@-"; "--"; "src/a.rs" ]
-                    (Reply.Ok $"kz{tab}fn main() {{{cr}\nkz{tab}}}{cr}\n")
+                    (Reply.Ok
+                        $"kz{tab}\"Ada\"{tab}2026-05-31T10:00:00+00:00{tab}fn main() {{{cr}\nkz{tab}\"Ada\"{tab}2026-05-31T10:00:00+00:00{tab}}}{cr}\n")
 
             match! annotate.FileAnnotate(".", "src/a.rs", Some "@-") with
             | Ok lines ->

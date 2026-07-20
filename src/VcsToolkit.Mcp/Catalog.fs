@@ -177,6 +177,18 @@ module internal Catalog =
                   JsonType = "integer"
                   Description = "Maximum number of commits to return."
                   Required = true } ]
+          read
+              "repo_annotate"
+              "Per-line authorship of a file at a revision — who last touched each line, and when (git blame --line-porcelain / jj file annotate). The result is a JSON array of lines, truncated to the server's output budget the same way repo_show_file is (--output-budget; default 200000 bytes, 0 disables), with a trailing '[truncated: showing N of M bytes]' marker when it is. `rev` is passed through as-is to the backend — a git commit-ish or a jj revset; the two syntaxes are NOT cross-backend portable."
+              [ { Name = "path"
+                  JsonType = "string"
+                  Description = "Repo-relative path of the file to annotate."
+                  Required = true }
+                { Name = "rev"
+                  JsonType = "string"
+                  Description =
+                    "The revision (git commit-ish) or revset (jj) to annotate at; omit to annotate the working copy / `@`."
+                  Required = false } ]
 
           // repo_try_merge is write-gated (a real, rolled-back trial merge) but non-destructive/idempotent.
           { Name = "repo_try_merge"
@@ -501,6 +513,8 @@ module internal Catalog =
         | "repo_log" ->
             bind (reqStr args "revspec_or_revset") (fun rev ->
                 bind (reqU64 args "max") (fun max -> server.RepoLog(rev, max)))
+        | "repo_annotate" ->
+            bind (reqStr args "path") (fun path -> bind (optStr args "rev") (fun rev -> server.RepoAnnotate(path, rev)))
         | "repo_try_merge" -> bind (reqStr args "source") server.RepoTryMerge
         | "repo_commit" ->
             bind (reqStrArray args "paths") (fun paths ->

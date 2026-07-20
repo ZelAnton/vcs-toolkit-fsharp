@@ -448,3 +448,46 @@ module internal GitBackend =
             let! r = git.ShowFileBytes(dir, rev, path)
             return ofVcs r
         }
+
+    /// Synthesize a strict ISO-8601 date string (matching `Commit.Date`'s `%aI` shape, e.g.
+    /// `2026-05-31T10:00:00+02:00`) from `blame --line-porcelain`'s separate `author-time` (unix
+    /// epoch seconds) and `author-tz` (`+HHMM`/`-HHMM`) fields — porcelain blame has no single
+    /// combined-ISO field the way `git log --format=%aI` does. `None` on a malformed/missing tz
+    /// (the porcelain parser's default for a record that never populated it, or an offset outside
+    /// `DateTimeOffset`'s +/-14:00 range) rather than fabricating a UTC-anchored date.
+    let formatAuthorDate (epochSeconds: int64) (tz: string) : string option =
+        if tz.Length <> 5 || (tz.[0] <> '+' && tz.[0] <> '-') then
+            None
+        else
+            match System.Int32.TryParse(tz.Substring(1, 2)), System.Int32.TryParse(tz.Substring(3, 2)) with
+            | (true, hh), (true, mm) ->
+                let sign = if tz.[0] = '-' then -1 else 1
+                let offset = System.TimeSpan.FromMinutes(float (sign * (hh * 60 + mm)))
+
+                try
+                    let dto = System.DateTimeOffset.FromUnixTimeSeconds(epochSeconds).ToOffset(offset)
+                    Some(dto.ToString("yyyy-MM-ddTHH:mm:sszzz", System.Globalization.CultureInfo.InvariantCulture))
+                with :? System.ArgumentOutOfRangeException ->
+                    // FromUnixTimeSeconds/ToOffset throw for a value outside the representable
+                    // range — a corrupt/out-of-range porcelain field, not a real failure to
+                    // surface as an error.
+                    None
+            | _ -> None
+
+    /// Map a git `BlameLine` into the unified `AnnotateLine` DTO — `FinalLine` (the line number in
+    /// the annotated version of the file) becomes `Line`; `Date` is synthesized via `formatAuthorDate`.
+    let private annotateLineFromBlame (b: VcsToolkit.Git.BlameLine) : AnnotateLine =
+        { Line = b.FinalLine
+          Content = b.Content
+          Id = b.Commit
+          Author = Some b.Author
+          Date = formatAuthorDate b.AuthorTime b.AuthorTz }
+
+    /// Per-line authorship of `path` at `rev` (`blame --line-porcelain [<rev>] -- <path>`;
+    /// `rev = None` blames the working copy).
+    let annotate (git: Git) (dir: string) (path: string) (rev: string option) =
+        task {
+            match! git.Blame(dir, path, rev) with
+            | Error e -> return Error(RepoError.Vcs e)
+            | Ok lines -> return Ok(lines |> List.map annotateLineFromBlame)
+        }
