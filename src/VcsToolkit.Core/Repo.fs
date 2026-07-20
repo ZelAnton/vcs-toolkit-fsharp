@@ -77,6 +77,43 @@ type Repo private (root: string, cwd: string, backend: Backend) =
 
                 Ok(Repo(located.Root, absDir, backend))
 
+    /// Clone `url` into `dest` with the backend/mode `spec.Kind` selects, then open the
+    /// freshly-cloned repository — the backend-agnostic answer to `Git.CloneRepo`/
+    /// `Jj.GitClone`: a single "URL → open `Repo` handle" entry point for provisioning
+    /// flows (CI agents, orchestrators, integration tests) that shouldn't have to branch
+    /// on backend themselves. Uses the real job-backed runner for whichever client
+    /// `spec.Kind` needs; see `CloneWith` to inject a pre-configured client instead.
+    static member Clone(url: string, dest: string, spec: CloneOptions) =
+        Repo.CloneWith(url, dest, spec, (fun () -> Git.Create()), (fun () -> Jj.Create()))
+
+    /// Like `Clone`, but the client that drives the clone — and, on success, the handle's
+    /// client — is built by an injected factory instead of the plain `Git.Create()`/
+    /// `Jj.Create()` default, mirroring `OpenWith`'s rationale. Only the factory for
+    /// `spec.Kind`'s backend is ever invoked (the other stays unbuilt).
+    ///
+    /// Delegates the clone itself to the `GitBackend.cloneRepo`/`JjBackend.gitClone` adapters
+    /// (`Git.CloneRepo`/`Jj.GitClone` under the hood — their own argv guards on `url`/`dest`,
+    /// both bare positionals, apply unchanged, and error normalization stays on the same
+    /// adapter boundary every other facade operation uses, rather than mapping `ofVcs` here)
+    /// — then reuses `OpenWith` to build the handle, so `dest` is absolutised via the shared
+    /// `NormalizePath` and both a bad `dest` path and a post-clone detection failure are
+    /// reported exactly like `Open`/`OpenWith`.
+    static member CloneWith(url: string, dest: string, spec: CloneOptions, git: unit -> Git, jj: unit -> Jj) =
+        task {
+            match Repo.NormalizePath("dest", dest) with
+            | Error e -> return Error e
+            | Ok absDest ->
+                let! cloned =
+                    match spec.Kind with
+                    | CloneKind.Git -> GitBackend.cloneRepo (git ()) url absDest (VcsToolkit.Git.CloneSpec.Create())
+                    | CloneKind.JjColocated -> JjBackend.gitClone (jj ()) url absDest true
+                    | CloneKind.JjNonColocated -> JjBackend.gitClone (jj ()) url absDest false
+
+                match cloned with
+                | Error e -> return Error e
+                | Ok() -> return Repo.OpenWith(absDest, git, jj)
+        }
+
     /// Build a git-backed handle from an explicit client — for a custom runner (e.g. a
     /// test seam) or a pre-configured `Git`. Both paths are absolutised at construction so
     /// later operations remain bound to this handle rather than the process's current directory.

@@ -11,6 +11,22 @@ open VcsToolkit.CliSupport
 let private exit (program: string) (code: int) (stderr: string) =
     ProcessError.Exit(program, code, "", stderr)
 
+/// An `ICommandObserver` that records every start/finish notification for assertions.
+type private RecordingObserver() =
+    let started = System.Collections.Generic.List<CommandEvent>()
+
+    let finished =
+        System.Collections.Generic.List<CommandEvent * TimeSpan * Result<int, ProcessError>>()
+
+    member _.Started = started
+    member _.Finished = finished
+
+    interface ICommandObserver with
+        member _.OnStarted(command) = started.Add command
+
+        member _.OnFinished(command, duration, outcome) =
+            finished.Add((command, duration, outcome))
+
 [<TestFixture>]
 type GuardTests() =
 
@@ -591,4 +607,168 @@ type CredentialTests() =
                 | Error e -> Assert.Fail $"{e}"
 
                 Assert.That(seen.Value, Is.EqualTo(Some(None: string option)), $"blank host {blank} -> no binding")
+        }
+
+[<TestFixture>]
+type ObserverTests() =
+
+    [<Test>]
+    member _.ObserverSeesStartAndFinishWithFields() : Task =
+        task {
+            let obs = RecordingObserver()
+
+            let client =
+                ManagedClient.WithRunner("git", ScriptedRunner().Fallback(Reply.Ok "hello")).WithObserver obs
+
+            match! client.Run(client.CommandIn("/repo", [ "status"; "--short" ])) with
+            | Ok out -> Assert.That(out, Is.EqualTo "hello")
+            | Error e -> Assert.Fail $"{e}"
+
+            Assert.That(obs.Started.Count, Is.EqualTo 1, "one start event")
+            Assert.That(obs.Finished.Count, Is.EqualTo 1, "one finish event")
+
+            let started = obs.Started[0]
+            Assert.That(started.Program, Is.EqualTo "git")
+            // Structural `=` for the argv list (Is.EqualTo is FS0041-ambiguous for F# lists — K-017).
+            Assert.That(started.Argv = [ "status"; "--short" ], "argv is reported verbatim")
+            Assert.That(started.WorkingDirectory, Is.EqualTo(Some "/repo"))
+            Assert.That(started.Attempt, Is.EqualTo 0, "first attempt is index 0")
+            Assert.That(started.HasSecret, Is.False, "no token-env secret was injected")
+
+            let ev, duration, outcome = obs.Finished[0]
+            Assert.That(ev.Program, Is.EqualTo "git")
+            Assert.That(ev.Argv = [ "status"; "--short" ])
+            Assert.That(ev.Attempt, Is.EqualTo 0)
+            Assert.That(duration, Is.GreaterThanOrEqualTo TimeSpan.Zero)
+
+            match outcome with
+            | Ok code -> Assert.That(code, Is.EqualTo 0, "a zero-exit Run reports exit code 0")
+            | Error e -> Assert.Fail $"expected a success outcome, got {e}"
+        }
+
+    [<Test>]
+    member _.ObserverAttemptCounterIncrementsAcrossRetries() : Task =
+        task {
+            let obs = RecordingObserver()
+            let attempts = ref 0
+            let lockErr = exit "git" 128 "Unable to create '/r/.git/index.lock': File exists"
+
+            let runner =
+                ScriptedRunner()
+                    .When(
+                        (fun _ ->
+                            attempts.Value <- attempts.Value + 1
+                            attempts.Value = 1),
+                        Reply.Error lockErr
+                    )
+                    .Fallback(Reply.Ok "ok")
+
+            let client =
+                ManagedClient.WithRunner("git", runner).WithRetry(RetryPolicy.None.WithAttempts 3).WithObserver obs
+
+            match! client.Run(client.Command [ "fetch" ]) with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"expected a successful retry, got {e}"
+
+            // Two attempts observed: attempt 0 (lock failure), then attempt 1 (success).
+            Assert.That(obs.Started.Count, Is.EqualTo 2, "one start per attempt")
+            Assert.That(obs.Finished.Count, Is.EqualTo 2, "one finish per attempt")
+            Assert.That(obs.Started[0].Attempt, Is.EqualTo 0)
+            Assert.That(obs.Started[1].Attempt, Is.EqualTo 1, "the retry increments the attempt counter")
+
+            let _, _, outcome0 = obs.Finished[0]
+            let _, _, outcome1 = obs.Finished[1]
+
+            match outcome0 with
+            | Error e -> Assert.That(isLockContention e, "the first finish carries the classifiable lock error")
+            | Ok _ -> Assert.Fail "expected the first attempt to fail with a lock error"
+
+            match outcome1 with
+            | Ok code -> Assert.That(code, Is.EqualTo 0, "the successful retry reports exit 0")
+            | Error e -> Assert.Fail $"expected the retry to succeed, got {e}"
+        }
+
+    [<Test>]
+    member _.ObserverNeverSeesSecretValueButSignalsPresence() : Task =
+        task {
+            // A token-env secret is injected into the command's environment; the observer must
+            // learn only the FACT (HasSecret = true), never the value.
+            let secretValue = "super-secret-token-value-42"
+            let obs = RecordingObserver()
+
+            let client =
+                ManagedClient
+                    .WithRunner("gh", ScriptedRunner().Fallback(Reply.Ok ""))
+                    .WithTokenEnv(CredentialService.GitHub, "GH_TOKEN")
+                    .WithCredentials(StaticCredential.Token secretValue :> ICredentialProvider)
+                    .WithObserver
+                    obs
+
+            match! client.Run(client.Command [ "auth"; "status" ]) with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"{e}"
+
+            Assert.That(obs.Started.Count, Is.EqualTo 1)
+            Assert.That(obs.Finished.Count, Is.EqualTo 1)
+
+            // Presence is signalled on both the start and finish identity.
+            Assert.That(obs.Started[0].HasSecret, "an injected token-env secret must set HasSecret")
+            let finishedEv, _, _ = obs.Finished[0]
+            Assert.That(finishedEv.HasSecret)
+
+            // The value never appears anywhere in the recorded events (whole-record render).
+            let rendered =
+                [ for e in obs.Started -> sprintf "%A" e ]
+                @ [ for e, d, o in obs.Finished -> sprintf "%A|%A|%A" e d o ]
+                |> String.concat "\n"
+
+            Assert.That(rendered.Contains secretValue, Is.False, "the secret value must never reach an observer event")
+
+            // And specifically the argv carries no secret.
+            for e in obs.Started do
+                for a in e.Argv do
+                    Assert.That(a.Contains secretValue, Is.False, $"secret leaked into argv: {a}")
+        }
+
+    [<Test>]
+    member _.ObserverReportsActualExitCodeFromOutput() : Task =
+        task {
+            // `Output` surfaces a non-zero exit as data (an `Ok` result); the observer's finish
+            // outcome must carry that real exit code, not a flattened 0.
+            let obs = RecordingObserver()
+
+            let client =
+                ManagedClient.WithRunner("git", ScriptedRunner().Fallback(Reply.Fail(2, "bad"))).WithObserver obs
+
+            match! client.Output(client.Command [ "diff"; "--quiet" ]) with
+            | Ok res -> Assert.That(res.Code = Some 2, "Output surfaces the non-zero exit as data")
+            | Error e -> Assert.Fail $"Output must not error on a non-zero exit, got {e}"
+
+            Assert.That(obs.Finished.Count, Is.EqualTo 1)
+            let _, _, outcome = obs.Finished[0]
+
+            match outcome with
+            | Ok code -> Assert.That(code, Is.EqualTo 2, "the finish outcome carries the real exit code")
+            | Error e -> Assert.Fail $"expected an exit-code outcome, got {e}"
+        }
+
+    [<Test>]
+    member _.ThrowingObserverDoesNotFailTheCommand() : Task =
+        task {
+            // A diagnostic observer is isolated: an exception it throws must not fail (or perturb)
+            // the command it observes.
+            let obs =
+                { new ICommandObserver with
+                    member _.OnStarted(_) =
+                        raise (InvalidOperationException "boom in OnStarted")
+
+                    member _.OnFinished(_, _, _) =
+                        raise (InvalidOperationException "boom in OnFinished") }
+
+            let client =
+                ManagedClient.WithRunner("git", ScriptedRunner().Fallback(Reply.Ok "ok")).WithObserver obs
+
+            match! client.Run(client.Command [ "status" ]) with
+            | Ok out -> Assert.That(out, Is.EqualTo "ok")
+            | Error e -> Assert.Fail $"a throwing observer must not fail the command: {e}"
         }

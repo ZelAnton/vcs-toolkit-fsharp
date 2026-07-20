@@ -4,6 +4,7 @@ open System.Threading.Tasks
 open NUnit.Framework
 open ProcessKit
 open ProcessKit.Testing
+open VcsToolkit.CliSupport
 open VcsToolkit.Gitea
 
 let private scripted (tokens: string list) (reply: Reply) =
@@ -686,4 +687,28 @@ type AtViewTests() =
             match captured.Value with
             | Some cmd -> Assert.That(cmd.WorkingDirectory, Is.EqualTo None, "the unbound raw Run is NOT bound to dir")
             | None -> Assert.Fail "no command captured"
+        }
+
+[<TestFixture>]
+type ObserverWiringTests() =
+
+    [<Test>]
+    member _.WithObserverThreadsThroughTheGiteaClient() : Task =
+        task {
+            let events = ResizeArray<CommandEvent>()
+
+            let observer =
+                { new ICommandObserver with
+                    member _.OnStarted(ev) = events.Add ev
+                    member _.OnFinished(_, _, _) = () }
+
+            let tea =
+                Gitea.WithRunner(ScriptedRunner().Fallback(Reply.Ok "tea version 0.9.0")).WithObserver observer
+
+            match! tea.Run [ "--version" ] with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"{e}"
+
+            Assert.That(events.Count, Is.EqualTo 1, "the observer is threaded through the Gitea client")
+            Assert.That(events[0].Program, Is.EqualTo "tea")
         }

@@ -4,6 +4,7 @@ open System.Threading.Tasks
 open NUnit.Framework
 open ProcessKit
 open ProcessKit.Testing
+open VcsToolkit.CliSupport
 open VcsToolkit.GitLab
 open VcsToolkit.Diff
 
@@ -688,4 +689,28 @@ type AtViewTests() =
             match captured.Value with
             | Some cmd -> Assert.That(cmd.WorkingDirectory, Is.EqualTo None, "the unbound raw Run is NOT bound to dir")
             | None -> Assert.Fail "no command captured"
+        }
+
+[<TestFixture>]
+type ObserverWiringTests() =
+
+    [<Test>]
+    member _.WithObserverThreadsThroughTheGitLabClient() : Task =
+        task {
+            let events = ResizeArray<CommandEvent>()
+
+            let observer =
+                { new ICommandObserver with
+                    member _.OnStarted(ev) = events.Add ev
+                    member _.OnFinished(_, _, _) = () }
+
+            let glab =
+                GitLab.WithRunner(ScriptedRunner().Fallback(Reply.Ok "glab 1.45.0")).WithObserver observer
+
+            match! glab.Run [ "--version" ] with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"{e}"
+
+            Assert.That(events.Count, Is.EqualTo 1, "the observer is threaded through the GitLab client")
+            Assert.That(events[0].Program, Is.EqualTo "glab")
         }

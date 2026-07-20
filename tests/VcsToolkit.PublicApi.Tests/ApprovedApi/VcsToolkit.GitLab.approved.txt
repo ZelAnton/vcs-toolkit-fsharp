@@ -51,6 +51,7 @@ namespace VcsToolkit.GitLab
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> Version() { }
         public VcsToolkit.GitLab.GitLab WithCredentials(VcsToolkit.CliSupport.ICredentialProvider provider) { }
         public VcsToolkit.GitLab.GitLab WithEnvToken(string var) { }
+        public VcsToolkit.GitLab.GitLab WithObserver(VcsToolkit.CliSupport.ICommandObserver observer) { }
         public VcsToolkit.GitLab.GitLab WithRetry(VcsToolkit.CliSupport.RetryPolicy policy) { }
         public VcsToolkit.GitLab.GitLab WithToken(string token) { }
         public static VcsToolkit.GitLab.GitLab Create() { }

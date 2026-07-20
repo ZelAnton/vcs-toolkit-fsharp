@@ -67,6 +67,10 @@ type GitLab private (core: ManagedClient) =
     /// Retry lock-contention failures per `policy` (opt-in, off by default).
     member _.WithRetry(policy: RetryPolicy) = GitLab(core.WithRetry policy)
 
+    /// Attach a diagnostic observer notified as each `glab` command starts and finishes
+    /// (opt-in, off by default). See `ICommandObserver`.
+    member _.WithObserver(observer: ICommandObserver) = GitLab(core.WithObserver observer)
+
     /// Supply credentials per operation via a provider — opt-in, off by default
     /// (ambient `glab` auth). The resolved token is injected as `GITLAB_TOKEN`.
     member _.WithCredentials(provider: ICredentialProvider) = GitLab(core.WithCredentials provider)

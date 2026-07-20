@@ -29,6 +29,7 @@ namespace VcsToolkit.Gitea
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<ProcessKit.ProcessResult<string>, ProcessKit.ProcessError>> RunRaw(System.Collections.Generic.IEnumerable<string> args) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<ProcessKit.ProcessResult<string>, ProcessKit.ProcessError>> RunRaw(string dir, System.Collections.Generic.IEnumerable<string> args) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> Version() { }
+        public VcsToolkit.Gitea.Gitea WithObserver(VcsToolkit.CliSupport.ICommandObserver observer) { }
         public VcsToolkit.Gitea.Gitea WithRetry(VcsToolkit.CliSupport.RetryPolicy policy) { }
         public static VcsToolkit.Gitea.Gitea Create() { }
         public static VcsToolkit.Gitea.Gitea WithRunner(ProcessKit.IProcessRunner runner) { }

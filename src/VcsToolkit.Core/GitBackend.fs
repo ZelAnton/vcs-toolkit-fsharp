@@ -28,6 +28,16 @@ module internal GitBackend =
           Path = entry.Path
           OldPath = entry.OldPath }
 
+    /// Clone `url` into `dest` (bare `git clone`), the adapter `Repo.Clone`/`CloneWith` route
+    /// through instead of calling `Git.CloneRepo` and mapping its error directly at the facade
+    /// level — keeps clone's error normalization on the same adapter boundary every other
+    /// facade operation uses. `Git.CloneRepo`'s own argv guards on `url`/`dest` apply unchanged.
+    let cloneRepo (git: Git) (url: string) (dest: string) (spec: VcsToolkit.Git.CloneSpec) =
+        task {
+            let! r = git.CloneRepo(url, dest, spec)
+            return ofVcs r
+        }
+
     let currentBranch (git: Git) (dir: string) =
         task {
             let! r = git.CurrentBranch dir

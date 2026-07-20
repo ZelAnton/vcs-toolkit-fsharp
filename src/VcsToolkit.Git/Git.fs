@@ -264,6 +264,10 @@ type Git private (core: ManagedClient) =
     /// Retry whole-repo lock-contention failures per `policy` (opt-in, off by default).
     member _.WithRetry(policy: RetryPolicy) = Git(core.WithRetry policy)
 
+    /// Attach a diagnostic observer notified as each `git` command starts and finishes
+    /// (opt-in, off by default). See `ICommandObserver`.
+    member _.WithObserver(observer: ICommandObserver) = Git(core.WithObserver observer)
+
     /// Supply credentials for HTTPS remote operations via a provider (opt-in).
     member _.WithCredentials(provider: ICredentialProvider) = Git(core.WithCredentials provider)
 

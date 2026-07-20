@@ -172,6 +172,7 @@ namespace VcsToolkit.Jj
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<T, ProcessKit.ProcessError>> Transaction<T>(string dir, Microsoft.FSharp.Core.FSharpFunc<VcsToolkit.Jj.Jj, System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<T, ProcessKit.ProcessError>>> f) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.FSharpOption<string>?, ProcessKit.ProcessError>> Trunk(string dir) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> Version() { }
+        public VcsToolkit.Jj.Jj WithObserver(VcsToolkit.CliSupport.ICommandObserver observer) { }
         public VcsToolkit.Jj.Jj WithRetry(VcsToolkit.CliSupport.RetryPolicy policy) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> WorkspaceAdd(string dir, VcsToolkit.Jj.WorkspaceAdd spec) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> WorkspaceForget(string dir, string name) { }
