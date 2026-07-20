@@ -222,17 +222,40 @@ type Forge private (cwd: string, backend: Backend) =
         | Backend.Gitea(c, _) -> Some c
         | _ -> None
 
-    /// Whether this handle's backend supports `op`. The capability-varying operations
-    /// (`ForgeOp`) are all present on GitHub and GitLab; Gitea (`tea`) supports **none**
-    /// of them, and an `Unknown` handle (no CLI) supports nothing — so this agrees with
-    /// the dispatch and `Capabilities` rather than contradicting them. Branch on this to
-    /// hide an unavailable operation up front.
+    /// Whether this handle's backend supports `op` — an **operation-level** gap only. The
+    /// capability-varying operations (`ForgeOp`) are all present on GitHub and GitLab; Gitea
+    /// (`tea`) supports **none** of them, and an `Unknown` handle (no CLI) supports nothing — so
+    /// this agrees with the dispatch and `Capabilities` rather than contradicting them. Branch on
+    /// this to hide an unavailable operation up front. Operations that exist everywhere but refuse
+    /// a specific *variant* aren't `ForgeOp`s — see `SupportsReview`/`SupportsMergeOptions`/
+    /// `SupportsCloseDeleteBranch` for those.
     member this.Supports(op: ForgeOp) =
         match this.Kind, op with
         | ForgeKind.Unknown, _ -> false
         | ForgeKind.Gitea,
           (ForgeOp.RepoView | ForgeOp.PrMarkReady | ForgeOp.PrChecks | ForgeOp.ReleaseView | ForgeOp.PrDiff) -> false
         | _ -> true
+
+    /// Whether this handle's backend can submit a `PrReview` of `kind`. Unlike `Supports` (which
+    /// answers *operation-level* gaps), `prReview` exists on every CLI but honours a different set
+    /// of review kinds: `Approve` on all three, `RequestChanges` on GitHub/Gitea (not GitLab), a
+    /// `Comment`-review on GitHub only — and none on an `Unknown` handle. This agrees with
+    /// `PrReview`'s dispatch, which refuses an unsupported kind up front with `Unsupported` before
+    /// any spawn. Branch on it to pick a supported review kind.
+    member this.SupportsReview(kind: ReviewKind) = ForgeSupport.review this.Kind kind
+
+    /// Whether this handle's backend honours `PrMerge`'s `Auto`/`DeleteBranch` options — real
+    /// `gh` flags on GitHub, but unsupported on GitLab/Gitea (and an `Unknown` handle), where a
+    /// spec asking for either is refused with `Unsupported` before any spawn. A plain strategy
+    /// merge works everywhere regardless. Agrees with `PrMerge`'s dispatch.
+    member this.SupportsMergeOptions = ForgeSupport.mergeOptions this.Kind
+
+    /// Whether this handle's backend can delete the source branch when closing via
+    /// `PrClose(number, deleteBranch = true)` — a real `gh` flag on GitHub, unsupported on
+    /// GitLab/Gitea (and an `Unknown` handle), where requesting it is refused with `Unsupported`
+    /// before any spawn. A branch-preserving close works everywhere. Agrees with `PrClose`'s
+    /// dispatch.
+    member this.SupportsCloseDeleteBranch = ForgeSupport.closeDeleteBranch this.Kind
 
     // --- Auth / repo ---------------------------------------------------------
 
@@ -363,8 +386,8 @@ type Forge private (cwd: string, backend: Backend) =
         // must decide its support at each backend explicitly.
         let unsupported =
             match backend with
-            | Backend.GitLab _ -> GitLabForge.unsupportedMerge merge
-            | Backend.Gitea _ -> GiteaForge.unsupportedMerge merge
+            | Backend.GitLab _ -> ForgeSupport.unsupportedMerge ForgeKind.GitLab merge
+            | Backend.Gitea _ -> ForgeSupport.unsupportedMerge ForgeKind.Gitea merge
             | Backend.GitHub _
             | Backend.Unknown -> None
 
@@ -396,8 +419,8 @@ type Forge private (cwd: string, backend: Backend) =
         // the unsupported request cannot reach the CLI.
         let unsupported =
             match backend with
-            | Backend.GitLab _ -> GitLabForge.unsupportedClose deleteBranch
-            | Backend.Gitea _ -> GiteaForge.unsupportedClose deleteBranch
+            | Backend.GitLab _ -> ForgeSupport.unsupportedCloseDeleteBranch ForgeKind.GitLab deleteBranch
+            | Backend.Gitea _ -> ForgeSupport.unsupportedCloseDeleteBranch ForgeKind.Gitea deleteBranch
             | Backend.GitHub _
             | Backend.Unknown -> None
 
@@ -440,8 +463,8 @@ type Forge private (cwd: string, backend: Backend) =
         // decide its support at each backend explicitly.
         let unsupported =
             match backend with
-            | Backend.GitLab _ -> GitLabForge.unsupportedReview action
-            | Backend.Gitea _ -> GiteaForge.unsupportedReview action
+            | Backend.GitLab _ -> ForgeSupport.unsupportedReview ForgeKind.GitLab action
+            | Backend.Gitea _ -> ForgeSupport.unsupportedReview ForgeKind.Gitea action
             | Backend.GitHub _
             | Backend.Unknown -> None
 
