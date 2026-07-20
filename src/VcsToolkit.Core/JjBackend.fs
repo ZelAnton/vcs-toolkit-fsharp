@@ -495,20 +495,65 @@ module internal JjBackend =
                 return Ok out
         }
 
-    let createWorktree (jj: Jj) (dir: string) (path: string) (branch: string) (baseRef: string) =
-        task {
-            let wsName = workspaceNameFor branch
-            // `jj workspace add` resolves a relative `path` against `dir`; resolve it the
-            // same way so a `Repo` bound to a dir != the process cwd probes/deletes the
-            // location jj actually used. `Path.Combine` returns `path` unchanged when it
-            // is already absolute.
-            let absPath = Path.Combine(dir, path)
-            // Whether the destination existed *before* we touched it — a pre-existing
-            // directory the caller already had is not ours to delete on rollback.
-            let preexisting = Directory.Exists absPath || File.Exists absPath
+    // Short, stable, deterministic hex digest of the *original* branch name — used to
+    // disambiguate a `workspaceNameFor` collision so the same colliding branch always maps to
+    // the same disambiguated workspace name (idempotent across retries/processes).
+    let private stableSuffix (branch: string) : string =
+        let bytes =
+            branch
+            |> System.Text.Encoding.UTF8.GetBytes
+            |> System.Security.Cryptography.SHA256.HashData
 
+        bytes.[..3] |> Array.map (sprintf "%02x") |> String.concat ""
+
+    /// How many disambiguated candidates `disambiguateWorkspaceName` will try before giving up
+    /// — the hashed name plus a bounded run of numeric-suffixed fallbacks for the
+    /// astronomically unlikely case that even the hash collides.
+    [<Literal>]
+    let private MaxDisambiguationAttempts = 1000
+
+    /// Resolve a `workspaceNameFor` collision (`baseName` already taken by a workspace whose
+    /// name was derived from some *other* branch) to a name not in `existingNames`: first try
+    /// `baseName` suffixed with a short stable hash of `branch` (deterministic — the same
+    /// branch always lands on the same disambiguated name), then fall back to a numeric suffix
+    /// if even that is taken. `None` only when every candidate up to
+    /// `MaxDisambiguationAttempts` is occupied — the caller turns that into a clear
+    /// `RepoError.InvalidInput` rather than looping forever or surfacing jj's raw "workspace
+    /// already exists".
+    let private disambiguateWorkspaceName
+        (existingNames: Set<string>)
+        (branch: string)
+        (baseName: string)
+        : string option =
+        let hashed = baseName + "_" + stableSuffix branch
+
+        if not (Set.contains hashed existingNames) then
+            Some hashed
+        else
+            [ 2..MaxDisambiguationAttempts ]
+            |> List.map (fun n -> sprintf "%s_%d" hashed n)
+            |> List.tryFind (fun candidate -> not (Set.contains candidate existingNames))
+
+    /// Create the on-disk workspace `wsName` and anchor `branch`'s bookmark there, rolling back
+    /// the half-made worktree if the bookmark step fails.
+    /// - `Ok outcome` — created cleanly.
+    /// - `Error(Choice1Of2 e)` — the `workspace add` step itself failed (a name collision or a
+    ///   genuine jj/argv error; the caller decides which by re-checking `workspace list`).
+    /// - `Error(Choice2Of2 e)` — a later step failed; already rolled back (or the rollback
+    ///   itself failed too) and composed into a single `RepoError`.
+    let private tryCreateWorkspaceAt
+        (jj: Jj)
+        (dir: string)
+        (path: string)
+        (absPath: string)
+        (preexisting: bool)
+        (branch: string)
+        (baseRef: string)
+        (wsName: string)
+        : Task<Result<CreateOutcome, Choice<ProcessError, RepoError>>> =
+        task {
             match! jj.WorkspaceAdd(dir, WorkspaceAdd.Create(wsName, baseRef, path)) with
-            | Error e -> return Error(RepoError.Vcs e)
+            | Error e -> return Error(Choice1Of2 e)
             | Ok() ->
                 // `workspace add -r <base>` puts a fresh empty change on the new
                 // workspace's `@`; `<ws_name>@` resolves to it. Anchor the bookmark there.
@@ -543,17 +588,67 @@ module internal JjBackend =
                         | Error fe -> Some(sprintf "failed to forget workspace %s: %s" wsName fe.Message)
 
                     match [ dirCleanupFailure; forgetFailure ] |> List.choose id with
-                    | [] -> return Error(RepoError.Vcs e)
+                    | [] -> return Error(Choice2Of2(RepoError.Vcs e))
                     | cleanupFailures ->
                         return
                             Error(
-                                RepoError.Io(
-                                    sprintf
-                                        "failed to create worktree: BookmarkCreate failed (%s); rollback cleanup also failed: %s"
-                                        e.Message
-                                        (String.concat "; " cleanupFailures)
+                                Choice2Of2(
+                                    RepoError.Io(
+                                        sprintf
+                                            "failed to create worktree: BookmarkCreate failed (%s); rollback cleanup also failed: %s"
+                                            e.Message
+                                            (String.concat "; " cleanupFailures)
+                                    )
                                 )
                             )
+        }
+
+    let createWorktree (jj: Jj) (dir: string) (path: string) (branch: string) (baseRef: string) =
+        task {
+            let baseName = workspaceNameFor branch
+            // `jj workspace add` resolves a relative `path` against `dir`; resolve it the
+            // same way so a `Repo` bound to a dir != the process cwd probes/deletes the
+            // location jj actually used. `Path.Combine` returns `path` unchanged when it
+            // is already absolute.
+            let absPath = Path.Combine(dir, path)
+            // Whether the destination existed *before* we touched it — a pre-existing
+            // directory the caller already had is not ours to delete on rollback.
+            let preexisting = Directory.Exists absPath || File.Exists absPath
+
+            match! tryCreateWorkspaceAt jj dir path absPath preexisting branch baseRef baseName with
+            | Ok outcome -> return Ok outcome
+            | Error(Choice2Of2 repoError) -> return Error repoError
+            | Error(Choice1Of2 addError) ->
+                // `workspace add` failed. `workspaceNameFor` is lossy (`/`, `.`, `:`, whitespace
+                // all collapse to `_`), so two distinct branches can derive the same name —
+                // check `workspace list` before blaming the caller: if `baseName` really is
+                // already registered, disambiguate and retry instead of surfacing jj's raw
+                // "workspace already exists"; any other failure (bad base revision, jj error,
+                // ...) surfaces unchanged.
+                match! jj.WorkspaceList dir with
+                | Error _ -> return Error(RepoError.Vcs addError)
+                | Ok workspaces ->
+                    let existingNames = workspaces |> List.map (fun ws -> ws.Name) |> Set.ofList
+
+                    if not (Set.contains baseName existingNames) then
+                        return Error(RepoError.Vcs addError)
+                    else
+                        match disambiguateWorkspaceName existingNames branch baseName with
+                        | None ->
+                            return
+                                Error(
+                                    RepoError.InvalidInput(
+                                        sprintf
+                                            "could not create a jj workspace for branch %s: the derived name %s already exists (used by another branch) and disambiguation was exhausted"
+                                            branch
+                                            baseName
+                                    )
+                                )
+                        | Some wsName ->
+                            match! tryCreateWorkspaceAt jj dir path absPath preexisting branch baseRef wsName with
+                            | Ok outcome -> return Ok outcome
+                            | Error(Choice2Of2 repoError) -> return Error repoError
+                            | Error(Choice1Of2 addError2) -> return Error(RepoError.Vcs addError2)
         }
 
     /// jj's initial workspace — its directory is the repository's main working copy, so it
