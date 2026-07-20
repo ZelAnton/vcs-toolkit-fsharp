@@ -21,6 +21,9 @@
 		</Project>
 		<Project Path="tests/VcsToolkit.Gitea.Tests/VcsToolkit.Gitea.Tests.fsproj">
 			<BuildDependency Project="src/VcsToolkit.Gitea/VcsToolkit.Gitea.fsproj" />
+			<!-- The live suite (GiteaLiveTests.fs) drives the Forge facade; Forge transitively
+			     orders GitHub/GitLab/Gitea/CliSupport/Diff ahead of this project. -->
+			<BuildDependency Project="src/VcsToolkit.Forge/VcsToolkit.Forge.fsproj" />
 		</Project>
 		<Project Path="tests/VcsToolkit.Core.Tests/VcsToolkit.Core.Tests.fsproj">
 			<BuildDependency Project="src/VcsToolkit.Core/VcsToolkit.Core.fsproj" />

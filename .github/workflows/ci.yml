@@ -137,3 +137,69 @@ jobs:
           name: test-results-${{ matrix.os }}
           path: ./TestResults/*.trx
           if-no-files-found: ignore
+
+  # Optional live-integration job: stands up a real Gitea container and drives the
+  # VcsToolkit.Gitea + Forge surface against it (see GiteaLiveTests.fs) so print-table
+  # parsing is validated end-to-end and format drift on a tea/Gitea upgrade is caught.
+  # Deliberately NOT a required check — it is a separate job that does not gate PRs and
+  # leaves the `test` matrix untouched. Docker is preinstalled on the ubuntu runner; the
+  # test harness starts and tears down the Gitea container itself. The suite is gated by
+  # REQUIRE_GITEA_LIVE (opt-in), so it runs here but is skipped in the ordinary `test` job.
+  gitea-live:
+    runs-on: ubuntu-latest
+    env:
+      # Pin the Gitea image and the tea CLI so the job is reproducible; bump these to pick
+      # up (and catch drift from) a newer server/CLI.
+      GITEA_IMAGE: 'gitea/gitea:1.22'
+      TEA_VERSION: '0.9.2'
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
+
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-v2-${{ hashFiles('Directory.Packages.props', 'nuget.config', 'global.json') }}
+          restore-keys: ${{ runner.os }}-nuget-v2-
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      # tea has no JSON REST shape; a live run is the only thing that exercises its
+      # print-table parser against a real server. Pinned + verified before use.
+      - name: Install tea CLI
+        shell: bash
+        run: |
+          install_dir="$RUNNER_TEMP/tea"
+          mkdir -p "$install_dir"
+          curl --fail --location --retry 3 --output "$install_dir/tea" "https://dl.gitea.com/tea/${TEA_VERSION}/tea-${TEA_VERSION}-linux-amd64"
+          chmod +x "$install_dir/tea"
+          "$install_dir/tea" --version
+          echo "$install_dir" >> "$GITHUB_PATH"
+
+      # REQUIRE_GITEA_LIVE=1 flips the opt-in suite from "skip" to "must run": a missing
+      # Docker daemon or tea CLI here fails the job instead of silently skipping.
+      - name: Run live Gitea tests
+        env:
+          REQUIRE_GITEA_LIVE: '1'
+        run: >-
+          dotnet test tests/VcsToolkit.Gitea.Tests/VcsToolkit.Gitea.Tests.fsproj
+          --no-build --configuration Release
+          --filter "FullyQualifiedName~VcsToolkit.Gitea.LiveTests"
+          --logger "trx;LogFileName=gitea-live-results.trx"
+          --results-directory ./TestResults
+
+      - name: Upload test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: test-results-gitea-live
+          path: ./TestResults/*.trx
+          if-no-files-found: ignore
