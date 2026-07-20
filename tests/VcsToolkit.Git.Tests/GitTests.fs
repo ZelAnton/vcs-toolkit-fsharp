@@ -2,6 +2,7 @@ module VcsToolkit.Git.Tests
 
 open System
 open System.IO
+open System.Reflection
 open System.Threading.Tasks
 open NUnit.Framework
 open ProcessKit
@@ -988,6 +989,39 @@ type GuardTests() =
 
 [<TestFixture>]
 type AtViewTests() =
+
+    [<Test>]
+    member _.GitAtForwardsEveryDirTakingGitMember() =
+        // `GitAt`'s doc-comment promises every modelled `dir`-taking member of `Git` (and the
+        // raw `Run`/`RunRaw` hatches, whose first parameter is also `dir`) has a bound-view
+        // forwarder. Compare the two member name sets by reflection so a newly added dir-taking
+        // `Git` member cannot silently miss its `GitAt` counterpart.
+        let flags =
+            BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
+
+        let dirTakingGitMembers =
+            typeof<Git>.GetMethods(flags)
+            |> Array.filter (fun m ->
+                let ps = m.GetParameters()
+                // `At` also takes a leading `dir`, but it *constructs* the bound view rather
+                // than being one of the members the view forwards — exclude it explicitly.
+                m.Name <> "At"
+                && ps.Length > 0
+                && ps.[0].Name = "dir"
+                && ps.[0].ParameterType = typeof<string>)
+            |> Array.map (fun m -> m.Name)
+            |> Set.ofArray
+
+        let gitAtMembers =
+            typeof<GitAt>.GetMethods(flags)
+            |> Array.filter (fun m -> not m.IsSpecialName)
+            |> Array.map (fun m -> m.Name)
+            |> Set.ofArray
+
+        let missing = Set.difference dirTakingGitMembers gitAtMembers
+        let missingNames = String.concat ", " missing
+
+        Assert.That(missing, Is.Empty, $"GitAt is missing forwarders for: {missingNames}")
 
     [<Test>]
     member _.GitAtBindsDirWithByteIdenticalArgv() : Task =
