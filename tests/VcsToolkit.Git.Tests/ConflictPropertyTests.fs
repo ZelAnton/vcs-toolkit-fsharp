@@ -121,7 +121,14 @@ let private genConflictBlock: Gen<Block> =
         let lines =
             if hasBase then
                 let baseMarker = markerLine '|' n baseLabel eBase Marker
-                [ opener ] @ oursLines @ [ baseMarker ] @ baseLines @ [ sep ] @ theirsLines @ [ ender ]
+
+                [ opener ]
+                @ oursLines
+                @ [ baseMarker ]
+                @ baseLines
+                @ [ sep ]
+                @ theirsLines
+                @ [ ender ]
             else
                 [ opener ] @ oursLines @ [ sep ] @ theirsLines @ [ ender ]
 
@@ -164,7 +171,10 @@ let private applyFinalEnding (finalEnding: string) (lines: PLine list) : PLine l
         // A truly empty final line (no content and no ending) would vanish from the split and
         // break the roundtrip, so keep a newline there.
         let ending =
-            if finalEnding = "" && last.Text = "" then "\n" else finalEnding
+            if finalEnding = "" && last.Text = "" then
+                "\n"
+            else
+                finalEnding
 
         List.rev ({ last with Ending = ending } :: restRev)
     | [] -> []
