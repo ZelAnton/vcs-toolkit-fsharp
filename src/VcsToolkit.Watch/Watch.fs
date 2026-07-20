@@ -457,7 +457,7 @@ module internal Loop =
         (repo: Repo)
         (raw: Channel<unit>)
         (out: Channel<RepoChange>)
-        (initialPrev: WatchState)
+        (initialPrev: RepoSnapshot * string list)
         (config: LoopConfig)
         (stats: StatsInner)
         (ct: CancellationToken)
@@ -492,8 +492,8 @@ module internal Loop =
                                     out.Writer.Complete(WatcherTerminated error)
                                     running <- false
                                 | Choice1Of2(snapshot, branches) ->
-                                    let next = WatchState.fromSnapshot snapshot branches
-                                    let events = Diff.diff prev next
+                                    let next = (snapshot, branches)
+                                    let events = RepoDiff.diff prev next
                                     prev <- next
 
                                     if not (List.isEmpty events) then
@@ -686,7 +686,7 @@ type Builder
                         disposeWatchers ()
                         return Error e
                     | Ok(snapshot, branches) ->
-                        let prev = WatchState.fromSnapshot snapshot branches
+                        let prev = (snapshot, branches)
 
                         let config =
                             { Debounce = debounce
