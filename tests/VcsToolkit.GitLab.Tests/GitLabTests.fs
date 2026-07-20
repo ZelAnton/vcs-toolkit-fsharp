@@ -416,6 +416,23 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.IssueCloseAndCommentBuildArgs() : Task =
+        task {
+            let close, closeArgs = capturing (Reply.Ok "")
+
+            match! close.IssueClose(".", 4UL) with
+            | Ok() -> assertArgs [ "issue"; "close"; "4" ] closeArgs
+            | Error e -> Assert.Fail $"issue close failed: {e}"
+
+            let comment =
+                scripted [ "issue"; "note"; "7"; "-m"; "hello" ] (Reply.Ok "https://gl/note/1\n")
+
+            match! comment.IssueComment(".", 7UL, "hello") with
+            | Ok out -> Assert.That(out, Is.EqualTo "https://gl/note/1")
+            | Error e -> Assert.Fail $"issue comment failed: {e}"
+        }
+
+    [<Test>]
     member _.ReleaseListAndView() : Task =
         task {
             let list =
@@ -509,8 +526,14 @@ type SemanticsTests() =
             let! b = isErr (glab.MrEdit(".", 7UL, MrEdit.Create().WithBody("-")))
             let! c = isErr (glab.IssueCreate(".", "Title", "-"))
             let! d = isErr (glab.MrComment(".", 7UL, "-"))
+            let! e = isErr (glab.IssueComment(".", 7UL, "-"))
 
-            for flag, name in [ a, "mr create"; b, "mr edit"; c, "issue create"; d, "mr comment" ] do
+            for flag, name in
+                [ a, "mr create"
+                  b, "mr edit"
+                  c, "issue create"
+                  d, "mr comment"
+                  e, "issue comment" ] do
                 Assert.That(flag, Is.True, $"{name} with body \"-\" must be refused before spawning")
 
             // MrEdit with a title but no body must NOT be rejected by the dash check.

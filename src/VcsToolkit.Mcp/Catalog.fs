@@ -368,6 +368,19 @@ module internal Catalog =
                   JsonType = "string"
                   Description = "Body / description."
                   Required = true } ]
+          // Non-destructive: closing an issue is a reversible status change (reopenable),
+          // discarding no data; idempotent: closing an already-closed issue is a no-op.
+          write "forge_issue_close" "Close an issue (reopenable)." false true [ pIssueNumber ]
+          write
+              "forge_issue_comment"
+              "Post a comment to an existing issue, returning the CLI's output."
+              false
+              false
+              [ pIssueNumber
+                { Name = "body"
+                  JsonType = "string"
+                  Description = "The markdown comment body."
+                  Required = true } ]
           write
               "forge_pr_create"
               "Open a pull/merge request, returning the CLI's output (the URL on success)."
@@ -552,6 +565,10 @@ module internal Catalog =
         | "forge_issue_create" ->
             bind (reqStr args "title") (fun title ->
                 bind (reqStr args "body") (fun body -> server.ForgeIssueCreate(title, body)))
+        | "forge_issue_close" -> bind (reqU64 args "number") server.ForgeIssueClose
+        | "forge_issue_comment" ->
+            bind (reqU64 args "number") (fun number ->
+                bind (reqStr args "body") (fun body -> server.ForgeIssueComment(number, body)))
         | "forge_pr_create" ->
             bind (reqStr args "title") (fun title ->
                 bind (reqStr args "body") (fun body ->

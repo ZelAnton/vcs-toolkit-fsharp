@@ -471,6 +471,40 @@ type Forge private (cwd: string, backend: Backend) =
             | Backend.Gitea(c, _) -> GiteaForge.issueCreate c cwd title body
             | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "issueCreate")) })
 
+    /// Close an issue (reopenable — no data is discarded). All three CLIs support it
+    /// (`gh issue close` / `glab issue close` / `tea issues close`), so it is not a
+    /// capability-varying `ForgeOp`; only the CLI-less `Unknown` handle is `Unsupported`,
+    /// without spawning. Version-gated like the other mutations: refused with
+    /// `UnsupportedVersion` before spawning if the CLI is below the wrapper's floor.
+    member _.IssueClose(number: uint64) =
+        gated backend "issueClose" (fun () ->
+            match backend with
+            | Backend.GitHub(c, _) -> GitHubForge.issueClose c cwd number
+            | Backend.GitLab(c, _) -> GitLabForge.issueClose c cwd number
+            | Backend.Gitea(c, _) -> GiteaForge.issueClose c cwd number
+            | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "issueClose")) })
+
+    /// Post a comment to an existing issue, returning the CLI's success output. An empty
+    /// (or whitespace-only) body is rejected with `InvalidInput` before any CLI spawn — by
+    /// the `PrComment` pattern. Note: on Gitea the body is a positional, so a body whose
+    /// first non-space character is `-` is rejected by the client. Supported on all three
+    /// CLIs (`gh issue comment` / `glab issue note` / `tea comment`); only the `Unknown`
+    /// handle is `Unsupported`. Version-gated once the input passes.
+    member _.IssueComment(number: uint64, body: string) =
+        task {
+            if body.Trim() = "" then
+                return Error(ForgeError.InvalidInput "issueComment: comment body must not be empty")
+            else
+                return!
+                    gated backend "issueComment" (fun () ->
+                        match backend with
+                        | Backend.GitHub(c, _) -> GitHubForge.issueComment c cwd number body
+                        | Backend.GitLab(c, _) -> GitLabForge.issueComment c cwd number body
+                        | Backend.Gitea(c, _) -> GiteaForge.issueComment c cwd number body
+                        | Backend.Unknown ->
+                            task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "issueComment")) })
+        }
+
     /// Releases for the bound directory, newest first (up to 100).
     member _.ReleaseList() =
         match backend with

@@ -49,10 +49,18 @@ type WriteGateTests() =
 
     [<Test>]
     member _.WriteToolsCoversTheGatedTools() =
-        Assert.That(List.length WriteTools.all, Is.EqualTo 21)
+        Assert.That(List.length WriteTools.all, Is.EqualTo 23)
         Assert.That(WriteTools.asSet.Contains "repo_commit", Is.True)
         Assert.That(WriteTools.asSet.Contains "repo_rebase", Is.True, "the new rebase tool is write-gated")
         Assert.That(WriteTools.asSet.Contains "forge_pr_checkout", Is.True, "the local-checkout tool is write-gated")
+        Assert.That(WriteTools.asSet.Contains "forge_issue_close", Is.True, "the new issue-close tool is write-gated")
+
+        Assert.That(
+            WriteTools.asSet.Contains "forge_issue_comment",
+            Is.True,
+            "the new issue-comment tool is write-gated"
+        )
+
         Assert.That(WriteTools.asSet.Contains "repo_status", Is.False, "a read tool is not a write tool")
 
 // ---------------------------------------------------------------------------
@@ -541,6 +549,147 @@ type ToolTests() =
         }
 
     [<Test>]
+    member _.ForgeIssueCloseIsWriteGated() : Task =
+        task {
+            // forge_issue_close mutates the remote, so it is write-gated: refused in the
+            // default read-only mode. The gate is checked before the forge is resolved.
+            let server = gitServer (ScriptedRunner()) WriteGate.None
+
+            match! server.ForgeIssueClose 1UL with
+            | Error e -> Assert.That(e.Message, Does.Contain "allow-write")
+            | Ok _ -> Assert.Fail "forge_issue_close must be gated in read-only mode"
+        }
+
+    [<Test>]
+    member _.ForgeIssueCloseAcceptsAndReportsClosed() : Task =
+        task {
+            let server =
+                gitServerWithForge
+                    (ScriptedRunner()
+                        .On([ "--version" ], Reply.Ok "gh version 2.40.0\n")
+                        .On([ "issue"; "close" ], Reply.Ok ""))
+                    WriteGate.All
+
+            match! server.ForgeIssueClose 7UL with
+            | Ok json -> Assert.That(json, Does.Contain "closed")
+            | Error e -> Assert.Fail $"forge_issue_close failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.ForgeIssueCommentIsWriteGated() : Task =
+        task {
+            let server = gitServer (ScriptedRunner()) WriteGate.None
+
+            match! server.ForgeIssueComment(1UL, "hi") with
+            | Error e -> Assert.That(e.Message, Does.Contain "allow-write")
+            | Ok _ -> Assert.Fail "forge_issue_comment must be gated in read-only mode"
+        }
+
+    [<Test>]
+    member _.ForgeIssueCommentRejectsDashLeadingBodyWithoutSpawning() : Task =
+        task {
+            // The argv guard fires before any spawn, so a fallback that would fail loudly is
+            // never reached — proving the refusal precedes the forge call.
+            let runner =
+                ScriptedRunner().Fallback(Reply.Fail(1, "must not spawn — refusal must precede it"))
+
+            let server = gitServerWithForge runner WriteGate.All
+
+            match! server.ForgeIssueComment(1UL, "-body") with
+            | Error(McpError.InvalidParams _) -> ()
+            | Error e -> Assert.Fail $"expected invalid params, got: {e.Message}"
+            | Ok _ -> Assert.Fail "a dash-leading body must be refused"
+        }
+
+    [<Test>]
+    member _.ForgeIssueCommentRejectsEmptyBodyWithoutSpawning() : Task =
+        task {
+            // A whitespace-only body is refused (as InvalidInput → InvalidParams) by the facade
+            // before the version probe, so a loudly-failing fallback is never reached.
+            let runner =
+                ScriptedRunner().Fallback(Reply.Fail(1, "must not spawn — refusal must precede it"))
+
+            let server = gitServerWithForge runner WriteGate.All
+
+            match! server.ForgeIssueComment(1UL, "   ") with
+            | Error(McpError.InvalidParams message) -> Assert.That(message, Does.Contain "empty")
+            | Error e -> Assert.Fail $"expected invalid params, got: {e.Message}"
+            | Ok _ -> Assert.Fail "a whitespace-only body must be refused"
+        }
+
+    [<Test>]
+    member _.ForgeIssueCommentAcceptsNonDashBody() : Task =
+        task {
+            let server =
+                gitServerWithForge
+                    (ScriptedRunner()
+                        .On([ "--version" ], Reply.Ok "gh version 2.40.0\n")
+                        .On([ "issue"; "comment" ], Reply.Ok "https://c/9\n"))
+                    WriteGate.All
+
+            match! server.ForgeIssueComment(9UL, "fine body") with
+            | Ok json -> Assert.That(json, Does.Contain "https://c/9")
+            | Error e -> Assert.Fail $"forge_issue_comment failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.ForgeIssueCommentDoesNotHoldTheRepoWriteLock() : Task =
+        task {
+            // forge_issue_comment is a remote-only mutation (K-003): it must use WithForgeWrite,
+            // NOT WithForgeRepoWrite, so it does NOT serialize on the per-repo write lock the way
+            // the local-mutating forge writes (forge_pr_checkout/merge/close) do. Prove it: hold
+            // the repo write lock with a blocked repo_checkout, then show forge_issue_comment
+            // still completes rather than blocking behind it.
+            use checkoutStarted = new SemaphoreSlim(0)
+            use releaseCheckout = new SemaphoreSlim(0)
+
+            let isCheckout (command: Command) =
+                command.Program :: List.ofSeq command.Arguments |> List.contains "checkout"
+
+            let runner =
+                ScriptedRunner()
+                    .On([ "--version" ], Reply.Ok "gh version 2.40.0\n")
+                    .When(
+                        (fun (command: Command) ->
+                            if isCheckout command then
+                                checkoutStarted.Release() |> ignore
+                                releaseCheckout.Wait(TimeSpan.FromSeconds 5.0) |> ignore
+                                true
+                            else
+                                false),
+                        Reply.Ok ""
+                    )
+                    .On([ "issue"; "comment" ], Reply.Ok "https://c/1\n")
+
+            let server = gitServerWithForge runner WriteGate.All
+
+            let checkoutTask =
+                Task.Run<Result<string, McpError>>(fun () -> server.RepoCheckout "feature")
+
+            Assert.That(checkoutStarted.Wait(TimeSpan.FromSeconds 5.0), Is.True, "checkout must have started")
+
+            // The comment holds no repo lock, so it completes even while checkout still holds it.
+            let commentTask =
+                Task.Run<Result<string, McpError>>(fun () -> server.ForgeIssueComment(2UL, "hello"))
+
+            Assert.That(
+                (commentTask :> Task).Wait(TimeSpan.FromSeconds 5.0),
+                Is.True,
+                "forge_issue_comment must NOT block on the repo write lock held by repo_checkout"
+            )
+
+            match! commentTask with
+            | Ok json -> Assert.That(json, Does.Contain "output")
+            | Error e -> Assert.Fail $"forge_issue_comment failed: {e.Message}"
+
+            releaseCheckout.Release() |> ignore
+
+            match! checkoutTask with
+            | Ok json -> Assert.That(json, Does.Contain "feature")
+            | Error e -> Assert.Fail $"repo_checkout failed: {e.Message}"
+        }
+
+    [<Test>]
     member _.ForgePrCreateRejectsDashLeadingTitleWithoutSpawning() : Task =
         task {
             let runner =
@@ -940,8 +1089,8 @@ type CatalogTests() =
 
     [<Test>]
     member _.CatalogCoversEveryTool() =
-        // 11 repo-read + repo_try_merge + 12 repo-write + 10 forge-read + 8 forge-write = 42.
-        Assert.That(List.length Catalog.all, Is.EqualTo 42)
+        // 11 repo-read + repo_try_merge + 12 repo-write + 10 forge-read + 10 forge-write = 44.
+        Assert.That(List.length Catalog.all, Is.EqualTo 44)
         // Every write-gated tool name appears in the catalogue.
         let names = Catalog.all |> List.map (fun t -> t.Name) |> Set.ofList
         Assert.That(WriteTools.all |> List.forall names.Contains, Is.True, "every write tool is catalogued")
@@ -968,6 +1117,8 @@ type CatalogTests() =
               "repo_rename_branch", false, false
               "repo_new_child", false, false
               "forge_issue_create", false, false
+              "forge_issue_close", false, true
+              "forge_issue_comment", false, false
               "forge_pr_create", false, false
               "forge_pr_merge", true, false
               "forge_pr_close", true, true
@@ -1032,6 +1183,31 @@ type CatalogTests() =
             match! Catalog.callTool server "repo_checkout" (argsOf """{"reference":"feat"}""") with
             | Ok json -> Assert.That(json, Does.Contain "feat")
             | Error e -> Assert.Fail $"dispatch failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.CallToolDispatchesForgeIssueCloseAndComment() : Task =
+        task {
+            let runner =
+                ScriptedRunner()
+                    .On([ "--version" ], Reply.Ok "gh version 2.40.0\n")
+                    .On([ "issue"; "close" ], Reply.Ok "")
+                    .On([ "issue"; "comment" ], Reply.Ok "https://c/1\n")
+
+            let server = gitServerWithForge runner WriteGate.All
+
+            match! Catalog.callTool server "forge_issue_close" (argsOf """{"number":3}""") with
+            | Ok json -> Assert.That(json, Does.Contain "closed")
+            | Error e -> Assert.Fail $"forge_issue_close dispatch failed: {e.Message}"
+
+            match! Catalog.callTool server "forge_issue_comment" (argsOf """{"number":3,"body":"nice"}""") with
+            | Ok json -> Assert.That(json, Does.Contain "output")
+            | Error e -> Assert.Fail $"forge_issue_comment dispatch failed: {e.Message}"
+
+            // A missing required arg is refused as invalid-params before the tool runs.
+            match! Catalog.callTool server "forge_issue_comment" (argsOf """{"number":3}""") with
+            | Error e -> Assert.That(e.Message, Does.Contain "body")
+            | Ok _ -> Assert.Fail "forge_issue_comment must require a body"
         }
 
     [<Test>]

@@ -283,6 +283,21 @@ type Gitea private (core: ManagedClient) =
     member _.IssueCreate(dir: string, title: string, body: string) =
         core.Run(core.CommandIn(dir, [ "issues"; "create"; "--title"; title; "--description"; body ]))
 
+    /// Close an issue without further comment (`tea issues close <number>`).
+    member _.IssueClose(dir: string, number: uint64) =
+        core.RunUnit(core.CommandIn(dir, [ "issues"; "close"; string number ]))
+
+    /// Add a comment to an issue, returning the command's output (`tea comment <index>
+    /// <body>`). Gitea PRs and issues share the `index` space, so this is the same
+    /// `tea comment` command `PrComment` uses. The `body` is a bare positional, so it is
+    /// rejected if empty or `-`-leading.
+    member _.IssueComment(dir: string, number: uint64, body: string) =
+        task {
+            match checkFlags BINARY [ "body", body ] with
+            | Error e -> return Error e
+            | Ok() -> return! core.Run(core.CommandIn(dir, [ "comment"; string number; body ]))
+        }
+
     /// Releases for `dir` (`tea releases list --limit 100 --output json`). Up to 100.
     /// There is intentionally no `ReleaseView`: `tea releases` takes no positional and
     /// always lists, so a single-release-by-tag view does not exist in `tea`.
@@ -355,6 +370,12 @@ and [<Sealed>] GiteaAt internal (gitea: Gitea, dir: string) =
 
     /// Open an issue (`tea issues create …`).
     member _.IssueCreate(title: string, body: string) = gitea.IssueCreate(dir, title, body)
+
+    /// Close an issue (`tea issues close <index>`).
+    member _.IssueClose(number: uint64) = gitea.IssueClose(dir, number)
+
+    /// Add a comment to an issue (`tea comment <index> <body>`).
+    member _.IssueComment(number: uint64, body: string) = gitea.IssueComment(dir, number, body)
 
     /// Releases for the bound `dir` (`tea releases list …`).
     member _.ReleaseList() = gitea.ReleaseList dir

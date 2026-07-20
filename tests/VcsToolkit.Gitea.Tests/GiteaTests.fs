@@ -468,6 +468,23 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.IssueCloseAndCommentBuildArgs() : Task =
+        task {
+            let close, closeArgs = capturing (Reply.Ok "")
+
+            match! close.IssueClose(".", 4UL) with
+            | Ok() -> assertArgs [ "issues"; "close"; "4" ] closeArgs
+            | Error e -> Assert.Fail $"issue close failed: {e}"
+
+            // Issues and PRs share `tea comment <index> <body>` (a shared index space).
+            let comment, commentArgs = capturing (Reply.Ok "commented\n")
+
+            match! comment.IssueComment(".", 7UL, "nice work") with
+            | Ok _ -> assertArgs [ "comment"; "7"; "nice work" ] commentArgs
+            | Error e -> Assert.Fail $"issue comment failed: {e}"
+        }
+
+    [<Test>]
     member _.ReleaseListRequestsLimit() : Task =
         task {
             let tea =
@@ -551,8 +568,12 @@ type SemanticsTests() =
 
             let! a = isErr (refuse.PrComment(".", 7UL, "-evil"))
             let! b = isErr (refuse.PrComment(".", 7UL, ""))
-            Assert.That(a, Is.True, "a dash-leading comment body must be refused")
-            Assert.That(b, Is.True, "an empty comment body must be refused")
+            let! c = isErr (refuse.IssueComment(".", 7UL, "-evil"))
+            let! d = isErr (refuse.IssueComment(".", 7UL, ""))
+            Assert.That(a, Is.True, "a dash-leading PR comment body must be refused")
+            Assert.That(b, Is.True, "an empty PR comment body must be refused")
+            Assert.That(c, Is.True, "a dash-leading issue comment body must be refused")
+            Assert.That(d, Is.True, "an empty issue comment body must be refused")
 
             // …and a legitimate body still passes, as a bare positional after the index.
             let tea, args = capturing (Reply.Ok "commented\n")

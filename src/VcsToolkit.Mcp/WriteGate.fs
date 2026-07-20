@@ -29,6 +29,8 @@ module WriteTools =
           "repo_rename_branch"
           "repo_new_child"
           "forge_issue_create"
+          "forge_issue_close"
+          "forge_issue_comment"
           "forge_pr_create"
           "forge_pr_merge"
           "forge_pr_close"

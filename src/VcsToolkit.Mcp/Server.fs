@@ -451,6 +451,30 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
                         | Ok out -> return Ok(Json.ok {| output = out |})
             })
 
+    /// Close an issue (reopenable). A remote-only status change — no local working-copy
+    /// mutation — so it uses `WithForgeWrite` (write gate only), not the per-repo lock the
+    /// local-mutating forge writes hold (see `WithForgeRepoWrite`).
+    member this.ForgeIssueClose(number: uint64) =
+        this.WithForgeWrite "forge_issue_close" (fun f ->
+            task {
+                match! f.IssueClose number with
+                | Error e -> return Error(forgeErr e)
+                | Ok() -> return Ok(Json.ok {| closed = number |})
+            })
+
+    /// Post a comment to an existing issue, returning the CLI's output. Remote-only, so it
+    /// uses `WithForgeWrite` (like `forge_pr_comment`/`forge_issue_create`).
+    member this.ForgeIssueComment(number: uint64, body: string) =
+        this.WithForgeWrite "forge_issue_comment" (fun f ->
+            task {
+                match guardArgvField "body" body with
+                | Error e -> return Error e
+                | Ok() ->
+                    match! f.IssueComment(number, body) with
+                    | Error e -> return Error(forgeErr e)
+                    | Ok out -> return Ok(Json.ok {| output = out |})
+            })
+
     /// Open a pull/merge request, returning the CLI's output (the URL on success).
     member this.ForgePrCreate(title: string, body: string, source: string option, target: string option) =
         this.WithForgeWrite "forge_pr_create" (fun f ->

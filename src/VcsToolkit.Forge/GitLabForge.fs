@@ -276,6 +276,18 @@ module internal GitLabForge =
             return ofForge r
         }
 
+    let issueClose (glab: VcsToolkit.GitLab.GitLab) (dir: string) (number: uint64) =
+        task {
+            let! r = glab.IssueClose(dir, number)
+            return ofForge r
+        }
+
+    let issueComment (glab: VcsToolkit.GitLab.GitLab) (dir: string) (number: uint64) (body: string) =
+        task {
+            let! r = glab.IssueComment(dir, number, body)
+            return ofForge r
+        }
+
     let releaseList (glab: VcsToolkit.GitLab.GitLab) (dir: string) =
         task {
             match! glab.ReleaseList dir with

@@ -1474,3 +1474,155 @@ type PrCheckoutTests() =
             | Error e -> Assert.That(e.IsUnsupported, Is.True, "Unknown prCheckout must be Unsupported")
             | Ok() -> Assert.Fail "Unknown prCheckout must be Unsupported"
         }
+
+// ---------------------------------------------------------------------------
+// Issue lifecycle: close + comment dispatch to each backend's native subcommand, the
+// empty-body refusal precedes any spawn, and both ops are version-gated like issueCreate.
+// All three CLIs support both ops, so they are NOT capability-varying — only the CLI-less
+// Unknown handle is Unsupported without spawning.
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type IssueLifecycleTests() =
+
+    // Each op is version-gated, so a happy-path handle must also answer `--version`; a
+    // supported banner clears the gate and lets the op dispatch.
+    let ghIssueForge (opTokens: string list) (opReply: Reply) =
+        Forge.FromGitHub(
+            ".",
+            VcsToolkit.GitHub.GitHub.WithRunner(
+                ScriptedRunner().On([ "--version" ], Reply.Ok "gh version 2.40.0\n").On(opTokens, opReply)
+            )
+        )
+
+    let glIssueForge (opTokens: string list) (opReply: Reply) =
+        Forge.FromGitLab(
+            ".",
+            VcsToolkit.GitLab.GitLab.WithRunner(
+                ScriptedRunner().On([ "--version" ], Reply.Ok "glab 1.36.0\n").On(opTokens, opReply)
+            )
+        )
+
+    let teaIssueForge (opTokens: string list) (opReply: Reply) =
+        Forge.FromGitea(
+            ".",
+            VcsToolkit.Gitea.Gitea.WithRunner(
+                ScriptedRunner().On([ "--version" ], Reply.Ok "tea version 0.9.2\n").On(opTokens, opReply)
+            )
+        )
+
+    [<Test>]
+    member _.GitHubDispatchesIssueClose() : Task =
+        task {
+            // No fallback: reaching Ok proves `gh issue close 1` was the dispatched argv.
+            let forge = ghIssueForge [ "issue"; "close"; "1" ] (Reply.Exit 0)
+
+            match! forge.IssueClose 1UL with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"gh issue close must dispatch: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabDispatchesIssueClose() : Task =
+        task {
+            let forge = glIssueForge [ "issue"; "close"; "2" ] (Reply.Exit 0)
+
+            match! forge.IssueClose 2UL with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"glab issue close must dispatch: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaDispatchesIssueClose() : Task =
+        task {
+            let forge = teaIssueForge [ "issues"; "close"; "3" ] (Reply.Exit 0)
+
+            match! forge.IssueClose 3UL with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"tea issues close must dispatch: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitHubDispatchesIssueCommentReturningOutput() : Task =
+        task {
+            let forge =
+                ghIssueForge [ "issue"; "comment"; "1"; "--body"; "thanks" ] (Reply.Ok "https://c/1\n")
+
+            match! forge.IssueComment(1UL, "thanks") with
+            | Ok out -> Assert.That(out, Does.Contain "https://c/1")
+            | Error e -> Assert.Fail $"gh issue comment must dispatch: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabDispatchesIssueComment() : Task =
+        task {
+            let forge =
+                glIssueForge [ "issue"; "note"; "2"; "-m"; "hi" ] (Reply.Ok "https://gl/note/1\n")
+
+            match! forge.IssueComment(2UL, "hi") with
+            | Ok out -> Assert.That(out, Does.Contain "note/1")
+            | Error e -> Assert.Fail $"glab issue note must dispatch: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaDispatchesIssueComment() : Task =
+        task {
+            let forge = teaIssueForge [ "comment"; "3"; "nice" ] (Reply.Ok "commented\n")
+
+            match! forge.IssueComment(3UL, "nice") with
+            | Ok out -> Assert.That(out, Does.Contain "commented")
+            | Error e -> Assert.Fail $"tea comment must dispatch: {e.Message}"
+        }
+
+    [<Test>]
+    member _.IssueCommentRejectsEmptyBodyBeforeSpawning() : Task =
+        task {
+            // A whitespace-only body is refused with InvalidInput before any spawn — so a
+            // Fallback that would fail loudly is never reached.
+            let forge =
+                Forge.FromGitHub(".", VcsToolkit.GitHub.GitHub.WithRunner(ScriptedRunner().Fallback(Reply.Ok "")))
+
+            match! forge.IssueComment(1UL, "   ") with
+            | Error e -> Assert.That(e.Message, Does.Contain "empty")
+            | Ok _ -> Assert.Fail "a whitespace-only comment body must be refused before spawning"
+        }
+
+    [<Test>]
+    member _.IssueCloseAndCommentRefusedBelowFloorWithoutSpawningTheOp() : Task =
+        task {
+            // ONLY `--version` is scripted (no fallback): an empty ScriptedRunner RAISES on any
+            // other spawn, so reaching UnsupportedVersion proves the op itself never spawned.
+            let below () =
+                Forge.FromGitHub(
+                    ".",
+                    VcsToolkit.GitHub.GitHub.WithRunner(
+                        ScriptedRunner().On([ "--version" ], Reply.Ok "gh version 1.14.0\n")
+                    )
+                )
+
+            match! below().IssueClose 1UL with
+            | Error(ForgeError.UnsupportedVersion(_, op, _, _)) -> Assert.That(op, Is.EqualTo "issueClose")
+            | Error e -> Assert.Fail $"expected UnsupportedVersion for issueClose, got: {e.Message}"
+            | Ok _ -> Assert.Fail "a below-floor CLI must refuse issueClose before spawning the op"
+
+            match! below().IssueComment(1UL, "body") with
+            | Error(ForgeError.UnsupportedVersion(_, op, _, _)) -> Assert.That(op, Is.EqualTo "issueComment")
+            | Error e -> Assert.Fail $"expected UnsupportedVersion for issueComment, got: {e.Message}"
+            | Ok _ -> Assert.Fail "a below-floor CLI must refuse issueComment before spawning the op"
+        }
+
+    [<Test>]
+    member _.UnknownHandleIssueCloseAndCommentAreUnsupportedWithoutSpawning() : Task =
+        task {
+            // The inert Unknown handle has no CLI — both ops are Unsupported (never a version
+            // probe) and spawn nothing.
+            let forge = Forge.FromUnknown "."
+
+            match! forge.IssueClose 1UL with
+            | Error e -> Assert.That(e.IsUnsupported, Is.True, "Unknown issueClose must be Unsupported")
+            | Ok() -> Assert.Fail "Unknown issueClose must be Unsupported"
+
+            match! forge.IssueComment(1UL, "body") with
+            | Error e -> Assert.That(e.IsUnsupported, Is.True, "Unknown issueComment must be Unsupported")
+            | Ok _ -> Assert.Fail "Unknown issueComment must be Unsupported"
+        }

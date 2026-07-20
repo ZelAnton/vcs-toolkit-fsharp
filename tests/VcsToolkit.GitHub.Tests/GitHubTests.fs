@@ -576,6 +576,23 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.IssueCloseAndCommentBuildArgs() : Task =
+        task {
+            let close = scripted [ "issue"; "close"; "3" ] (Reply.Ok "")
+
+            match! close.IssueClose(".", 3UL) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"issue close failed: {e}"
+
+            let comment =
+                scripted [ "issue"; "comment"; "1"; "--body"; "thanks" ] (Reply.Ok "https://c/1\n")
+
+            match! comment.IssueComment(".", 1UL, "thanks") with
+            | Ok url -> Assert.That(url, Is.EqualTo "https://c/1")
+            | Error e -> Assert.Fail $"issue comment failed: {e}"
+        }
+
+    [<Test>]
     member _.ReleaseViewBuildsTaggedQuery() : Task =
         task {
             let json =

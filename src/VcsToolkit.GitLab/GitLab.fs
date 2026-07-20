@@ -301,6 +301,20 @@ type GitLab private (core: ManagedClient) =
                     )
         }
 
+    /// Close an issue without merging (`glab issue close <id>`).
+    member _.IssueClose(dir: string, number: uint64) =
+        core.RunUnit(core.CommandIn(dir, [ "issue"; "close"; string number ]))
+
+    /// Add a comment (note) to an issue, returning the command's output
+    /// (`glab issue note <id> -m <message>`) — the issue counterpart of `MrComment`, with
+    /// the same `-`-sentinel body check the other mutating methods use.
+    member _.IssueComment(dir: string, number: uint64, body: string) =
+        task {
+            match rejectDashSentinel "body" body with
+            | Error e -> return Error e
+            | Ok() -> return! core.Run(core.CommandIn(dir, [ "issue"; "note"; string number; "-m"; body ]))
+        }
+
     /// Releases for `dir` (`glab release list --per-page 100 --output json`).
     /// Up to 100 (the GitLab API per-page max).
     member _.ReleaseList(dir: string) =
@@ -401,6 +415,12 @@ and [<Sealed>] GitLabAt internal (gitlab: GitLab, dir: string) =
 
     /// Open an issue (`glab issue create …`).
     member _.IssueCreate(title: string, body: string) = gitlab.IssueCreate(dir, title, body)
+
+    /// Close an issue (`glab issue close <id>`).
+    member _.IssueClose(number: uint64) = gitlab.IssueClose(dir, number)
+
+    /// Add a comment (note) to an issue (`glab issue note <id> -m …`).
+    member _.IssueComment(number: uint64, body: string) = gitlab.IssueComment(dir, number, body)
 
     /// Releases for the bound `dir` (`glab release list …`).
     member _.ReleaseList() = gitlab.ReleaseList dir

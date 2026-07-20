@@ -223,6 +223,18 @@ module internal GiteaForge =
             return ofForge r
         }
 
+    let issueClose (tea: VcsToolkit.Gitea.Gitea) (dir: string) (number: uint64) =
+        task {
+            let! r = tea.IssueClose(dir, number)
+            return ofForge r
+        }
+
+    let issueComment (tea: VcsToolkit.Gitea.Gitea) (dir: string) (number: uint64) (body: string) =
+        task {
+            let! r = tea.IssueComment(dir, number, body)
+            return ofForge r
+        }
+
     let releaseList (tea: VcsToolkit.Gitea.Gitea) (dir: string) =
         task {
             match! tea.ReleaseList dir with

@@ -392,6 +392,17 @@ type GitHub private (core: ManagedClient) =
             GitHubParse.parseIssue
         )
 
+    /// Close an issue (`gh issue close <n>`). The number is always digits (`uint64`), so
+    /// no injection guard is needed.
+    member _.IssueClose(dir: string, number: uint64) =
+        core.RunUnit(core.CommandIn(dir, [ "issue"; "close"; string number ]))
+
+    /// Add a comment to an issue, returning its URL (`gh issue comment <n> --body <body>`).
+    /// By the `PrComment` pattern: `--body` is mandatory — without it gh falls back to an
+    /// interactive prompt, which would hang a headless run.
+    member _.IssueComment(dir: string, number: uint64, body: string) =
+        core.Run(core.CommandIn(dir, [ "issue"; "comment"; string number; "--body"; body ]))
+
     /// Releases, newest first (`gh release list --limit 100 --json …`). `Body`/`Url`
     /// are not fetched here — use `ReleaseView`. Up to 100 releases.
     member _.ReleaseList(dir: string) =
@@ -517,6 +528,12 @@ and [<Sealed>] GitHubAt internal (github: GitHub, dir: string) =
 
     /// A single issue by number (`gh issue view <n> --json …`).
     member _.IssueView(number: uint64) = github.IssueView(dir, number)
+
+    /// Close an issue (`gh issue close <n>`).
+    member _.IssueClose(number: uint64) = github.IssueClose(dir, number)
+
+    /// Add a comment to an issue, returning its URL (`gh issue comment <n> --body …`).
+    member _.IssueComment(number: uint64, body: string) = github.IssueComment(dir, number, body)
 
     /// Releases, newest first (`gh release list …`).
     member _.ReleaseList() = github.ReleaseList dir

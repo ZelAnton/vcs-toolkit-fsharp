@@ -278,6 +278,18 @@ module internal GitHubForge =
             return ofForge r
         }
 
+    let issueClose (gh: VcsToolkit.GitHub.GitHub) (dir: string) (number: uint64) =
+        task {
+            let! r = gh.IssueClose(dir, number)
+            return ofForge r
+        }
+
+    let issueComment (gh: VcsToolkit.GitHub.GitHub) (dir: string) (number: uint64) (body: string) =
+        task {
+            let! r = gh.IssueComment(dir, number, body)
+            return ofForge r
+        }
+
     let releaseList (gh: VcsToolkit.GitHub.GitHub) (dir: string) =
         task {
             match! gh.ReleaseList dir with
