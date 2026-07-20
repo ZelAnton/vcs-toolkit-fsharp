@@ -3,7 +3,7 @@
 `vcs-mcp` is a [Model Context Protocol](https://modelcontextprotocol.io/) server that drives a
 single git/jj repository — and, optionally, its GitHub/GitLab/Gitea forge — through the typed
 operations of `VcsToolkit.Core` and `VcsToolkit.Forge`. It speaks MCP over stdio, so an MCP
-client (an IDE assistant, or any other MCP-capable host) launches it as a subprocess and calls
+client (an IDE, a CLI tool, or any other MCP-capable host) launches it as a subprocess and calls
 its tools instead of shelling out to raw `git`/`jj`/`gh`/`glab`/`tea` commands.
 
 The server binary lives in `VcsToolkit.Mcp.Server`; its hermetically-testable core (the tool
