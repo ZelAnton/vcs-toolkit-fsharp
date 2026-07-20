@@ -32,6 +32,7 @@
 		<Compile Include="Error.fs" />
 		<Compile Include="Server.fs" />
 		<Compile Include="Catalog.fs" />
+		<Compile Include="CommandLog.fs" />
 		<Compile Include="Args.fs" />
 	</ItemGroup>
 

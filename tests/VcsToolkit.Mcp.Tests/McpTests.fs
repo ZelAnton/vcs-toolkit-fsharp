@@ -6,6 +6,7 @@ open System.Threading.Tasks
 open NUnit.Framework
 open ProcessKit
 open ProcessKit.Testing
+open VcsToolkit.CliSupport
 open VcsToolkit.Core
 open VcsToolkit.Forge
 open VcsToolkit.Git
@@ -181,6 +182,92 @@ type ArgsTests() =
         Assert.That(a.Forge, Is.EqualTo(Some ForgeKind.Gitea))
         Assert.That(a.Writes, Is.EqualTo WriteGate.All)
         Assert.That(a.Timeout, Is.EqualTo(Some(TimeSpan.FromSeconds 7.0)))
+
+    [<Test>]
+    member _.LogCommandsDefaultsToOff() =
+        Assert.That((ok []).LogCommands, Is.EqualTo Option.None)
+
+    [<Test>]
+    member _.LogCommandsStderrParsesToTheStderrSink() =
+        Assert.That((ok [ "--log-commands"; "stderr" ]).LogCommands, Is.EqualTo(Some LogSink.Stderr))
+
+    [<Test>]
+    member _.LogCommandsPathParsesToTheFileSink() =
+        Assert.That(
+            (ok [ "--log-commands"; "/tmp/vcs-mcp-commands.log" ]).LogCommands,
+            Is.EqualTo(Some(LogSink.File "/tmp/vcs-mcp-commands.log"))
+        )
+
+    [<Test>]
+    member _.LogCommandsMissingValueErrors() =
+        Assert.That((err [ "--log-commands" ]), Does.Contain "needs a value")
+
+    [<Test>]
+    member _.LogCommandsAppearsInHelp() =
+        Assert.That(Args.usage, Does.Contain "--log-commands")
+
+// ---------------------------------------------------------------------------
+// CommandLog — the `--log-commands` line formatters and the `ICommandObserver` they back.
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type CommandLogTests() =
+
+    let ev =
+        { Program = "git"
+          Argv = [ "status"; "--porcelain" ]
+          WorkingDirectory = Some "/repo"
+          Attempt = 0
+          HasSecret = false }
+
+    [<Test>]
+    member _.FormatStartedNamesProgramArgvCwdAndAttempt() =
+        let line = CommandLog.formatStarted ev
+        Assert.That(line, Does.Contain "vcs-mcp: start")
+        Assert.That(line, Does.Contain "program=git")
+        Assert.That(line, Does.Contain "\"status\" \"--porcelain\"")
+        Assert.That(line, Does.Contain "cwd=/repo")
+        Assert.That(line, Does.Contain "attempt=0")
+
+    [<Test>]
+    member _.FormatStartedFallsBackToDashWithNoWorkingDirectory() =
+        let line =
+            CommandLog.formatStarted
+                { ev with
+                    WorkingDirectory = Option.None }
+
+        Assert.That(line, Does.Contain "cwd=-")
+
+    [<Test>]
+    member _.FormatFinishedReportsOkOutcomeAndDuration() =
+        let line = CommandLog.formatFinished ev (TimeSpan.FromMilliseconds 42.0) (Ok 0)
+        Assert.That(line, Does.Contain "vcs-mcp: done")
+        Assert.That(line, Does.Contain "duration=42ms")
+        Assert.That(line, Does.Contain "outcome=ok(0)")
+
+    [<Test>]
+    member _.FormatFinishedReportsErrorMessageNeverSecretValue() =
+        let error = ProcessError.Exit("git", 128, "", "fatal: not a git repository")
+
+        let line =
+            CommandLog.formatFinished ev (TimeSpan.FromMilliseconds 5.0) (Error error)
+
+        Assert.That(line, Does.Contain "outcome=error(")
+        Assert.That(line, Does.Contain "not a git repository")
+
+    [<Test>]
+    member _.WriterWritesOneLinePerCallAndFlushes() =
+        use sw = new IO.StringWriter()
+        let observer = CommandLog.Writer(sw) :> ICommandObserver
+        observer.OnStarted ev
+        observer.OnFinished(ev, TimeSpan.FromMilliseconds 1.0, Ok 0)
+
+        let lines =
+            sw.ToString().Split([| Environment.NewLine |], StringSplitOptions.RemoveEmptyEntries)
+
+        Assert.That(lines.Length, Is.EqualTo 2)
+        Assert.That(lines.[0], Does.Contain "start")
+        Assert.That(lines.[1], Does.Contain "done")
 
 // ---------------------------------------------------------------------------
 // Tool dispatch, gating, and error mapping (over a scripted repo)
