@@ -18,6 +18,11 @@
 		<AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
 			<_Parameter1>vcs-mcp</_Parameter1>
 		</AssemblyAttribute>
+		<!-- The `vcs-mcp` binary's e2e smoke tests verify the server's live `tools/list`
+		     against the internal `Catalog.all` (the catalogue the binary wires to the SDK). -->
+		<AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+			<_Parameter1>VcsToolkit.Mcp.Server.Tests</_Parameter1>
+		</AssemblyAttribute>
 	</ItemGroup>
 
 	<!-- F# COMPILE ORDER IS SIGNIFICANT. -->

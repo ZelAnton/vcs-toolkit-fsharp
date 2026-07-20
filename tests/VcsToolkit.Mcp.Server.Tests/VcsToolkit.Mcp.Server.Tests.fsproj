@@ -3,12 +3,13 @@
 	<PropertyGroup>
 		<TargetFramework>net10.0</TargetFramework>
 		<IsPackable>false</IsPackable>
-		<AssemblySearchPaths>$(AssemblySearchPaths);$(McpServerDir)bin\$(Configuration)\$(TargetFramework);$(CoreDir)bin\$(Configuration)\$(TargetFramework);$(ForgeDir)bin\$(Configuration)\$(TargetFramework);$(GitDir)bin\$(Configuration)\$(TargetFramework);$(JjDir)bin\$(Configuration)\$(TargetFramework);$(GitHubDir)bin\$(Configuration)\$(TargetFramework);$(GitLabDir)bin\$(Configuration)\$(TargetFramework);$(GiteaDir)bin\$(Configuration)\$(TargetFramework);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework);$(DiffDir)bin\$(Configuration)\$(TargetFramework);$(TestKitDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
+		<AssemblySearchPaths>$(AssemblySearchPaths);$(McpServerDir)bin\$(Configuration)\$(TargetFramework);$(McpDir)bin\$(Configuration)\$(TargetFramework);$(CoreDir)bin\$(Configuration)\$(TargetFramework);$(ForgeDir)bin\$(Configuration)\$(TargetFramework);$(GitDir)bin\$(Configuration)\$(TargetFramework);$(JjDir)bin\$(Configuration)\$(TargetFramework);$(GitHubDir)bin\$(Configuration)\$(TargetFramework);$(GitLabDir)bin\$(Configuration)\$(TargetFramework);$(GiteaDir)bin\$(Configuration)\$(TargetFramework);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework);$(DiffDir)bin\$(Configuration)\$(TargetFramework);$(TestKitDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
 	</PropertyGroup>
 
 	<ItemGroup>
 		<Compile Include="ForgeDetectionTests.fs" />
 		<Compile Include="ServerVersionTests.fs" />
+		<Compile Include="McpServerStdioE2eTests.fs" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -22,9 +23,11 @@
 		     `VcsToolkit.Mcp.Tests`/`VcsToolkit.Git.Tests`). -->
 		<PackageReference Include="ProcessKit" />
 		<PackageReference Include="ProcessKit.Testing" />
-		<!-- `Main.buildServerInfo()` returns `ModelContextProtocol.Protocol.Implementation`;
-		     asserting on its members needs the type resolvable, not just the transitive
-		     assembly pulled in via `vcs-mcp`. -->
+		<!-- `Main.buildServerInfo()` returns `ModelContextProtocol.Protocol.Implementation`, and
+		     the e2e tests drive the spawned binary through the SDK's *client* over stdio
+		     (`McpClient` / `StdioClientTransport` from the split-out `ModelContextProtocol.Core`).
+		     Both flow in — `Core` is a transitive compile reference of this meta-package — but
+		     the reference is declared so the types are resolvable, not just the runtime assembly. -->
 		<PackageReference Include="ModelContextProtocol" />
 	</ItemGroup>
 
@@ -32,6 +35,10 @@
 		<!-- The `vcs-mcp` binary's assembly file name is `vcs-mcp` (see its `<AssemblyName>`),
 		     not the project name — `Reference` resolves by assembly file name. -->
 		<Reference Include="vcs-mcp" />
+		<!-- The e2e tests reference the library's `Catalog.all` (internal, see the
+		     InternalsVisibleTo grant in VcsToolkit.Mcp.fsproj) and the public `WriteTools`
+		     to check the live `tools/list` against the catalogue and the write-gate markup. -->
+		<Reference Include="VcsToolkit.Mcp" />
 		<Reference Include="VcsToolkit.Core" />
 		<Reference Include="VcsToolkit.Forge" />
 		<Reference Include="VcsToolkit.GitHub" />
