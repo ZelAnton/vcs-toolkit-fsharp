@@ -513,15 +513,14 @@ type Repo private (root: string, cwd: string, backend: Backend) =
     /// client (git commit-ish / jj revset, not cross-backend-portable) — `None` annotates the
     /// working copy on git and `@` on jj.
     ///
-    /// **Path-anchoring asymmetry** (unlike `LogPaths`/`CommitPaths`, which anchor both backends
-    /// at `Root`): git's `blame -- <path>` resolves like most git pathspecs — relative to the
-    /// invocation directory, not root-relative like `ShowFile`'s `<rev>:<path>` syntax — so this
-    /// runs from `Root` (same reasoning as `LogPaths`) to honour the repo-relative contract. jj's
+    /// `path` is anchored at `Root` on both backends, like `LogPaths`/`CommitPaths`: git's
+    /// `blame -- <path>` resolves like most git pathspecs — relative to the invocation directory,
+    /// not root-relative like `ShowFile`'s `<rev>:<path>` syntax — so this runs from `Root`. jj's
     /// `file annotate <path>` takes a **plain path**, not a `root-file:` fileset the way `FileShow`
-    /// does, so there is no self-anchoring prefix to reach for here without changing
-    /// `Jj.FileAnnotate`'s own contract — it runs from `Cwd`, resolved the same way jj resolves any
-    /// other cwd-relative path argument.
+    /// does, so there is no self-anchoring prefix to reach for here — instead the underlying `jj`
+    /// invocation itself runs from `Root` (not `Cwd`), which resolves the plain path the same way
+    /// jj resolves any other cwd-relative path argument, just anchored at the repo root.
     member _.Annotate(path: string, rev: string option) =
         match backend with
         | Backend.Git g -> GitBackend.annotate g root path rev
-        | Backend.Jj j -> JjBackend.annotate j cwd path rev
+        | Backend.Jj j -> JjBackend.annotate j root path rev
