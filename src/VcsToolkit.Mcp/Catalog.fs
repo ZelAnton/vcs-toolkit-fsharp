@@ -179,7 +179,7 @@ module internal Catalog =
                   Required = true } ]
           read
               "repo_annotate"
-              "Per-line authorship of a file at a revision — who last touched each line, and when (git blame --line-porcelain / jj file annotate). The result is a JSON array of lines, truncated to the server's output budget the same way repo_show_file is (--output-budget; default 200000 bytes, 0 disables), with a trailing '[truncated: showing N of M bytes]' marker when it is. `rev` is passed through as-is to the backend — a git commit-ish or a jj revset; the two syntaxes are NOT cross-backend portable."
+              "Per-line authorship of a file at a revision — who last touched each line, and when (git blame --line-porcelain / jj file annotate). `path` is anchored at the repository root on both backends, not relative to the server's working directory. The result is a JSON array of lines, truncated to the server's output budget the same way repo_show_file is (--output-budget; default 200000 bytes, 0 disables), with a trailing '[truncated: showing N of M bytes]' marker when it is. `rev` is passed through as-is to the backend — a git commit-ish or a jj revset; the two syntaxes are NOT cross-backend portable."
               [ { Name = "path"
                   JsonType = "string"
                   Description = "Repo-relative path of the file to annotate."
