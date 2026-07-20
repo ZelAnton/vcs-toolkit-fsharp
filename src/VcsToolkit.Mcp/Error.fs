@@ -41,12 +41,15 @@ module internal ErrorMapping =
         | RepoError.Unsupported _ -> McpError.InvalidParams e.Message
         | _ -> McpError.Internal e.Message
 
-    /// Map a `VcsToolkit.Forge` error into an MCP error — an `Unsupported` op or an
+    /// Map a `VcsToolkit.Forge` error into an MCP error — an `Unsupported` op, an
+    /// `UnsupportedVersion` (the version-gate's pre-spawn refusal when the detected CLI is
+    /// below the wrapper's floor — the same structural-refusal class as `Unsupported`), or an
     /// `InvalidInput` (the facade's pre-spawn refusal path) is a client-facing invalid
     /// request; a forge/network failure is internal.
     let forgeErr (e: ForgeError) : McpError =
         match e with
         | ForgeError.InvalidInput _ -> McpError.InvalidParams e.Message
+        | ForgeError.UnsupportedVersion _ -> McpError.InvalidParams e.Message
         | _ when e.IsUnsupported -> McpError.InvalidParams e.Message
         | _ -> McpError.Internal e.Message
 
