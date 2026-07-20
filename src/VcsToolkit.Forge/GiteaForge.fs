@@ -159,25 +159,6 @@ module internal GiteaForge =
             return ofForge r
         }
 
-    /// `tea pr merge` exposes no confirmed auto-merge / delete-source-branch flag, so the
-    /// unified spec's `Auto`/`DeleteBranch` can't be honoured on Gitea. Report a structural
-    /// `Unsupported` when either is asked for (so the facade refuses it before any spawn rather
-    /// than silently dropping the option); `None` for a plain, supportable strategy merge.
-    let unsupportedMerge (merge: PrMerge) : ForgeError option =
-        if merge.Auto || merge.DeleteBranch then
-            Some(ForgeError.Unsupported(ForgeKind.Gitea, "prMerge auto/delete-branch"))
-        else
-            None
-
-    /// `tea pr close` exposes no confirmed delete-source-branch flag. Report a structural
-    /// `Unsupported` when it is requested so the facade refuses it before any spawn rather than
-    /// silently dropping the option; `None` when closing without deleting the branch.
-    let unsupportedClose (deleteBranch: bool) : ForgeError option =
-        if deleteBranch then
-            Some(ForgeError.Unsupported(ForgeKind.Gitea, "prClose delete-branch"))
-        else
-            None
-
     let prMerge (tea: VcsToolkit.Gitea.Gitea) (dir: string) (number: uint64) (strategy: MergeStrategy) =
         task {
             let ms =
@@ -203,19 +184,11 @@ module internal GiteaForge =
             return ofForge r
         }
 
-    /// `tea` has `pr approve` and `pr reject` (request changes) but no comment-only review
-    /// verb, so a `Comment` review is unsupportable on Gitea. Report a structural `Unsupported`
-    /// for it so the facade refuses before any spawn (use `PrComment` for a plain comment);
-    /// `None` for `Approve`/`RequestChanges`, which both map to a real `tea` verb.
-    let unsupportedReview (action: ReviewAction) : ForgeError option =
-        match action.Kind with
-        | ReviewKind.Approve
-        | ReviewKind.RequestChanges -> None
-        | ReviewKind.Comment -> Some(ForgeError.Unsupported(ForgeKind.Gitea, "prReview comment"))
-
     let prReview (tea: VcsToolkit.Gitea.Gitea) (dir: string) (number: uint64) (action: ReviewAction) =
         task {
-            // `Comment` reviews are refused structurally by `unsupportedReview` before dispatch.
+            // `Comment` reviews are refused structurally by the facade's shared
+            // `ForgeSupport.unsupportedReview` gate before dispatch (`tea` has no comment-review
+            // verb — use `PrComment` for a plain comment there).
             match action.Kind with
             | ReviewKind.Approve ->
                 // Approve's body is optional; thread it through as `tea pr approve`'s optional comment.
@@ -227,7 +200,7 @@ module internal GiteaForge =
                 let! r = tea.PrReject(dir, number, reason)
                 return ofForge r
             | ReviewKind.Comment ->
-                // Unreachable: refused by `unsupportedReview` before dispatch.
+                // Unreachable: refused by `ForgeSupport.unsupportedReview` before dispatch.
                 return Error(ForgeError.Unsupported(ForgeKind.Gitea, "prReview comment"))
         }
 
