@@ -8,6 +8,7 @@ open System.Text.Json
 open System.Threading
 open System.Threading.Tasks
 open NUnit.Framework
+open ModelContextProtocol
 open ModelContextProtocol.Client
 open ModelContextProtocol.Protocol
 open VcsToolkit.Mcp
@@ -25,6 +26,13 @@ open VcsToolkit.TestKit
 // barrier's value, so the write-gate check is proven BOTH ways (refused without
 // --allow-write, admitted with it, same tool) so the refusal can't be a mere inherent
 // tool error.
+//
+// T-097 also pins the error-transport contract on the wire: an `McpError.InvalidParams`
+// (the write gate's refusal, a bad/missing argument) is raised as a JSON-RPC **protocol**
+// error the client sees as a thrown `McpException`/`McpProtocolException`, whereas an
+// `McpError.Internal` (a backend command failure) comes back inside the tool result with
+// `IsError = true` — so a client can programmatically tell "fix your call" apart from
+// "the backend broke".
 // ---------------------------------------------------------------------------
 
 /// How to launch the freshly built `vcs-mcp` binary as a child process, plus the path to
@@ -134,6 +142,43 @@ let private textOf (result: CallToolResult) : string =
     match block with
     | Some t -> t.Text
     | None -> failwith "tool result carried no text content block"
+
+/// Invoke `tool` (with optional `args`) expecting the server to answer with a JSON-RPC
+/// **protocol** error rather than a tool result — the wire form of `McpError.InvalidParams`.
+/// Returns the `McpException` the SDK client re-raises so the caller can assert on its message
+/// (and `ErrorCode`, when it is an `McpProtocolException`). Fails the test if a result came back
+/// instead, which would mean the error had been flattened into an `IsError` execution result and
+/// the client could no longer tell it apart from a backend failure.
+let private expectProtocolError
+    (client: McpClient)
+    (ct: CancellationToken)
+    (tool: string)
+    (args: IReadOnlyDictionary<string, obj | null> | null)
+    : Task<McpException> =
+    task {
+        let mutable caught: McpException option = None
+
+        try
+            let! _ = client.CallToolAsync(tool, args, cancellationToken = ct)
+            ()
+        with :? McpException as ex ->
+            // The server returned a JSON-RPC error; the SDK client surfaces it as this throw
+            // (not as a returned CallToolResult). Capture it for the caller to inspect.
+            caught <- Some ex
+
+        match caught with
+        | Some ex -> return ex
+        | None -> return failwith $"tool {tool} returned a result but a JSON-RPC protocol error was expected"
+    }
+
+/// Assert `ex` reports the invalid-params protocol code. The SDK client re-raises a server
+/// JSON-RPC error as an `McpProtocolException` carrying `ErrorCode`; if a plain `McpException`
+/// surfaces instead (no code), the throw itself is the load-bearing signal, so only the code is
+/// skipped, not the test.
+let private assertInvalidParamsCode (ex: McpException) : unit =
+    match ex with
+    | :? McpProtocolException as pe -> Assert.That(pe.ErrorCode, Is.EqualTo McpErrorCode.InvalidParams)
+    | _ -> ()
 
 /// Spawn `vcs-mcp` over a fresh git sandbox (seeded with one commit on `main`),
 /// connect the SDK client over stdio, run `body`, then tear the child process down. The
@@ -248,14 +293,47 @@ type McpServerStdioE2eTests() =
             })
 
     /// The write gate refuses a mutating tool in the default read-only mode. `repo_abort_in_progress`
-    /// is write-gated and argument-free, so the gate rejects it before touching the repo.
+    /// is write-gated and argument-free, so the gate rejects it before touching the repo. The refusal
+    /// is an `McpError.InvalidParams`, which the server raises as a JSON-RPC **protocol** error — so
+    /// the client sees a thrown `McpException` (with the invalid-params code), NOT an `IsError` result.
     [<Test>]
     member _.WriteToolRefusedInDefaultReadOnlyMode() : Task =
         e2e [] (fun client ct ->
             task {
-                let! result = client.CallToolAsync("repo_abort_in_progress", cancellationToken = ct)
-                Assert.That(isError result, Is.True, "a write tool must be refused without --allow-write")
-                Assert.That(textOf result, Does.Contain "allow-write", "the refusal must cite the write gate")
+                let! ex = expectProtocolError client ct "repo_abort_in_progress" null
+                Assert.That(ex.Message, Does.Contain "allow-write", "the refusal must cite the write gate")
+                assertInvalidParamsCode ex
+            })
+
+    /// A bad/missing tool argument is an `McpError.InvalidParams` and must likewise surface as a
+    /// JSON-RPC protocol error (a thrown `McpException`), not an `IsError` result. `repo_show_file`
+    /// is a read tool (no write gate in the way) whose required `rev`/`path` arguments are omitted
+    /// here, so the argument parse fails before any backend spawn.
+    [<Test>]
+    member _.BadArgumentSurfacesAsProtocolErrorNotResult() : Task =
+        e2e [] (fun client ct ->
+            task {
+                let! ex = expectProtocolError client ct "repo_show_file" null
+                Assert.That(ex.Message, Does.Contain "rev", "the error must name the missing required argument")
+                assertInvalidParamsCode ex
+            })
+
+    /// The contrast to the two protocol-error cases: an `McpError.Internal` — a real backend
+    /// command failure — comes back INSIDE the tool result with `IsError = true`, not as a thrown
+    /// protocol error, so a client can tell "the backend broke" apart from "fix your call".
+    /// `repo_checkout` to a nonexistent ref is admitted by `--allow-write`, then fails at `git`
+    /// (a `RepoError.Vcs`, which maps to `McpError.Internal`).
+    [<Test>]
+    member _.InternalBackendFailureSurfacesAsIsErrorResult() : Task =
+        e2e [ "--allow-write" ] (fun client ct ->
+            task {
+                let args = Dictionary<string, obj | null>()
+                args["reference"] <- "no-such-ref-xyz-t097"
+
+                let! result = client.CallToolAsync("repo_checkout", args, cancellationToken = ct)
+                // A backend failure is a tool-execution error: it is a RESULT with IsError set,
+                // never a thrown protocol error. Reaching this line already proves no throw.
+                Assert.That(isError result, Is.True, "a backend command failure must surface as an IsError result")
             })
 
     /// Positive control: the SAME write tool passes the gate under `--allow-write`, proving the
