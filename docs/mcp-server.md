@@ -270,22 +270,29 @@ truncated response as pre-formatted text rather than feeding it to a JSON parser
 
 ## Errors
 
-Internally the server classifies every tool failure into one of two kinds:
+Internally the server classifies every tool failure into one of two kinds, and surfaces each on
+a **different** MCP error channel, so a client can tell them apart programmatically without
+pattern-matching the message text:
 
-- **Invalid params** — the caller's input was refused: a bad/missing argument, a disabled write
-  tool (not covered by `--allow-write`/`--allow-tools`), an unsupported forge operation on the
-  configured forge, or no forge configured at all.
-- **Internal error** — a backend (git/jj/forge CLI) or other internal failure, e.g. a spawn
-  failure or an unexpected CLI exit.
+- **Invalid params** — the caller's input/request was refused: a bad or missing argument, an
+  unknown tool, a disabled write tool (not covered by `--allow-write`/`--allow-tools`), an
+  unsupported forge operation on the configured forge, or no forge configured at all. This is
+  raised as a JSON-RPC **protocol** error: the tool call returns no normal result at all —
+  instead the server responds with a JSON-RPC error carrying `McpErrorCode.InvalidParams` (the
+  standard invalid-params code) and the human-readable message. Most MCP client SDKs surface
+  this as a failed/thrown call rather than a `CallToolResult`.
+- **Internal error** — a backend (git/jj/forge CLI) or other internal execution failure, e.g. a
+  spawn failure or an unexpected CLI exit. This is returned **inside** a normal MCP tool-call
+  result with `isError: true` and a single text content block carrying the human-readable
+  message — the MCP convention for execution errors, so the model sees the detail and can
+  self-correct.
 
-**That classification is not exposed on the wire.** Both kinds are surfaced identically as a
-normal MCP tool-call error result: `isError: true` with a single text content block carrying only
-the human-readable message — there is no separate machine-readable error code or kind field a
-client can switch on to tell "your input was wrong" apart from "something failed on the backend".
-A client that needs to distinguish the two today has no choice but to pattern-match the message
-text, which is not a stable contract; treat every tool error the same way (report it, don't parse
-it) unless you control both ends. Either way, the server process itself keeps running and the MCP
-session stays open for the next call.
+So the two kinds are distinguishable on the wire: an invalid-params refusal arrives as a
+JSON-RPC protocol error (a failed request with an error code), whereas an internal execution
+failure arrives as a successful request whose result has `isError: true`. A client that needs to
+react differently to "your input was wrong" versus "something failed on the backend" can switch
+on that channel instead of parsing the message text. Either way, the server process itself keeps
+running and the MCP session stays open for the next call.
 
 ## Example MCP client configuration
 
