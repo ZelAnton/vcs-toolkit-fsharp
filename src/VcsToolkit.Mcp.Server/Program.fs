@@ -14,6 +14,7 @@ open System.Threading.Tasks
 open Microsoft.Extensions.Hosting
 open Microsoft.Extensions.DependencyInjection
 open Microsoft.Extensions.Logging
+open ModelContextProtocol
 open ModelContextProtocol.Server
 open ModelContextProtocol.Protocol
 open VcsToolkit.Core
@@ -212,7 +213,19 @@ let private runServer (server: VcsMcpServer) : Task =
                 task {
                     match! Catalog.callTool server name argsElem with
                     | Ok json -> return textResult json false
-                    | Error e -> return textResult e.Message true
+                    | Error(McpError.InvalidParams message) ->
+                        // A protocol-level "fix your call" error (unknown tool, bad/missing
+                        // argument, disabled write, unsupported forge op): raise it as a JSON-RPC
+                        // error carrying `McpErrorCode.InvalidParams`, so a client can tell it apart
+                        // from a tool-execution failure. `McpProtocolException` is the SDK type
+                        // whose `ErrorCode` drives the resulting `JsonRpcError`; a plain
+                        // `McpException` or an `IsError` result would instead be an execution error.
+                        return raise (McpProtocolException(message, McpErrorCode.InvalidParams))
+                    | Error(McpError.Internal message) ->
+                        // A backend/network execution failure: surface it inside the result with
+                        // `IsError = true` — the MCP convention for execution errors (the model
+                        // sees the detail and can self-correct), not a protocol error.
+                        return textResult message true
                 }
 
             ValueTask<CallToolResult>(work))
