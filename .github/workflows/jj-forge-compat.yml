@@ -1,0 +1,73 @@
+name: jj/forge CLI compatibility
+
+# Signal-only scheduled compatibility check: builds and tests the solution
+# against the *latest* jj release (and whatever git/gh ship in the runner
+# image) instead of the pinned JJ_VERSION that ci.yml uses for reproducible
+# PR runs. A red run here means a newer jj/git/gh broke something this
+# toolkit depends on — visible before consumers of the published packages
+# hit it. Deliberately not wired to pull_request/push, so it never gates a
+# PR or blocks main.
+on:
+  schedule:
+    # Weekly, Monday 06:00 UTC.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
+
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      # Resolve and install the latest jj release (no pin), mirroring the
+      # install mechanism ci.yml uses for the fixed JJ_VERSION.
+      - name: Install latest jj
+        shell: bash
+        run: |
+          jj_version="$(curl --fail --location --retry 3 --silent "https://api.github.com/repos/jj-vcs/jj/releases/latest" | grep -m1 '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')"
+          if [ -z "$jj_version" ]; then
+            echo "::error::could not resolve the latest jj release tag" >&2
+            exit 1
+          fi
+          echo "Resolved latest jj release: v$jj_version"
+          install_dir="$RUNNER_TEMP/jj"
+          archive="jj-v${jj_version}-x86_64-unknown-linux-musl.tar.gz"
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/$archive" "https://github.com/jj-vcs/jj/releases/download/v${jj_version}/$archive"
+          mkdir -p "$install_dir"
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$install_dir"
+          test -x "$install_dir/jj"
+          echo "$install_dir" >> "$GITHUB_PATH"
+
+      # Attribute a failure to a specific tool version before the tests run.
+      - name: Log tool versions
+        shell: bash
+        run: |
+          echo "jj:  $(jj --version)"
+          echo "git: $(git --version)"
+          echo "gh:  $(gh --version | head -n1)"
+
+      - name: Test
+        env:
+          REQUIRE_JJ: '1'
+        run: dotnet test --no-build --configuration Release --logger "trx;LogFileName=test-results.trx" --results-directory ./TestResults
+
+      - name: Upload test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: test-results-jj-forge-compat
+          path: ./TestResults/*.trx
+          if-no-files-found: ignore
