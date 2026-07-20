@@ -42,6 +42,7 @@ namespace VcsToolkit.Forge
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Forge.ForgePr>, VcsToolkit.Forge.ForgeError>> PrList() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Forge.ForgeError>> PrMarkReady(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Forge.ForgeError>> PrMerge(ulong number, VcsToolkit.Forge.PrMerge merge) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Forge.ForgeError>> PrReview(ulong number, VcsToolkit.Forge.ReviewAction action) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Forge.ForgePr, VcsToolkit.Forge.ForgeError>> PrView(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Forge.ForgeRelease>, VcsToolkit.Forge.ForgeError>> ReleaseList() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Forge.ForgeRelease, VcsToolkit.Forge.ForgeError>> ReleaseView(string tag) { }
@@ -322,5 +323,30 @@ namespace VcsToolkit.Forge
         public static VcsToolkit.Forge.PrMerge Squash { get; }
         public VcsToolkit.Forge.PrMerge WithAuto() { }
         public VcsToolkit.Forge.PrMerge WithDeleteBranch() { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.ObjectType)]
+    [Microsoft.FSharp.Core.Sealed]
+    [System.Serializable]
+    public sealed class ReviewAction
+    {
+        public Microsoft.FSharp.Core.FSharpOption<string>? Body { get; }
+        public VcsToolkit.Forge.ReviewKind Kind { get; }
+        public static VcsToolkit.Forge.ReviewAction Approve { get; }
+        public VcsToolkit.Forge.ReviewAction WithBody(string body) { }
+        public static VcsToolkit.Forge.ReviewAction Comment(string body) { }
+        public static VcsToolkit.Forge.ReviewAction RequestChanges(string body) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+    [System.Serializable]
+    public sealed class ReviewKind : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Forge.ReviewKind>, System.IEquatable<VcsToolkit.Forge.ReviewKind>
+    {
+        public static class Tags
+        {
+            public const int Approve = 0;
+            public const int Comment = 2;
+            public const int RequestChanges = 1;
+        }
     }
 }

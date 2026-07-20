@@ -423,6 +423,38 @@ type Forge private (cwd: string, backend: Backend) =
         | Backend.Gitea(c, _) -> GiteaForge.prCheckout c cwd number
         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prCheckout")) }
 
+    /// Submit a review on a PR/MR (see `ReviewAction`) — the second half of the PR lifecycle,
+    /// unified across the three forges. Support varies by review *kind*, not by operation, so an
+    /// unsupported combination is refused structurally with `Unsupported` **before any spawn**
+    /// (including the version probe), the same way `PrMerge`'s auto/delete-branch is:
+    /// - `Approve` — all three (`gh pr review --approve` / `glab mr approve` / `tea pr approve`).
+    /// - `RequestChanges` — GitHub (`--request-changes`) and Gitea (`tea pr reject`); on GitLab
+    ///   `glab` has no equivalent, so it is `Unsupported` (no unsafe note+revoke composition).
+    /// - `Comment`-review — GitHub only (`--comment`); on GitLab and Gitea it is `Unsupported`
+    ///   (`PrComment`/`MrComment` still posts a plain comment there).
+    /// Version-gated once the kind is supported: refused with `UnsupportedVersion` before
+    /// spawning if the CLI is below the wrapper's floor.
+    member _.PrReview(number: uint64, action: ReviewAction) =
+        // The GitLab/Gitea backends own the "this review kind is unsupported here" verdict; a hit
+        // short-circuits before `gated` so nothing spawns. No catch-all: a new review kind must
+        // decide its support at each backend explicitly.
+        let unsupported =
+            match backend with
+            | Backend.GitLab _ -> GitLabForge.unsupportedReview action
+            | Backend.Gitea _ -> GiteaForge.unsupportedReview action
+            | Backend.GitHub _
+            | Backend.Unknown -> None
+
+        match unsupported with
+        | Some e -> task { return Error e }
+        | None ->
+            gated backend "prReview" (fun () ->
+                match backend with
+                | Backend.GitHub(c, _) -> GitHubForge.prReview c cwd number action
+                | Backend.GitLab(c, _) -> GitLabForge.prReview c cwd number action
+                | Backend.Gitea(c, _) -> GiteaForge.prReview c cwd number action
+                | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prReview")) })
+
     /// The PR/MR's coarse CI status (see `CiStatus`). **`Unsupported` on Gitea** (`tea`
     /// has no checks command).
     member _.PrChecks(number: uint64) =

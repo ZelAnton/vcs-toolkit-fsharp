@@ -472,7 +472,27 @@ module internal Catalog =
               "Check out a pull/merge request's branch into the local working copy (gh pr checkout / glab mr checkout / tea pr checkout). A local-worktree mutation — it switches the checked-out branch."
               false
               true
-              [ pNumber ] ]
+              [ pNumber ]
+          // Non-destructive: submits a review (approve/request-changes/comment), discarding no
+          // data; NOT idempotent: request-changes/comment add a new review record each call (the
+          // worst case sets the flag). `kind` support varies by forge: request_changes is
+          // Unsupported on GitLab; comment is Unsupported on GitLab and Gitea (refused before any
+          // spawn). `body` is required for request_changes/comment, optional for approve.
+          write
+              "forge_pr_review"
+              "Submit a review on a pull/merge request: approve, request_changes, or comment. request_changes is Unsupported on GitLab; a comment review is Unsupported on GitLab and Gitea (use forge_pr_comment for a plain comment there)."
+              false
+              false
+              [ pNumber
+                { Name = "kind"
+                  JsonType = "string"
+                  Description = "Review kind: approve, request_changes, or comment."
+                  Required = true }
+                { Name = "body"
+                  JsonType = "string"
+                  Description =
+                    "The review body (markdown). Required for request_changes and comment; optional for approve."
+                  Required = false } ] ]
 
     /// The JSON-Schema `inputSchema` object for a tool spec.
     let inputSchema (spec: ToolSpec) : string =
@@ -592,4 +612,8 @@ module internal Catalog =
                 bind (optStr args "title") (fun title ->
                     bind (optStr args "body") (fun body -> server.ForgePrEdit(number, title, body))))
         | "forge_pr_checkout" -> bind (reqU64 args "number") server.ForgePrCheckout
+        | "forge_pr_review" ->
+            bind (reqU64 args "number") (fun number ->
+                bind (reqStr args "kind") (fun kind ->
+                    bind (optStr args "body") (fun body -> server.ForgePrReview(number, kind, body))))
         | unknown -> task { return Error(McpError.InvalidParams(sprintf "unknown tool %A" unknown)) }

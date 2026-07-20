@@ -358,6 +358,24 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.MrApproveAndRevokeBuildArgs() : Task =
+        task {
+            // `glab mr approve <id>` / `glab mr revoke <id>` — the number is the sole positional,
+            // no extra flags (glab's approve carries no comment).
+            let approve, approveArgs = capturing (Reply.Ok "")
+
+            match! approve.MrApprove(".", 7UL) with
+            | Ok() -> assertArgs [ "mr"; "approve"; "7" ] approveArgs
+            | Error e -> Assert.Fail $"mr approve failed: {e}"
+
+            let revoke, revokeArgs = capturing (Reply.Ok "")
+
+            match! revoke.MrRevoke(".", 8UL) with
+            | Ok() -> assertArgs [ "mr"; "revoke"; "8" ] revokeArgs
+            | Error e -> Assert.Fail $"mr revoke failed: {e}"
+        }
+
+    [<Test>]
     member _.MrEditRejectsBothNoneAndBuildsYesLast() : Task =
         task {
             let refuse = permissive ()

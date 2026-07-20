@@ -203,6 +203,34 @@ module internal GiteaForge =
             return ofForge r
         }
 
+    /// `tea` has `pr approve` and `pr reject` (request changes) but no comment-only review
+    /// verb, so a `Comment` review is unsupportable on Gitea. Report a structural `Unsupported`
+    /// for it so the facade refuses before any spawn (use `PrComment` for a plain comment);
+    /// `None` for `Approve`/`RequestChanges`, which both map to a real `tea` verb.
+    let unsupportedReview (action: ReviewAction) : ForgeError option =
+        match action.Kind with
+        | ReviewKind.Approve
+        | ReviewKind.RequestChanges -> None
+        | ReviewKind.Comment -> Some(ForgeError.Unsupported(ForgeKind.Gitea, "prReview comment"))
+
+    let prReview (tea: VcsToolkit.Gitea.Gitea) (dir: string) (number: uint64) (action: ReviewAction) =
+        task {
+            // `Comment` reviews are refused structurally by `unsupportedReview` before dispatch.
+            match action.Kind with
+            | ReviewKind.Approve ->
+                // Approve's body is optional; thread it through as `tea pr approve`'s optional comment.
+                let! r = tea.PrApprove(dir, number, action.Body)
+                return ofForge r
+            | ReviewKind.RequestChanges ->
+                // RequestChanges carries a required body by ReviewAction's construction invariant.
+                let reason = defaultArg action.Body ""
+                let! r = tea.PrReject(dir, number, reason)
+                return ofForge r
+            | ReviewKind.Comment ->
+                // Unreachable: refused by `unsupportedReview` before dispatch.
+                return Error(ForgeError.Unsupported(ForgeKind.Gitea, "prReview comment"))
+        }
+
     let issueList (tea: VcsToolkit.Gitea.Gitea) (dir: string) =
         task {
             match! tea.IssueList dir with

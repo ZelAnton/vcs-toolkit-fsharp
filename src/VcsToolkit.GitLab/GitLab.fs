@@ -213,6 +213,19 @@ type GitLab private (core: ManagedClient) =
     member _.MrCheckout(dir: string, number: uint64) =
         core.RunUnit(core.CommandIn(dir, [ "mr"; "checkout"; string number ]))
 
+    /// Approve a merge request (`glab mr approve <id>`): record the current user's approval.
+    /// `glab`'s approve verb takes no comment, so this is the number-only form; use `MrComment`
+    /// for a note. The number is a positional but is always digits (`uint64`), so no injection
+    /// guard is needed.
+    member _.MrApprove(dir: string, number: uint64) =
+        core.RunUnit(core.CommandIn(dir, [ "mr"; "approve"; string number ]))
+
+    /// Revoke a previously granted approval on a merge request (`glab mr revoke <id>`) — the
+    /// inverse of `MrApprove`. The number is a positional but is always digits, so no injection
+    /// guard is needed.
+    member _.MrRevoke(dir: string, number: uint64) =
+        core.RunUnit(core.CommandIn(dir, [ "mr"; "revoke"; string number ]))
+
     /// Add a comment to a merge request, returning the command's output
     /// (`glab mr note <id> -m <message>`).
     member _.MrComment(dir: string, number: uint64, body: string) =
@@ -393,6 +406,12 @@ and [<Sealed>] GitLabAt internal (gitlab: GitLab, dir: string) =
 
     /// Check out a merge request's branch locally (`glab mr checkout <id>`).
     member _.MrCheckout(number: uint64) = gitlab.MrCheckout(dir, number)
+
+    /// Approve a merge request (`glab mr approve <id>`).
+    member _.MrApprove(number: uint64) = gitlab.MrApprove(dir, number)
+
+    /// Revoke an approval on a merge request (`glab mr revoke <id>`).
+    member _.MrRevoke(number: uint64) = gitlab.MrRevoke(dir, number)
 
     /// Add a comment to a merge request (`glab mr note <id> -m …`).
     member _.MrComment(number: uint64, body: string) = gitlab.MrComment(dir, number, body)

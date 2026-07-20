@@ -243,6 +243,32 @@ module internal GitLabForge =
             return ofForge r
         }
 
+    /// `glab` has no request-changes or comment-only review verb — only `mr approve`/`mr
+    /// revoke` — so only an `Approve` review is supportable on GitLab. Report a structural
+    /// `Unsupported` for `RequestChanges`/`Comment` so the facade refuses them before any spawn
+    /// (deliberately NOT composing note+revoke, whose two separate calls risk a partial apply
+    /// between steps on a foreign MR); `None` for an `Approve`.
+    let unsupportedReview (action: ReviewAction) : ForgeError option =
+        match action.Kind with
+        | ReviewKind.Approve -> None
+        | ReviewKind.RequestChanges -> Some(ForgeError.Unsupported(ForgeKind.GitLab, "prReview requestChanges"))
+        | ReviewKind.Comment -> Some(ForgeError.Unsupported(ForgeKind.GitLab, "prReview comment"))
+
+    let prReview (glab: VcsToolkit.GitLab.GitLab) (dir: string) (number: uint64) (action: ReviewAction) =
+        task {
+            // Only `Approve` reaches here — `RequestChanges`/`Comment` are refused structurally by
+            // `unsupportedReview` before dispatch. `glab mr approve` carries no comment, so an
+            // approve body has no CLI home and is intentionally not threaded through.
+            match action.Kind with
+            | ReviewKind.Approve ->
+                let! r = glab.MrApprove(dir, number)
+                return ofForge r
+            | ReviewKind.RequestChanges
+            | ReviewKind.Comment ->
+                // Unreachable: refused by `unsupportedReview` before dispatch.
+                return Error(ForgeError.Unsupported(ForgeKind.GitLab, "prReview"))
+        }
+
     let prChecks (glab: VcsToolkit.GitLab.GitLab) (dir: string) (number: uint64) =
         task {
             match! glab.MrChecks(dir, number) with

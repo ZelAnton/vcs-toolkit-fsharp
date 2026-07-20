@@ -20,6 +20,37 @@ module internal ServerHelpers =
         | other ->
             Error(McpError.InvalidParams(sprintf "unknown merge strategy %A (expected merge, squash, or rebase)" other))
 
+    /// Build the `forge_pr_review` action from its `kind`/`body` arguments, enforcing
+    /// `ReviewAction`'s body invariant up front (before the client is called): `request_changes`
+    /// and `comment` require a non-empty body; `approve`'s body is optional. An unknown kind or a
+    /// missing/empty required body is refused as `InvalidParams`.
+    let parseReviewAction (kind: string) (body: string option) : Result<ReviewAction, McpError> =
+        let nonEmptyBody () =
+            match body with
+            | Some b when b.Trim() <> "" -> Some b
+            | _ -> Option.None
+
+        match kind.ToLowerInvariant() with
+        | "approve" ->
+            match body with
+            | Some b -> Ok(ReviewAction.Approve.WithBody b)
+            | Option.None -> Ok ReviewAction.Approve
+        | "request_changes" ->
+            match nonEmptyBody () with
+            | Some b -> Ok(ReviewAction.RequestChanges b)
+            | Option.None ->
+                Error(McpError.InvalidParams "forge_pr_review: a request_changes review requires a non-empty body")
+        | "comment" ->
+            match nonEmptyBody () with
+            | Some b -> Ok(ReviewAction.Comment b)
+            | Option.None -> Error(McpError.InvalidParams "forge_pr_review: a comment review requires a non-empty body")
+        | other ->
+            Error(
+                McpError.InvalidParams(
+                    sprintf "unknown review kind %A (expected approve, request_changes, or comment)" other
+                )
+            )
+
     /// Truncate `content` to at most `budgetBytes` UTF-8 bytes, snapped to a full
     /// character boundary, appending an explicit `[truncated: showing N of M bytes]`
     /// marker when truncation occurs. `None`, or `Some b` with `b <= 0`, disables
@@ -600,6 +631,33 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
                 match! f.PrCheckout number with
                 | Error e -> return Error(forgeErr e)
                 | Ok() -> return Ok(Json.ok {| checkedOut = number |})
+            })
+
+    /// Submit a review on a pull/merge request (approve / request_changes / comment). A
+    /// remote-only mutation — it never touches the local working copy — so it uses
+    /// `WithForgeWrite` (write gate only), NOT the per-repo lock the local-mutating forge writes
+    /// hold (K-003), the same class as `forge_pr_comment`/`forge_pr_edit`. The body invariant
+    /// (required for request_changes/comment) is enforced before the client is called; `kind`
+    /// support varies by forge and is refused as `Unsupported` before any spawn.
+    member this.ForgePrReview(number: uint64, kind: string, body: string option) =
+        this.WithForgeWrite "forge_pr_review" (fun f ->
+            task {
+                match parseReviewAction kind body with
+                | Error e -> return Error e
+                | Ok action ->
+                    // Belt-and-braces argv guard on the body (a leading `-` would read as a flag),
+                    // matching forge_pr_comment/forge_pr_edit.
+                    let bodyGuard =
+                        match action.Body with
+                        | Some b -> guardArgvField "body" b
+                        | Option.None -> Ok()
+
+                    match bodyGuard with
+                    | Error e -> return Error e
+                    | Ok() ->
+                        match! f.PrReview(number, action) with
+                        | Error e -> return Error(forgeErr e)
+                        | Ok() -> return Ok(Json.ok {| reviewed = number |})
             })
 
     interface IDisposable with

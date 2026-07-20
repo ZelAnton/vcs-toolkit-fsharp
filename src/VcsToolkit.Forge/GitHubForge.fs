@@ -245,6 +245,24 @@ module internal GitHubForge =
             return ofForge r
         }
 
+    let prReview (gh: VcsToolkit.GitHub.GitHub) (dir: string) (number: uint64) (action: ReviewAction) =
+        task {
+            // Map the unified review action onto gh's own ReviewAction. RequestChanges/Comment
+            // carry a body by the unified ReviewAction's construction invariant, so the None arms
+            // are unreachable — fall back to a comment with an empty body rather than throw.
+            let ghAction =
+                match action.Kind, action.Body with
+                | ReviewKind.Approve, None -> VcsToolkit.GitHub.ReviewAction.Approve
+                | ReviewKind.Approve, Some b -> VcsToolkit.GitHub.ReviewAction.Approve.WithBody b
+                | ReviewKind.RequestChanges, Some b -> VcsToolkit.GitHub.ReviewAction.RequestChanges b
+                | ReviewKind.Comment, Some b -> VcsToolkit.GitHub.ReviewAction.Comment b
+                | ReviewKind.RequestChanges, None
+                | ReviewKind.Comment, None -> VcsToolkit.GitHub.ReviewAction.Comment ""
+
+            let! r = gh.PrReview(dir, number, ghAction)
+            return ofForge r
+        }
+
     let prChecks (gh: VcsToolkit.GitHub.GitHub) (dir: string) (number: uint64) =
         task {
             match! gh.PrChecks(dir, number) with

@@ -410,6 +410,35 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.PrApproveBuildsArgsWithAndWithoutComment() : Task =
+        task {
+            // `tea pr approve <index>` — number-only when there is no comment.
+            let bare, bareArgs = capturing (Reply.Ok "")
+
+            match! bare.PrApprove(".", 7UL, None) with
+            | Ok() -> assertArgs [ "pr"; "approve"; "7" ] bareArgs
+            | Error e -> Assert.Fail $"pr approve failed: {e}"
+
+            // …and the optional comment lands as a bare positional after the index.
+            let commented, commentedArgs = capturing (Reply.Ok "")
+
+            match! commented.PrApprove(".", 7UL, Some "lgtm") with
+            | Ok() -> assertArgs [ "pr"; "approve"; "7"; "lgtm" ] commentedArgs
+            | Error e -> Assert.Fail $"pr approve with comment failed: {e}"
+        }
+
+    [<Test>]
+    member _.PrRejectBuildsArgs() : Task =
+        task {
+            // `tea pr reject <index> <reason>` — the reason is a bare positional after the index.
+            let tea, args = capturing (Reply.Ok "")
+
+            match! tea.PrReject(".", 7UL, "please fix") with
+            | Ok() -> assertArgs [ "pr"; "reject"; "7"; "please fix" ] args
+            | Error e -> Assert.Fail $"pr reject failed: {e}"
+        }
+
+    [<Test>]
     member _.PrEditRejectsBothNoneAndBuildsDescription() : Task =
         task {
             let refuse = permissive ()
@@ -581,6 +610,36 @@ type SemanticsTests() =
             match! tea.PrComment(".", 7UL, "nice work") with
             | Ok _ -> assertArgs [ "comment"; "7"; "nice work" ] args
             | Error e -> Assert.Fail $"pr comment failed: {e}"
+        }
+
+    [<Test>]
+    member _.ReviewReasonAndApproveCommentAreRejectedIfFlagLike() : Task =
+        task {
+            // `tea pr reject`'s reason and `tea pr approve`'s optional comment are bare
+            // positionals, so a dash-leading or empty value must be refused before spawning.
+            let refuse = permissive ()
+
+            let isErr (t: Task<Result<'T, ProcessError>>) =
+                task {
+                    let! r = t
+                    return Result.isError r
+                }
+
+            let! a = isErr (refuse.PrReject(".", 7UL, "-evil"))
+            let! b = isErr (refuse.PrReject(".", 7UL, ""))
+            let! c = isErr (refuse.PrApprove(".", 7UL, Some "-evil"))
+            let! d = isErr (refuse.PrApprove(".", 7UL, Some ""))
+            Assert.That(a, Is.True, "a dash-leading reject reason must be refused")
+            Assert.That(b, Is.True, "an empty reject reason must be refused")
+            Assert.That(c, Is.True, "a dash-leading approve comment must be refused")
+            Assert.That(d, Is.True, "an empty approve comment must be refused")
+
+            // A None approve comment has no positional to guard and must pass through.
+            let tea, args = capturing (Reply.Ok "")
+
+            match! tea.PrApprove(".", 7UL, None) with
+            | Ok() -> assertArgs [ "pr"; "approve"; "7" ] args
+            | Error e -> Assert.Fail $"pr approve without a comment must pass: {e}"
         }
 
 // ---------------------------------------------------------------------------

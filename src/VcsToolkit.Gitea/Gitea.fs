@@ -221,6 +221,30 @@ type Gitea private (core: ManagedClient) =
     member _.PrCheckout(dir: string, number: uint64) =
         core.RunUnit(core.CommandIn(dir, [ "pr"; "checkout"; string number ]))
 
+    /// Approve a pull request (`tea pr approve <index> [<comment>]`). `comment` is optional
+    /// — when `Some`, it lands in a bare positional slot after the index, so it is rejected
+    /// if empty or `-`-leading (like `PrComment`'s body); when `None`, the bare approve is
+    /// sent. The number is always digits, so it needs no guard.
+    member _.PrApprove(dir: string, number: uint64, comment: string option) =
+        task {
+            match comment with
+            | Some c ->
+                match checkFlags BINARY [ "comment", c ] with
+                | Error e -> return Error e
+                | Ok() -> return! core.RunUnit(core.CommandIn(dir, [ "pr"; "approve"; string number; c ]))
+            | None -> return! core.RunUnit(core.CommandIn(dir, [ "pr"; "approve"; string number ]))
+        }
+
+    /// Request changes on a pull request (`tea pr reject <index> <reason>`) — Gitea's
+    /// request-changes review. `tea` requires the reason, and it is a bare positional, so it
+    /// is rejected if empty or `-`-leading (like `PrComment`'s body).
+    member _.PrReject(dir: string, number: uint64, reason: string) =
+        task {
+            match checkFlags BINARY [ "reason", reason ] with
+            | Error e -> return Error e
+            | Ok() -> return! core.RunUnit(core.CommandIn(dir, [ "pr"; "reject"; string number; reason ]))
+        }
+
     /// Add a comment to a pull request, returning the command's output
     /// (`tea comment <index> <body>`). Gitea PRs and issues share the `index` space.
     /// The `body` is a bare positional, so it is rejected if empty or `-`-leading.
@@ -355,6 +379,12 @@ and [<Sealed>] GiteaAt internal (gitea: Gitea, dir: string) =
 
     /// Check out a pull request's branch locally (`tea pr checkout <index>`).
     member _.PrCheckout(number: uint64) = gitea.PrCheckout(dir, number)
+
+    /// Approve a pull request (`tea pr approve <index> [<comment>]`).
+    member _.PrApprove(number: uint64, comment: string option) = gitea.PrApprove(dir, number, comment)
+
+    /// Request changes on a pull request (`tea pr reject <index> <reason>`).
+    member _.PrReject(number: uint64, reason: string) = gitea.PrReject(dir, number, reason)
 
     /// Add a comment to a pull request (`tea comment <index> <body>`).
     member _.PrComment(number: uint64, body: string) = gitea.PrComment(dir, number, body)

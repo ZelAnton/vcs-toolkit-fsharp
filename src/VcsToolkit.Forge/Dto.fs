@@ -376,6 +376,49 @@ type PrEdit =
     /// Set the new body / description.
     member this.WithBody(body: string) = { this with Body = Some body }
 
+/// Which kind of review `prReview` submits — the unified counterpart of each CLI's own
+/// review verb. Support varies by kind, not by operation: `Approve` maps to a real verb on
+/// all three forges; `RequestChanges` only on GitHub/Gitea; `Comment` only on GitHub (see
+/// `Forge.PrReview`).
+///
+/// A per-level type (like `MergeStrategy`), converted in each adapter, rather than one type
+/// shared across the layers — mirroring `VcsToolkit.GitHub.ReviewKind`.
+[<RequireQualifiedAccess>]
+type ReviewKind =
+    /// Approve the PR/MR.
+    | Approve
+    /// Request changes.
+    | RequestChanges
+    /// A comment-only review.
+    | Comment
+
+/// What `prReview` submits (see `Forge.PrReview`), unified across the three forges. The
+/// constructor is private so the invariant holds by construction — request-changes / comment
+/// reviews *require* a body, so they are only reachable through `RequestChanges` / `Comment`
+/// (which both take it); an empty-body request-changes is unrepresentable. Approve's body is
+/// optional (`Approve` starts with none; attach one with `WithBody`). Mirrors the invariant
+/// of `VcsToolkit.GitHub.ReviewAction`.
+[<Sealed>]
+type ReviewAction private (kind: ReviewKind, body: string option) =
+    /// Which kind of review this is.
+    member _.Kind = kind
+    /// The review body, if any.
+    member _.Body = body
+
+    /// Approve, with no body. Attach one with `WithBody`.
+    static member Approve = ReviewAction(ReviewKind.Approve, None)
+
+    /// Request changes; the body is required.
+    static member RequestChanges(body: string) =
+        ReviewAction(ReviewKind.RequestChanges, Some body)
+
+    /// A comment-only review; the body is required.
+    static member Comment(body: string) =
+        ReviewAction(ReviewKind.Comment, Some body)
+
+    /// Attach or replace the body — mainly to give an `Approve` a message.
+    member _.WithBody(body: string) = ReviewAction(kind, Some body)
+
 /// The flat capability map for a configured forge — what its CLI is honest about doing,
 /// intersected with whether the CLI is authenticated. Each `bool` is `true` iff the
 /// operation is available on this forge's CLI **and** the CLI reports an authenticated

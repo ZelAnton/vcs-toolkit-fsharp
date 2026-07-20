@@ -1626,3 +1626,176 @@ type IssueLifecycleTests() =
             | Error e -> Assert.That(e.IsUnsupported, Is.True, "Unknown issueComment must be Unsupported")
             | Ok _ -> Assert.Fail "Unknown issueComment must be Unsupported"
         }
+
+// ---------------------------------------------------------------------------
+// PR review: approve is supported on all three; request-changes on GitHub/Gitea
+// (Unsupported on GitLab, where glab has no equivalent); a comment-review only on GitHub
+// (Unsupported on GitLab/Gitea). Every unsupported combination is refused structurally,
+// before any spawn — including the version probe; the supported paths are version-gated
+// like the other mutations.
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type PrReviewTests() =
+
+    // Each op is version-gated, so a happy-path handle must also answer `--version`; a
+    // supported banner clears the gate and lets the op dispatch.
+    let ghReviewForge (opTokens: string list) (opReply: Reply) =
+        Forge.FromGitHub(
+            ".",
+            VcsToolkit.GitHub.GitHub.WithRunner(
+                ScriptedRunner().On([ "--version" ], Reply.Ok "gh version 2.40.0\n").On(opTokens, opReply)
+            )
+        )
+
+    let glReviewForge (opTokens: string list) (opReply: Reply) =
+        Forge.FromGitLab(
+            ".",
+            VcsToolkit.GitLab.GitLab.WithRunner(
+                ScriptedRunner().On([ "--version" ], Reply.Ok "glab 1.36.0\n").On(opTokens, opReply)
+            )
+        )
+
+    let teaReviewForge (opTokens: string list) (opReply: Reply) =
+        Forge.FromGitea(
+            ".",
+            VcsToolkit.Gitea.Gitea.WithRunner(
+                ScriptedRunner().On([ "--version" ], Reply.Ok "tea version 0.9.2\n").On(opTokens, opReply)
+            )
+        )
+
+    let isUnsupported (kind: ForgeKind) (t: Task<Result<'T, ForgeError>>) =
+        task {
+            let! r = t
+
+            return
+                match r with
+                | Error(ForgeError.Unsupported(actualKind, _)) -> actualKind = kind
+                | Error _
+                | Ok _ -> false
+        }
+
+    // --- Approve: a real verb on all three backends ---
+
+    [<Test>]
+    member _.GitHubApproveDispatchesReviewApprove() : Task =
+        task {
+            // No op fallback: reaching Ok proves `gh pr review 1 --approve` was the dispatched argv.
+            let forge = ghReviewForge [ "pr"; "review"; "1"; "--approve" ] (Reply.Exit 0)
+
+            match! forge.PrReview(1UL, ReviewAction.Approve) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"gh pr review --approve must dispatch: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabApproveDispatchesMrApprove() : Task =
+        task {
+            let forge = glReviewForge [ "mr"; "approve"; "1" ] (Reply.Exit 0)
+
+            match! forge.PrReview(1UL, ReviewAction.Approve) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"glab mr approve must dispatch: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaApproveDispatchesPrApprove() : Task =
+        task {
+            let forge = teaReviewForge [ "pr"; "approve"; "1" ] (Reply.Exit 0)
+
+            match! forge.PrReview(1UL, ReviewAction.Approve) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"tea pr approve must dispatch: {e.Message}"
+        }
+
+    // --- Request-changes: GitHub (--request-changes) + Gitea (pr reject); Unsupported on GitLab ---
+
+    [<Test>]
+    member _.GitHubRequestChangesDispatchesWithBody() : Task =
+        task {
+            let forge =
+                ghReviewForge [ "pr"; "review"; "1"; "--request-changes"; "--body"; "fix" ] (Reply.Exit 0)
+
+            match! forge.PrReview(1UL, ReviewAction.RequestChanges "fix") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"gh pr review --request-changes must dispatch: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaRequestChangesDispatchesReject() : Task =
+        task {
+            let forge = teaReviewForge [ "pr"; "reject"; "1"; "fix" ] (Reply.Exit 0)
+
+            match! forge.PrReview(1UL, ReviewAction.RequestChanges "fix") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"tea pr reject must dispatch: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabRequestChangesIsUnsupportedWithoutSpawning() : Task =
+        task {
+            // An empty ScriptedRunner RAISES on any spawn — reaching Unsupported proves the facade
+            // refuses request-changes structurally, before even the version probe.
+            let forge =
+                Forge.FromGitLab(".", VcsToolkit.GitLab.GitLab.WithRunner(ScriptedRunner()))
+
+            let! unsupported = isUnsupported ForgeKind.GitLab (forge.PrReview(1UL, ReviewAction.RequestChanges "fix"))
+            Assert.That(unsupported, Is.True, "GitLab request-changes must be Unsupported without spawning")
+        }
+
+    // --- Comment-review: GitHub only (--comment); Unsupported on GitLab/Gitea ---
+
+    [<Test>]
+    member _.GitHubCommentReviewDispatchesWithBody() : Task =
+        task {
+            let forge =
+                ghReviewForge [ "pr"; "review"; "1"; "--comment"; "--body"; "note" ] (Reply.Exit 0)
+
+            match! forge.PrReview(1UL, ReviewAction.Comment "note") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"gh pr review --comment must dispatch: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabAndGiteaCommentReviewAreUnsupportedWithoutSpawning() : Task =
+        task {
+            let gl =
+                Forge.FromGitLab(".", VcsToolkit.GitLab.GitLab.WithRunner(ScriptedRunner()))
+
+            let tea = Forge.FromGitea(".", VcsToolkit.Gitea.Gitea.WithRunner(ScriptedRunner()))
+
+            let! glUnsupported = isUnsupported ForgeKind.GitLab (gl.PrReview(1UL, ReviewAction.Comment "note"))
+            let! teaUnsupported = isUnsupported ForgeKind.Gitea (tea.PrReview(1UL, ReviewAction.Comment "note"))
+            Assert.That(glUnsupported, Is.True, "GitLab comment review must be Unsupported without spawning")
+            Assert.That(teaUnsupported, Is.True, "Gitea comment review must be Unsupported without spawning")
+        }
+
+    // --- Unknown handle + version floor ---
+
+    [<Test>]
+    member _.UnknownHandleReviewIsUnsupportedWithoutSpawning() : Task =
+        task {
+            let forge = Forge.FromUnknown "."
+
+            let! unsupported = isUnsupported ForgeKind.Unknown (forge.PrReview(1UL, ReviewAction.Approve))
+            Assert.That(unsupported, Is.True, "Unknown prReview must be Unsupported")
+        }
+
+    [<Test>]
+    member _.ReviewRefusedBelowFloorWithoutSpawningTheOp() : Task =
+        task {
+            // ONLY `--version` is scripted (no op rule): an empty ScriptedRunner RAISES on any
+            // other spawn, so reaching UnsupportedVersion proves the op itself never spawned.
+            let forge =
+                Forge.FromGitHub(
+                    ".",
+                    VcsToolkit.GitHub.GitHub.WithRunner(
+                        ScriptedRunner().On([ "--version" ], Reply.Ok "gh version 1.14.0\n")
+                    )
+                )
+
+            match! forge.PrReview(1UL, ReviewAction.Approve) with
+            | Error(ForgeError.UnsupportedVersion(_, op, _, _)) -> Assert.That(op, Is.EqualTo "prReview")
+            | Error e -> Assert.Fail $"expected UnsupportedVersion, got: {e.Message}"
+            | Ok() -> Assert.Fail "a below-floor CLI must refuse prReview before spawning the op"
+        }

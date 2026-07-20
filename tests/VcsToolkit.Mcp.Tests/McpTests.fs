@@ -49,10 +49,11 @@ type WriteGateTests() =
 
     [<Test>]
     member _.WriteToolsCoversTheGatedTools() =
-        Assert.That(List.length WriteTools.all, Is.EqualTo 23)
+        Assert.That(List.length WriteTools.all, Is.EqualTo 24)
         Assert.That(WriteTools.asSet.Contains "repo_commit", Is.True)
         Assert.That(WriteTools.asSet.Contains "repo_rebase", Is.True, "the new rebase tool is write-gated")
         Assert.That(WriteTools.asSet.Contains "forge_pr_checkout", Is.True, "the local-checkout tool is write-gated")
+        Assert.That(WriteTools.asSet.Contains "forge_pr_review", Is.True, "the new pr-review tool is write-gated")
         Assert.That(WriteTools.asSet.Contains "forge_issue_close", Is.True, "the new issue-close tool is write-gated")
 
         Assert.That(
@@ -732,6 +733,129 @@ type ToolTests() =
             | Error e -> Assert.Fail $"forge_pr_create failed: {e.Message}"
         }
 
+    [<Test>]
+    member _.ForgePrReviewIsWriteGated() : Task =
+        task {
+            // A remote-only mutation, so it is write-gated: refused in the default read-only mode,
+            // and the gate is checked before the forge is resolved.
+            let server = gitServer (ScriptedRunner()) WriteGate.None
+
+            match! server.ForgePrReview(1UL, "approve", Option.None) with
+            | Error e -> Assert.That(e.Message, Does.Contain "allow-write")
+            | Ok _ -> Assert.Fail "forge_pr_review must be gated in read-only mode"
+        }
+
+    [<Test>]
+    member _.ForgePrReviewEnforcesBodyInvariantAndKindWithoutSpawning() : Task =
+        task {
+            // request_changes/comment require a non-empty body, and an unknown kind is refused —
+            // all as InvalidParams before any spawn, so a loudly-failing fallback is never reached.
+            let runner =
+                ScriptedRunner().Fallback(Reply.Fail(1, "must not spawn — refusal must precede it"))
+
+            let server = gitServerWithForge runner WriteGate.All
+
+            match! server.ForgePrReview(1UL, "request_changes", Option.None) with
+            | Error(McpError.InvalidParams message) -> Assert.That(message, Does.Contain "body")
+            | Error e -> Assert.Fail $"expected invalid params, got: {e.Message}"
+            | Ok _ -> Assert.Fail "request_changes without a body must be refused"
+
+            match! server.ForgePrReview(1UL, "comment", Some "   ") with
+            | Error(McpError.InvalidParams message) -> Assert.That(message, Does.Contain "body")
+            | Error e -> Assert.Fail $"expected invalid params, got: {e.Message}"
+            | Ok _ -> Assert.Fail "a comment review with a whitespace-only body must be refused"
+
+            match! server.ForgePrReview(1UL, "bogus", Option.None) with
+            | Error(McpError.InvalidParams message) -> Assert.That(message, Does.Contain "review kind")
+            | Error e -> Assert.Fail $"expected invalid params, got: {e.Message}"
+            | Ok _ -> Assert.Fail "an unknown review kind must be refused"
+        }
+
+    [<Test>]
+    member _.ForgePrReviewRejectsDashLeadingBodyWithoutSpawning() : Task =
+        task {
+            let runner =
+                ScriptedRunner().Fallback(Reply.Fail(1, "must not spawn — refusal must precede it"))
+
+            let server = gitServerWithForge runner WriteGate.All
+
+            match! server.ForgePrReview(1UL, "request_changes", Some "-flagged") with
+            | Error(McpError.InvalidParams _) -> ()
+            | Error e -> Assert.Fail $"expected invalid params, got: {e.Message}"
+            | Ok _ -> Assert.Fail "a dash-leading review body must be refused"
+        }
+
+    [<Test>]
+    member _.ForgePrReviewApproveDispatchesAndReportsReviewed() : Task =
+        task {
+            let server =
+                gitServerWithForge
+                    (ScriptedRunner()
+                        .On([ "--version" ], Reply.Ok "gh version 2.40.0\n")
+                        .On([ "pr"; "review"; "7"; "--approve" ], Reply.Ok ""))
+                    WriteGate.All
+
+            match! server.ForgePrReview(7UL, "approve", Option.None) with
+            | Ok json -> Assert.That(json, Does.Contain "reviewed")
+            | Error e -> Assert.Fail $"forge_pr_review approve failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.ForgePrReviewDoesNotHoldTheRepoWriteLock() : Task =
+        task {
+            // forge_pr_review is a remote-only mutation (K-003): it must use WithForgeWrite, NOT
+            // WithForgeRepoWrite, so it does NOT serialize on the per-repo write lock. Prove it:
+            // hold the repo write lock with a blocked repo_checkout, then show forge_pr_review
+            // still completes rather than blocking behind it.
+            use checkoutStarted = new SemaphoreSlim(0)
+            use releaseCheckout = new SemaphoreSlim(0)
+
+            let isCheckout (command: Command) =
+                command.Program :: List.ofSeq command.Arguments |> List.contains "checkout"
+
+            let runner =
+                ScriptedRunner()
+                    .On([ "--version" ], Reply.Ok "gh version 2.40.0\n")
+                    .When(
+                        (fun (command: Command) ->
+                            if isCheckout command then
+                                checkoutStarted.Release() |> ignore
+                                releaseCheckout.Wait(TimeSpan.FromSeconds 5.0) |> ignore
+                                true
+                            else
+                                false),
+                        Reply.Ok ""
+                    )
+                    .On([ "pr"; "review" ], Reply.Ok "")
+
+            let server = gitServerWithForge runner WriteGate.All
+
+            let checkoutTask =
+                Task.Run<Result<string, McpError>>(fun () -> server.RepoCheckout "feature")
+
+            Assert.That(checkoutStarted.Wait(TimeSpan.FromSeconds 5.0), Is.True, "checkout must have started")
+
+            // The review holds no repo lock, so it completes even while checkout still holds it.
+            let reviewTask =
+                Task.Run<Result<string, McpError>>(fun () -> server.ForgePrReview(2UL, "approve", Option.None))
+
+            Assert.That(
+                (reviewTask :> Task).Wait(TimeSpan.FromSeconds 5.0),
+                Is.True,
+                "forge_pr_review must NOT block on the repo write lock held by repo_checkout"
+            )
+
+            match! reviewTask with
+            | Ok json -> Assert.That(json, Does.Contain "reviewed")
+            | Error e -> Assert.Fail $"forge_pr_review failed: {e.Message}"
+
+            releaseCheckout.Release() |> ignore
+
+            match! checkoutTask with
+            | Ok json -> Assert.That(json, Does.Contain "feature")
+            | Error e -> Assert.Fail $"repo_checkout failed: {e.Message}"
+        }
+
     // --- the six new repo mutations: write-gate + happy path (scripted) -----
 
     [<Test>]
@@ -1089,8 +1213,8 @@ type CatalogTests() =
 
     [<Test>]
     member _.CatalogCoversEveryTool() =
-        // 11 repo-read + repo_try_merge + 12 repo-write + 10 forge-read + 10 forge-write = 44.
-        Assert.That(List.length Catalog.all, Is.EqualTo 44)
+        // 11 repo-read + repo_try_merge + 12 repo-write + 10 forge-read + 11 forge-write = 45.
+        Assert.That(List.length Catalog.all, Is.EqualTo 45)
         // Every write-gated tool name appears in the catalogue.
         let names = Catalog.all |> List.map (fun t -> t.Name) |> Set.ofList
         Assert.That(WriteTools.all |> List.forall names.Contains, Is.True, "every write tool is catalogued")
@@ -1125,7 +1249,8 @@ type CatalogTests() =
               "forge_pr_mark_ready", false, true
               "forge_pr_comment", false, false
               "forge_pr_edit", false, true
-              "forge_pr_checkout", false, true ]
+              "forge_pr_checkout", false, true
+              "forge_pr_review", false, false ]
 
         let expectedNames: Set<string> =
             expected |> List.map (fun (name, _, _) -> name) |> Set.ofList
@@ -1162,6 +1287,16 @@ type CatalogTests() =
         Assert.That(schema, Does.Contain "\"auto\"")
         Assert.That(schema, Does.Contain "\"delete_branch\"")
         Assert.That(schema, Does.Contain "\"required\":[\"number\",\"strategy\"]", "auto/delete_branch are optional")
+
+    [<Test>]
+    member _.ForgePrReviewSchemaRequiresNumberAndKindWithOptionalBody() =
+        // number + kind are required; body is optional (required only for request_changes/comment,
+        // which the server enforces — not expressible as a static JSON-Schema `required`).
+        let review = Catalog.all |> List.find (fun t -> t.Name = "forge_pr_review")
+        let schema = Catalog.inputSchema review
+        Assert.That(schema, Does.Contain "\"kind\"")
+        Assert.That(schema, Does.Contain "\"body\"")
+        Assert.That(schema, Does.Contain "\"required\":[\"number\",\"kind\"]", "body is optional")
 
     [<Test>]
     member _.CallToolDispatchesReadTool() : Task =
@@ -1208,6 +1343,29 @@ type CatalogTests() =
             match! Catalog.callTool server "forge_issue_comment" (argsOf """{"number":3}""") with
             | Error e -> Assert.That(e.Message, Does.Contain "body")
             | Ok _ -> Assert.Fail "forge_issue_comment must require a body"
+        }
+
+    [<Test>]
+    member _.CallToolDispatchesForgePrReview() : Task =
+        task {
+            let runner =
+                ScriptedRunner().On([ "--version" ], Reply.Ok "gh version 2.40.0\n").On([ "pr"; "review" ], Reply.Ok "")
+
+            let server = gitServerWithForge runner WriteGate.All
+
+            match! Catalog.callTool server "forge_pr_review" (argsOf """{"number":4,"kind":"approve"}""") with
+            | Ok json -> Assert.That(json, Does.Contain "reviewed")
+            | Error e -> Assert.Fail $"forge_pr_review dispatch failed: {e.Message}"
+
+            // A missing kind is refused as invalid-params before the tool runs.
+            match! Catalog.callTool server "forge_pr_review" (argsOf """{"number":4}""") with
+            | Error e -> Assert.That(e.Message, Does.Contain "kind")
+            | Ok _ -> Assert.Fail "forge_pr_review must require a kind"
+
+            // request_changes requires a body — the server enforces the ReviewAction invariant.
+            match! Catalog.callTool server "forge_pr_review" (argsOf """{"number":4,"kind":"request_changes"}""") with
+            | Error e -> Assert.That(e.Message, Does.Contain "body")
+            | Ok _ -> Assert.Fail "request_changes must require a body"
         }
 
     [<Test>]
