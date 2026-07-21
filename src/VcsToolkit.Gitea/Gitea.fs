@@ -227,10 +227,21 @@ type Gitea private (core: ManagedClient) =
 
         core.Run(core.CommandIn(dir, args))
 
-    /// Merge a pull request (`tea pr merge <number> --style merge|rebase|squash`).
-    /// See `MergeStrategy`.
+    /// Merge a pull request (`tea pr merge --style merge|rebase|squash <number>`). See
+    /// `MergeStrategy`.
+    ///
+    /// **Flags MUST precede the positional index** (confirmed live against tea 0.9.2; K-061).
+    /// `tea pulls merge`'s own usage line reads `tea pulls merge [command options] <pull
+    /// index>`, and its `Action` requires `ctx.Args().Len() == 1` before treating the sole
+    /// remaining bare argument as the index (`cmd/pulls/merge.go`). `tea`'s argv parser
+    /// (`urfave/cli` v2, itself layered over Go's `flag` package) stops recognising `--flag`
+    /// tokens as soon as it hits the *first* bare positional — so `<number> --style <style>`
+    /// (the original, broken argv here) leaves `--style`/`<style>` as two more bare
+    /// positionals, `ctx.Args().Len()` becomes 3, and `tea` fails immediately with `Error:
+    /// Must specify a PR index` (exactly the live-CI failure this fixes) without ever
+    /// reaching the network. Putting `--style` before the index avoids the trap.
     member _.PrMerge(dir: string, number: uint64, strategy: MergeStrategy) =
-        core.RunUnit(core.CommandIn(dir, [ "pr"; "merge"; string number; "--style"; strategy.Style ]))
+        core.RunUnit(core.CommandIn(dir, [ "pr"; "merge"; "--style"; strategy.Style; string number ]))
 
     /// Close a pull request without merging (`tea pr close <number>`).
     member _.PrClose(dir: string, number: uint64) =
@@ -281,6 +292,18 @@ type Gitea private (core: ManagedClient) =
     /// Edit a pull request's title and/or description (`tea pr edit <index>
     /// [--title …] [--description …]`). At least one of `Title`/`Body` must be `Some`
     /// — both-`None` is refused before spawning. An empty string clears the field.
+    ///
+    /// **UNVERIFIED / suspected non-functional against real tea 0.9.2 (found investigating
+    /// K-061, out of this task's `PrMerge`-only scope — not yet fixed).** `tea`'s upstream
+    /// `pulls` command registers only `list`/`checkout`/`clean`/`create`/`close`/`reopen`/
+    /// `review`/`approve`/`reject`/`merge` as subcommands of `pr` (`cmd/pulls.go`); there is
+    /// no `edit` among them — the `editPullState` helper in `cmd/pulls/edit.go` is wired up
+    /// only by `close`/`reopen` (to flip `State`), never exposed standalone with `--title`/
+    /// `--description` flags. An unrecognised `pr edit` subcommand falls through to `pr`'s own
+    /// default action, which — for anything other than exactly one bare positional — silently
+    /// runs a plain `pr list` instead of erring, so this call likely does the wrong thing
+    /// quietly rather than failing loud. Needs its own investigation/task before relying on it;
+    /// see this task's final report.
     member _.PrEdit(dir: string, number: uint64, edit: PrEdit) =
         task {
             match edit.Title, edit.Body with
@@ -482,7 +505,8 @@ and [<Sealed>] GiteaAt internal (gitea: Gitea, dir: string) =
     /// Open a pull request (`tea pr create`).
     member _.PrCreate(spec: PrCreate) = gitea.PrCreate(dir, spec)
 
-    /// Merge a pull request (`tea pr merge <n> --style …`).
+    /// Merge a pull request (`tea pr merge --style … <n>`; see `Gitea.PrMerge` for why the
+    /// flag must precede the index).
     member _.PrMerge(number: uint64, strategy: MergeStrategy) = gitea.PrMerge(dir, number, strategy)
 
     /// Close a pull request without merging (`tea pr close <n>`).

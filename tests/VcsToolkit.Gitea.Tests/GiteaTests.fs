@@ -449,10 +449,15 @@ type ClientTests() =
     [<Test>]
     member _.PrMergeBuildsStyle() : Task =
         task {
+            // `--style` MUST precede the positional index — confirmed live against real tea
+            // 0.9.2 (K-061): its argv parser (urfave/cli v2 over Go's `flag` package) stops
+            // recognising flags after the first bare positional, so `<index> --style <style>`
+            // leaves `--style`/`<style>` as extra positionals and tea fails with `Error: Must
+            // specify a PR index` — the exact live-CI failure this test now guards against.
             let tea, args = capturing (Reply.Ok "")
 
             match! tea.PrMerge(".", 7UL, MergeStrategy.Squash) with
-            | Ok() -> assertArgs [ "pr"; "merge"; "7"; "--style"; "squash" ] args
+            | Ok() -> assertArgs [ "pr"; "merge"; "--style"; "squash"; "7" ] args
             | Error e -> Assert.Fail $"pr merge failed: {e}"
         }
 
