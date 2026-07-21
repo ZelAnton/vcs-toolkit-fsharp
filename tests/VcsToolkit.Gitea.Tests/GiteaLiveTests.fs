@@ -163,6 +163,20 @@ let private apiPost (http: HttpClient) (url: string) (auth: AuthenticationHeader
         return body
     }
 
+/// GET a Gitea API `url`, returning the response body; raises on a non-2xx.
+let private apiGet (http: HttpClient) (url: string) (auth: AuthenticationHeaderValue) : Task<string> =
+    task {
+        use request = new HttpRequestMessage(HttpMethod.Get, url)
+        request.Headers.Authorization <- auth
+        use! response = http.SendAsync request
+        let! body = response.Content.ReadAsStringAsync()
+
+        if not response.IsSuccessStatusCode then
+            failwithf "GET %s -> HTTP %d: %s" url (int response.StatusCode) body
+
+        return body
+    }
+
 /// Poll `GET /api/v1/version` until the container answers, or fail after `timeout`.
 let private waitForReady (http: HttpClient) (baseUrl: string) (timeout: TimeSpan) : Task =
     task {
@@ -307,6 +321,151 @@ let private expectOk (label: string) (result: Result<'T, 'E>) : 'T =
     match result with
     | Ok value -> value
     | Error err -> failTest (sprintf "%s failed: %A" label err)
+
+/// The subset of a Gitea PR's REST-API fields that describe whether it is ready to merge.
+/// `Mergeable` is Gitea's asynchronously-computed conflict-check verdict; `Merged`/`State`
+/// let the merge retry distinguish "already merged" and "no longer open" from a transient
+/// non-2xx.
+type private PrMergeStatus =
+    { Mergeable: bool
+      State: string
+      Merged: bool }
+
+/// Read a PR's merge-readiness fields from `GET /repos/{owner}/{repo}/pulls/{number}`.
+let private prMergeStatus
+    (http: HttpClient)
+    (baseUrl: string)
+    (token: string)
+    (owner: string)
+    (repo: string)
+    (number: uint64)
+    : Task<PrMergeStatus> =
+    task {
+        let url = sprintf "%s/api/v1/repos/%s/%s/pulls/%d" baseUrl owner repo number
+        let! body = apiGet http url (tokenAuth token)
+        use doc = JsonDocument.Parse body
+        let root = doc.RootElement
+
+        let boolField (name: string) =
+            match root.TryGetProperty name with
+            | true, el when el.ValueKind = JsonValueKind.True -> true
+            | _ -> false
+
+        let stringField (name: string) =
+            match root.TryGetProperty name with
+            | true, el when el.ValueKind = JsonValueKind.String ->
+                match el.GetString() with
+                | null -> ""
+                | s -> s
+            | _ -> ""
+
+        return
+            { Mergeable = boolField "mergeable"
+              State = stringField "state"
+              Merged = boolField "merged" }
+    }
+
+/// Poll the PR until Gitea reports it mergeable (or already merged), or `timeout` elapses;
+/// returns the last-observed status either way. Gitea computes a PR's mergeability
+/// ASYNCHRONOUSLY after creation, so the value is `false` for a short window before flipping
+/// to `true`; the merge must not be attempted until then. Returns rather than fails on
+/// timeout — the caller (which retries and reports diagnostics) decides.
+let private waitForMergeable
+    (http: HttpClient)
+    (baseUrl: string)
+    (token: string)
+    (owner: string)
+    (repo: string)
+    (number: uint64)
+    (timeout: TimeSpan)
+    : Task<PrMergeStatus> =
+    task {
+        let deadline = DateTime.UtcNow.Add timeout
+        let mutable status = { Mergeable = false; State = ""; Merged = false }
+        let mutable ready = false
+
+        while not ready && DateTime.UtcNow < deadline do
+            let! s = prMergeStatus http baseUrl token owner repo number
+            status <- s
+
+            if s.Mergeable || s.Merged then
+                ready <- true
+            else
+                do! Task.Delay(TimeSpan.FromMilliseconds 200.0)
+
+        return status
+    }
+
+/// Merge PR `number` through the forge facade, robust to the intermittent gitea-live flake
+/// (T-119/K-067). Root cause established by live reproduction against a containerised Gitea:
+/// `tea pr merge` reports EVERY non-2xx from Gitea's merge endpoint identically as
+/// `Failed to merge PR. Is it still open?` (the SDK collapses any non-200 to `success=false`),
+/// and that endpoint transiently returns a non-2xx when the merge is raced against Gitea's
+/// asynchronous state — the mergeability check not yet complete, or a `main`-ref lock / "merge
+/// push out of date" while the tip is settling. All of these are transient and clear on a
+/// retry once the server has caught up. So this: (1) waits for Gitea to report the PR mergeable
+/// before each attempt, (2) retries the merge with backoff, treating a still-`open` PR after a
+/// failed merge as the transient case, and (3) on final exhaustion fails with tea's error AND
+/// the PR's current API status, so any recurrence carries the root-cause facts (K-051 spirit).
+let private mergeWithReadyRetry
+    (http: HttpClient)
+    (baseUrl: string)
+    (token: string)
+    (owner: string)
+    (repo: string)
+    (forge: Forge)
+    (number: uint64)
+    : Task =
+    task {
+        let attempts = 5
+        let mutable outcome: Result<unit, ForgeError> option = None
+        let mutable attempt = 1
+
+        while Option.isNone outcome && attempt <= attempts do
+            // Wait for Gitea's async mergeability check before attempting the merge.
+            let! _ = waitForMergeable http baseUrl token owner repo number (TimeSpan.FromSeconds 30.0)
+            let! merged = forge.PrMerge(number, PrMerge.Merge)
+
+            match merged with
+            | Ok() -> outcome <- Some(Ok())
+            | Error err ->
+                // Distinguish a transient non-2xx (PR still open) from a genuine failure by
+                // re-reading the PR: `tea` cannot tell us which, but the REST API can.
+                let! status = prMergeStatus http baseUrl token owner repo number
+
+                if status.Merged then
+                    // The merge actually landed even though `tea` reported a non-2xx — accept it.
+                    outcome <- Some(Ok())
+                elif status.State <> "open" then
+                    // No longer open and not merged (closed/gone): not a transient race — stop.
+                    outcome <- Some(Error err)
+                elif attempt >= attempts then
+                    outcome <- Some(Error err)
+                else
+                    // Transient: back off, then re-confirm mergeable and retry.
+                    do! Task.Delay(TimeSpan.FromMilliseconds(300.0 * float attempt))
+                    attempt <- attempt + 1
+
+        match outcome with
+        | Some(Ok()) -> return ()
+        | Some(Error err) ->
+            let! status = prMergeStatus http baseUrl token owner repo number
+
+            return
+                failTest (
+                    sprintf
+                        "PrMerge failed after %d attempts: %A (PR #%d final Gitea status: mergeable=%b state=%s merged=%b)"
+                        attempts
+                        err
+                        number
+                        status.Mergeable
+                        status.State
+                        status.Merged
+                )
+        | None ->
+            // Unreachable: the loop always records an outcome before `attempt` exceeds `attempts`.
+            return failTest (sprintf "PrMerge for #%d produced no outcome (internal retry-loop error)" number)
+    }
 
 [<TestFixture>]
 [<Category("GiteaLive")>]
@@ -551,8 +710,12 @@ type GiteaLiveTests() =
             let! commented = forge.PrComment(number, "Live review comment from the integration suite.")
             expectOk "PrComment" commented |> ignore
 
-            let! merged = forge.PrMerge(number, PrMerge.Merge)
-            expectOk "PrMerge" merged |> ignore
+            // Merge is raced against Gitea's asynchronous PR state (mergeability check /
+            // `main`-ref settling): `tea` surfaces any transient non-2xx as
+            // "Failed to merge PR. Is it still open?" — the intermittent gitea-live flake
+            // (T-119/K-067). Wait for the PR to be reported mergeable and retry the transient
+            // failure with backoff instead of calling `PrMerge` once and hoping.
+            do! mergeWithReadyRetry http baseUrl token owner repoName forge number
 
             let! afterMerge = forge.PrView number
             let mergedPr = expectOk "PrView (post-merge)" afterMerge
