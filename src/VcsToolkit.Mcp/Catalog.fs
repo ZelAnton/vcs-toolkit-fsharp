@@ -508,7 +508,7 @@ module internal Catalog =
           // title/body leaves the PR/MR unchanged.
           write
               "forge_pr_edit"
-              "Edit a pull/merge request's title and/or body (at least one required)."
+              "Edit a pull/merge request's title and/or body (at least one required). Unsupported on Gitea (tea 0.9.2 has no `pr edit` command)."
               false
               true
               [ pNumber

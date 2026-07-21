@@ -177,21 +177,22 @@ module internal GiteaForge =
             return ofForge r
         }
 
-    let prEdit (tea: VcsToolkit.Gitea.Gitea) (dir: string) (number: uint64) (edit: PrEdit) =
+    /// `tea` 0.9.2 has no `pr edit` command at all — an unrecognised `pr edit` silently falls
+    /// through to a plain `pr list` instead of editing (K-063; confirmed against the real tea
+    /// 0.9.2 binary and its Go source). There is no working edit path to reach, so refuse
+    /// structurally, before any spawn, exactly like `prList`/`prForBranch` — turning what would
+    /// otherwise be a silent no-op into an honest `Unsupported` signal.
+    let prEdit (_tea: VcsToolkit.Gitea.Gitea) (_dir: string) (number: uint64) (_edit: PrEdit) =
         task {
-            let tEdit =
-                VcsToolkit.Gitea.PrEdit.Create()
-                |> fun e ->
-                    match edit.Title with
-                    | Some t -> e.WithTitle t
-                    | None -> e
-                |> fun e ->
-                    match edit.Body with
-                    | Some b -> e.WithBody b
-                    | None -> e
-
-            let! r = tea.PrEdit(dir, number, tEdit)
-            return ofForge r
+            return
+                Error(
+                    ForgeError.Unsupported(
+                        ForgeKind.Gitea,
+                        sprintf
+                            "prEdit(#%d): `tea` 0.9.2 has no `pr edit` command (an unrecognised `pr edit` silently falls through to `pr list`; K-063) — edit a PR's title/body via the Gitea REST API instead"
+                            number
+                    )
+                )
         }
 
     let prMerge (tea: VcsToolkit.Gitea.Gitea) (dir: string) (number: uint64) (strategy: MergeStrategy) =

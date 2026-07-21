@@ -1875,6 +1875,22 @@ type CatalogTests() =
         }
 
     [<Test>]
+    member _.CallToolForgePrEditIsUnsupportedOnGitea() : Task =
+        task {
+            // tea 0.9.2 has no `pr edit` command (an unrecognised `pr edit` silently falls
+            // through to `pr list`; K-063), so `forge_pr_edit` is Unsupported on Gitea — refused
+            // before spawning `tea` at all. The write gate is open (WriteGate.All) so the refusal
+            // comes from the Gitea dispatch, not the gate; the empty `ScriptedRunner` (no
+            // fallback) proves it never reaches a spawn even with a title supplied.
+            let server = gitServerWithGiteaForge (ScriptedRunner()) WriteGate.All
+
+            match! Catalog.callTool server "forge_pr_edit" (argsOf """{"number":1,"title":"x"}""") with
+            | Error(McpError.InvalidParams _) -> ()
+            | Error e -> Assert.Fail $"expected InvalidParams for an Unsupported forge op, got: {e.Message}"
+            | Ok _ -> Assert.Fail "forge_pr_edit must be Unsupported on Gitea"
+        }
+
+    [<Test>]
     member _.CallToolDispatchesForgeIssueListWithStateAndLimit() : Task =
         task {
             let runner =

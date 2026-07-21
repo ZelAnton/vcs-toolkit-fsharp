@@ -186,25 +186,26 @@ type PrCreate =
     /// Set the target branch (`--base`) instead of the repo default.
     member this.WithBase(baseBranch: string) = { this with Base = Some baseBranch }
 
-/// Options for `prEdit` (`tea pr edit`). At least one of `Title`/`Body` must be `Some`
-/// — `prEdit` rejects both-`None` before spawning (an explicit error, not a silent
-/// no-op). An empty string is a real value (tea clears the field), not a `None`.
+/// Options for a PR title/description edit. **Note: `tea` 0.9.2 has no `pr edit` command**,
+/// so `Gitea.PrEdit` refuses structurally before any spawn regardless of these fields (K-063);
+/// this type is retained for signature parity with the GitHub/GitLab clients and for a future
+/// tea that gains the command.
 type PrEdit =
     {
-        /// The new title (`--title`); `None` leaves the title alone.
+        /// The intended new title; `None` leaves the title alone.
         Title: string option
-        /// The new description (`--description`); `None` leaves the description alone.
+        /// The intended new description; `None` leaves the description alone.
         Body: string option
     }
 
-    /// An edit that leaves both fields alone (rejected before spawning). Start with
-    /// this and add what to change via `WithTitle`/`WithBody`.
+    /// An edit that leaves both fields alone. Start with this and add what to change via
+    /// `WithTitle`/`WithBody`.
     static member Create() = { Title = None; Body = None }
 
-    /// Set the new title (`--title`).
+    /// Set the intended new title.
     member this.WithTitle(title: string) = { this with Title = Some title }
 
-    /// Set the new description (`--description`).
+    /// Set the intended new description.
     member this.WithBody(body: string) = { this with Body = Some body }
 
 /// Options for `releaseCreate` (`tea release create`). Build it through

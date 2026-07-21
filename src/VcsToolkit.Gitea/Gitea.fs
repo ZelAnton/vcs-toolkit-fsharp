@@ -289,37 +289,41 @@ type Gitea private (core: ManagedClient) =
             | Ok() -> return! core.Run(core.CommandIn(dir, [ "comment"; string number; body ]))
         }
 
-    /// Edit a pull request's title and/or description (`tea pr edit <index>
-    /// [--title …] [--description …]`). At least one of `Title`/`Body` must be `Some`
-    /// — both-`None` is refused before spawning. An empty string clears the field.
+    /// Editing a pull request's title/description is **not supported by `tea` 0.9.2**: there is
+    /// no `pr edit` subcommand at all. `tea`'s `pulls` command registers only
+    /// `list`/`checkout`/`clean`/`create`/`close`/`reopen`/`review`/`approve`/`reject`/`merge`
+    /// (`cmd/pulls.go`); the `editPullState` helper in `cmd/pulls/edit.go` is a plain function
+    /// wired up only by `close`/`reopen` (to flip `State`), never exposed standalone with
+    /// `--title`/`--description` flags. Because `urfave/cli` v2 falls through an unrecognised
+    /// subcommand to the parent's default action (`runPulls`), `tea pr edit …` silently runs a
+    /// plain `pr list` (or a PR-detail view) instead of erring — it does the wrong thing
+    /// quietly. Verified against the real tea 0.9.2 binary (`tea pulls --help` lists no `edit`;
+    /// `tea pr edit …` falls through to the `pulls` default action) and its Go source (K-063).
     ///
-    /// **UNVERIFIED / suspected non-functional against real tea 0.9.2 (found investigating
-    /// K-061, out of this task's `PrMerge`-only scope — not yet fixed).** `tea`'s upstream
-    /// `pulls` command registers only `list`/`checkout`/`clean`/`create`/`close`/`reopen`/
-    /// `review`/`approve`/`reject`/`merge` as subcommands of `pr` (`cmd/pulls.go`); there is
-    /// no `edit` among them — the `editPullState` helper in `cmd/pulls/edit.go` is wired up
-    /// only by `close`/`reopen` (to flip `State`), never exposed standalone with `--title`/
-    /// `--description` flags. An unrecognised `pr edit` subcommand falls through to `pr`'s own
-    /// default action, which — for anything other than exactly one bare positional — silently
-    /// runs a plain `pr list` instead of erring, so this call likely does the wrong thing
-    /// quietly rather than failing loud. Needs its own investigation/task before relying on it;
-    /// see this task's final report.
+    /// This member therefore **refuses structurally, before any spawn**, rather than silently
+    /// mis-editing. Use `PrClose` (or tea's `reopen` subcommand) for state changes, or the Gitea
+    /// REST API for a genuine title/body edit. Kept for signature parity with the GitHub/GitLab
+    /// clients.
     member _.PrEdit(dir: string, number: uint64, edit: PrEdit) =
         task {
-            match edit.Title, edit.Body with
-            | None, None ->
-                return Error(ProcessError.Spawn(BINARY, "pr edit requires at least a title or a body to change"))
-            | _ ->
-                let args =
-                    [ "pr"; "edit"; string number ]
-                    @ (match edit.Title with
-                       | Some t -> [ "--title"; t ]
-                       | None -> [])
-                    @ (match edit.Body with
-                       | Some b -> [ "--description"; b ]
-                       | None -> [])
+            // tea 0.9.2 exposes no `pr edit` command, so there is no argv to build: refuse up
+            // front rather than let an unrecognised `pr edit` silently fall through to `pr list`.
+            // `dir`/`edit` are unused for the same reason — there is no command to pass them to.
+            ignore (dir, edit)
 
-                return! core.RunUnit(core.CommandIn(dir, args))
+            // Annotate the success type: with only an `Error` branch, F# would otherwise
+            // generalise the result's `Ok` type, turning this into a generic member.
+            let refusal: Result<unit, ProcessError> =
+                Error(
+                    ProcessError.Spawn(
+                        BINARY,
+                        sprintf
+                            "tea 0.9.2 has no `pr edit` command — cannot edit PR #%d's title/description (an unrecognised `pr edit` silently falls through to `pr list`); use close/reopen for state changes or the Gitea REST API for a title/body edit"
+                            number
+                    )
+                )
+
+            return refusal
         }
 
     // --- Issues / releases ---------------------------------------------------
@@ -524,7 +528,8 @@ and [<Sealed>] GiteaAt internal (gitea: Gitea, dir: string) =
     /// Add a comment to a pull request (`tea comment <index> <body>`).
     member _.PrComment(number: uint64, body: string) = gitea.PrComment(dir, number, body)
 
-    /// Edit a pull request's title and/or description (`tea pr edit <index> …`).
+    /// Editing a PR's title/description is **unsupported on `tea` 0.9.2** (no `pr edit`
+    /// command); refuses structurally before any spawn — see the dir-bound `PrEdit` (K-063).
     member _.PrEdit(number: uint64, edit: PrEdit) = gitea.PrEdit(dir, number, edit)
 
     /// Open issues for the bound `dir` (`tea issues list …`) — the previous, options-less

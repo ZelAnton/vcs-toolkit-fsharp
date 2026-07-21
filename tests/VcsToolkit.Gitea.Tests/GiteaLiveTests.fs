@@ -637,3 +637,80 @@ type GiteaLiveTests() =
                 sprintf "the forge's ReleaseList should contain %s" tag
             )
         }
+
+    [<Test>]
+    member _.PrEditIsUnsupportedBecauseTeaHasNoPrEditCommand() : Task =
+        task {
+            // The premise behind marking `Forge.PrEdit` Unsupported on Gitea (K-063): tea 0.9.2
+            // has no `pr edit` command at all, so an unrecognised `pr edit` silently falls through
+            // to the `pulls` default action (a plain `pr list`) instead of editing. This proves it
+            // against the real containerised server, at the same rigor as T-116's PrMerge fix —
+            // not just by reading tea's source.
+            let branch = sprintf "edit-%s" (Guid.NewGuid().ToString("N").Substring(0, 8))
+
+            do!
+                createFileOnBranch
+                    http
+                    baseUrl
+                    token
+                    owner
+                    repoName
+                    (branch + ".txt")
+                    (sprintf "content for %s\n" branch)
+                    "main"
+                    branch
+                    (sprintf "Add %s" branch)
+
+            let client = makeClient ()
+            let forge = Forge.FromGitea(clonePath, client)
+
+            let originalTitle = sprintf "Live edit PR %s" branch
+
+            let spec =
+                PrCreate.Create(originalTitle, "PR body").WithSource(branch).WithTarget "main"
+
+            let! created = forge.PrCreate spec
+            expectOk "PrCreate" created |> ignore
+
+            let! listed = client.At(clonePath).PrList()
+            let prs = expectOk "PrList (client)" listed
+
+            let number =
+                match
+                    prs
+                    |> List.tryFind (fun (pr: VcsToolkit.Gitea.PullRequest) -> pr.HeadBranch = branch)
+                with
+                | Some pr -> pr.Number
+                | None -> failTest (sprintf "the created PR for %s was not found among %d listed PRs" branch prs.Length)
+
+            // 1. The facade refuses structurally with `Unsupported` — no spawn, no silent no-op.
+            let! edited = forge.PrEdit(number, PrEdit.Create().WithTitle "This edit must not apply")
+
+            match edited with
+            | Ok() -> failTest "Forge.PrEdit must be Unsupported on Gitea, not silently succeed"
+            | Error err -> Assert.That(err.IsUnsupported, Is.True, sprintf "expected an Unsupported error, got %A" err)
+
+            // 2. Prove the premise empirically: invoking the RAW `tea pr edit` against the live
+            //    server does NOT change the title — tea has no such command, so it falls through
+            //    to `pr list` (exit 0, no edit). If a future tea ever adds `pr edit`, this fails
+            //    loudly, flagging that the Unsupported verdict should be revisited.
+            let rawEdit =
+                startProc
+                    "tea"
+                    [ "pr"; "edit"; string number; "--title"; "RAW tea pr edit must not apply" ]
+                    [ "XDG_CONFIG_HOME", teaConfigDir ]
+                    (Some clonePath)
+
+            let! afterRaw = forge.PrView number
+            let viewedAfterRaw = expectOk "PrView (after raw tea pr edit)" afterRaw
+
+            Assert.That(
+                viewedAfterRaw.Title,
+                Is.EqualTo originalTitle,
+                sprintf
+                    "real tea 0.9.2 has no `pr edit` command, so the title must be unchanged (raw exit=%d, stdout=%s, stderr=%s)"
+                    rawEdit.ExitCode
+                    rawEdit.StdOut
+                    rawEdit.StdErr
+            )
+        }

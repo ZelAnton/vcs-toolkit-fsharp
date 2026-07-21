@@ -512,19 +512,24 @@ type ClientTests() =
         }
 
     [<Test>]
-    member _.PrEditRejectsBothNoneAndBuildsDescription() : Task =
+    member _.PrEditRefusesStructurallyBecauseTeaHasNoPrEditCommand() : Task =
         task {
-            let refuse = permissive ()
+            // tea 0.9.2 has no `pr edit` command at all — an unrecognised `pr edit` silently
+            // falls through to a plain `pr list` instead of editing (K-063; confirmed against the
+            // real tea 0.9.2 binary and its Go source). `Gitea.PrEdit` therefore refuses BEFORE
+            // any spawn for every input. `permissive` answers any spawn with `Ok ""`, so an
+            // `Error` here proves the refusal happened without ever reaching the runner.
+            let tea = permissive ()
 
-            match! refuse.PrEdit(".", 7UL, PrEdit.Create()) with
+            match! tea.PrEdit(".", 7UL, PrEdit.Create()) with
             | Error _ -> ()
-            | Ok() -> Assert.Fail "an edit with nothing to change must be refused before spawning"
+            | Ok() -> Assert.Fail "PrEdit must be refused (tea has no `pr edit` command), even with nothing to change"
 
-            let tea, args = capturing (Reply.Ok "")
-
-            match! tea.PrEdit(".", 7UL, PrEdit.Create().WithBody("New body")) with
-            | Ok() -> assertArgs [ "pr"; "edit"; "7"; "--description"; "New body" ] args
-            | Error e -> Assert.Fail $"pr edit failed: {e}"
+            match! tea.PrEdit(".", 7UL, PrEdit.Create().WithTitle("New title").WithBody("New body")) with
+            | Error e -> Assert.That($"%A{e}", Does.Contain "pr edit")
+            | Ok() ->
+                Assert.Fail
+                    "PrEdit must be refused before spawning even when title/body are set (tea has no `pr edit` command)"
         }
 
     [<Test>]
