@@ -22,8 +22,8 @@
 	-->
 	<ItemGroup>
 		<PackageVersion Include="FSharp.Core" Version="10.1.300" />
-		<PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.7.0" />
-		<PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.300" />
+		<PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
+		<PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.301" />
 		<PackageVersion Include="NUnit" Version="4.6.1" />
 		<PackageVersion Include="NUnit3TestAdapter" Version="6.2.0" />
 		<!-- Property-based testing on top of NUnit; pinned to the FsCheck.NUnit release whose
@@ -46,15 +46,15 @@
 	     (ScriptedRunner/Reply) — a TEST-only dependency, now also published on nuget.org
 	     (no local feed / vendoring). -->
 	<ItemGroup>
-		<PackageVersion Include="ProcessKit" Version="2.4.0" />
-		<PackageVersion Include="ProcessKit.Testing" Version="2.4.0" />
+		<PackageVersion Include="ProcessKit" Version="2.4.2" />
+		<PackageVersion Include="ProcessKit.Testing" Version="2.4.2" />
 	</ItemGroup>
 
 	<!-- VcsToolkit.Mcp dependencies: clean F#→JSON for tool results, and the Model Context
 	     Protocol server SDK (+ its Hosting glue) for the vcs-mcp binary. -->
 	<ItemGroup>
 		<PackageVersion Include="FSharp.SystemTextJson" Version="1.4.36" />
-		<PackageVersion Include="ModelContextProtocol" Version="1.4.0" />
-		<PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.9" />
+		<PackageVersion Include="ModelContextProtocol" Version="1.4.1" />
+		<PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
 	</ItemGroup>
 </Project>
