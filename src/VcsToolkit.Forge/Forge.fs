@@ -257,6 +257,13 @@ type Forge private (cwd: string, backend: Backend) =
     /// dispatch.
     member this.SupportsCloseDeleteBranch = ForgeSupport.closeDeleteBranch this.Kind
 
+    /// Whether this handle's backend honours `ReleaseCreate`'s `Draft`/`Prerelease` options —
+    /// real `gh`/`tea` flags on GitHub and Gitea, but unsupported on GitLab (whose `glab` has no
+    /// release draft/pre-release concept) and an `Unknown` handle, where a spec asking for either
+    /// is refused with `Unsupported` before any spawn. A plain release works everywhere regardless.
+    /// Agrees with `ReleaseCreate`'s dispatch.
+    member this.SupportsReleaseOptions = ForgeSupport.releaseOptions this.Kind
+
     // --- Auth / repo ---------------------------------------------------------
 
     /// Whether the user is authenticated (GitHub/GitLab: a zero-exit `auth status`;
@@ -594,3 +601,32 @@ type Forge private (cwd: string, backend: Backend) =
         | Backend.GitLab(c, _) -> GitLabForge.releaseView c cwd tag
         | Backend.Gitea _ -> task { return Error(ForgeError.Unsupported(ForgeKind.Gitea, "releaseView")) }
         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "releaseView")) }
+
+    /// Create a release for `tag`, returning the CLI's success output — the release URL on
+    /// GitHub/GitLab; `tea` prints a textual summary (no URL). `Draft`/`Prerelease` map to real
+    /// `gh`/`tea` flags on GitHub and Gitea; on GitLab — whose `glab` has no release
+    /// draft/pre-release concept — a spec asking for either is refused structurally with
+    /// `Unsupported` **before any spawn** (including the version probe), rather than silently
+    /// dropping the option. A plain release (tag + optional title/notes) works on all three.
+    /// Version-gated once the options pass: refused with `UnsupportedVersion` before spawning if
+    /// the CLI is below the wrapper's floor.
+    member _.ReleaseCreate(spec: ReleaseCreate) =
+        // The GitLab backend owns the "draft/prerelease is unsupported here" verdict; a hit
+        // short-circuits before `gated` so nothing spawns. No catch-all: a new spec option must
+        // decide its support at each backend explicitly.
+        let unsupported =
+            match backend with
+            | Backend.GitLab _ -> ForgeSupport.unsupportedReleaseCreate ForgeKind.GitLab spec
+            | Backend.GitHub _
+            | Backend.Gitea _
+            | Backend.Unknown -> None
+
+        match unsupported with
+        | Some e -> task { return Error e }
+        | None ->
+            gated backend "releaseCreate" (fun () ->
+                match backend with
+                | Backend.GitHub(c, _) -> GitHubForge.releaseCreate c cwd spec
+                | Backend.GitLab(c, _) -> GitLabForge.releaseCreate c cwd spec
+                | Backend.Gitea(c, _) -> GiteaForge.releaseCreate c cwd spec
+                | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "releaseCreate")) })

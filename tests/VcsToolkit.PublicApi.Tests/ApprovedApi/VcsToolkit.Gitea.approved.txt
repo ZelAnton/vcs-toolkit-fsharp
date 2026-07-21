@@ -29,6 +29,7 @@ namespace VcsToolkit.Gitea
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> PrMerge(string dir, ulong number, VcsToolkit.Gitea.MergeStrategy strategy) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> PrReject(string dir, ulong number, string reason) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Gitea.PullRequest, ProcessKit.ProcessError>> PrView(string dir, ulong number) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> ReleaseCreate(string dir, VcsToolkit.Gitea.ReleaseCreate spec) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Gitea.Release>, ProcessKit.ProcessError>> ReleaseList(string dir) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> Run(System.Collections.Generic.IEnumerable<string> args) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> Run(string dir, System.Collections.Generic.IEnumerable<string> args) { }
@@ -64,6 +65,7 @@ namespace VcsToolkit.Gitea
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> PrMerge(ulong number, VcsToolkit.Gitea.MergeStrategy strategy) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> PrReject(ulong number, string reason) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Gitea.PullRequest, ProcessKit.ProcessError>> PrView(ulong number) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> ReleaseCreate(VcsToolkit.Gitea.ReleaseCreate spec) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Gitea.Release>, ProcessKit.ProcessError>> ReleaseList() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> Run(System.Collections.Generic.IEnumerable<string> args) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<ProcessKit.ProcessResult<string>, ProcessKit.ProcessError>> RunRaw(System.Collections.Generic.IEnumerable<string> args) { }
@@ -236,5 +238,27 @@ namespace VcsToolkit.Gitea
         public string Title { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 5)]
         public string Url { get; }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class ReleaseCreate : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Gitea.ReleaseCreate>, System.IEquatable<VcsToolkit.Gitea.ReleaseCreate>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Gitea.ReleaseCreate))]
+        public ReleaseCreate(string tag, Microsoft.FSharp.Core.FSharpOption<string>? title, Microsoft.FSharp.Core.FSharpOption<string>? notes, bool draft, bool prerelease) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+        public bool Draft { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? Notes { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+        public bool Prerelease { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public string Tag { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? Title { get; }
+        public VcsToolkit.Gitea.ReleaseCreate WithDraft() { }
+        public VcsToolkit.Gitea.ReleaseCreate WithNotes(string notes) { }
+        public VcsToolkit.Gitea.ReleaseCreate WithPrerelease() { }
+        public VcsToolkit.Gitea.ReleaseCreate WithTitle(string title) { }
+        public static VcsToolkit.Gitea.ReleaseCreate Create(string tag) { }
     }
 }

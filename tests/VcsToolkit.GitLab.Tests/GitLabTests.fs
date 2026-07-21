@@ -299,6 +299,32 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.ReleaseCreateBuildsNameAndNotesWithExactValues() : Task =
+        task {
+            let glab, args = capturing (Reply.Ok "https://gl/releases/v1\n")
+
+            match!
+                glab.ReleaseCreate(".", ReleaseCreate.Create("v1.0.0").WithTitle("1.0.0").WithNotes("the notes"))
+            with
+            | Ok url ->
+                Assert.That(url, Is.EqualTo "https://gl/releases/v1")
+                assertArgs [ "release"; "create"; "v1.0.0"; "--name"; "1.0.0"; "--notes"; "the notes" ] args
+            | Error e -> Assert.Fail $"release create failed: {e}"
+        }
+
+    [<Test>]
+    member _.ReleaseCreateOmitsNameAndNotesWhenNone() : Task =
+        task {
+            // A tag-only release emits neither --name nor --notes (glab defaults them); glab has
+            // no draft/pre-release flags, so none appear.
+            let glab, args = capturing (Reply.Ok "u\n")
+
+            match! glab.ReleaseCreate(".", ReleaseCreate.Create "v2") with
+            | Ok _ -> assertArgs [ "release"; "create"; "v2" ] args
+            | Error e -> Assert.Fail $"release create failed: {e}"
+        }
+
+    [<Test>]
     member _.MrMergeImmediateWithoutStrategyFlag() : Task =
         task {
             // The default Merge strategy adds NO extra flag, but keeps --auto-merge=false.
@@ -511,12 +537,16 @@ type SemanticsTests() =
             let! b = isErr (glab.Api(".", ""))
             let! c = isErr (glab.ReleaseView(".", "--cleanup-tag"))
             let! d = isErr (glab.ReleaseView(".", ""))
+            let! e = isErr (glab.ReleaseCreate(".", ReleaseCreate.Create "--draft"))
+            let! f = isErr (glab.ReleaseCreate(".", ReleaseCreate.Create ""))
 
             for flag, name in
                 [ a, "api dash"
                   b, "api empty"
                   c, "release view dash"
-                  d, "release view empty" ] do
+                  d, "release view empty"
+                  e, "release create dash tag"
+                  f, "release create empty tag" ] do
                 Assert.That(flag, Is.True, $"{name} must be refused")
 
             let ok = scripted [ "api"; "projects/1" ] (Reply.Ok "{}\n")
@@ -545,13 +575,15 @@ type SemanticsTests() =
             let! c = isErr (glab.IssueCreate(".", "Title", "-"))
             let! d = isErr (glab.MrComment(".", 7UL, "-"))
             let! e = isErr (glab.IssueComment(".", 7UL, "-"))
+            let! f = isErr (glab.ReleaseCreate(".", ReleaseCreate.Create("v1").WithNotes("-")))
 
             for flag, name in
                 [ a, "mr create"
                   b, "mr edit"
                   c, "issue create"
                   d, "mr comment"
-                  e, "issue comment" ] do
+                  e, "issue comment"
+                  f, "release create notes" ] do
                 Assert.That(flag, Is.True, $"{name} with body \"-\" must be refused before spawning")
 
             // MrEdit with a title but no body must NOT be rejected by the dash check.

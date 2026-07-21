@@ -379,6 +379,46 @@ type PrEdit =
     /// Set the new body (`--body`).
     member this.WithBody(body: string) = { this with Body = Some body }
 
+/// Options for `releaseCreate` (`gh release create`). Build it through
+/// `ReleaseCreate.Create` (the tag) and the chained setters. `Notes` is always emitted
+/// (empty when unset) — like `prComment`'s `--body`, omitting a notes source makes
+/// `gh release create` fall back to an interactive editor prompt that would hang a
+/// headless run; `Title` is left to gh's default (the tag) when unset.
+type ReleaseCreate =
+    {
+        /// The Git tag the release is attached to — a bare positional, rejected if empty
+        /// or `-`-leading before spawning.
+        Tag: string
+        /// The release title (`--title`); `None` lets gh default it to the tag.
+        Title: string option
+        /// The release notes (`--notes`); `None` emits empty notes (never a prompt).
+        Notes: string option
+        /// Create as an unpublished draft (`--draft`).
+        Draft: bool
+        /// Mark as a pre-release (`--prerelease`).
+        Prerelease: bool
+    }
+
+    /// A published release on `tag`, titled by gh's default (the tag) with empty notes.
+    static member Create(tag: string) =
+        { Tag = tag
+          Title = None
+          Notes = None
+          Draft = false
+          Prerelease = false }
+
+    /// Set the release title (`--title`) instead of gh's tag default.
+    member this.WithTitle(title: string) = { this with Title = Some title }
+
+    /// Set the release notes (`--notes`).
+    member this.WithNotes(notes: string) = { this with Notes = Some notes }
+
+    /// Create as an unpublished draft (`--draft`).
+    member this.WithDraft() = { this with Draft = true }
+
+    /// Mark as a pre-release (`--prerelease`).
+    member this.WithPrerelease() = { this with Prerelease = true }
+
 /// Which kind of review `prReview` submits.
 [<RequireQualifiedAccess>]
 type ReviewKind =

@@ -745,5 +745,52 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
                         | Ok() -> return Ok(Json.ok {| reviewed = number |})
             })
 
+    /// Create a release on the configured forge for a Git tag, returning the CLI's output (the
+    /// release URL on GitHub/GitLab). A remote-only mutation — it never touches the local working
+    /// copy — so it uses `WithForgeWrite` (write gate only), NOT the per-repo lock the
+    /// local-mutating forge writes hold (K-003), the same class as `forge_pr_create`. `draft`/
+    /// `prerelease` are refused as `Unsupported` on GitLab before any spawn.
+    member this.ForgeReleaseCreate
+        (tag: string, title: string option, notes: string option, draft: bool, prerelease: bool)
+        =
+        this.WithForgeWrite "forge_release_create" (fun f ->
+            task {
+                // Belt-and-braces argv guard on the free-text fields (a leading `-` would read as a
+                // flag; `tag` also lands in a bare positional on gh/glab), matching
+                // forge_issue_create/forge_pr_create.
+                let guard =
+                    [ "tag", tag ]
+                    @ (match title with
+                       | Some t -> [ "title", t ]
+                       | Option.None -> [])
+                    @ (match notes with
+                       | Some n -> [ "notes", n ]
+                       | Option.None -> [])
+                    |> List.tryPick (fun (what, value) ->
+                        match guardArgvField what value with
+                        | Error e -> Some e
+                        | Ok() -> Option.None)
+
+                match guard with
+                | Some e -> return Error e
+                | Option.None ->
+                    let spec =
+                        ReleaseCreate.Create tag
+                        |> fun s ->
+                            match title with
+                            | Some t -> s.WithTitle t
+                            | Option.None -> s
+                        |> fun s ->
+                            match notes with
+                            | Some n -> s.WithNotes n
+                            | Option.None -> s
+                        |> fun s -> if draft then s.WithDraft() else s
+                        |> fun s -> if prerelease then s.WithPrerelease() else s
+
+                    match! f.ReleaseCreate spec with
+                    | Error e -> return Error(forgeErr e)
+                    | Ok out -> return Ok(Json.ok {| output = out |})
+            })
+
     interface IDisposable with
         member _.Dispose() = writeLock.Dispose()

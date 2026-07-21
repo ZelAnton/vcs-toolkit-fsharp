@@ -527,6 +527,45 @@ type ClientTests() =
             | Error e -> Assert.Fail $"release list failed: {e}"
         }
 
+    [<Test>]
+    member _.ReleaseCreateBuildsAllFlagsWithExactValues() : Task =
+        task {
+            let tea, args = capturing (Reply.Ok "Created release\n")
+
+            let spec =
+                ReleaseCreate.Create("v1.0.0").WithTitle("1.0.0").WithNotes("the notes").WithDraft().WithPrerelease()
+
+            match! tea.ReleaseCreate(".", spec) with
+            | Ok out ->
+                Assert.That(out, Is.EqualTo "Created release")
+
+                assertArgs
+                    [ "release"
+                      "create"
+                      "--tag"
+                      "v1.0.0"
+                      "--title"
+                      "1.0.0"
+                      "--note"
+                      "the notes"
+                      "--draft"
+                      "--prerelease" ]
+                    args
+            | Error e -> Assert.Fail $"release create failed: {e}"
+        }
+
+    [<Test>]
+    member _.ReleaseCreateOmitsTitleNotesAndFlagsWhenNone() : Task =
+        task {
+            // A tag-only release emits only `--tag`; title/note and the draft/prerelease flags
+            // are absent when unset.
+            let tea, args = capturing (Reply.Ok "ok\n")
+
+            match! tea.ReleaseCreate(".", ReleaseCreate.Create "v2") with
+            | Ok _ -> assertArgs [ "release"; "create"; "--tag"; "v2" ] args
+            | Error e -> Assert.Fail $"release create failed: {e}"
+        }
+
 // ---------------------------------------------------------------------------
 // auth_status (login-list based) and the injection guard on the bare comment body
 // ---------------------------------------------------------------------------

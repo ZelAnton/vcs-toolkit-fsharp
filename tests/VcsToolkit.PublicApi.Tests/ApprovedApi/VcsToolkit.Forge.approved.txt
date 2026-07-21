@@ -26,6 +26,7 @@ namespace VcsToolkit.Forge
         public VcsToolkit.Forge.ForgeKind Kind { get; }
         public bool SupportsCloseDeleteBranch { get; }
         public bool SupportsMergeOptions { get; }
+        public bool SupportsReleaseOptions { get; }
         public VcsToolkit.Forge.Forge At(string dir) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<bool, VcsToolkit.Forge.ForgeError>> AuthStatus() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Forge.ForgeCapabilities, VcsToolkit.Forge.ForgeError>> Capabilities() { }
@@ -48,6 +49,7 @@ namespace VcsToolkit.Forge
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Forge.ForgeError>> PrMerge(ulong number, VcsToolkit.Forge.PrMerge merge) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Forge.ForgeError>> PrReview(ulong number, VcsToolkit.Forge.ReviewAction action) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Forge.ForgePr, VcsToolkit.Forge.ForgeError>> PrView(ulong number) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Forge.ForgeError>> ReleaseCreate(VcsToolkit.Forge.ReleaseCreate spec) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Forge.ForgeRelease>, VcsToolkit.Forge.ForgeError>> ReleaseList() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Forge.ForgeRelease, VcsToolkit.Forge.ForgeError>> ReleaseView(string tag) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Forge.ForgeRepo, VcsToolkit.Forge.ForgeError>> RepoView() { }
@@ -390,6 +392,28 @@ namespace VcsToolkit.Forge
         public static VcsToolkit.Forge.PrMerge Squash { get; }
         public VcsToolkit.Forge.PrMerge WithAuto() { }
         public VcsToolkit.Forge.PrMerge WithDeleteBranch() { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class ReleaseCreate : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Forge.ReleaseCreate>, System.IEquatable<VcsToolkit.Forge.ReleaseCreate>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Forge.ReleaseCreate))]
+        public ReleaseCreate(string tag, Microsoft.FSharp.Core.FSharpOption<string>? title, Microsoft.FSharp.Core.FSharpOption<string>? notes, bool draft, bool prerelease) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+        public bool Draft { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? Notes { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+        public bool Prerelease { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public string Tag { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? Title { get; }
+        public VcsToolkit.Forge.ReleaseCreate WithDraft() { }
+        public VcsToolkit.Forge.ReleaseCreate WithNotes(string notes) { }
+        public VcsToolkit.Forge.ReleaseCreate WithPrerelease() { }
+        public VcsToolkit.Forge.ReleaseCreate WithTitle(string title) { }
+        public static VcsToolkit.Forge.ReleaseCreate Create(string tag) { }
     }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.ObjectType)]
     [Microsoft.FSharp.Core.Sealed]

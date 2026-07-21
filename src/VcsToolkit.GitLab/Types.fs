@@ -175,6 +175,34 @@ type MrEdit =
     /// Set the new description (`--description`).
     member this.WithBody(body: string) = { this with Body = Some body }
 
+/// Options for `releaseCreate` (`glab release create`). Build it through
+/// `ReleaseCreate.Create` (the tag) and the chained setters. `glab` has no release
+/// draft/pre-release concept, so — unlike the GitHub/Gitea specs — this carries no such
+/// options (the `Forge` facade refuses a draft/pre-release request on GitLab before any
+/// spawn).
+type ReleaseCreate =
+    {
+        /// The Git tag the release is attached to — a bare positional, rejected if empty
+        /// or `-`-leading before spawning.
+        Tag: string
+        /// The release title (`--name`); `None` lets glab default it.
+        Title: string option
+        /// The release notes / description (`--notes`); `None` omits it.
+        Notes: string option
+    }
+
+    /// A release on `tag`, name/notes left to glab's defaults.
+    static member Create(tag: string) =
+        { Tag = tag
+          Title = None
+          Notes = None }
+
+    /// Set the release title (`--name`).
+    member this.WithTitle(title: string) = { this with Title = Some title }
+
+    /// Set the release notes / description (`--notes`).
+    member this.WithNotes(notes: string) = { this with Notes = Some notes }
+
 /// What the installed `glab` binary supports, probed via `GitLab.Capabilities`.
 type GitLabCapabilities =
     {

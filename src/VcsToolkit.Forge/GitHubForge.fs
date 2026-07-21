@@ -344,3 +344,22 @@ module internal GitHubForge =
             | Error e -> return Error(ForgeError.Forge e)
             | Ok release -> return Ok(mapRelease release)
         }
+
+    let releaseCreate (gh: VcsToolkit.GitHub.GitHub) (dir: string) (spec: ReleaseCreate) =
+        task {
+            let create =
+                VcsToolkit.GitHub.ReleaseCreate.Create spec.Tag
+                |> fun c ->
+                    match spec.Title with
+                    | Some t -> c.WithTitle t
+                    | None -> c
+                |> fun c ->
+                    match spec.Notes with
+                    | Some n -> c.WithNotes n
+                    | None -> c
+                |> fun c -> if spec.Draft then c.WithDraft() else c
+                |> fun c -> if spec.Prerelease then c.WithPrerelease() else c
+
+            let! r = gh.ReleaseCreate(dir, create)
+            return ofForge r
+        }

@@ -459,6 +459,29 @@ type GitHub private (core: ManagedClient) =
                     )
         }
 
+    /// Create a release on `tag`, returning its URL (`gh release create <tag> [--title …]
+    /// --notes … [--draft] [--prerelease]`). The tag lands in a bare positional slot, so an
+    /// empty or `-`-leading value is refused before spawning; the `--title`/`--notes` values
+    /// are consumed verbatim. `--notes` is always emitted (empty when unset) — like
+    /// `PrComment`'s `--body`, omitting a notes source makes `gh release create` fall back to
+    /// an interactive editor prompt that would hang a headless run. See `ReleaseCreate`.
+    member _.ReleaseCreate(dir: string, spec: ReleaseCreate) =
+        task {
+            match checkFlags BINARY [ "tag", spec.Tag ] with
+            | Error e -> return Error e
+            | Ok() ->
+                let args =
+                    [ "release"; "create"; spec.Tag ]
+                    @ (match spec.Title with
+                       | Some t -> [ "--title"; t ]
+                       | None -> [])
+                    @ [ "--notes"; (defaultArg spec.Notes "") ]
+                    @ (if spec.Draft then [ "--draft" ] else [])
+                    @ (if spec.Prerelease then [ "--prerelease" ] else [])
+
+                return! core.Run(core.CommandIn(dir, args))
+        }
+
     /// A view of this client bound to repository `dir`: modelled methods drop their leading
     /// `dir` argument, and the raw `Run`/`RunRaw` hatches run in the bound `dir` too.
     member this.At(dir: string) : GitHubAt = GitHubAt(this, dir)
@@ -584,3 +607,6 @@ and [<Sealed>] GitHubAt internal (github: GitHub, dir: string) =
 
     /// A single release by tag (`gh release view <tag> --json …`).
     member _.ReleaseView(tag: string) = github.ReleaseView(dir, tag)
+
+    /// Create a release on `tag` (`gh release create <tag> …`).
+    member _.ReleaseCreate(spec: ReleaseCreate) = github.ReleaseCreate(dir, spec)

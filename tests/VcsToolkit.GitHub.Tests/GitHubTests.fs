@@ -696,12 +696,16 @@ type SemanticsTests() =
             let! b = isErr (gh.Api(".", ""))
             let! c = isErr (gh.ReleaseView(".", "--cleanup-tag"))
             let! d = isErr (gh.ReleaseView(".", ""))
+            let! e = isErr (gh.ReleaseCreate(".", ReleaseCreate.Create "--draft"))
+            let! f = isErr (gh.ReleaseCreate(".", ReleaseCreate.Create ""))
 
             for flag, name in
                 [ a, "api dash"
                   b, "api empty"
                   c, "release view dash"
-                  d, "release view empty" ] do
+                  d, "release view empty"
+                  e, "release create dash tag"
+                  f, "release create empty tag" ] do
                 Assert.That(flag, Is.True, $"{name} must be refused")
 
             // …and a legitimate endpoint still passes through.
@@ -731,6 +735,44 @@ type HardeningTests() =
                 // No --head / --base when neither was set (subset matching can't prove this).
                 assertArgs [ "pr"; "create"; "--title"; "T"; "--body"; "B" ] args
             | Error e -> Assert.Fail $"pr create failed: {e}"
+        }
+
+    [<Test>]
+    member _.ReleaseCreateBuildsAllFlagsWithExactValues() : Task =
+        task {
+            let gh, args = capturing (Reply.Ok "https://gh/releases/v1\n")
+
+            let spec =
+                ReleaseCreate.Create("v1.0.0").WithTitle("1.0.0").WithNotes("the notes").WithDraft().WithPrerelease()
+
+            match! gh.ReleaseCreate(".", spec) with
+            | Ok url ->
+                Assert.That(url, Is.EqualTo "https://gh/releases/v1")
+
+                assertArgs
+                    [ "release"
+                      "create"
+                      "v1.0.0"
+                      "--title"
+                      "1.0.0"
+                      "--notes"
+                      "the notes"
+                      "--draft"
+                      "--prerelease" ]
+                    args
+            | Error e -> Assert.Fail $"release create failed: {e}"
+        }
+
+    [<Test>]
+    member _.ReleaseCreateOmitsTitleAndAlwaysEmitsNotesWhenNone() : Task =
+        task {
+            // Title is omitted when unset (gh defaults it to the tag), but --notes is ALWAYS
+            // emitted (empty here) so gh never falls back to its interactive editor prompt.
+            let gh, args = capturing (Reply.Ok "u\n")
+
+            match! gh.ReleaseCreate(".", ReleaseCreate.Create "v2") with
+            | Ok _ -> assertArgs [ "release"; "create"; "v2"; "--notes"; "" ] args
+            | Error e -> Assert.Fail $"release create failed: {e}"
         }
 
     [<Test>]

@@ -364,6 +364,24 @@ type Gitea private (core: ManagedClient) =
             GiteaParse.parseReleaseList
         )
 
+    /// Create a release, returning the command's textual output (`tea release create --tag
+    /// <tag> [--title …] [--note …] [--draft] [--prerelease]`). Tag/title/note are all flag
+    /// values, consumed verbatim. Unlike gh/glab, `tea` prints a summary, not a bare URL. See
+    /// `ReleaseCreate`.
+    member _.ReleaseCreate(dir: string, spec: ReleaseCreate) =
+        let args =
+            [ "release"; "create"; "--tag"; spec.Tag ]
+            @ (match spec.Title with
+               | Some t -> [ "--title"; t ]
+               | None -> [])
+            @ (match spec.Notes with
+               | Some n -> [ "--note"; n ]
+               | None -> [])
+            @ (if spec.Draft then [ "--draft" ] else [])
+            @ (if spec.Prerelease then [ "--prerelease" ] else [])
+
+        core.Run(core.CommandIn(dir, args))
+
     /// A view of this client bound to repository `dir`: modelled methods drop their leading
     /// `dir` argument, and the raw `Run`/`RunRaw` hatches run in the bound `dir` too.
     member this.At(dir: string) : GiteaAt = GiteaAt(this, dir)
@@ -452,3 +470,6 @@ and [<Sealed>] GiteaAt internal (gitea: Gitea, dir: string) =
 
     /// Releases for the bound `dir` (`tea releases list …`).
     member _.ReleaseList() = gitea.ReleaseList dir
+
+    /// Create a release (`tea release create --tag <tag> …`).
+    member _.ReleaseCreate(spec: ReleaseCreate) = gitea.ReleaseCreate(dir, spec)

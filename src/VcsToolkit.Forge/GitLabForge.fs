@@ -322,3 +322,23 @@ module internal GitLabForge =
             | Error e -> return Error(ForgeError.Forge e)
             | Ok release -> return Ok(mapRelease release)
         }
+
+    let releaseCreate (glab: VcsToolkit.GitLab.GitLab) (dir: string) (spec: ReleaseCreate) =
+        task {
+            // glab has no release draft/pre-release flags; a spec asking for either is refused by
+            // the facade's `ForgeSupport.unsupportedReleaseCreate` gate before dispatch, so only
+            // the tag/title/notes reach the client here (the GitLab client spec omits them).
+            let create =
+                VcsToolkit.GitLab.ReleaseCreate.Create spec.Tag
+                |> fun c ->
+                    match spec.Title with
+                    | Some t -> c.WithTitle t
+                    | None -> c
+                |> fun c ->
+                    match spec.Notes with
+                    | Some n -> c.WithNotes n
+                    | None -> c
+
+            let! r = glab.ReleaseCreate(dir, create)
+            return ofForge r
+        }

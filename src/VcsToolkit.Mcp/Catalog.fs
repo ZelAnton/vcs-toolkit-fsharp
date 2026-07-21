@@ -527,6 +527,34 @@ module internal Catalog =
                   JsonType = "string"
                   Description =
                     "The review body (markdown). Required for request_changes and comment; optional for approve."
+                  Required = false } ]
+          // A creating call, so never idempotent (each call makes a new release); non-destructive.
+          // draft/prerelease are GitHub/Gitea-only — on GitLab either is refused as Unsupported
+          // before any spawn.
+          write
+              "forge_release_create"
+              "Create a release on the configured forge for a Git tag, returning the CLI's output (the release URL on GitHub/GitLab). draft/prerelease are GitHub/Gitea-only; on GitLab either is refused as Unsupported."
+              false
+              false
+              [ { Name = "tag"
+                  JsonType = "string"
+                  Description = "The Git tag to attach the release to."
+                  Required = true }
+                { Name = "title"
+                  JsonType = "string"
+                  Description = "Release title; omit to let the forge default it (commonly to the tag)."
+                  Required = false }
+                { Name = "notes"
+                  JsonType = "string"
+                  Description = "Release notes (markdown); omit for none."
+                  Required = false }
+                { Name = "draft"
+                  JsonType = "boolean"
+                  Description = "Create as an unpublished draft (GitHub/Gitea only; refused as Unsupported on GitLab)."
+                  Required = false }
+                { Name = "prerelease"
+                  JsonType = "boolean"
+                  Description = "Mark as a pre-release (GitHub/Gitea only; refused as Unsupported on GitLab)."
                   Required = false } ] ]
 
     /// The JSON-Schema `inputSchema` object for a tool spec.
@@ -655,4 +683,11 @@ module internal Catalog =
             bind (reqU64 args "number") (fun number ->
                 bind (reqStr args "kind") (fun kind ->
                     bind (optStr args "body") (fun body -> server.ForgePrReview(number, kind, body))))
+        | "forge_release_create" ->
+            bind (reqStr args "tag") (fun tag ->
+                bind (optStr args "title") (fun title ->
+                    bind (optStr args "notes") (fun notes ->
+                        bind (optBool args "draft") (fun draft ->
+                            bind (optBool args "prerelease") (fun prerelease ->
+                                server.ForgeReleaseCreate(tag, title, notes, draft, prerelease))))))
         | unknown -> task { return Error(McpError.InvalidParams(sprintf "unknown tool %A" unknown)) }

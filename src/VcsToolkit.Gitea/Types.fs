@@ -193,6 +193,43 @@ type PrEdit =
     /// Set the new description (`--description`).
     member this.WithBody(body: string) = { this with Body = Some body }
 
+/// Options for `releaseCreate` (`tea release create`). Build it through
+/// `ReleaseCreate.Create` (the tag) and the chained setters. Tag/title/note are all flag
+/// values on `tea` (`--tag`/`--title`/`--note`), so they are consumed verbatim.
+type ReleaseCreate =
+    {
+        /// The Git tag the release is attached to (`--tag`).
+        Tag: string
+        /// The release title (`--title`); `None` lets tea default it.
+        Title: string option
+        /// The release notes (`--note`); `None` omits it.
+        Notes: string option
+        /// Create as an unpublished draft (`--draft`).
+        Draft: bool
+        /// Mark as a pre-release (`--prerelease`).
+        Prerelease: bool
+    }
+
+    /// A published release on `tag`, title/note left to tea's defaults.
+    static member Create(tag: string) =
+        { Tag = tag
+          Title = None
+          Notes = None
+          Draft = false
+          Prerelease = false }
+
+    /// Set the release title (`--title`).
+    member this.WithTitle(title: string) = { this with Title = Some title }
+
+    /// Set the release notes (`--note`).
+    member this.WithNotes(notes: string) = { this with Notes = Some notes }
+
+    /// Create as an unpublished draft (`--draft`).
+    member this.WithDraft() = { this with Draft = true }
+
+    /// Mark as a pre-release (`--prerelease`).
+    member this.WithPrerelease() = { this with Prerelease = true }
+
 /// What the installed `tea` binary supports, probed via `Gitea.Capabilities`.
 type GiteaCapabilities =
     {

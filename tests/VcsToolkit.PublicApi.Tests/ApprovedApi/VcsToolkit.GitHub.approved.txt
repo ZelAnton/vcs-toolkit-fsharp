@@ -89,6 +89,7 @@ namespace VcsToolkit.GitHub
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> PrMerge(string dir, ulong number, VcsToolkit.GitHub.PrMerge merge) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> PrReview(string dir, ulong number, VcsToolkit.GitHub.ReviewAction action) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitHub.PullRequest, ProcessKit.ProcessError>> PrView(string dir, ulong number) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> ReleaseCreate(string dir, VcsToolkit.GitHub.ReleaseCreate spec) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitHub.Release>, ProcessKit.ProcessError>> ReleaseList(string dir) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitHub.Release, ProcessKit.ProcessError>> ReleaseView(string dir, string tag) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitHub.Repo, ProcessKit.ProcessError>> RepoView(string dir) { }
@@ -139,6 +140,7 @@ namespace VcsToolkit.GitHub
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> PrMerge(ulong number, VcsToolkit.GitHub.PrMerge merge) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> PrReview(ulong number, VcsToolkit.GitHub.ReviewAction action) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitHub.PullRequest, ProcessKit.ProcessError>> PrView(ulong number) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> ReleaseCreate(VcsToolkit.GitHub.ReleaseCreate spec) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitHub.Release>, ProcessKit.ProcessError>> ReleaseList() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitHub.Release, ProcessKit.ProcessError>> ReleaseView(string tag) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitHub.Repo, ProcessKit.ProcessError>> RepoView() { }
@@ -369,6 +371,28 @@ namespace VcsToolkit.GitHub
         public string TagName { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
         public string Url { get; }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class ReleaseCreate : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.GitHub.ReleaseCreate>, System.IEquatable<VcsToolkit.GitHub.ReleaseCreate>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.GitHub.ReleaseCreate))]
+        public ReleaseCreate(string tag, Microsoft.FSharp.Core.FSharpOption<string>? title, Microsoft.FSharp.Core.FSharpOption<string>? notes, bool draft, bool prerelease) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+        public bool Draft { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? Notes { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+        public bool Prerelease { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public string Tag { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? Title { get; }
+        public VcsToolkit.GitHub.ReleaseCreate WithDraft() { }
+        public VcsToolkit.GitHub.ReleaseCreate WithNotes(string notes) { }
+        public VcsToolkit.GitHub.ReleaseCreate WithPrerelease() { }
+        public VcsToolkit.GitHub.ReleaseCreate WithTitle(string title) { }
+        public static VcsToolkit.GitHub.ReleaseCreate Create(string tag) { }
     }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
     [System.Serializable]

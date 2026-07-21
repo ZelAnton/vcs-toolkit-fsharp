@@ -345,6 +345,13 @@ type DispatchTests() =
         Assert.That(tea.SupportsCloseDeleteBranch, Is.False)
         Assert.That(unknown.SupportsCloseDeleteBranch, Is.False)
 
+        // Release draft/pre-release options: honoured on GitHub and Gitea (real `gh`/`tea`
+        // flags), but GitLab has no such concept and the Unknown handle no CLI.
+        Assert.That(gh.SupportsReleaseOptions, Is.True)
+        Assert.That(gl.SupportsReleaseOptions, Is.False)
+        Assert.That(tea.SupportsReleaseOptions, Is.True)
+        Assert.That(unknown.SupportsReleaseOptions, Is.False)
+
     [<Test>]
     member _.RawClientAccessorsReturnTheBackendClientOnly() =
         // Each `*Client` escape hatch is `Some` only for its own backend — the `Repo.Git`/`Repo.Jj`
@@ -1590,6 +1597,152 @@ type PrCloseSupportTests() =
             | Ok() -> ()
             | Error e -> Assert.Fail $"Gitea close without delete-branch must still work: {e.Message}"
         }
+
+// ---------------------------------------------------------------------------
+// Release creation: each backend dispatches to its native release-create subcommand;
+// GitHub/Gitea honour draft/pre-release while GitLab refuses either structurally before
+// spawning (glab has no such concept), the CLI-less Unknown handle is Unsupported, and the
+// op is version-gated like the other facade mutations.
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type ReleaseCreateTests() =
+
+    let isUnsupported (t: Task<Result<'T, ForgeError>>) =
+        task {
+            let! r = t
+
+            return
+                match r with
+                | Error e -> e.IsUnsupported
+                | Ok _ -> false
+        }
+
+    [<Test>]
+    member _.GitHubReleaseCreateReachesGhWithDraftAndPrerelease() : Task =
+        task {
+            let forge =
+                Forge.FromGitHub(
+                    ".",
+                    VcsToolkit.GitHub.GitHub.WithRunner(
+                        ScriptedRunner()
+                            .On([ "--version" ], Reply.Ok "gh version 2.40.0\n")
+                            .On(
+                                [ "release"
+                                  "create"
+                                  "v1"
+                                  "--title"
+                                  "1.0"
+                                  "--notes"
+                                  "n"
+                                  "--draft"
+                                  "--prerelease" ],
+                                Reply.Ok "https://github.com/o/r/releases/v1\n"
+                            )
+                    )
+                )
+
+            Assert.That(forge.SupportsReleaseOptions, Is.True)
+
+            let spec =
+                ReleaseCreate.Create("v1").WithTitle("1.0").WithNotes("n").WithDraft().WithPrerelease()
+
+            match! forge.ReleaseCreate spec with
+            | Ok out -> Assert.That(out, Does.Contain "releases/v1")
+            | Error e -> Assert.Fail $"GitHub release create must dispatch: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabPlainReleaseCreateStillWorks() : Task =
+        task {
+            // A plain release (no draft/pre-release) dispatches to `glab release create`.
+            let forge =
+                Forge.FromGitLab(
+                    ".",
+                    VcsToolkit.GitLab.GitLab.WithRunner(
+                        ScriptedRunner()
+                            .On([ "--version" ], Reply.Ok "glab 1.40.0\n")
+                            .On(
+                                [ "release"; "create"; "v1"; "--name"; "1.0"; "--notes"; "n" ],
+                                Reply.Ok "https://gitlab.com/o/r/-/releases/v1\n"
+                            )
+                    )
+                )
+
+            match! forge.ReleaseCreate(ReleaseCreate.Create("v1").WithTitle("1.0").WithNotes("n")) with
+            | Ok out -> Assert.That(out, Does.Contain "releases/v1")
+            | Error e -> Assert.Fail $"a plain GitLab release create must work: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabRefusesDraftAndPrereleaseWithoutSpawning() : Task =
+        task {
+            // An empty ScriptedRunner RAISES on any spawn, so reaching Unsupported proves that
+            // neither the op nor the version probe spawned.
+            let forge =
+                Forge.FromGitLab(".", VcsToolkit.GitLab.GitLab.WithRunner(ScriptedRunner()))
+
+            Assert.That(forge.SupportsReleaseOptions, Is.False, "GitLab must report release options unsupported")
+            let! draft = isUnsupported (forge.ReleaseCreate(ReleaseCreate.Create("v1").WithDraft()))
+            let! pre = isUnsupported (forge.ReleaseCreate(ReleaseCreate.Create("v1").WithPrerelease()))
+            Assert.That(draft, Is.True, "GitLab draft must be Unsupported without spawning")
+            Assert.That(pre, Is.True, "GitLab prerelease must be Unsupported without spawning")
+        }
+
+    [<Test>]
+    member _.GiteaReleaseCreateReachesTeaWithDraftAndPrerelease() : Task =
+        task {
+            let forge =
+                Forge.FromGitea(
+                    ".",
+                    VcsToolkit.Gitea.Gitea.WithRunner(
+                        ScriptedRunner()
+                            .On([ "--version" ], Reply.Ok "tea version 0.9.2\n")
+                            .On(
+                                [ "release"; "create"; "--tag"; "v1"; "--draft"; "--prerelease" ],
+                                Reply.Ok "Created release\n"
+                            )
+                    )
+                )
+
+            Assert.That(forge.SupportsReleaseOptions, Is.True)
+
+            match! forge.ReleaseCreate(ReleaseCreate.Create("v1").WithDraft().WithPrerelease()) with
+            | Ok out -> Assert.That(out, Does.Contain "Created release")
+            | Error e -> Assert.Fail $"Gitea release create must dispatch: {e.Message}"
+        }
+
+    [<Test>]
+    member _.UnknownHandleReleaseCreateIsUnsupportedWithoutSpawning() : Task =
+        task {
+            let forge = Forge.FromUnknown "."
+            let! plain = isUnsupported (forge.ReleaseCreate(ReleaseCreate.Create "v1"))
+            let! withOpts = isUnsupported (forge.ReleaseCreate(ReleaseCreate.Create("v1").WithDraft()))
+            Assert.That(plain, Is.True, "Unknown release create must be Unsupported")
+            Assert.That(withOpts, Is.True, "Unknown release create (with opts) must be Unsupported")
+        }
+
+    [<Test>]
+    member _.ReleaseCreateIsVersionGatedBelowFloor() : Task =
+        task {
+            // ONLY `--version` is scripted (no fallback): reaching UnsupportedVersion proves the
+            // op itself never spawned — the same gate the other facade mutations use.
+            let forge =
+                Forge.FromGitHub(
+                    ".",
+                    VcsToolkit.GitHub.GitHub.WithRunner(
+                        ScriptedRunner().On([ "--version" ], Reply.Ok "gh version 1.14.0\n")
+                    )
+                )
+
+            match! forge.ReleaseCreate(ReleaseCreate.Create "v1") with
+            | Error(ForgeError.UnsupportedVersion(kind, op, _, _)) ->
+                Assert.That(kind, Is.EqualTo ForgeKind.GitHub)
+                Assert.That(op, Is.EqualTo "releaseCreate")
+            | Error e -> Assert.Fail $"expected UnsupportedVersion, got: {e.Message}"
+            | Ok _ -> Assert.Fail "a below-floor CLI must be refused before spawning the op"
+        }
+
 // ---------------------------------------------------------------------------
 // Local-worktree checkout: each backend dispatches to its native checkout subcommand;
 // the CLI-less Unknown handle is Unsupported without spawning. (Checkout is supported on

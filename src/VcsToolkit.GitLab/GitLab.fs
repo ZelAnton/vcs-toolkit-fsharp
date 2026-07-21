@@ -367,6 +367,36 @@ type GitLab private (core: ManagedClient) =
                     )
         }
 
+    /// Create a release on `tag`, returning the command's output (the release URL on success)
+    /// (`glab release create <tag> [--name …] [--notes …]`). The tag lands in a bare positional
+    /// slot, so an empty or `-`-leading value is refused before spawning; a `-` notes value is
+    /// refused too (glab's stdin/editor sentinel — see `MrCreate`). `glab` has no release
+    /// draft/pre-release flags. See `ReleaseCreate`.
+    member _.ReleaseCreate(dir: string, spec: ReleaseCreate) =
+        task {
+            match checkFlags BINARY [ "tag", spec.Tag ] with
+            | Error e -> return Error e
+            | Ok() ->
+                let dashCheck =
+                    match spec.Notes with
+                    | Some n -> rejectDashSentinel "notes" n
+                    | None -> Ok()
+
+                match dashCheck with
+                | Error e -> return Error e
+                | Ok() ->
+                    let args =
+                        [ "release"; "create"; spec.Tag ]
+                        @ (match spec.Title with
+                           | Some t -> [ "--name"; t ]
+                           | None -> [])
+                        @ (match spec.Notes with
+                           | Some n -> [ "--notes"; n ]
+                           | None -> [])
+
+                    return! core.Run(core.CommandIn(dir, args))
+        }
+
     /// A view of this client bound to repository `dir`: modelled methods drop their leading
     /// `dir` argument, and the raw `Run`/`RunRaw` hatches run in the bound `dir` too.
     member this.At(dir: string) : GitLabAt = GitLabAt(this, dir)
@@ -474,3 +504,6 @@ and [<Sealed>] GitLabAt internal (gitlab: GitLab, dir: string) =
 
     /// A single release by its tag (`glab release view <tag> …`).
     member _.ReleaseView(tag: string) = gitlab.ReleaseView(dir, tag)
+
+    /// Create a release on `tag` (`glab release create <tag> …`).
+    member _.ReleaseCreate(spec: ReleaseCreate) = gitlab.ReleaseCreate(dir, spec)

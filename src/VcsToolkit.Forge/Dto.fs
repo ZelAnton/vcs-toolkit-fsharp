@@ -491,6 +491,48 @@ type PrEdit =
     /// Set the new body / description.
     member this.WithBody(body: string) = { this with Body = Some body }
 
+/// Options for `releaseCreate` — the unified create-a-release spec, mapped to each CLI's own
+/// flags. Build it through `ReleaseCreate.Create` (the tag) and the chained setters.
+/// `Draft`/`Prerelease` map to real flags on GitHub (`gh --draft`/`--prerelease`) and Gitea
+/// (`tea --draft`/`--prerelease`); GitLab's `glab` has no release draft/pre-release concept
+/// (mirroring `ForgeRelease.Draft`/`Prerelease` being `None` on GitLab), so a spec asking for
+/// either is refused with `Unsupported` before any spawn there rather than silently dropping
+/// the option. A plain release (tag + optional title/notes) works on all three.
+type ReleaseCreate =
+    {
+        /// The Git tag the release is attached to (a bare positional on `gh`/`glab`; a
+        /// `--tag` flag value on `tea`).
+        Tag: string
+        /// Release title; `None` lets the forge default it (commonly to the tag).
+        Title: string option
+        /// Release notes / description (markdown); `None` = no notes.
+        Notes: string option
+        /// Create as an unpublished draft (GitHub/Gitea). **`Unsupported` on GitLab.**
+        Draft: bool
+        /// Mark as a pre-release (GitHub/Gitea). **`Unsupported` on GitLab.**
+        Prerelease: bool
+    }
+
+    /// A published release on `tag`, titled and annotated by the forge's defaults.
+    static member Create(tag: string) =
+        { Tag = tag
+          Title = None
+          Notes = None
+          Draft = false
+          Prerelease = false }
+
+    /// Set the release title instead of the forge's default.
+    member this.WithTitle(title: string) = { this with Title = Some title }
+
+    /// Set the release notes / description.
+    member this.WithNotes(notes: string) = { this with Notes = Some notes }
+
+    /// Create as an unpublished draft (GitHub/Gitea). **`Unsupported` on GitLab.**
+    member this.WithDraft() = { this with Draft = true }
+
+    /// Mark as a pre-release (GitHub/Gitea). **`Unsupported` on GitLab.**
+    member this.WithPrerelease() = { this with Prerelease = true }
+
 /// Which kind of review `prReview` submits — the unified counterpart of each CLI's own
 /// review verb. Support varies by kind, not by operation: `Approve` maps to a real verb on
 /// all three forges; `RequestChanges` only on GitHub/Gitea; `Comment` only on GitHub (see

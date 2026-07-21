@@ -67,6 +67,18 @@ module internal ForgeSupport =
         | ForgeKind.GitHub -> true
         | _ -> false
 
+    /// Whether `kind`'s CLI honours `releaseCreate`'s draft / pre-release options. They map to
+    /// real flags (`--draft`/`--prerelease`) on GitHub (`gh`) and Gitea (`tea`); `glab` has no
+    /// release draft/pre-release concept (mirroring `ForgeRelease.Draft`/`Prerelease` being `None`
+    /// on GitLab), and the CLI-less `Unknown` handle honours none — so a spec asking for either is
+    /// refused there before any spawn rather than silently dropping the option. A plain release
+    /// works everywhere regardless.
+    let releaseOptions (kind: ForgeKind) : bool =
+        match kind with
+        | ForgeKind.GitHub
+        | ForgeKind.Gitea -> true
+        | _ -> false
+
     /// The `prReview <kind>` operation label an `Unsupported` verdict carries for a refused
     /// review kind (the string surfaced by `ForgeError.Unsupported`/`Message`).
     let private reviewOpLabel (reviewKind: ReviewKind) : string =
@@ -99,5 +111,15 @@ module internal ForgeSupport =
     let unsupportedCloseDeleteBranch (kind: ForgeKind) (deleteBranch: bool) : ForgeError option =
         if deleteBranch && not (closeDeleteBranch kind) then
             Some(ForgeError.Unsupported(kind, "prClose delete-branch"))
+        else
+            None
+
+    /// The structural `Unsupported` verdict for a `releaseCreate` whose spec asks for a draft /
+    /// pre-release option `kind`'s CLI will not honour — `None` for a plain release, or when the
+    /// options are supported. Derived from `releaseOptions`, so it agrees with
+    /// `Forge.SupportsReleaseOptions`.
+    let unsupportedReleaseCreate (kind: ForgeKind) (spec: ReleaseCreate) : ForgeError option =
+        if (spec.Draft || spec.Prerelease) && not (releaseOptions kind) then
+            Some(ForgeError.Unsupported(kind, "releaseCreate draft/prerelease"))
         else
             None

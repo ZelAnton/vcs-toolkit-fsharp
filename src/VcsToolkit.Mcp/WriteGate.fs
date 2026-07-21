@@ -38,7 +38,8 @@ module WriteTools =
           "forge_pr_comment"
           "forge_pr_edit"
           "forge_pr_checkout"
-          "forge_pr_review" ]
+          "forge_pr_review"
+          "forge_release_create" ]
 
     /// The same set as a `Set` for membership tests.
     let asSet = Set.ofList all

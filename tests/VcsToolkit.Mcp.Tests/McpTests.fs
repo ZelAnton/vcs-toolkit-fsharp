@@ -50,7 +50,7 @@ type WriteGateTests() =
 
     [<Test>]
     member _.WriteToolsCoversTheGatedTools() =
-        Assert.That(List.length WriteTools.all, Is.EqualTo 24)
+        Assert.That(List.length WriteTools.all, Is.EqualTo 25)
         Assert.That(WriteTools.asSet.Contains "repo_commit", Is.True)
         Assert.That(WriteTools.asSet.Contains "repo_rebase", Is.True, "the new rebase tool is write-gated")
         Assert.That(WriteTools.asSet.Contains "forge_pr_checkout", Is.True, "the local-checkout tool is write-gated")
@@ -663,6 +663,50 @@ type ToolTests() =
             match! server.ForgeIssueCreate("fine title", "fine body") with
             | Ok json -> Assert.That(json, Does.Contain "https://x/1")
             | Error e -> Assert.Fail $"forge_issue_create failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.ForgeReleaseCreateIsWriteGated() : Task =
+        task {
+            // forge_release_create mutates the remote, so it is write-gated: refused in the
+            // default read-only mode. The gate is checked before the forge is resolved.
+            let server = gitServer (ScriptedRunner()) WriteGate.None
+
+            match! server.ForgeReleaseCreate("v1", Option.None, Option.None, false, false) with
+            | Error e -> Assert.That(e.Message, Does.Contain "allow-write")
+            | Ok _ -> Assert.Fail "forge_release_create must be gated in read-only mode"
+        }
+
+    [<Test>]
+    member _.ForgeReleaseCreateRejectsDashLeadingTagWithoutSpawning() : Task =
+        task {
+            // The guard fires before any spawn, so a fallback that would fail loudly is never
+            // reached — proving the refusal precedes the forge call.
+            let runner =
+                ScriptedRunner().Fallback(Reply.Fail(1, "must not spawn — refusal must precede it"))
+
+            let server = gitServerWithForge runner WriteGate.All
+
+            match! server.ForgeReleaseCreate("-tag", Option.None, Option.None, false, false) with
+            | Error(McpError.InvalidParams _) -> ()
+            | Error e -> Assert.Fail $"expected invalid params, got: {e.Message}"
+            | Ok _ -> Assert.Fail "a dash-leading tag must be refused"
+        }
+
+    [<Test>]
+    member _.ForgeReleaseCreateAcceptsTagTitleNotesAndFlags() : Task =
+        task {
+            // The GitHub-backed server dispatches to `gh release create` and returns the URL.
+            let server =
+                gitServerWithForge
+                    (ScriptedRunner()
+                        .On([ "--version" ], Reply.Ok "gh version 2.40.0\n")
+                        .On([ "release"; "create" ], Reply.Ok "https://x/releases/v1\n"))
+                    WriteGate.All
+
+            match! server.ForgeReleaseCreate("v1", Some "1.0", Some "notes", true, true) with
+            | Ok json -> Assert.That(json, Does.Contain "https://x/releases/v1")
+            | Error e -> Assert.Fail $"forge_release_create failed: {e.Message}"
         }
 
     [<Test>]
@@ -1329,8 +1373,8 @@ type CatalogTests() =
 
     [<Test>]
     member _.CatalogCoversEveryTool() =
-        // 11 repo-read + repo_try_merge + 12 repo-write + 10 forge-read + 11 forge-write = 45.
-        Assert.That(List.length Catalog.all, Is.EqualTo 45)
+        // 11 repo-read + repo_try_merge + 12 repo-write + 10 forge-read + 12 forge-write = 46.
+        Assert.That(List.length Catalog.all, Is.EqualTo 46)
         // Every write-gated tool name appears in the catalogue.
         let names = Catalog.all |> List.map (fun t -> t.Name) |> Set.ofList
         Assert.That(WriteTools.all |> List.forall names.Contains, Is.True, "every write tool is catalogued")
@@ -1366,7 +1410,8 @@ type CatalogTests() =
               "forge_pr_comment", false, false
               "forge_pr_edit", false, true
               "forge_pr_checkout", false, true
-              "forge_pr_review", false, false ]
+              "forge_pr_review", false, false
+              "forge_release_create", false, false ]
 
         let expectedNames: Set<string> =
             expected |> List.map (fun (name, _, _) -> name) |> Set.ofList
@@ -1413,6 +1458,16 @@ type CatalogTests() =
         Assert.That(schema, Does.Contain "\"kind\"")
         Assert.That(schema, Does.Contain "\"body\"")
         Assert.That(schema, Does.Contain "\"required\":[\"number\",\"kind\"]", "body is optional")
+
+    [<Test>]
+    member _.ForgeReleaseCreateSchemaRequiresOnlyTag() =
+        // Only the tag is required; title/notes and the draft/prerelease booleans are optional.
+        let release = Catalog.all |> List.find (fun t -> t.Name = "forge_release_create")
+        let schema = Catalog.inputSchema release
+        Assert.That(schema, Does.Contain "\"notes\"")
+        Assert.That(schema, Does.Contain "\"draft\"")
+        Assert.That(schema, Does.Contain "\"prerelease\"")
+        Assert.That(schema, Does.Contain "\"required\":[\"tag\"]", "only tag is required")
 
     [<Test>]
     member _.CallToolDispatchesReadTool() : Task =
@@ -1621,6 +1676,21 @@ type CatalogTests() =
             match! Catalog.callTool server "forge_pr_edit" (argsOf """{"number":1}""") with
             | Error e -> Assert.That(e.Message, Does.Contain "at least one of title or body must be set")
             | Ok _ -> Assert.Fail "forge_pr_edit should require title or body when both are absent"
+        }
+
+    [<Test>]
+    member _.CallToolDispatchesForgeReleaseCreate() : Task =
+        task {
+            let runner =
+                ScriptedRunner()
+                    .On([ "--version" ], Reply.Ok "gh version 2.40.0\n")
+                    .On([ "release"; "create" ], Reply.Ok "https://x/releases/v1\n")
+
+            let server = gitServerWithForge runner WriteGate.All
+
+            match! Catalog.callTool server "forge_release_create" (argsOf """{"tag":"v1","notes":"the notes"}""") with
+            | Ok json -> Assert.That(json, Does.Contain "releases/v1")
+            | Error e -> Assert.Fail $"forge_release_create dispatch failed: {e.Message}"
         }
 
     [<Test>]
