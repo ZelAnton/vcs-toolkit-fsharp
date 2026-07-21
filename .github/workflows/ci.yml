@@ -76,6 +76,8 @@ jobs:
           restore-keys: ${{ runner.os }}-nuget-v2-
 
       - name: Run F# analyzers
+        env:
+          DOTNET_ROLL_FORWARD: latestMinor
         shell: pwsh
         run: ./scripts/run-analyzers.ps1
 
