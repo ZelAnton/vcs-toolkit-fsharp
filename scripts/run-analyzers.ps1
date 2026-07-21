@@ -58,8 +58,35 @@ try {
     $projectArgs = @()
     foreach ($p in $projects) { $projectArgs += @('--project', $p.FullName) }
 
+    # Resolve the pinned analyzer tool assembly and run it on the NEWEST installed runtime.
+    # WHY --roll-forward LatestMajor: `fsharp-analyzers` targets net8.0 and runs an IN-PROCESS
+    # MSBuild design-time build (Ionide.ProjInfo.WorkspaceLoader) using the installed .NET SDK.
+    # On a host where an older runtime (net8/net9) is present ALONGSIDE the newer SDK — e.g. the
+    # GitHub ubuntu-latest image, which preinstalls net8/net9 runtimes next to the net10 SDK
+    # that setup-dotnet adds — the tool otherwise runs on the older runtime (its
+    # .config/dotnet-tools.json `rollForward: true` == Major stays on net8 while net8 is
+    # present), then fails to load the net10 SDK's MSBuild assemblies with
+    # `System.IO.FileNotFoundException: System.Runtime, Version=10.0.0.0` (tool exit 22). A dev
+    # box with only the net10 runtime never hits this (the tool rolls forward to net10), which
+    # is why this job passed locally on Windows but was red on Linux CI. Setting
+    # DOTNET_ROLL_FORWARD in the environment does NOT fix it — the tool-manifest policy wins
+    # over the env var — so we invoke the tool ASSEMBLY via `dotnet exec --roll-forward
+    # LatestMajor`, whose host option forces the newest installed runtime (matching the SDK),
+    # where the in-process MSBuild resolves. See .work KB K-064/K-065.
+    $manifestPath = Join-Path $repoRoot '.config' 'dotnet-tools.json'
+    $analyzerVersion = ((Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json).tools.'fsharp-analyzers').version
+    if ([string]::IsNullOrWhiteSpace($analyzerVersion)) { throw "Could not read the fsharp-analyzers version from $manifestPath." }
+    $globalPackages = $null
+    foreach ($line in (dotnet nuget locals global-packages --list)) {
+        if ($line -match 'global-packages:\s*(.+?)\s*$') { $globalPackages = $Matches[1]; break }
+    }
+    if ([string]::IsNullOrWhiteSpace($globalPackages)) { throw 'Could not resolve the NuGet global-packages folder.' }
+    $cliDll = Get-ChildItem -Path (Join-Path $globalPackages 'fsharp-analyzers' $analyzerVersion 'tools') `
+        -Recurse -Filter 'FSharp.Analyzers.Cli.dll' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $cliDll) { throw "Could not locate FSharp.Analyzers.Cli.dll for fsharp-analyzers $analyzerVersion under $globalPackages (did 'dotnet tool restore' run?)." }
+
     Write-Host "==> Running fsharp-analyzers over $($projects.Count) src projects"
-    $output = & dotnet fsharp-analyzers `
+    $output = & dotnet exec --roll-forward LatestMajor $cliDll.FullName `
         --analyzers-path $analyzersPath `
         @projectArgs `
         --code-root $repoRoot 2>&1

@@ -75,9 +75,13 @@ jobs:
           key: ${{ runner.os }}-nuget-v2-${{ hashFiles('Directory.Packages.props', 'nuget.config', 'global.json') }}
           restore-keys: ${{ runner.os }}-nuget-v2-
 
+      # No DOTNET_ROLL_FORWARD env here: the runtime the net8.0-targeted `fsharp-analyzers`
+      # tool runs on is selected inside scripts/run-analyzers.ps1 (via `dotnet exec
+      # --roll-forward LatestMajor`), because the tool-manifest roll-forward policy overrides
+      # the environment variable and would otherwise pin the tool to a preinstalled net8/net9
+      # runtime that cannot load the net10 SDK's MSBuild assemblies. See that script's comment
+      # and .work KB K-064/K-065.
       - name: Run F# analyzers
-        env:
-          DOTNET_ROLL_FORWARD: latestMinor
         shell: pwsh
         run: ./scripts/run-analyzers.ps1
 
