@@ -151,13 +151,23 @@ type GitLab private (core: ManagedClient) =
     member _.RepoView(dir: string) =
         core.TryParse(core.CommandIn(dir, [ "repo"; "view"; "--output"; "json" ]), GitLabParse.parseRepoView)
 
-    /// Open merge requests for `dir` (`glab mr list --per-page 100 --output json`).
-    /// Up to 100 (the GitLab API per-page max).
-    member _.MrList(dir: string) =
-        core.TryParse(
-            core.CommandIn(dir, [ "mr"; "list"; "--per-page"; "100"; "--output"; "json" ]),
-            GitLabParse.parseMrList
-        )
+    /// Open merge requests for `dir` — the previous, options-less behaviour (open, up to
+    /// 100, the GitLab API per-page max). Kept as a genuine `(dir)`-only overload (rather
+    /// than folding into `dir` plus an `?options` optional parameter) for CLR binary
+    /// compatibility: F#'s `?options` sugar still compiles to a required parameter at the
+    /// metadata level, so an already-compiled caller of the pre-`MrListOptions` `MrList(dir)`
+    /// would hit `MissingMethodException` against a build that replaced it outright.
+    member this.MrList(dir: string) = this.MrList(dir, MrListOptions.Default)
+
+    /// Open merge requests for `dir` (`glab mr list [--closed|--merged|--all] --per-page
+    /// <limit> --output json`).
+    member _.MrList(dir: string, options: MrListOptions) =
+        let args =
+            [ "mr"; "list" ]
+            @ options.State.Flags
+            @ [ "--per-page"; string options.Limit; "--output"; "json" ]
+
+        core.TryParse(core.CommandIn(dir, args), GitLabParse.parseMrList)
 
     /// A single merge request by its project-scoped number — GitLab's `iid`
     /// (`glab mr view <number> --output json`).
@@ -285,13 +295,21 @@ type GitLab private (core: ManagedClient) =
 
     // --- Issues / releases ---------------------------------------------------
 
-    /// Open issues for `dir` (`glab issue list --per-page 100 --output json`).
-    /// Up to 100 (the GitLab API per-page max).
-    member _.IssueList(dir: string) =
-        core.TryParse(
-            core.CommandIn(dir, [ "issue"; "list"; "--per-page"; "100"; "--output"; "json" ]),
-            GitLabParse.parseIssueList
-        )
+    /// Open issues for `dir` — the previous, options-less behaviour (open, up to 100, the
+    /// GitLab API per-page max). Kept as a genuine `(dir)`-only overload for CLR binary
+    /// compatibility (see `MrList`'s doc comment for the rationale).
+    member this.IssueList(dir: string) =
+        this.IssueList(dir, IssueListOptions.Default)
+
+    /// Open issues for `dir` (`glab issue list [--closed|--all] --per-page <limit> --output
+    /// json`).
+    member _.IssueList(dir: string, options: IssueListOptions) =
+        let args =
+            [ "issue"; "list" ]
+            @ options.State.Flags
+            @ [ "--per-page"; string options.Limit; "--output"; "json" ]
+
+        core.TryParse(core.CommandIn(dir, args), GitLabParse.parseIssueList)
 
     /// A single issue by its project-scoped id (`iid`)
     /// (`glab issue view <number> --output json`).
@@ -386,8 +404,13 @@ and [<Sealed>] GitLabAt internal (gitlab: GitLab, dir: string) =
     /// The project for the bound `dir` (`glab repo view --output json`).
     member _.RepoView() = gitlab.RepoView dir
 
-    /// Open merge requests for the bound `dir` (`glab mr list …`).
+    /// Open merge requests for the bound `dir` (`glab mr list …`) — the previous,
+    /// options-less behaviour. Kept as a genuine zero-argument overload for CLR binary
+    /// compatibility (see `GitLab.MrList`'s doc comment for the rationale).
     member _.MrList() = gitlab.MrList dir
+
+    /// Open merge requests for the bound `dir`, filtered and capped by `options`.
+    member _.MrList(options: MrListOptions) = gitlab.MrList(dir, options)
 
     /// A single merge request by its project-scoped number (`glab mr view <n> …`).
     member _.MrView(number: uint64) = gitlab.MrView(dir, number)
@@ -426,8 +449,13 @@ and [<Sealed>] GitLabAt internal (gitlab: GitLab, dir: string) =
     /// (`glab mr diff <n>`).
     member _.MrDiff(number: uint64) = gitlab.MrDiff(dir, number)
 
-    /// Open issues for the bound `dir` (`glab issue list …`).
+    /// Open issues for the bound `dir` (`glab issue list …`) — the previous, options-less
+    /// behaviour. Kept as a genuine zero-argument overload for CLR binary compatibility
+    /// (see `GitLab.MrList`'s doc comment for the rationale).
     member _.IssueList() = gitlab.IssueList dir
+
+    /// Open issues for the bound `dir`, filtered and capped by `options`.
+    member _.IssueList(options: IssueListOptions) = gitlab.IssueList(dir, options)
 
     /// A single issue by its project-scoped id (`glab issue view <n> …`).
     member _.IssueView(number: uint64) = gitlab.IssueView(dir, number)

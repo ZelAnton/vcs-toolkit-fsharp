@@ -349,3 +349,26 @@ type McpServerStdioE2eTests() =
                 use doc = JsonDocument.Parse(textOf result)
                 Assert.That(doc.RootElement.GetProperty("operation").GetString(), Is.EqualTo "Clear")
             })
+
+    /// T-107: `--log-commands <path>` attaches a diagnostic observer to the repo's git client —
+    /// a real tool call (`repo_snapshot`, which spawns several `git` reads) leaves matching
+    /// start/finish lines in the file, with the exit code visible and no secrets involved (the
+    /// sandbox carries no credentials to begin with).
+    [<Test>]
+    member _.LogCommandsFlagWritesStartAndFinishLinesToFile() : Task =
+        task {
+            use logDir = new TempDir("mcp-log-commands")
+            let logPath = Path.Combine(logDir.Path, "commands.log")
+
+            do!
+                e2e [ "--log-commands"; logPath ] (fun client ct ->
+                    task {
+                        let! result = client.CallToolAsync("repo_snapshot", cancellationToken = ct)
+                        Assert.That(isError result, Is.False, "repo_snapshot must succeed against a real sandbox")
+                    })
+
+            let logText = File.ReadAllText logPath
+            Assert.That(logText, Does.Contain "vcs-mcp: start program=git", "a start line for the git client")
+            Assert.That(logText, Does.Contain "vcs-mcp: done  program=git", "a finish line for the git client")
+            Assert.That(logText, Does.Contain "outcome=ok(", "the observed command succeeded")
+        }

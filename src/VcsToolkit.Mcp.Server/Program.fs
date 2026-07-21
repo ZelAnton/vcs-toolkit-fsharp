@@ -8,6 +8,7 @@ module Main
 // didn't create can't execute its hooks, and every command carries a `--timeout`.
 
 open System
+open System.IO
 open System.Reflection
 open System.Text.Json
 open System.Threading.Tasks
@@ -17,31 +18,47 @@ open Microsoft.Extensions.Logging
 open ModelContextProtocol
 open ModelContextProtocol.Server
 open ModelContextProtocol.Protocol
+open VcsToolkit.CliSupport
 open VcsToolkit.Core
 open VcsToolkit.Git
 open VcsToolkit.Jj
 open VcsToolkit.Forge
 open VcsToolkit.Mcp
 
-/// A hardened git client carrying the optional per-command timeout.
-let private hardenedGit (timeout: TimeSpan option) : Git =
-    match timeout with
-    | Some t -> Git.Hardened().DefaultTimeout t
-    | None -> Git.Hardened()
+/// A hardened git client carrying the optional per-command timeout and diagnostic observer.
+let private hardenedGit (timeout: TimeSpan option) (observer: ICommandObserver option) : Git =
+    let g =
+        match timeout with
+        | Some t -> Git.Hardened().DefaultTimeout t
+        | None -> Git.Hardened()
 
-/// A default jj client carrying the optional per-command timeout. jj has no repo-config/hooks
-/// to harden the way git's `Hardened` does, so only the timeout is applied.
-let private timeoutJj (timeout: TimeSpan option) : Jj =
-    match timeout with
-    | Some t -> Jj.Create().DefaultTimeout t
-    | None -> Jj.Create()
+    match observer with
+    | Some obs -> g.WithObserver obs
+    | None -> g
 
-/// Open the repo at `dir` with a hardened, timeout-bound client. Delegates detection, path
-/// absolutisation, and error mapping to the Core facade (`Repo.OpenWith`); the binary only
-/// injects the hardened/timeout client configuration and flattens `RepoError` to its message.
-/// The factories are lazy, so only the detected backend's client is built.
-let private openRepo (dir: string) (timeout: TimeSpan option) : Result<Repo, string> =
-    Repo.OpenWith(dir, (fun () -> hardenedGit timeout), (fun () -> timeoutJj timeout))
+/// A default jj client carrying the optional per-command timeout and diagnostic observer. jj
+/// has no repo-config/hooks to harden the way git's `Hardened` does, so only those two apply.
+let private timeoutJj (timeout: TimeSpan option) (observer: ICommandObserver option) : Jj =
+    let j =
+        match timeout with
+        | Some t -> Jj.Create().DefaultTimeout t
+        | None -> Jj.Create()
+
+    match observer with
+    | Some obs -> j.WithObserver obs
+    | None -> j
+
+/// Open the repo at `dir` with a hardened, timeout-bound, optionally-observed client.
+/// Delegates detection, path absolutisation, and error mapping to the Core facade
+/// (`Repo.OpenWith`); the binary only injects the hardened/timeout/observer client
+/// configuration and flattens `RepoError` to its message. The factories are lazy, so only the
+/// detected backend's client is built.
+let private openRepo
+    (dir: string)
+    (timeout: TimeSpan option)
+    (observer: ICommandObserver option)
+    : Result<Repo, string> =
+    Repo.OpenWith(dir, (fun () -> hardenedGit timeout observer), (fun () -> timeoutJj timeout observer))
     |> Result.mapError (fun (e: RepoError) -> e.Message)
 
 /// Parse `jj git remote list` output (one `<name> <url>` line per configured remote,
@@ -91,7 +108,12 @@ let internal detectForgeKind (repo: Repo) : Task<ForgeKind option> =
     }
 
 /// Pick the forge: the explicit `--forge`, else the `origin` remote's host, else none.
-let internal resolveForge (repo: Repo) (forced: ForgeKind option) (timeout: TimeSpan option) : Task<Forge option> =
+let internal resolveForge
+    (repo: Repo)
+    (forced: ForgeKind option)
+    (timeout: TimeSpan option)
+    (observer: ICommandObserver option)
+    : Task<Forge option> =
     task {
         let cwd = repo.Root
 
@@ -109,6 +131,11 @@ let internal resolveForge (repo: Repo) (forced: ForgeKind option) (timeout: Time
                 | Some t -> c.DefaultTimeout t
                 | None -> c
 
+            let c =
+                match observer with
+                | Some obs -> c.WithObserver obs
+                | None -> c
+
             return Some(Forge.FromGitHub(cwd, c))
         | Some ForgeKind.GitLab ->
             let c = VcsToolkit.GitLab.GitLab.Create()
@@ -118,6 +145,11 @@ let internal resolveForge (repo: Repo) (forced: ForgeKind option) (timeout: Time
                 | Some t -> c.DefaultTimeout t
                 | None -> c
 
+            let c =
+                match observer with
+                | Some obs -> c.WithObserver obs
+                | None -> c
+
             return Some(Forge.FromGitLab(cwd, c))
         | Some ForgeKind.Gitea ->
             let c = VcsToolkit.Gitea.Gitea.Create()
@@ -125,6 +157,11 @@ let internal resolveForge (repo: Repo) (forced: ForgeKind option) (timeout: Time
             let c =
                 match timeout with
                 | Some t -> c.DefaultTimeout t
+                | None -> c
+
+            let c =
+                match observer with
+                | Some obs -> c.WithObserver obs
                 | None -> c
 
             return Some(Forge.FromGitea(cwd, c))
@@ -246,6 +283,19 @@ let private runServer (server: VcsMcpServer) : Task =
 
     builder.Build().RunAsync()
 
+/// The `TextWriter` a `--log-commands` sink writes to, and a cleanup action to run once at
+/// shutdown: for `LogSink.File` this disposes the owned `StreamWriter`; for `LogSink.Stderr`
+/// it is a no-op, since the console owns that stream. The file writer is opened in append mode
+/// and auto-flushing (matched by `CommandLog.Writer`'s own explicit `Flush()` per line, so the
+/// log survives an abrupt process exit rather than losing a buffered tail).
+let private openLogSink (sink: LogSink) : TextWriter * (unit -> unit) =
+    match sink with
+    | LogSink.Stderr -> Console.Error, ignore
+    | LogSink.File path ->
+        let stream = new StreamWriter(path, append = true)
+        stream.AutoFlush <- true
+        stream :> TextWriter, (fun () -> stream.Dispose())
+
 [<EntryPoint>]
 let main argv =
     match Args.parse (List.ofArray argv) with
@@ -256,12 +306,24 @@ let main argv =
         printfn "%s" Args.usage
         0
     | Ok(Some args) ->
-        match openRepo args.Repo args.Timeout with
-        | Error msg ->
-            eprintfn "vcs-mcp: %s" msg
-            1
-        | Ok repo ->
-            let forge = (resolveForge repo args.Forge args.Timeout).GetAwaiter().GetResult()
-            use server = new VcsMcpServer(repo, forge, args.Writes, args.OutputBudget)
-            (runServer server).GetAwaiter().GetResult()
-            0
+        let observer, cleanupLog =
+            match args.LogCommands with
+            | Option.None -> Option.None, ignore
+            | Some sink ->
+                let writer, cleanup = openLogSink sink
+                Some(CommandLog.Writer(writer) :> ICommandObserver), cleanup
+
+        try
+            match openRepo args.Repo args.Timeout observer with
+            | Error msg ->
+                eprintfn "vcs-mcp: %s" msg
+                1
+            | Ok repo ->
+                let forge =
+                    (resolveForge repo args.Forge args.Timeout observer).GetAwaiter().GetResult()
+
+                use server = new VcsMcpServer(repo, forge, args.Writes, args.OutputBudget)
+                (runServer server).GetAwaiter().GetResult()
+                0
+        finally
+            cleanupLog ()

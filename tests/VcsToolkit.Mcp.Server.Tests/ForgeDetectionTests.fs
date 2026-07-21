@@ -144,7 +144,7 @@ type ForgeOverrideTests() =
 
             let repo = Repo.FromJj(dir.Path, dir.Path, Jj.Create())
 
-            match! Main.resolveForge repo (Some ForgeKind.GitLab) None with
+            match! Main.resolveForge repo (Some ForgeKind.GitLab) None None with
             | Some forge -> Assert.That(forge.Kind, Is.EqualTo ForgeKind.GitLab)
             | Option.None -> Assert.Fail "expected the forced --forge to produce a Forge, got None"
         }

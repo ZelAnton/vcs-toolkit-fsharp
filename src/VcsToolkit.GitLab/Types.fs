@@ -43,6 +43,88 @@ type MergeStrategy =
         | MergeStrategy.Squash -> Some "--squash"
         | MergeStrategy.Rebase -> Some "--rebase"
 
+/// Which MR states `mrList` returns. `glab` has no `--state` flag — it selects state through
+/// mutually exclusive boolean flags, open being the implicit default when none are passed.
+[<RequireQualifiedAccess>]
+type MrListState =
+    /// Open MRs (glab's default — no extra flag).
+    | Open
+    /// Closed (not merged) MRs (`--closed`).
+    | Closed
+    /// Merged MRs (`--merged`).
+    | Merged
+    /// Every MR regardless of state (`--all`).
+    | All
+
+    /// The glab flag this case emits, or `[]` for the default (open).
+    member internal this.Flags =
+        match this with
+        | MrListState.Open -> []
+        | MrListState.Closed -> [ "--closed" ]
+        | MrListState.Merged -> [ "--merged" ]
+        | MrListState.All -> [ "--all" ]
+
+/// Options for `mrList` (`glab mr list [--closed|--merged|--all] --per-page <limit>`).
+/// Defaults reproduce this wrapper's previous, options-less behaviour: open MRs, up to 100.
+type MrListOptions =
+    {
+        /// Which states to include (see `MrListState`).
+        State: MrListState
+        /// `--per-page` — the maximum number of results.
+        Limit: int
+    }
+
+    /// Open MRs, up to 100 — this wrapper's previous behaviour before `MrListOptions` existed.
+    static member Default =
+        { State = MrListState.Open
+          Limit = 100 }
+
+    /// Filter by `state` instead of the default `Open`.
+    member this.WithState(state: MrListState) = { this with State = state }
+
+    /// Cap the result count at `limit` instead of the default 100.
+    member this.WithLimit(limit: int) = { this with Limit = limit }
+
+/// Which issue states `issueList` returns. Issues have no "merged" state, and `glab` again
+/// selects state through boolean flags rather than `--state` (see `MrListState`).
+[<RequireQualifiedAccess>]
+type IssueListState =
+    /// Open issues (glab's default — no extra flag).
+    | Open
+    /// Closed issues (`--closed`).
+    | Closed
+    /// Every issue regardless of state (`--all`).
+    | All
+
+    /// The glab flag this case emits, or `[]` for the default (open).
+    member internal this.Flags =
+        match this with
+        | IssueListState.Open -> []
+        | IssueListState.Closed -> [ "--closed" ]
+        | IssueListState.All -> [ "--all" ]
+
+/// Options for `issueList` (`glab issue list [--closed|--all] --per-page <limit>`). Defaults
+/// reproduce this wrapper's previous, options-less behaviour: open issues, up to 100.
+type IssueListOptions =
+    {
+        /// Which states to include (see `IssueListState`).
+        State: IssueListState
+        /// `--per-page` — the maximum number of results.
+        Limit: int
+    }
+
+    /// Open issues, up to 100 — this wrapper's previous behaviour before `IssueListOptions`
+    /// existed.
+    static member Default =
+        { State = IssueListState.Open
+          Limit = 100 }
+
+    /// Filter by `state` instead of the default `Open`.
+    member this.WithState(state: IssueListState) = { this with State = state }
+
+    /// Cap the result count at `limit` instead of the default 100.
+    member this.WithLimit(limit: int) = { this with Limit = limit }
+
 /// Options for `mrCreate` (`glab mr create`). Build it through `MrCreate.Create`
 /// (title + body) and the chained `WithSource`/`WithTarget` setters.
 type MrCreate =

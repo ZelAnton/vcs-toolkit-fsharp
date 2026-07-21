@@ -56,6 +56,17 @@ module internal Catalog =
             | s -> Ok(Some s)
         | true, _ -> Error(McpError.InvalidParams(sprintf "argument %A must be a string" name))
 
+    /// `optInt` — a missing/absent integer is optional; a present value must be a JSON
+    /// integer that fits `int32`.
+    let private optInt (args: JsonElement) (name: string) : Result<int option, McpError> =
+        match args.TryGetProperty name with
+        | false, _ -> Ok Option.None
+        | true, v when v.ValueKind = JsonValueKind.Number ->
+            match v.TryGetInt32() with
+            | true, n -> Ok(Some n)
+            | false, _ -> Error(McpError.InvalidParams(sprintf "argument %A must be an integer" name))
+        | true, _ -> Error(McpError.InvalidParams(sprintf "argument %A must be an integer" name))
+
     let private reqU64 (args: JsonElement) (name: string) : Result<uint64, McpError> =
         match args.TryGetProperty name with
         | true, v when v.ValueKind = JsonValueKind.Number ->
@@ -111,6 +122,24 @@ module internal Catalog =
           JsonType = "integer"
           Description = "The issue number (GitLab uses the project-scoped iid)."
           Required = true }
+
+    let private pPrListState =
+        { Name = "state"
+          JsonType = "string"
+          Description = "Filter by state: open, closed, merged, or all. Defaults to open."
+          Required = false }
+
+    let private pIssueListState =
+        { Name = "state"
+          JsonType = "string"
+          Description = "Filter by state: open, closed, or all. Defaults to open."
+          Required = false }
+
+    let private pListLimit =
+        { Name = "limit"
+          JsonType = "integer"
+          Description = "Maximum number of results (must be positive). Defaults to 100."
+          Required = false }
 
     // --- the catalogue -----------------------------------------------------
 
@@ -341,10 +370,16 @@ module internal Catalog =
           read "forge_auth_status" "Whether the forge CLI reports an authenticated session." []
           read "forge_repo_view" "The repository/project on the configured forge (Unsupported on Gitea)." []
           read "forge_info" "The forge's identity and flat capability map." []
-          read "forge_pr_list" "Open pull/merge requests on the configured forge (up to 100)." []
+          read
+              "forge_pr_list"
+              "Pull/merge requests on the configured forge, open by default and capped at 100 by default. Optional state/limit filter and cap the results. Unsupported on Gitea for every state (tea's `pr list --output json` does not work against the real CLI)."
+              [ pPrListState; pListLimit ]
           read "forge_pr_view" "A single pull/merge request by number." [ pNumber ]
           read "forge_pr_checks" "The PR/MR's coarse CI status (Unsupported on Gitea)." [ pNumber ]
-          read "forge_issue_list" "Open issues on the configured forge (up to 100)." []
+          read
+              "forge_issue_list"
+              "Issues on the configured forge, open by default and capped at 100 by default. Optional state/limit filter and cap the results. Unsupported on Gitea for every state (tea's `issues list --output json` does not work against the real CLI)."
+              [ pIssueListState; pListLimit ]
           read "forge_issue_view" "A single issue by number, with body and URL filled." [ pIssueNumber ]
           read "forge_release_list" "Releases on the configured forge, newest first (up to 100)." []
           read
@@ -575,10 +610,14 @@ module internal Catalog =
         | "forge_auth_status" -> server.ForgeAuthStatus()
         | "forge_repo_view" -> server.ForgeRepoView()
         | "forge_info" -> server.ForgeInfo()
-        | "forge_pr_list" -> server.ForgePrList()
+        | "forge_pr_list" ->
+            bind (optStr args "state") (fun state ->
+                bind (optInt args "limit") (fun limit -> server.ForgePrList(state, limit)))
         | "forge_pr_view" -> bind (reqU64 args "number") server.ForgePrView
         | "forge_pr_checks" -> bind (reqU64 args "number") server.ForgePrChecks
-        | "forge_issue_list" -> server.ForgeIssueList()
+        | "forge_issue_list" ->
+            bind (optStr args "state") (fun state ->
+                bind (optInt args "limit") (fun limit -> server.ForgeIssueList(state, limit)))
         | "forge_issue_view" -> bind (reqU64 args "number") server.ForgeIssueView
         | "forge_release_list" -> server.ForgeReleaseList()
         | "forge_release_view" -> bind (reqStr args "tag") server.ForgeReleaseView

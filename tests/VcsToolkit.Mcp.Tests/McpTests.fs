@@ -6,6 +6,7 @@ open System.Threading.Tasks
 open NUnit.Framework
 open ProcessKit
 open ProcessKit.Testing
+open VcsToolkit.CliSupport
 open VcsToolkit.Core
 open VcsToolkit.Forge
 open VcsToolkit.Git
@@ -181,6 +182,92 @@ type ArgsTests() =
         Assert.That(a.Forge, Is.EqualTo(Some ForgeKind.Gitea))
         Assert.That(a.Writes, Is.EqualTo WriteGate.All)
         Assert.That(a.Timeout, Is.EqualTo(Some(TimeSpan.FromSeconds 7.0)))
+
+    [<Test>]
+    member _.LogCommandsDefaultsToOff() =
+        Assert.That((ok []).LogCommands, Is.EqualTo Option.None)
+
+    [<Test>]
+    member _.LogCommandsStderrParsesToTheStderrSink() =
+        Assert.That((ok [ "--log-commands"; "stderr" ]).LogCommands, Is.EqualTo(Some LogSink.Stderr))
+
+    [<Test>]
+    member _.LogCommandsPathParsesToTheFileSink() =
+        Assert.That(
+            (ok [ "--log-commands"; "/tmp/vcs-mcp-commands.log" ]).LogCommands,
+            Is.EqualTo(Some(LogSink.File "/tmp/vcs-mcp-commands.log"))
+        )
+
+    [<Test>]
+    member _.LogCommandsMissingValueErrors() =
+        Assert.That((err [ "--log-commands" ]), Does.Contain "needs a value")
+
+    [<Test>]
+    member _.LogCommandsAppearsInHelp() =
+        Assert.That(Args.usage, Does.Contain "--log-commands")
+
+// ---------------------------------------------------------------------------
+// CommandLog — the `--log-commands` line formatters and the `ICommandObserver` they back.
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type CommandLogTests() =
+
+    let ev =
+        { Program = "git"
+          Argv = [ "status"; "--porcelain" ]
+          WorkingDirectory = Some "/repo"
+          Attempt = 0
+          HasSecret = false }
+
+    [<Test>]
+    member _.FormatStartedNamesProgramArgvCwdAndAttempt() =
+        let line = CommandLog.formatStarted ev
+        Assert.That(line, Does.Contain "vcs-mcp: start")
+        Assert.That(line, Does.Contain "program=git")
+        Assert.That(line, Does.Contain "\"status\" \"--porcelain\"")
+        Assert.That(line, Does.Contain "cwd=/repo")
+        Assert.That(line, Does.Contain "attempt=0")
+
+    [<Test>]
+    member _.FormatStartedFallsBackToDashWithNoWorkingDirectory() =
+        let line =
+            CommandLog.formatStarted
+                { ev with
+                    WorkingDirectory = Option.None }
+
+        Assert.That(line, Does.Contain "cwd=-")
+
+    [<Test>]
+    member _.FormatFinishedReportsOkOutcomeAndDuration() =
+        let line = CommandLog.formatFinished ev (TimeSpan.FromMilliseconds 42.0) (Ok 0)
+        Assert.That(line, Does.Contain "vcs-mcp: done")
+        Assert.That(line, Does.Contain "duration=42ms")
+        Assert.That(line, Does.Contain "outcome=ok(0)")
+
+    [<Test>]
+    member _.FormatFinishedReportsErrorMessageNeverSecretValue() =
+        let error = ProcessError.Exit("git", 128, "", "fatal: not a git repository")
+
+        let line =
+            CommandLog.formatFinished ev (TimeSpan.FromMilliseconds 5.0) (Error error)
+
+        Assert.That(line, Does.Contain "outcome=error(")
+        Assert.That(line, Does.Contain "not a git repository")
+
+    [<Test>]
+    member _.WriterWritesOneLinePerCallAndFlushes() =
+        use sw = new IO.StringWriter()
+        let observer = CommandLog.Writer(sw) :> ICommandObserver
+        observer.OnStarted ev
+        observer.OnFinished(ev, TimeSpan.FromMilliseconds 1.0, Ok 0)
+
+        let lines =
+            sw.ToString().Split([| Environment.NewLine |], StringSplitOptions.RemoveEmptyEntries)
+
+        Assert.That(lines.Length, Is.EqualTo 2)
+        Assert.That(lines.[0], Does.Contain "start")
+        Assert.That(lines.[1], Does.Contain "done")
 
 // ---------------------------------------------------------------------------
 // Tool dispatch, gating, and error mapping (over a scripted repo)
@@ -373,7 +460,7 @@ type ToolTests() =
         task {
             let server = gitServer (ScriptedRunner()) WriteGate.None
 
-            match! server.ForgePrList() with
+            match! server.ForgePrList(None, None) with
             | Error e -> Assert.That(e.Message, Does.Contain "no forge")
             | Ok _ -> Assert.Fail "a forge tool must error when no forge is configured"
         }
@@ -1534,6 +1621,112 @@ type CatalogTests() =
             match! Catalog.callTool server "forge_pr_edit" (argsOf """{"number":1}""") with
             | Error e -> Assert.That(e.Message, Does.Contain "at least one of title or body must be set")
             | Ok _ -> Assert.Fail "forge_pr_edit should require title or body when both are absent"
+        }
+
+    [<Test>]
+    member _.ForgePrListSchemaAdvertisesOptionalStateAndLimit() =
+        let prList = Catalog.all |> List.find (fun t -> t.Name = "forge_pr_list")
+        let schema = Catalog.inputSchema prList
+        Assert.That(schema, Does.Contain "\"state\"")
+        Assert.That(schema, Does.Contain "\"limit\"")
+        Assert.That(schema, Does.Contain "\"required\":[]", "state/limit are both optional")
+
+    [<Test>]
+    member _.ForgeIssueListSchemaAdvertisesOptionalStateAndLimit() =
+        let issueList = Catalog.all |> List.find (fun t -> t.Name = "forge_issue_list")
+        let schema = Catalog.inputSchema issueList
+        Assert.That(schema, Does.Contain "\"state\"")
+        Assert.That(schema, Does.Contain "\"limit\"")
+        Assert.That(schema, Does.Contain "\"required\":[]", "state/limit are both optional")
+
+    [<Test>]
+    member _.CallToolDispatchesForgePrListWithStateAndLimit() : Task =
+        task {
+            let runner =
+                ScriptedRunner().On([ "pr"; "list"; "--state"; "closed"; "--limit"; "50"; "--json" ], Reply.Ok "[]")
+
+            let server = gitServerWithForge runner WriteGate.None
+
+            match! Catalog.callTool server "forge_pr_list" (argsOf """{"state":"closed","limit":50}""") with
+            | Ok json -> Assert.That(json, Does.Contain "[]")
+            | Error e -> Assert.Fail $"forge_pr_list dispatch failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.CallToolForgePrListOmittedArgumentsUseTheOptionsDefault() : Task =
+        task {
+            // Omitting both arguments must reproduce the previous, options-less behaviour —
+            // open, up to 100 — exactly.
+            let runner =
+                ScriptedRunner().On([ "pr"; "list"; "--state"; "open"; "--limit"; "100"; "--json" ], Reply.Ok "[]")
+
+            let server = gitServerWithForge runner WriteGate.None
+
+            match! Catalog.callTool server "forge_pr_list" (argsOf "{}") with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"forge_pr_list with no args should use the default options: {e.Message}"
+        }
+
+    [<Test>]
+    member _.CallToolDispatchesForgeIssueListWithStateAndLimit() : Task =
+        task {
+            let runner =
+                ScriptedRunner().On([ "issue"; "list"; "--state"; "all"; "--limit"; "5"; "--json" ], Reply.Ok "[]")
+
+            let server = gitServerWithForge runner WriteGate.None
+
+            match! Catalog.callTool server "forge_issue_list" (argsOf """{"state":"all","limit":5}""") with
+            | Ok json -> Assert.That(json, Does.Contain "[]")
+            | Error e -> Assert.Fail $"forge_issue_list dispatch failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.CallToolForgePrListRejectsAnUnknownState() : Task =
+        task {
+            let server = gitServerWithForge (ScriptedRunner()) WriteGate.None
+
+            match! Catalog.callTool server "forge_pr_list" (argsOf """{"state":"bogus"}""") with
+            | Error e -> Assert.That(e.Message, Does.Contain "unknown state")
+            | Ok _ -> Assert.Fail "forge_pr_list must reject an unrecognised state"
+        }
+
+    [<Test>]
+    member _.CallToolForgeIssueListRejectsAnUnknownState() : Task =
+        task {
+            let server = gitServerWithForge (ScriptedRunner()) WriteGate.None
+
+            // "merged" is a valid forge_pr_list state but not a forge_issue_list one — issues
+            // have no merged state.
+            match! Catalog.callTool server "forge_issue_list" (argsOf """{"state":"merged"}""") with
+            | Error e -> Assert.That(e.Message, Does.Contain "unknown state")
+            | Ok _ -> Assert.Fail "forge_issue_list must reject a state it doesn't model"
+        }
+
+    [<Test>]
+    member _.CallToolForgePrListRejectsANonPositiveLimit() : Task =
+        task {
+            let server = gitServerWithForge (ScriptedRunner()) WriteGate.None
+
+            match! Catalog.callTool server "forge_pr_list" (argsOf """{"limit":0}""") with
+            | Error e -> Assert.That(e.Message, Does.Contain "positive")
+            | Ok _ -> Assert.Fail "forge_pr_list must reject a zero limit"
+
+            match! Catalog.callTool server "forge_pr_list" (argsOf """{"limit":-5}""") with
+            | Error e -> Assert.That(e.Message, Does.Contain "positive")
+            | Ok _ -> Assert.Fail "forge_pr_list must reject a negative limit"
+        }
+
+    [<Test>]
+    member _.CallToolForgeListLimitRejectsNonIntegerValues() : Task =
+        task {
+            let server = gitServerWithForge (ScriptedRunner()) WriteGate.None
+
+            match! Catalog.callTool server "forge_pr_list" (argsOf """{"limit":"100"}""") with
+            | Error(McpError.InvalidParams message) ->
+                Assert.That(message, Does.Contain "limit")
+                Assert.That(message, Does.Contain "integer")
+            | Error e -> Assert.Fail $"forge_pr_list should return InvalidParams, got: {e.Message}"
+            | Ok _ -> Assert.Fail "forge_pr_list must reject a string limit"
         }
 
     [<Test>]

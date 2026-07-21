@@ -17,6 +17,9 @@ type internal McpArgs =
         /// Output-size budget (bytes) for large-content read tools (`repo_show_file` today);
         /// `None` means no limit (`--output-budget 0`).
         OutputBudget: int option
+        /// The `--log-commands` diagnostic sink; `None` (default) means no observer is attached
+        /// and every git/jj/forge client behaves exactly as before (opt-in, zero overhead off).
+        LogCommands: LogSink option
     }
 
 /// Command-line parsing for the `vcs-mcp` binary.
@@ -53,6 +56,11 @@ module internal Args =
              --output-budget <bytes>   Truncate large read-tool output (e.g. repo_show_file)\n\
                                        past N bytes, appending a truncation marker\n\
                                        (default: 200000; 0 disables)\n\
+             --log-commands <stderr|path>\n\
+                                       Diagnostic log of every spawned git/jj/forge command\n\
+                                       (program, argv, cwd, attempt, duration, outcome) to\n\
+                                       stderr or the given file (default: off; secrets never\n\
+                                       appear in the log)\n\
              -h, --help                Print this help\n\
          \n\
          The server speaks MCP over stdio; point an agent harness at it via a `mcpServers`\n\
@@ -75,6 +83,7 @@ module internal Args =
         let mutable allowTools = Set.empty
         let mutable timeout = Some(TimeSpan.FromSeconds defaultTimeoutSecs)
         let mutable outputBudget = Some defaultOutputBudgetBytes
+        let mutable logCommands = None
         let mutable rest = argv
         let mutable helpRequested = false
         let mutable error = None
@@ -153,6 +162,17 @@ module internal Args =
                 | false, _ ->
                     error <- Some(sprintf "invalid --output-budget %A (expected a whole number of bytes)" value)
             | "--output-budget" :: [] -> error <- Some "--output-budget needs a value (whole bytes)"
+            | "--log-commands" :: value :: tl ->
+                logCommands <-
+                    Some(
+                        if value = "stderr" then
+                            LogSink.Stderr
+                        else
+                            LogSink.File value
+                    )
+
+                rest <- tl
+            | "--log-commands" :: [] -> error <- Some "--log-commands needs a value (stderr or a file path)"
             | other :: _ -> error <- Some(sprintf "unknown argument: %s (try --help)" other)
             | [] -> ()
 
@@ -176,5 +196,6 @@ module internal Args =
                           Forge = forge
                           Writes = writes
                           Timeout = timeout
-                          OutputBudget = outputBudget }
+                          OutputBudget = outputBudget
+                          LogCommands = logCommands }
                 )
