@@ -391,6 +391,10 @@ module internal Catalog =
               [ pSourceBranch ]
           read "forge_pr_checks" "The PR/MR's coarse CI status (Unsupported on Gitea)." [ pNumber ]
           read
+              "forge_pr_diff"
+              "The PR/MR's unified diff, per file, serialized as JSON and truncated to the server's output budget the same way repo_show_file/repo_annotate are (--output-budget; default 200000 bytes, 0 disables), with a trailing '[truncated: showing N of M bytes]' marker when it is. Unsupported on Gitea (tea has no diff command)."
+              [ pNumber ]
+          read
               "forge_issue_list"
               "Issues on the configured forge, open by default and capped at 100 by default. Optional state/limit filter and cap the results. Unsupported on Gitea for every state (tea's `issues list --output json` does not work against the real CLI)."
               [ pIssueListState; pListLimit ]
@@ -659,6 +663,7 @@ module internal Catalog =
         | "forge_pr_view" -> bind (reqU64 args "number") server.ForgePrView
         | "forge_pr_for_branch" -> bind (reqStr args "source_branch") server.ForgePrForBranch
         | "forge_pr_checks" -> bind (reqU64 args "number") server.ForgePrChecks
+        | "forge_pr_diff" -> bind (reqU64 args "number") server.ForgePrDiff
         | "forge_issue_list" ->
             bind (optStr args "state") (fun state ->
                 bind (optInt args "limit") (fun limit -> server.ForgeIssueList(state, limit)))

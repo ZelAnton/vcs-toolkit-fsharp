@@ -502,6 +502,20 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
     member this.ForgePrChecks(number: uint64) =
         this.ReadForge(fun f -> f.PrChecks number)
 
+    /// The PR/MR's unified diff, per-file, serialized as JSON and truncated to the server's
+    /// output budget the same way `repo_show_file`/`repo_annotate` truncate their content (a
+    /// trailing `[truncated: showing N of M bytes]` marker when it is) — a PR diff easily blows
+    /// past a reasonable context budget. Unsupported on Gitea (`tea` has no diff command).
+    member this.ForgePrDiff(number: uint64) : Task<Result<string, McpError>> =
+        task {
+            match this.Forge() with
+            | Error e -> return Error e
+            | Ok f ->
+                match! f.PrDiff number with
+                | Error e -> return Error(forgeErr e)
+                | Ok files -> return Ok(applyOutputBudget outputBudget (Json.ok files))
+        }
+
     /// Open issues on the configured forge — the previous, options-less behaviour (open, up
     /// to 100). Kept as a genuine zero-argument overload for CLR binary compatibility (see
     /// `ForgePrList`'s doc comment for the rationale).
