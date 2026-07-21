@@ -135,6 +135,12 @@ module internal Catalog =
           Description = "Filter by state: open, closed, or all. Defaults to open."
           Required = false }
 
+    let private pSourceBranch =
+        { Name = "source_branch"
+          JsonType = "string"
+          Description = "The PR/MR's source (head) branch to search for."
+          Required = true }
+
     let private pListLimit =
         { Name = "limit"
           JsonType = "integer"
@@ -375,6 +381,10 @@ module internal Catalog =
               "Pull/merge requests on the configured forge, open by default and capped at 100 by default. Optional state/limit filter and cap the results. Unsupported on Gitea for every state (tea's `pr list --output json` does not work against the real CLI)."
               [ pPrListState; pListLimit ]
           read "forge_pr_view" "A single pull/merge request by number." [ pNumber ]
+          read
+              "forge_pr_for_branch"
+              "Pull/merge requests whose source branch is source_branch, in any state, regardless of target branch — the 'after pushing, find my PR' query. Returns a list (a branch can have more than one PR/MR over its lifetime); an empty list means none currently match. Unsupported on Gitea (tea's `pr list --output json` does not work against the real CLI)."
+              [ pSourceBranch ]
           read "forge_pr_checks" "The PR/MR's coarse CI status (Unsupported on Gitea)." [ pNumber ]
           read
               "forge_issue_list"
@@ -642,6 +652,7 @@ module internal Catalog =
             bind (optStr args "state") (fun state ->
                 bind (optInt args "limit") (fun limit -> server.ForgePrList(state, limit)))
         | "forge_pr_view" -> bind (reqU64 args "number") server.ForgePrView
+        | "forge_pr_for_branch" -> bind (reqStr args "source_branch") server.ForgePrForBranch
         | "forge_pr_checks" -> bind (reqU64 args "number") server.ForgePrChecks
         | "forge_issue_list" ->
             bind (optStr args "state") (fun state ->

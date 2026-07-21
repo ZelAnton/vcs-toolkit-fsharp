@@ -179,6 +179,15 @@ module internal GitHubForge =
             | Ok prs -> return Ok(prs |> List.map mapPr)
         }
 
+    /// Pull requests whose head is `sourceBranch`, in any state, against any base branch
+    /// (`gh pr list --head <branch> --state all …`, the two-argument `PrListForBranch`).
+    let prForBranch (gh: VcsToolkit.GitHub.GitHub) (dir: string) (sourceBranch: string) =
+        task {
+            match! gh.PrListForBranch(dir, sourceBranch) with
+            | Error e -> return Error(ForgeError.Forge e)
+            | Ok prs -> return Ok(prs |> List.map mapPr)
+        }
+
     let prView (gh: VcsToolkit.GitHub.GitHub) (dir: string) (number: uint64) =
         task {
             match! gh.PrView(dir, number) with

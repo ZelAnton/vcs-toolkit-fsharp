@@ -225,6 +225,7 @@ that forge, rather than silently degrading.
 | `forge_info` | The forge's identity and flat capability map. | — |
 | `forge_pr_list` | Pull/merge requests on the configured forge, open by default and capped at 100 by default. **Unsupported on Gitea for every state** (`tea pr list --output json` does not work against the real CLI). | `state` (string, optional — `open`/`closed`/`merged`/`all`, default `open`), `limit` (integer, optional, default 100) |
 | `forge_pr_view` | A single pull/merge request by number. | `number` (integer, required — GitLab uses the project-scoped iid) |
+| `forge_pr_for_branch` | Pull/merge requests whose source branch is `source_branch`, in any state, regardless of target branch — the "after pushing, find my PR" query. Returns a list; an empty list means none currently match. **Unsupported on Gitea** (`tea pr list --output json` does not work against the real CLI). | `source_branch` (string, required) |
 | `forge_pr_checks` | The PR/MR's coarse CI status. **Unsupported on Gitea.** | `number` (integer, required) |
 | `forge_issue_list` | Issues on the configured forge, open by default and capped at 100 by default. **Unsupported on Gitea for every state** (`tea issues list --output json` does not work against the real CLI). | `state` (string, optional — `open`/`closed`/`all`, default `open`), `limit` (integer, optional, default 100) |
 | `forge_issue_view` | A single issue by number, with body and URL filled. | `number` (integer, required — GitLab uses the project-scoped iid) |

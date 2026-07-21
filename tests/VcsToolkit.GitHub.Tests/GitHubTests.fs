@@ -349,6 +349,68 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.PrListForBranchTwoArgBuildsHeadStateAllWithoutBase() : Task =
+        task {
+            let json =
+                """[{"number":1,"title":"t","state":"OPEN","headRefName":"feat","baseRefName":"main","url":"u"}]"""
+
+            let gh, args = capturing (Reply.Ok json)
+
+            match! gh.PrListForBranch(".", "feat") with
+            | Ok [ pr ] -> Assert.That(pr.Number, Is.EqualTo 1UL)
+            | Ok xs -> Assert.Fail $"expected one PR, got {xs.Length}"
+            | Error e -> Assert.Fail $"pr list for branch failed: {e}"
+
+            assertArgs
+                [ "pr"
+                  "list"
+                  "--head"
+                  "feat"
+                  "--state"
+                  "all"
+                  "--limit"
+                  "100"
+                  "--json"
+                  PR_FIELDS ]
+                args
+        }
+
+    [<Test>]
+    member _.PrListForBranchTwoArgEmptyIsNotAnError() : Task =
+        task {
+            let gh =
+                scripted [ "pr"; "list"; "--head"; "feat"; "--state"; "all" ] (Reply.Ok "[]")
+
+            match! gh.PrListForBranch(".", "feat") with
+            | Ok xs -> Assert.That(xs, Is.Empty)
+            | Error e -> Assert.Fail $"pr list for branch failed: {e}"
+        }
+
+    [<Test>]
+    member _.PrListForBranchRejectsFlagLikeHeadAndBaseBeforeSpawning() : Task =
+        task {
+            let gh = permissive ()
+
+            let isErr (t: Task<Result<'T, ProcessError>>) =
+                task {
+                    let! r = t
+                    return Result.isError r
+                }
+
+            let! a = isErr (gh.PrListForBranch(".", "--evil-head", "main"))
+            let! b = isErr (gh.PrListForBranch(".", "feat", "--evil-base"))
+            let! c = isErr (gh.PrListForBranch(".", "--evil-head"))
+            let! d = isErr (gh.PrListForBranch(".", ""))
+
+            for flag, name in
+                [ a, "3-arg dash head"
+                  b, "3-arg dash base"
+                  c, "2-arg dash head"
+                  d, "2-arg empty head" ] do
+                Assert.That(flag, Is.True, $"{name} must be refused")
+        }
+
+    [<Test>]
     member _.PrViewBuildsNumberedQuery() : Task =
         task {
             let json =

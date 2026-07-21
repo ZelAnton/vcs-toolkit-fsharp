@@ -233,6 +233,44 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.MrListForBranchBuildsSourceBranchAllQuery() : Task =
+        task {
+            let json = """[{"iid":1,"title":"t","state":"opened","source_branch":"feat"}]"""
+
+            let glab, args = capturing (Reply.Ok json)
+
+            match! glab.MrListForBranch(".", "feat") with
+            | Ok [ mr ] -> Assert.That(mr.Iid, Is.EqualTo 1UL)
+            | Ok xs -> Assert.Fail $"expected one MR, got {xs.Length}"
+            | Error e -> Assert.Fail $"mr list for branch failed: {e}"
+
+            assertArgs [ "mr"; "list"; "--source-branch"; "feat"; "--all"; "--output"; "json" ] args
+        }
+
+    [<Test>]
+    member _.MrListForBranchEmptyIsNotAnError() : Task =
+        task {
+            let glab =
+                scripted [ "mr"; "list"; "--source-branch"; "feat"; "--all" ] (Reply.Ok "[]")
+
+            match! glab.MrListForBranch(".", "feat") with
+            | Ok xs -> Assert.That(xs, Is.Empty)
+            | Error e -> Assert.Fail $"mr list for branch failed: {e}"
+        }
+
+    [<Test>]
+    member _.MrListForBranchRejectsFlagLikeSourceBranchBeforeSpawning() : Task =
+        task {
+            let glab = permissive ()
+
+            let! a = glab.MrListForBranch(".", "--evil-branch")
+            let! b = glab.MrListForBranch(".", "")
+
+            Assert.That(Result.isError a, Is.True, "dash-leading source branch must be refused")
+            Assert.That(Result.isError b, Is.True, "empty source branch must be refused")
+        }
+
+    [<Test>]
     member _.MrDiffParsesUnifiedDiffIntoFileDiffs() : Task =
         task {
             let raw =

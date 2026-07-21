@@ -193,26 +193,65 @@ type GitHub private (core: ManagedClient) =
             GitHubParse.parsePrList
         )
 
-    /// Pull requests that merge `head` into `base`, in any state (`--state all`).
+    /// Pull requests that merge `head` into `base`, in any state (`--state all`). `head` and
+    /// `baseBranch` land in `--head`/`--base` flag-value slots, but both are checked against
+    /// `checkFlags` before spawning — a branch name is caller/repo-supplied, not a hardcoded
+    /// literal like the other flag values in this file.
     member _.PrListForBranch(dir: string, head: string, baseBranch: string) =
-        core.TryParse(
-            core.CommandIn(
-                dir,
-                [ "pr"
-                  "list"
-                  "--head"
-                  head
-                  "--base"
-                  baseBranch
-                  "--state"
-                  "all"
-                  "--limit"
-                  "100"
-                  "--json"
-                  PR_FIELDS ]
-            ),
-            GitHubParse.parsePrList
-        )
+        task {
+            match checkFlags BINARY [ "head", head; "baseBranch", baseBranch ] with
+            | Error e -> return Error e
+            | Ok() ->
+                return!
+                    core.TryParse(
+                        core.CommandIn(
+                            dir,
+                            [ "pr"
+                              "list"
+                              "--head"
+                              head
+                              "--base"
+                              baseBranch
+                              "--state"
+                              "all"
+                              "--limit"
+                              "100"
+                              "--json"
+                              PR_FIELDS ]
+                        ),
+                        GitHubParse.parsePrList
+                    )
+        }
+
+    /// Pull requests whose head is `head`, in any state (`--state all`), against any base
+    /// branch (`gh pr list --head <head> --state all --limit 100 --json …`). Prefer this
+    /// two-argument form over `PrListForBranch(dir, head, baseBranch)` when the target
+    /// branch isn't known — e.g. from `Forge.PrForBranch`, which is only given a source
+    /// branch. `head` is checked against `checkFlags` before spawning, like the three-
+    /// argument overload.
+    member _.PrListForBranch(dir: string, head: string) =
+        task {
+            match checkFlags BINARY [ "head", head ] with
+            | Error e -> return Error e
+            | Ok() ->
+                return!
+                    core.TryParse(
+                        core.CommandIn(
+                            dir,
+                            [ "pr"
+                              "list"
+                              "--head"
+                              head
+                              "--state"
+                              "all"
+                              "--limit"
+                              "100"
+                              "--json"
+                              PR_FIELDS ]
+                        ),
+                        GitHubParse.parsePrList
+                    )
+        }
 
     /// A single pull request by number (`gh pr view <n> --json …`).
     member _.PrView(dir: string, number: uint64) =
@@ -534,6 +573,9 @@ and [<Sealed>] GitHubAt internal (github: GitHub, dir: string) =
     /// Pull requests that merge `head` into `baseBranch`, any state.
     member _.PrListForBranch(head: string, baseBranch: string) =
         github.PrListForBranch(dir, head, baseBranch)
+
+    /// Pull requests whose head is `head`, in any state, against any base branch.
+    member _.PrListForBranch(head: string) = github.PrListForBranch(dir, head)
 
     /// A single pull request by number (`gh pr view <n> --json …`).
     member _.PrView(number: uint64) = github.PrView(dir, number)

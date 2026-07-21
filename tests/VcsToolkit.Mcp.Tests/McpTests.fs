@@ -1373,8 +1373,8 @@ type CatalogTests() =
 
     [<Test>]
     member _.CatalogCoversEveryTool() =
-        // 11 repo-read + repo_try_merge + 12 repo-write + 10 forge-read + 12 forge-write = 46.
-        Assert.That(List.length Catalog.all, Is.EqualTo 46)
+        // 11 repo-read + repo_try_merge + 12 repo-write + 11 forge-read + 12 forge-write = 47.
+        Assert.That(List.length Catalog.all, Is.EqualTo 47)
         // Every write-gated tool name appears in the catalogue.
         let names = Catalog.all |> List.map (fun t -> t.Name) |> Set.ofList
         Assert.That(WriteTools.all |> List.forall names.Contains, Is.True, "every write tool is catalogued")
@@ -1735,6 +1735,37 @@ type CatalogTests() =
             match! Catalog.callTool server "forge_pr_list" (argsOf "{}") with
             | Ok _ -> ()
             | Error e -> Assert.Fail $"forge_pr_list with no args should use the default options: {e.Message}"
+        }
+
+    [<Test>]
+    member _.ForgePrForBranchSchemaAdvertisesRequiredSourceBranch() =
+        let prForBranch = Catalog.all |> List.find (fun t -> t.Name = "forge_pr_for_branch")
+        let schema = Catalog.inputSchema prForBranch
+        Assert.That(schema, Does.Contain "\"source_branch\"")
+        Assert.That(schema, Does.Contain "\"required\":[\"source_branch\"]")
+
+    [<Test>]
+    member _.CallToolDispatchesForgePrForBranchWithSourceBranch() : Task =
+        task {
+            let runner =
+                ScriptedRunner().On([ "pr"; "list"; "--head"; "feat"; "--state"; "all" ], Reply.Ok "[]")
+
+            let server = gitServerWithForge runner WriteGate.None
+
+            match! Catalog.callTool server "forge_pr_for_branch" (argsOf """{"source_branch":"feat"}""") with
+            | Ok json -> Assert.That(json, Does.Contain "[]")
+            | Error e -> Assert.Fail $"forge_pr_for_branch dispatch failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.CallToolForgePrForBranchRequiresSourceBranch() : Task =
+        task {
+            let server = gitServerWithForge (ScriptedRunner()) WriteGate.None
+
+            match! Catalog.callTool server "forge_pr_for_branch" (argsOf "{}") with
+            | Error(McpError.InvalidParams message) -> Assert.That(message, Does.Contain "source_branch")
+            | Error e -> Assert.Fail $"expected InvalidParams, got: {e.Message}"
+            | Ok _ -> Assert.Fail "forge_pr_for_branch must require source_branch"
         }
 
     [<Test>]

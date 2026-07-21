@@ -43,6 +43,7 @@ namespace VcsToolkit.Forge
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Forge.ForgeError>> PrCreate(VcsToolkit.Forge.PrCreate spec) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Diff.FileDiff>, VcsToolkit.Forge.ForgeError>> PrDiff(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Forge.ForgeError>> PrEdit(ulong number, VcsToolkit.Forge.PrEdit edit) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Forge.ForgePr>, VcsToolkit.Forge.ForgeError>> PrForBranch(string sourceBranch) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Forge.ForgePr>, VcsToolkit.Forge.ForgeError>> PrList() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Forge.ForgePr>, VcsToolkit.Forge.ForgeError>> PrList(VcsToolkit.Forge.PrListOptions options) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Forge.ForgeError>> PrMarkReady(ulong number) { }

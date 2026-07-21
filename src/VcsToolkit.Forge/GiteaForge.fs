@@ -130,6 +130,22 @@ module internal GiteaForge =
                 )
         }
 
+    /// `tea pr list --output json` does not work against the real CLI for ANY state (K-049,
+    /// see `prList` above) — there is no working listing path to filter by source branch on
+    /// our side either, so refuse structurally, before any spawn, the same way `prList` does.
+    let prForBranch (_tea: VcsToolkit.Gitea.Gitea) (_dir: string) (sourceBranch: string) =
+        task {
+            return
+                Error(
+                    ForgeError.Unsupported(
+                        ForgeKind.Gitea,
+                        sprintf
+                            "prForBranch(%s): `tea pr list --output json` does not work against the real CLI (K-049) — no listing path to filter by source branch"
+                            sourceBranch
+                    )
+                )
+        }
+
     let prView (tea: VcsToolkit.Gitea.Gitea) (dir: string) (number: uint64) =
         task {
             match! tea.PrView(dir, number) with

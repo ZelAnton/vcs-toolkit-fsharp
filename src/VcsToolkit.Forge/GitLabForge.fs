@@ -172,6 +172,15 @@ module internal GitLabForge =
             | Ok mr -> return Ok(mapMr mr)
         }
 
+    /// Merge requests whose source branch is `sourceBranch`, in any state
+    /// (`glab mr list --source-branch <branch> --all …`).
+    let prForBranch (glab: VcsToolkit.GitLab.GitLab) (dir: string) (sourceBranch: string) =
+        task {
+            match! glab.MrListForBranch(dir, sourceBranch) with
+            | Error e -> return Error(ForgeError.Forge e)
+            | Ok mrs -> return Ok(mrs |> List.map mapMr)
+        }
+
     let prCreate (glab: VcsToolkit.GitLab.GitLab) (dir: string) (spec: PrCreate) =
         task {
             // The unified source/target ARE glab's naming — a 1:1 field map.

@@ -169,6 +169,25 @@ type GitLab private (core: ManagedClient) =
 
         core.TryParse(core.CommandIn(dir, args), GitLabParse.parseMrList)
 
+    /// Merge requests whose source branch is `sourceBranch`, in any state
+    /// (`glab mr list --source-branch <branch> --all --output json`). `sourceBranch` lands
+    /// in a `--source-branch` flag-value slot but is checked against `checkFlags` before
+    /// spawning — a branch name is caller/repo-supplied, not a hardcoded literal.
+    member _.MrListForBranch(dir: string, sourceBranch: string) =
+        task {
+            match checkFlags BINARY [ "sourceBranch", sourceBranch ] with
+            | Error e -> return Error e
+            | Ok() ->
+                return!
+                    core.TryParse(
+                        core.CommandIn(
+                            dir,
+                            [ "mr"; "list"; "--source-branch"; sourceBranch; "--all"; "--output"; "json" ]
+                        ),
+                        GitLabParse.parseMrList
+                    )
+        }
+
     /// A single merge request by its project-scoped number — GitLab's `iid`
     /// (`glab mr view <number> --output json`).
     member _.MrView(dir: string, number: uint64) =
@@ -441,6 +460,11 @@ and [<Sealed>] GitLabAt internal (gitlab: GitLab, dir: string) =
 
     /// Open merge requests for the bound `dir`, filtered and capped by `options`.
     member _.MrList(options: MrListOptions) = gitlab.MrList(dir, options)
+
+    /// Merge requests whose source branch is `sourceBranch`, in any state
+    /// (`glab mr list --source-branch <branch> --all …`).
+    member _.MrListForBranch(sourceBranch: string) =
+        gitlab.MrListForBranch(dir, sourceBranch)
 
     /// A single merge request by its project-scoped number (`glab mr view <n> …`).
     member _.MrView(number: uint64) = gitlab.MrView(dir, number)

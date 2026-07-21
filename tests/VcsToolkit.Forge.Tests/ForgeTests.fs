@@ -1157,6 +1157,125 @@ type PrListOptionsTests() =
         }
 
 // ---------------------------------------------------------------------------
+// Forge.PrForBranch — the "after pushing, find my PR" query, per backend
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type PrForBranchTests() =
+
+    [<Test>]
+    member _.GitHubPrForBranchSendsHeadStateAllWithoutBase() : Task =
+        task {
+            let json =
+                """[{"number":1,"title":"t","state":"OPEN","headRefName":"feat","baseRefName":"main","url":"u"}]"""
+
+            let forge =
+                ghForge [ "pr"; "list"; "--head"; "feat"; "--state"; "all"; "--limit"; "100"; "--json" ] (Reply.Ok json)
+
+            match! forge.PrForBranch "feat" with
+            | Ok [ pr ] -> Assert.That(pr.Number, Is.EqualTo 1UL)
+            | Ok other -> Assert.Fail $"expected one PR, got {other.Length}"
+            | Error e -> Assert.Fail $"pr for branch failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitHubPrForBranchNoMatchIsEmptyListNotError() : Task =
+        task {
+            let forge =
+                ghForge [ "pr"; "list"; "--head"; "no-such-branch"; "--state"; "all" ] (Reply.Ok "[]")
+
+            match! forge.PrForBranch "no-such-branch" with
+            | Ok [] -> ()
+            | Ok other -> Assert.Fail $"expected an empty list, got {other.Length}"
+            | Error e -> Assert.Fail $"pr for branch failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabPrForBranchSendsSourceBranchAll() : Task =
+        task {
+            let json = """[{"iid":1,"title":"t","state":"opened","source_branch":"feat"}]"""
+
+            let forge =
+                glForge [ "mr"; "list"; "--source-branch"; "feat"; "--all"; "--output"; "json" ] (Reply.Ok json)
+
+            match! forge.PrForBranch "feat" with
+            | Ok [ pr ] -> Assert.That(pr.Number, Is.EqualTo 1UL)
+            | Ok other -> Assert.Fail $"expected one MR, got {other.Length}"
+            | Error e -> Assert.Fail $"mr for branch failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabPrForBranchNoMatchIsEmptyListNotError() : Task =
+        task {
+            let forge =
+                glForge
+                    [ "mr"
+                      "list"
+                      "--source-branch"
+                      "no-such-branch"
+                      "--all"
+                      "--output"
+                      "json" ]
+                    (Reply.Ok "[]")
+
+            match! forge.PrForBranch "no-such-branch" with
+            | Ok [] -> ()
+            | Ok other -> Assert.Fail $"expected an empty list, got {other.Length}"
+            | Error e -> Assert.Fail $"mr for branch failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaPrForBranchIsStructurallyUnsupportedWithoutSpawning() : Task =
+        task {
+            // Same K-049 root cause as `GiteaPrList`: `tea pr list --output json` never worked
+            // against the real CLI, so there is no listing path to filter by source branch on
+            // our side either. An empty `ScriptedRunner` (no fallback) proves this refuses
+            // structurally, before any spawn.
+            let forge =
+                Forge.FromGitea(".", VcsToolkit.Gitea.Gitea.WithRunner(ScriptedRunner()))
+
+            match! forge.PrForBranch "feat" with
+            | Error e -> Assert.That(e.IsUnsupported, Is.True, "Gitea prForBranch must be Unsupported")
+            | Ok prs -> Assert.Fail $"Gitea prForBranch expected Unsupported, got Ok with {prs.Length} PR(s)"
+        }
+
+    [<Test>]
+    member _.GitHubPrForBranchRejectsFlagLikeSourceBranchThroughTheFacade() : Task =
+        task {
+            // K-040: the facade entry point itself must refuse a flag-like branch name before
+            // spawning — not only the underlying `GitHub.PrListForBranch` client. An empty
+            // `ScriptedRunner` (no fallback) proves nothing ever reaches a spawn.
+            let forge =
+                Forge.FromGitHub(".", VcsToolkit.GitHub.GitHub.WithRunner(ScriptedRunner()))
+
+            match! forge.PrForBranch "--evil-branch" with
+            | Error e -> Assert.That(e.Message, Does.Contain "flag", "expected an argv-guard refusal")
+            | Ok prs -> Assert.Fail $"flag-like source branch must be refused, got Ok with {prs.Length} PR(s)"
+        }
+
+    [<Test>]
+    member _.GitLabPrForBranchRejectsFlagLikeSourceBranchThroughTheFacade() : Task =
+        task {
+            // K-040: same guarantee on the GitLab-backed facade path.
+            let forge =
+                Forge.FromGitLab(".", VcsToolkit.GitLab.GitLab.WithRunner(ScriptedRunner()))
+
+            match! forge.PrForBranch "--evil-branch" with
+            | Error e -> Assert.That(e.Message, Does.Contain "flag", "expected an argv-guard refusal")
+            | Ok prs -> Assert.Fail $"flag-like source branch must be refused, got Ok with {prs.Length} PR(s)"
+        }
+
+    [<Test>]
+    member _.UnknownHandlePrForBranchIsUnsupportedWithoutProbing() : Task =
+        task {
+            let forge = Forge.FromUnknown "."
+
+            match! forge.PrForBranch "feat" with
+            | Error e -> Assert.That(e.IsUnsupported, Is.True, "Unknown backend prForBranch must be Unsupported")
+            | Ok prs -> Assert.Fail $"Unknown prForBranch expected Unsupported, got Ok with {prs.Length} PR(s)"
+        }
+
+// ---------------------------------------------------------------------------
 // Version gate on mutating operations + version/kind in Capabilities
 // ---------------------------------------------------------------------------
 

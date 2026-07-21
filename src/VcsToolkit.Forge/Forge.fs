@@ -339,6 +339,24 @@ type Forge private (cwd: string, backend: Backend) =
         | Backend.Gitea(c, _) -> GiteaForge.prList c cwd options
         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prList")) }
 
+    /// PR/MRs whose source branch is `sourceBranch`, in any state, regardless of target
+    /// branch — the "after pushing, find my PR" query. Returns a **list**, not a single
+    /// value: a branch can have more than one PR/MR against it over its lifetime (e.g.
+    /// closed then reopened, or opened against two different targets), so this mirrors
+    /// `PrList`'s "list, not a singleton" shape rather than `PrView`'s. An empty list means
+    /// no PR/MR currently matches `sourceBranch` — not an error.
+    /// - **GitHub** — `gh pr list --head <sourceBranch> --state all` (any base branch;
+    ///   the caller does not supply a target here).
+    /// - **GitLab** — `glab mr list --source-branch <sourceBranch> --all`.
+    /// - **`Unsupported` on Gitea** (`tea pr list --output json` does not work against the
+    ///   real CLI for any state — K-049; same root cause as `PrList`).
+    member _.PrForBranch(sourceBranch: string) =
+        match backend with
+        | Backend.GitHub(c, _) -> GitHubForge.prForBranch c cwd sourceBranch
+        | Backend.GitLab(c, _) -> GitLabForge.prForBranch c cwd sourceBranch
+        | Backend.Gitea(c, _) -> GiteaForge.prForBranch c cwd sourceBranch
+        | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prForBranch")) }
+
     /// A single PR/MR by number (GitLab `iid`). On Gitea this lists and filters.
     member _.PrView(number: uint64) =
         match backend with
