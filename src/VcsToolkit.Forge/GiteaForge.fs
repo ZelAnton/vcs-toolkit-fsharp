@@ -104,11 +104,30 @@ module internal GiteaForge =
             | _ -> return Ok()
         }
 
-    let prList (tea: VcsToolkit.Gitea.Gitea) (dir: string) =
+    /// `tea pr list --output json` does not work against the real CLI for ANY state value —
+    /// see K-049: the `--output json` flag itself is rejected regardless of `--state` (`tea`
+    /// prints `unknown output type 'json', available types are: ...` with exit code 0, which
+    /// is exactly what produced the confusing downstream JSON-parse failure), so there is no
+    /// working listing path to reach even for `Open`/`All`. `Closed`/`Merged` previously had
+    /// their own *additional* documented reason on top of that (isolating either from a
+    /// `--state all` fetch risks silently dropping matches past `--limit`, since a closed
+    /// row's `state` column can itself read `"merged"` — see `GiteaParse`/`mapPr`'s
+    /// `Merged`-flag derivation) — that reasoning still holds, but is now subsumed by this
+    /// more fundamental, blanket one. Refuse structurally, before any spawn, for every state:
+    /// this turns what would otherwise be a confusing runtime JSON-parse failure into a
+    /// single honest, consistent "unsupported" signal, rather than only for two of the four
+    /// states.
+    let prList (_tea: VcsToolkit.Gitea.Gitea) (_dir: string) (options: PrListOptions) =
         task {
-            match! tea.PrList dir with
-            | Error e -> return Error(ForgeError.Forge e)
-            | Ok prs -> return Ok(prs |> List.map mapPr)
+            return
+                Error(
+                    ForgeError.Unsupported(
+                        ForgeKind.Gitea,
+                        sprintf
+                            "prList(%A): `tea pr list --output json` does not work against the real CLI (K-049) — no state is listable yet"
+                            options.State
+                    )
+                )
         }
 
     let prView (tea: VcsToolkit.Gitea.Gitea) (dir: string) (number: uint64) =
@@ -204,11 +223,21 @@ module internal GiteaForge =
                 return Error(ForgeError.Unsupported(ForgeKind.Gitea, "prReview comment"))
         }
 
-    let issueList (tea: VcsToolkit.Gitea.Gitea) (dir: string) =
+    /// `tea issues list --output json` is unsupported by the real CLI for every state — the
+    /// identical K-049 root cause as `prList` above (the `--output json` flag itself is
+    /// rejected, not something state-specific). Refuse structurally, before any spawn, for
+    /// every state.
+    let issueList (_tea: VcsToolkit.Gitea.Gitea) (_dir: string) (options: IssueListOptions) =
         task {
-            match! tea.IssueList dir with
-            | Error e -> return Error(ForgeError.Forge e)
-            | Ok issues -> return Ok(issues |> List.map mapIssue)
+            return
+                Error(
+                    ForgeError.Unsupported(
+                        ForgeKind.Gitea,
+                        sprintf
+                            "issueList(%A): `tea issues list --output json` does not work against the real CLI (K-049) — no state is listable yet"
+                            options.State
+                    )
+                )
         }
 
     let issueView (tea: VcsToolkit.Gitea.Gitea) (dir: string) (number: uint64) =

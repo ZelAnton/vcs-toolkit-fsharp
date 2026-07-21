@@ -168,10 +168,28 @@ type GitHub private (core: ManagedClient) =
     member _.RepoView(dir: string) =
         core.TryParse(core.CommandIn(dir, [ "repo"; "view"; "--json"; REPO_FIELDS ]), GitHubParse.parseRepo)
 
-    /// Pull requests for `dir` (`gh pr list --limit 100 --json …`). Up to 100 open PRs.
-    member _.PrList(dir: string) =
+    /// Pull requests for `dir` — the previous, options-less behaviour (open, up to 100).
+    /// Kept as a genuine `(dir)`-only overload (rather than folding into `dir` plus an
+    /// `?options` optional parameter) for CLR binary compatibility: F#'s `?options` sugar
+    /// still compiles to a required parameter at the metadata level, so an already-compiled
+    /// caller of the pre-`PrListOptions` `PrList(dir)` would hit `MissingMethodException`
+    /// against a build that replaced it outright.
+    member this.PrList(dir: string) = this.PrList(dir, PrListOptions.Default)
+
+    /// Pull requests for `dir` (`gh pr list --state <state> --limit <limit> --json …`).
+    member _.PrList(dir: string, options: PrListOptions) =
         core.TryParse(
-            core.CommandIn(dir, [ "pr"; "list"; "--limit"; "100"; "--json"; PR_FIELDS ]),
+            core.CommandIn(
+                dir,
+                [ "pr"
+                  "list"
+                  "--state"
+                  options.State.Flag
+                  "--limit"
+                  string options.Limit
+                  "--json"
+                  PR_FIELDS ]
+            ),
             GitHubParse.parsePrList
         )
 
@@ -210,10 +228,26 @@ type GitHub private (core: ManagedClient) =
             | Ok raw -> return Ok(parseDiff raw)
         }
 
-    /// Issues for `dir` (`gh issue list --limit 100 --json …`). Up to 100 open issues.
-    member _.IssueList(dir: string) =
+    /// Issues for `dir` — the previous, options-less behaviour (open, up to 100). Kept as a
+    /// genuine `(dir)`-only overload for CLR binary compatibility (see `PrList`'s doc
+    /// comment for the rationale).
+    member this.IssueList(dir: string) =
+        this.IssueList(dir, IssueListOptions.Default)
+
+    /// Issues for `dir` (`gh issue list --state <state> --limit <limit> --json …`).
+    member _.IssueList(dir: string, options: IssueListOptions) =
         core.TryParse(
-            core.CommandIn(dir, [ "issue"; "list"; "--limit"; "100"; "--json"; ISSUE_LIST_FIELDS ]),
+            core.CommandIn(
+                dir,
+                [ "issue"
+                  "list"
+                  "--state"
+                  options.State.Flag
+                  "--limit"
+                  string options.Limit
+                  "--json"
+                  ISSUE_LIST_FIELDS ]
+            ),
             GitHubParse.parseIssueList
         )
 
@@ -466,8 +500,13 @@ and [<Sealed>] GitHubAt internal (github: GitHub, dir: string) =
     /// The repository for the bound `dir` (`gh repo view --json …`).
     member _.RepoView() = github.RepoView dir
 
-    /// Pull requests for the bound `dir` (`gh pr list …`).
+    /// Pull requests for the bound `dir` (`gh pr list …`) — the previous, options-less
+    /// behaviour. Kept as a genuine zero-argument overload for CLR binary compatibility
+    /// (see `GitHub.PrList`'s doc comment for the rationale).
     member _.PrList() = github.PrList dir
+
+    /// Pull requests for the bound `dir`, filtered and capped by `options`.
+    member _.PrList(options: PrListOptions) = github.PrList(dir, options)
 
     /// Pull requests that merge `head` into `baseBranch`, any state.
     member _.PrListForBranch(head: string, baseBranch: string) =
@@ -480,8 +519,13 @@ and [<Sealed>] GitHubAt internal (github: GitHub, dir: string) =
     /// (`gh pr diff <n>`).
     member _.PrDiff(number: uint64) = github.PrDiff(dir, number)
 
-    /// Issues for the bound `dir` (`gh issue list …`).
+    /// Issues for the bound `dir` (`gh issue list …`) — the previous, options-less
+    /// behaviour. Kept as a genuine zero-argument overload for CLR binary compatibility
+    /// (see `GitHub.PrList`'s doc comment for the rationale).
     member _.IssueList() = github.IssueList dir
+
+    /// Issues for the bound `dir`, filtered and capped by `options`.
+    member _.IssueList(options: IssueListOptions) = github.IssueList(dir, options)
 
     /// Open a pull request, returning its URL (`gh pr create`).
     member _.PrCreate(spec: PrCreate) = github.PrCreate(dir, spec)

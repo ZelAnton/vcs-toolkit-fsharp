@@ -405,19 +405,23 @@ type DispatchTests() =
         }
 
     [<Test>]
-    member _.GiteaPrListDerivesMergedFromFlag() : Task =
+    member _.GiteaPrViewDerivesMergedFromFlag() : Task =
         task {
+            // `PrList` is structurally Unsupported on Gitea for every state (K-049 — see
+            // PrListOptionsTests below), so `mapPr`'s field-mapping behaviour is exercised
+            // through `PrView` instead, which still reaches the same `tea pr list --state
+            // all --output json` JSON path (untouched by this task's scope).
             let json =
                 """[{"index":"9","title":"done","state":"merged","head":"f","base":"main","url":"u"}]"""
 
-            let forge = teaForge [ "pr"; "list"; "--fields" ] (Reply.Ok json)
+            let forge =
+                teaForge [ "pr"; "list"; "--state"; "all"; "--page"; "1"; "--fields" ] (Reply.Ok json)
 
-            match! forge.PrList() with
-            | Ok [ pr ] ->
+            match! forge.PrView 9UL with
+            | Ok pr ->
                 Assert.That(pr.Number, Is.EqualTo 9UL)
                 Assert.That(pr.State, Is.EqualTo ForgePrState.Merged, "tea merged flag → Merged")
-            | Ok other -> Assert.Fail $"expected one PR, got {other.Length}"
-            | Error e -> Assert.Fail $"pr list failed: {e.Message}"
+            | Error e -> Assert.Fail $"pr view failed: {e.Message}"
         }
 
     [<Test>]
@@ -715,16 +719,19 @@ type OptionalFieldTests() =
     [<Test>]
     member _.GiteaPrDraftIsNoneWhenUnreported() : Task =
         task {
-            // tea's lean PR surface has no draft column → None.
+            // tea's lean PR surface has no draft column → None. `PrList` is structurally
+            // Unsupported on Gitea for every state (K-049), so this goes through `PrView`
+            // instead, which reaches the same `mapPr` mapper via the untouched `tea pr
+            // list --state all` JSON path.
             let json =
                 """[{"index":"1","title":"t","state":"open","head":"f","base":"main","url":"u"}]"""
 
-            let forge = teaForge [ "pr"; "list"; "--fields" ] (Reply.Ok json)
+            let forge =
+                teaForge [ "pr"; "list"; "--state"; "all"; "--page"; "1"; "--fields" ] (Reply.Ok json)
 
-            match! forge.PrList() with
-            | Ok [ pr ] -> Assert.That(pr.Draft, Is.EqualTo None, "Gitea PR draft is unreported → None")
-            | Ok other -> Assert.Fail $"expected one PR, got {other.Length}"
-            | Error e -> Assert.Fail $"pr list failed: {e.Message}"
+            match! forge.PrView 1UL with
+            | Ok pr -> Assert.That(pr.Draft, Is.EqualTo None, "Gitea PR draft is unreported → None")
+            | Error e -> Assert.Fail $"pr view failed: {e.Message}"
         }
 
     // --- ForgeRepo.Private — Some when visibility known, None when absent ---
@@ -925,17 +932,19 @@ type OptionalFieldTests() =
     member _.GiteaPrLabelsAndAssigneesAreNone() : Task =
         task {
             // tea's PR table has no labels/assignees columns → honest None (unknown), not [].
+            // `PrList` is structurally Unsupported on Gitea for every state (K-049), so this
+            // goes through `PrView` instead, which reaches the same `mapPr` mapper.
             let json =
                 """[{"index":"1","title":"t","state":"open","head":"f","base":"main","url":"u"}]"""
 
-            let forge = teaForge [ "pr"; "list"; "--fields" ] (Reply.Ok json)
+            let forge =
+                teaForge [ "pr"; "list"; "--state"; "all"; "--page"; "1"; "--fields" ] (Reply.Ok json)
 
-            match! forge.PrList() with
-            | Ok [ pr ] ->
+            match! forge.PrView 1UL with
+            | Ok pr ->
                 Assert.That(pr.Labels, Is.EqualTo None, "Gitea PR labels unreported → None")
                 Assert.That(pr.Assignees, Is.EqualTo None, "Gitea PR assignees unreported → None")
-            | Ok other -> Assert.Fail $"expected one PR, got {other.Length}"
-            | Error e -> Assert.Fail $"pr list failed: {e.Message}"
+            | Error e -> Assert.Fail $"pr view failed: {e.Message}"
         }
 
     [<Test>]
@@ -1003,15 +1012,141 @@ type OptionalFieldTests() =
     member _.GiteaIssueLabelsAndAssigneesAreNone() : Task =
         task {
             // tea's issue table has no labels/assignees columns → honest None (unknown).
-            let json = """[{"index":"1","title":"t","state":"open","url":"u"}]"""
-            let forge = teaForge [ "issues"; "list"; "--fields" ] (Reply.Ok json)
+            // `IssueList` is structurally Unsupported on Gitea for every state (K-049), so
+            // this goes through `IssueView` instead, which reaches the same `mapIssue`
+            // mapper via the untouched `tea issues <n> --output json` JSON path.
+            let json = """{"index":1,"title":"t","state":"open","url":"u"}"""
+            let forge = teaForge [ "issues"; "1"; "--output"; "json" ] (Reply.Ok json)
 
-            match! forge.IssueList() with
-            | Ok [ issue ] ->
+            match! forge.IssueView 1UL with
+            | Ok issue ->
                 Assert.That(issue.Labels, Is.EqualTo None, "Gitea issue labels unreported → None")
                 Assert.That(issue.Assignees, Is.EqualTo None, "Gitea issue assignees unreported → None")
-            | Ok other -> Assert.Fail $"expected one issue, got {other.Length}"
+            | Error e -> Assert.Fail $"issue view failed: {e.Message}"
+        }
+
+// ---------------------------------------------------------------------------
+// PrList/IssueList options — unified state filter + result cap, per backend (T-102)
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type PrListOptionsTests() =
+
+    [<Test>]
+    member _.GitHubPrListForwardsStateAndLimit() : Task =
+        task {
+            let forge =
+                ghForge [ "pr"; "list"; "--state"; "closed"; "--limit"; "50"; "--json" ] (Reply.Ok "[]")
+
+            match! forge.PrList(PrListOptions.Closed.WithLimit 50) with
+            | Ok [] -> ()
+            | Ok other -> Assert.Fail $"expected an empty list, got {other.Length}"
+            | Error e -> Assert.Fail $"pr list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitHubPrListOmittedOptionsDefaultToOpenAndLimit100() : Task =
+        task {
+            let forge =
+                ghForge [ "pr"; "list"; "--state"; "open"; "--limit"; "100"; "--json" ] (Reply.Ok "[]")
+
+            match! forge.PrList() with
+            | Ok [] -> ()
+            | Ok other -> Assert.Fail $"expected an empty list, got {other.Length}"
+            | Error e -> Assert.Fail $"pr list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitHubIssueListForwardsStateAndLimit() : Task =
+        task {
+            let forge =
+                ghForge [ "issue"; "list"; "--state"; "all"; "--limit"; "5"; "--json" ] (Reply.Ok "[]")
+
+            match! forge.IssueList(IssueListOptions.All.WithLimit 5) with
+            | Ok [] -> ()
+            | Ok other -> Assert.Fail $"expected an empty list, got {other.Length}"
             | Error e -> Assert.Fail $"issue list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabPrListOpenSendsNoStateFlag() : Task =
+        task {
+            // glab has no `--state` flag: Open is glab's implicit default (no extra flag). An
+            // empty ScriptedRunner reply proves this exact token list — with none of
+            // --closed/--merged/--all — is what the request carries.
+            let forge =
+                glForge [ "mr"; "list"; "--per-page"; "100"; "--output"; "json" ] (Reply.Ok "[]")
+
+            match! forge.PrList(PrListOptions.Open) with
+            | Ok [] -> ()
+            | Ok other -> Assert.Fail $"expected an empty list, got {other.Length}"
+            | Error e -> Assert.Fail $"mr list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabPrListMergedSendsMergedFlagAndLimit() : Task =
+        task {
+            let forge =
+                glForge [ "mr"; "list"; "--merged"; "--per-page"; "25"; "--output"; "json" ] (Reply.Ok "[]")
+
+            match! forge.PrList(PrListOptions.Merged.WithLimit 25) with
+            | Ok [] -> ()
+            | Ok other -> Assert.Fail $"expected an empty list, got {other.Length}"
+            | Error e -> Assert.Fail $"mr list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabIssueListClosedSendsClosedFlag() : Task =
+        task {
+            let forge =
+                glForge [ "issue"; "list"; "--closed"; "--per-page"; "100"; "--output"; "json" ] (Reply.Ok "[]")
+
+            match! forge.IssueList(IssueListOptions.Closed) with
+            | Ok [] -> ()
+            | Ok other -> Assert.Fail $"expected an empty list, got {other.Length}"
+            | Error e -> Assert.Fail $"issue list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaPrListIsStructurallyUnsupportedForEveryStateWithoutSpawning() : Task =
+        task {
+            // `tea pr list --output json` does not work against the real CLI for ANY state
+            // value (K-049): the `--output json` flag itself is rejected regardless of
+            // `--state`, so `prList` refuses structurally, before any spawn, for
+            // Open/Closed/Merged/All alike — not just Closed/Merged (which additionally have
+            // their own documented local-filtering data-loss risk on top of that, now
+            // subsumed by this more fundamental reason). An empty `ScriptedRunner` (no
+            // fallback) proves none of these ever reaches a spawn.
+            let forge =
+                Forge.FromGitea(".", VcsToolkit.Gitea.Gitea.WithRunner(ScriptedRunner()))
+
+            for options, name in
+                [ PrListOptions.Open, "Open"
+                  PrListOptions.Closed, "Closed"
+                  PrListOptions.Merged, "Merged"
+                  PrListOptions.All, "All" ] do
+                match! forge.PrList options with
+                | Error e -> Assert.That(e.IsUnsupported, Is.True, $"Gitea prList({name}) must be Unsupported")
+                | Ok prs -> Assert.Fail $"Gitea prList({name}) expected Unsupported, got Ok with {prs.Length} PR(s)"
+        }
+
+    [<Test>]
+    member _.GiteaIssueListIsStructurallyUnsupportedForEveryStateWithoutSpawning() : Task =
+        task {
+            // Same K-049 root cause as `prList` above: `tea issues list --output json` never
+            // worked against the real CLI, for any state — refused structurally before any
+            // spawn, for Open/Closed/All alike.
+            let forge =
+                Forge.FromGitea(".", VcsToolkit.Gitea.Gitea.WithRunner(ScriptedRunner()))
+
+            for options, name in
+                [ IssueListOptions.Open, "Open"
+                  IssueListOptions.Closed, "Closed"
+                  IssueListOptions.All, "All" ] do
+                match! forge.IssueList options with
+                | Error e -> Assert.That(e.IsUnsupported, Is.True, $"Gitea issueList({name}) must be Unsupported")
+                | Ok issues ->
+                    Assert.Fail $"Gitea issueList({name}) expected Unsupported, got Ok with {issues.Length} issue(s)"
         }
 
 // ---------------------------------------------------------------------------

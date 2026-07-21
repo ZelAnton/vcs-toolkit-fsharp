@@ -153,9 +153,28 @@ module internal GitHubForge =
             | Ok repo -> return Ok(mapRepo repo)
         }
 
-    let prList (gh: VcsToolkit.GitHub.GitHub) (dir: string) =
+    /// The unified `PrListState` maps 1:1 onto gh's own `--state open|closed|merged|all`.
+    let private ghPrState (state: PrListState) : VcsToolkit.GitHub.PrListState =
+        match state with
+        | PrListState.Open -> VcsToolkit.GitHub.PrListState.Open
+        | PrListState.Closed -> VcsToolkit.GitHub.PrListState.Closed
+        | PrListState.Merged -> VcsToolkit.GitHub.PrListState.Merged
+        | PrListState.All -> VcsToolkit.GitHub.PrListState.All
+
+    /// The unified `IssueListState` maps 1:1 onto gh's own `--state open|closed|all`.
+    let private ghIssueState (state: IssueListState) : VcsToolkit.GitHub.IssueListState =
+        match state with
+        | IssueListState.Open -> VcsToolkit.GitHub.IssueListState.Open
+        | IssueListState.Closed -> VcsToolkit.GitHub.IssueListState.Closed
+        | IssueListState.All -> VcsToolkit.GitHub.IssueListState.All
+
+    let prList (gh: VcsToolkit.GitHub.GitHub) (dir: string) (options: PrListOptions) =
         task {
-            match! gh.PrList dir with
+            let ghOptions: VcsToolkit.GitHub.PrListOptions =
+                { State = ghPrState options.State
+                  Limit = options.Limit }
+
+            match! gh.PrList(dir, ghOptions) with
             | Error e -> return Error(ForgeError.Forge e)
             | Ok prs -> return Ok(prs |> List.map mapPr)
         }
@@ -276,9 +295,13 @@ module internal GitHubForge =
             return ofForge r
         }
 
-    let issueList (gh: VcsToolkit.GitHub.GitHub) (dir: string) =
+    let issueList (gh: VcsToolkit.GitHub.GitHub) (dir: string) (options: IssueListOptions) =
         task {
-            match! gh.IssueList dir with
+            let ghOptions: VcsToolkit.GitHub.IssueListOptions =
+                { State = ghIssueState options.State
+                  Limit = options.Limit }
+
+            match! gh.IssueList(dir, ghOptions) with
             | Error e -> return Error(ForgeError.Forge e)
             | Ok issues -> return Ok(issues |> List.map mapIssue)
         }

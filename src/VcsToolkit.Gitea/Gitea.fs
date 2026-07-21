@@ -121,11 +121,34 @@ type Gitea private (core: ManagedClient) =
 
     // --- PR lifecycle --------------------------------------------------------
 
-    /// Open pull requests for `dir` (`tea pr list --limit 100 --fields … --output json`).
-    /// Up to 100 open PRs. `--fields` selects the columns the parser reads.
-    member _.PrList(dir: string) =
+    /// Open pull requests for `dir` — the previous, options-less behaviour (open, up to
+    /// 100). Kept as a genuine `(dir)`-only overload (rather than folding into `dir` plus an
+    /// `?options` optional parameter) for CLR binary compatibility: F#'s `?options` sugar
+    /// still compiles to a required parameter at the metadata level, so an already-compiled
+    /// caller of the pre-`PrListOptions` `PrList(dir)` would hit `MissingMethodException`
+    /// against a build that replaced it outright.
+    member this.PrList(dir: string) = this.PrList(dir, PrListOptions.Default)
+
+    /// Open pull requests for `dir` (`tea pr list --state <state> --limit <limit> --fields
+    /// … --output json`). `--fields` selects the columns the parser reads. See K-049: `tea`
+    /// 0.9.2 does not support `--output json` at all on `pr list` against the real CLI —
+    /// this method's shape is otherwise unchanged by that pre-existing, separately-tracked
+    /// gap.
+    member _.PrList(dir: string, options: PrListOptions) =
         core.TryParse(
-            core.CommandIn(dir, [ "pr"; "list"; "--limit"; "100"; "--fields"; PR_FIELDS; "--output"; "json" ]),
+            core.CommandIn(
+                dir,
+                [ "pr"
+                  "list"
+                  "--state"
+                  options.State.Flag
+                  "--limit"
+                  string options.Limit
+                  "--fields"
+                  PR_FIELDS
+                  "--output"
+                  "json" ]
+            ),
             GiteaParse.parsePrList
         )
 
@@ -278,16 +301,26 @@ type Gitea private (core: ManagedClient) =
 
     // --- Issues / releases ---------------------------------------------------
 
-    /// Open issues for `dir` (`tea issues list --limit 100 --fields … --output json`).
-    /// Up to 100 open issues.
-    member _.IssueList(dir: string) =
+    /// Open issues for `dir` — the previous, options-less behaviour (open, up to 100). Kept
+    /// as a genuine `(dir)`-only overload for CLR binary compatibility (see `PrList`'s doc
+    /// comment for the rationale).
+    member this.IssueList(dir: string) =
+        this.IssueList(dir, IssueListOptions.Default)
+
+    /// Open issues for `dir` (`tea issues list --state <state> --limit <limit> --fields …
+    /// --output json`). See K-049: `tea` 0.9.2 does not support `--output json` at all on
+    /// `issues list` against the real CLI — this method's shape is otherwise unchanged by
+    /// that pre-existing, separately-tracked gap.
+    member _.IssueList(dir: string, options: IssueListOptions) =
         core.TryParse(
             core.CommandIn(
                 dir,
                 [ "issues"
                   "list"
+                  "--state"
+                  options.State.Flag
                   "--limit"
-                  "100"
+                  string options.Limit
                   "--fields"
                   ISSUE_FIELDS
                   "--output"
@@ -362,8 +395,13 @@ and [<Sealed>] GiteaAt internal (gitea: Gitea, dir: string) =
 
     // --- Modelled methods (dir injected as the first argument) ----------------
 
-    /// Open pull requests for the bound `dir` (`tea pr list …`).
+    /// Open pull requests for the bound `dir` (`tea pr list …`) — the previous,
+    /// options-less behaviour. Kept as a genuine zero-argument overload for CLR binary
+    /// compatibility (see `Gitea.PrList`'s doc comment for the rationale).
     member _.PrList() = gitea.PrList dir
+
+    /// Open pull requests for the bound `dir`, filtered and capped by `options`.
+    member _.PrList(options: PrListOptions) = gitea.PrList(dir, options)
 
     /// A single pull request by number (synthesized via `tea pr list --state all …`).
     member _.PrView(number: uint64) = gitea.PrView(dir, number)
@@ -392,8 +430,13 @@ and [<Sealed>] GiteaAt internal (gitea: Gitea, dir: string) =
     /// Edit a pull request's title and/or description (`tea pr edit <index> …`).
     member _.PrEdit(number: uint64, edit: PrEdit) = gitea.PrEdit(dir, number, edit)
 
-    /// Open issues for the bound `dir` (`tea issues list …`).
+    /// Open issues for the bound `dir` (`tea issues list …`) — the previous, options-less
+    /// behaviour. Kept as a genuine zero-argument overload for CLR binary compatibility
+    /// (see `Gitea.PrList`'s doc comment for the rationale).
     member _.IssueList() = gitea.IssueList dir
+
+    /// Open issues for the bound `dir`, filtered and capped by `options`.
+    member _.IssueList(options: IssueListOptions) = gitea.IssueList(dir, options)
 
     /// A single issue by number (`tea issues <n> --output json`).
     member _.IssueView(number: uint64) = gitea.IssueView(dir, number)

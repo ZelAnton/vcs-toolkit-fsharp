@@ -63,6 +63,87 @@ type MergeStrategy =
         | MergeStrategy.Squash -> "squash"
         | MergeStrategy.Rebase -> "rebase"
 
+/// Which PR states `prList` returns (`tea pr list --state`). `tea`'s `--state` filter takes
+/// `open`/`closed`/`all`; whether its `closed` bucket reliably includes a merged PR is
+/// unconfirmed against the real CLI (`PrView`, above, deliberately does not rely on it —
+/// it walks `--state all` instead), so `Closed` here is a literal `--state closed` pass-through
+/// for a caller who wants exactly that CLI behaviour, not a claim about merged-PR coverage.
+[<RequireQualifiedAccess>]
+type PrListState =
+    /// Open PRs (`--state open`, tea's default).
+    | Open
+    /// `--state closed` verbatim — see the type doc comment for the merged-PR caveat.
+    | Closed
+    /// Every PR regardless of state (`--state all`).
+    | All
+
+    /// The `--state` value this case emits.
+    member internal this.Flag =
+        match this with
+        | PrListState.Open -> "open"
+        | PrListState.Closed -> "closed"
+        | PrListState.All -> "all"
+
+/// Options for `prList` (`tea pr list --state <state> --limit <limit>`). Defaults reproduce
+/// this wrapper's previous, options-less behaviour: open PRs, up to 100.
+type PrListOptions =
+    {
+        /// Which states to include (see `PrListState`).
+        State: PrListState
+        /// `--limit` — the maximum number of results.
+        Limit: int
+    }
+
+    /// Open PRs, up to 100 — this wrapper's previous behaviour before `PrListOptions` existed.
+    static member Default =
+        { State = PrListState.Open
+          Limit = 100 }
+
+    /// Filter by `state` instead of the default `Open`.
+    member this.WithState(state: PrListState) = { this with State = state }
+
+    /// Cap the result count at `limit` instead of the default 100.
+    member this.WithLimit(limit: int) = { this with Limit = limit }
+
+/// Which issue states `issueList` returns (`tea issues list --state`).
+[<RequireQualifiedAccess>]
+type IssueListState =
+    /// Open issues (`--state open`, tea's default).
+    | Open
+    /// Closed issues (`--state closed`).
+    | Closed
+    /// Every issue regardless of state (`--state all`).
+    | All
+
+    /// The `--state` value this case emits.
+    member internal this.Flag =
+        match this with
+        | IssueListState.Open -> "open"
+        | IssueListState.Closed -> "closed"
+        | IssueListState.All -> "all"
+
+/// Options for `issueList` (`tea issues list --state <state> --limit <limit>`). Defaults
+/// reproduce this wrapper's previous, options-less behaviour: open issues, up to 100.
+type IssueListOptions =
+    {
+        /// Which states to include (see `IssueListState`).
+        State: IssueListState
+        /// `--limit` — the maximum number of results.
+        Limit: int
+    }
+
+    /// Open issues, up to 100 — this wrapper's previous behaviour before `IssueListOptions`
+    /// existed.
+    static member Default =
+        { State = IssueListState.Open
+          Limit = 100 }
+
+    /// Filter by `state` instead of the default `Open`.
+    member this.WithState(state: IssueListState) = { this with State = state }
+
+    /// Cap the result count at `limit` instead of the default 100.
+    member this.WithLimit(limit: int) = { this with Limit = limit }
+
 /// Options for `prCreate` (`tea pr create`). Build it through `PrCreate.Create`
 /// (title + body) and the chained `WithHead`/`WithBase` setters.
 type PrCreate =
