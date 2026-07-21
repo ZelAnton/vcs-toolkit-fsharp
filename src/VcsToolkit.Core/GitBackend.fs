@@ -95,6 +95,16 @@ module internal GitBackend =
             return ofVcs r
         }
 
+    /// Map a git-typed `Remote` (name + URL) into the facade DTO.
+    let private remoteFromGit (r: VcsToolkit.Git.Remote) : VcsToolkit.Core.Remote = { Name = r.Name; Url = r.Url }
+
+    let remotes (git: Git) (dir: string) =
+        task {
+            match! git.Remotes dir with
+            | Error e -> return Error(RepoError.Vcs e)
+            | Ok rs -> return Ok(rs |> List.map remoteFromGit)
+        }
+
     let changedFiles (git: Git) (dir: string) =
         task {
             match! git.Status dir with

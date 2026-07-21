@@ -347,6 +347,40 @@ type QueryTests() =
         }
 
     [<Test>]
+    member _.RemotesParsesRemoteVDedupingFetchAndPush() : Task =
+        task {
+            // `git remote -v` prints a fetch and a push line per remote; `Remotes` deduplicates to
+            // one (name, fetch-URL) entry each, preserving first-seen order and stripping the
+            // trailing ` (fetch)`/` (push)` marker.
+            let git =
+                scripted
+                    [ "remote"; "-v" ]
+                    (Reply.Ok(
+                        "origin"
+                        + tab
+                        + "https://github.com/example/repo.git (fetch)\n"
+                        + "origin"
+                        + tab
+                        + "https://github.com/example/repo.git (push)\n"
+                        + "upstream"
+                        + tab
+                        + "https://github.com/other/repo.git (fetch)\n"
+                        + "upstream"
+                        + tab
+                        + "https://github.com/other/repo.git (push)\n"
+                    ))
+
+            match! git.Remotes "." with
+            | Ok [ origin; upstream ] ->
+                Assert.That(origin.Name, Is.EqualTo "origin")
+                Assert.That(origin.Url, Is.EqualTo "https://github.com/example/repo.git")
+                Assert.That(upstream.Name, Is.EqualTo "upstream")
+                Assert.That(upstream.Url, Is.EqualTo "https://github.com/other/repo.git")
+            | Ok other -> Assert.Fail $"expected two deduplicated remotes, got {other.Length}"
+            | Error e -> Assert.Fail $"remotes failed: {e}"
+        }
+
+    [<Test>]
     member _.RemoteBranchExistsInheritsTheCallerTimeout() : Task =
         task {
             // This must match RemoteBranches rather than restoring a hidden 10-second cap.

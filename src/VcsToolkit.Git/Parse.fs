@@ -73,6 +73,16 @@ type Branch =
         Current: bool
     }
 
+/// One configured remote from `git remote -v` — a remote name and its URL.
+type Remote =
+    {
+        /// The remote's name, e.g. `origin`.
+        Name: string
+        /// The remote's URL. `git remote -v` lists a fetch and a push line per remote; this is
+        /// the fetch URL (the two are the same unless a push URL was set separately).
+        Url: string
+    }
+
 /// A worktree from `git worktree list --porcelain`.
 type Worktree =
     {
@@ -454,3 +464,30 @@ module internal GitParse =
                     Some(refname.Substring 11)
                 else
                     None)
+
+    /// Parse `git remote -v` into one `Remote` per configured remote. git prints two lines per
+    /// remote — `<name>\t<url> (fetch)` and `<name>\t<url> (push)` — so this deduplicates to a
+    /// single entry per name, keeping the first URL seen (the fetch line, which git emits before
+    /// the push one). The trailing ` (fetch)`/` (push)` marker drops off: a URL never contains
+    /// whitespace, so the URL is the first whitespace-delimited token of the tab-separated value.
+    let parseRemotes (output: string) : Remote list =
+        let seen = System.Collections.Generic.HashSet<string>()
+        let remotes = ResizeArray<Remote>()
+
+        for line in TextParse.linesOf output do
+            match line.IndexOf tab with
+            | -1 -> ()
+            | idx ->
+                let name = line.Substring(0, idx)
+
+                if name <> "" && seen.Add name then
+                    let url =
+                        match
+                            (line.Substring(idx + 1)).Split([| ' '; tab |], StringSplitOptions.RemoveEmptyEntries)
+                        with
+                        | [||] -> ""
+                        | parts -> parts.[0]
+
+                    remotes.Add { Name = name; Url = url }
+
+        List.ofSeq remotes

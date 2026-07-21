@@ -113,6 +113,17 @@ type AnnotateLine =
         Date: string option
     }
 
+/// One configured remote of the repository, unified across git's `remote -v` and jj's
+/// `jj git remote list`. See `Repo.Remotes`.
+type Remote =
+    {
+        /// The remote's name, e.g. `origin`.
+        Name: string
+        /// The remote's URL. On git this is the fetch URL (git lists one entry per remote here,
+        /// deduplicated from its fetch/push lines); on jj it is the single URL jj records for it.
+        Url: string
+    }
+
 /// One attached worktree (git) / workspace (jj).
 type WorktreeInfo =
     {

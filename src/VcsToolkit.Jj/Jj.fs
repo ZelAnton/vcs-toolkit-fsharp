@@ -858,6 +858,17 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
     member _.GitImport(dir: string) =
         core.RunUnit(cmdIn dir [ "git"; "import" ])
 
+    /// The git remotes jj knows about (`jj git remote list`), one `Remote` (name + url) per
+    /// configured remote. A pure config read: it always carries the global `--ignore-working-copy`
+    /// (so listing remotes never snapshots the working copy or records a new operation — K-006) and
+    /// an explicit `--color never` (so a `ui.color = "always"` config can't wrap the parsed output
+    /// in ANSI escapes). Both are forced regardless of this client's read-only mode — unlike the
+    /// `cmdInRead` reads, whose `--ignore-working-copy` is conditional — because this query must
+    /// never perturb the repository. Built via `cmdIn` (which appends `--color never`) with
+    /// `--ignore-working-copy` placed after the subcommand.
+    member _.GitRemoteList(dir: string) =
+        core.Parse(cmdIn dir [ "git"; "remote"; "list"; "--ignore-working-copy" ], JjParse.parseGitRemoteList)
+
     /// Clone a git repository into `dest` (`jj git clone <url> <dest>
     /// --colocate|--no-colocate`). Runs without a working directory — pass an
     /// absolute `dest`. The colocate flag is always passed explicitly: whether
@@ -1273,6 +1284,9 @@ and [<Sealed>] JjAt internal (jj: Jj, dir: string) =
 
     /// Import git refs into jj (`jj git import`) — colocated-repo sync.
     member _.GitImport() = jj.GitImport dir
+
+    /// The git remotes jj knows about (`jj git remote list`), one entry (name + url) per remote.
+    member _.GitRemoteList() = jj.GitRemoteList dir
 
     /// The current operation id (`op log --no-graph --limit 1`).
     member _.OpHead() = jj.OpHead dir

@@ -220,6 +220,16 @@ module internal JjBackend =
             return ofVcs r
         }
 
+    /// Map a jj-typed `Remote` (name + URL) into the facade DTO.
+    let private remoteFromJj (r: VcsToolkit.Jj.Remote) : VcsToolkit.Core.Remote = { Name = r.Name; Url = r.Url }
+
+    let remotes (jj: Jj) (dir: string) =
+        task {
+            match! jj.GitRemoteList dir with
+            | Error e -> return Error(RepoError.Vcs e)
+            | Ok rs -> return Ok(rs |> List.map remoteFromJj)
+        }
+
     let changedFiles (jj: Jj) (dir: string) =
         task {
             match! jj.Status dir with

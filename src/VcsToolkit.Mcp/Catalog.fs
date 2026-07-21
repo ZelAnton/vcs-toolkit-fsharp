@@ -190,6 +190,10 @@ module internal Catalog =
           read "repo_conflicts" "Paths with unresolved merge conflicts (repo-relative, '/'-separated)." []
           read "repo_worktrees" "Attached worktrees (git) / workspaces (jj)." []
           read
+              "repo_remotes"
+              "The configured remotes (name and URL) — git `remote -v` (deduplicated to one entry per remote, carrying its fetch URL) / jj `jj git remote list`."
+              []
+          read
               "repo_show_file"
               "The content of a file as it exists at a revision, untrimmed up to the server's output budget (--output-budget; default 200000 bytes, 0 disables). Content beyond the budget is truncated with a trailing '[truncated: showing N of M bytes]' marker. The content is UTF-8-decoded text: a non-UTF-8 byte (a binary or legacy-encoded blob) is replaced with U+FFFD and does NOT round-trip, so this tool is for text files — a byte-exact read of arbitrary binary content is a library-level concern (VcsToolkit.Core Repo.ShowFileBytes), not exposed over this text-only MCP surface. `rev` is passed through as-is to the backend — a git commit-ish or a jj revset; the two syntaxes are NOT cross-backend portable."
               [ { Name = "rev"
@@ -614,6 +618,7 @@ module internal Catalog =
         | "repo_current_branch" -> server.RepoCurrentBranch()
         | "repo_conflicts" -> server.RepoConflicts()
         | "repo_worktrees" -> server.RepoWorktrees()
+        | "repo_remotes" -> server.RepoRemotes()
         | "repo_show_file" ->
             bind (reqStr args "rev") (fun rev -> bind (reqStr args "path") (fun path -> server.RepoShowFile(rev, path)))
         | "repo_log" ->

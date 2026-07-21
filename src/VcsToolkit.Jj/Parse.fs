@@ -100,6 +100,15 @@ type AnnotationLine =
         Content: string
     }
 
+/// One git remote jj knows about, from `jj git remote list` — a remote name and its URL.
+type Remote =
+    {
+        /// The remote's name, e.g. `origin`.
+        Name: string
+        /// The URL jj records for the remote.
+        Url: string
+    }
+
 /// Pure parsers and the `jj` templates that feed them. No process execution, so
 /// these are hermetic and total: arbitrary CLI text in, never an exception.
 [<RequireQualifiedAccess>]
@@ -585,3 +594,24 @@ module internal JjParse =
                 deletions <- n
 
         DiffStat.Create(files, insertions, deletions)
+
+    // --- Git remotes ---------------------------------------------------------
+
+    /// Parse `jj git remote list` output: one `<name> <url>` line per configured remote,
+    /// space-separated (verified against jj 0.42). The URL is the remainder after the first
+    /// space — a remote name carries no whitespace (a git-ref rule jj enforces), so the first
+    /// space is an unambiguous separator. A blank or name-less line contributes nothing.
+    let parseGitRemoteList (output: string) : Remote list =
+        [ for line in lines output do
+              let trimmed = line.Trim()
+
+              if trimmed <> "" then
+                  match trimmed.IndexOf ' ' with
+                  | -1 -> ()
+                  | idx ->
+                      let name = trimmed.Substring(0, idx)
+
+                      if name <> "" then
+                          yield
+                              { Name = name
+                                Url = (trimmed.Substring(idx + 1)).Trim() } ]
