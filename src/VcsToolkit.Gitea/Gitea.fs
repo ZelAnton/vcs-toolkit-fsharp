@@ -105,7 +105,7 @@ type Gitea private (core: ManagedClient) =
                     // configured; treat empty output as "no logins" rather than a parse error.
                     let csv = res.Stdout.Trim()
 
-                    if csv = "" then
+                    if csv.Length = 0 then
                         return Ok false
                     else
                         return mapParse BINARY (GiteaParse.parseHasLogins csv)

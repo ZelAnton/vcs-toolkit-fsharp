@@ -104,7 +104,7 @@ type EnvToken(var: string, username: string option) =
             let result =
                 match Environment.GetEnvironmentVariable var with
                 | null -> None
-                | value when value.Trim() = "" -> None
+                | value when value.Trim().Length = 0 -> None
                 | value ->
                     match username with
                     | Some user -> Some(Credential.Userpass(user, value))
@@ -170,7 +170,7 @@ module Credentials =
             // policy, and KEEPING the port and host case verbatim are this helper's own.
             let hostPort = RemoteUrl.authority (url.Substring("https://".Length))
 
-            if hostPort = "" || hostPort.StartsWith("[", System.StringComparison.Ordinal) then
+            if hostPort.Length = 0 || hostPort.StartsWith("[", System.StringComparison.Ordinal) then
                 None
             else
                 Some hostPort

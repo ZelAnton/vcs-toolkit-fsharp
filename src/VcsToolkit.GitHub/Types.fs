@@ -106,7 +106,7 @@ module private HostClassify =
     let hostFromRemoteUrl (url: string) : string option =
         let url = url.Trim()
 
-        if url = "" then
+        if url.Length = 0 then
             None
         else
             match RemoteUrl.afterScheme url with
@@ -117,11 +117,11 @@ module private HostClassify =
 
                 // Refuse an IPv6-literal authority (`[::1]`): a GitHub host is never a
                 // bracketed literal, and gh names hosts without a port.
-                if hostPort = "" || hostPort.StartsWith('[') then
+                if hostPort.Length = 0 || hostPort.StartsWith('[') then
                     None
                 else
                     match RemoteUrl.stripPort hostPort with
-                    | "" -> None
+                    | h when h.Length = 0 -> None
                     | h -> Some h
             | None ->
                 // scp-like SSH `[user@]host:path` (no scheme): the host ends at the first `:`.

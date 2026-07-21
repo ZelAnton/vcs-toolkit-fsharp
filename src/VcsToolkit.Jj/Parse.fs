@@ -227,7 +227,7 @@ module internal JjParse =
         // Drop the single empty segment a trailing '\n' leaves behind.
         let trimmed =
             match List.rev parts with
-            | "" :: rest -> List.rev rest
+            | last :: rest when last.Length = 0 -> List.rev rest
             | _ -> parts
 
         trimmed
@@ -339,7 +339,7 @@ module internal JjParse =
     let parseChanges (output: string) : Change list =
         lines output
         |> List.choose (fun line ->
-            if line = "" then
+            if line.Length = 0 then
                 None
             else
                 // Split into at most 4 so a trailing description keeps any literal tabs.
@@ -358,7 +358,7 @@ module internal JjParse =
     let parseOperations (output: string) : Operation list =
         lines output
         |> List.choose (fun line ->
-            if line = "" then
+            if line.Length = 0 then
                 None
             else
                 let f = line.Split([| '\t' |], 4)
@@ -408,13 +408,13 @@ module internal JjParse =
     let parseBookmarks (output: string) : Bookmark list =
         lines output
         |> List.choose (fun line ->
-            if line = "" then
+            if line.Length = 0 then
                 None
             else
                 let f = line.Split('\t')
                 let name = decodeJsonField f.[0]
 
-                if name = "" then
+                if name.Length = 0 then
                     None
                 else
                     Some
@@ -428,20 +428,20 @@ module internal JjParse =
     let parseBookmarksAll (output: string) : BookmarkRef list =
         lines output
         |> List.choose (fun line ->
-            if line = "" then
+            if line.Length = 0 then
                 None
             else
                 let f = line.Split('\t')
                 let name = decodeJsonField f.[0]
 
-                if name = "" then
+                if name.Length = 0 then
                     None
                 else
                     let remote = if f.Length >= 2 then f.[1] else ""
 
                     Some
                         { Name = name
-                          Remote = (if remote = "" then None else Some remote)
+                          Remote = (if remote.Length = 0 then None else Some remote)
                           Tracked = (f.Length >= 3 && f.[2] = "1")
                           Target = (if f.Length >= 4 then f.[3] else "") })
 
@@ -480,7 +480,7 @@ module internal JjParse =
     let parseResolveList (output: string) : string list =
         lines output
         |> List.choose (fun line ->
-            if line = "" then
+            if line.Length = 0 then
                 None
             else
                 Some(normalize (decodeJsonField line)))
@@ -492,7 +492,7 @@ module internal JjParse =
     let parseWorkspaces (output: string) : Workspace list =
         lines output
         |> List.choose (fun line ->
-            if line = "" then
+            if line.Length = 0 then
                 None
             else
                 let f = line.Split('\t')
@@ -536,7 +536,7 @@ module internal JjParse =
     let parseDiffSummary (output: string) : ChangedPath list =
         lines output
         |> List.choose (fun line ->
-            if line = "" then
+            if line.Length = 0 then
                 None
             elif line.Length < 2 || line.[1] <> ' ' then
                 None
@@ -544,7 +544,7 @@ module internal JjParse =
                 let status = line.[0]
                 let raw = line.Substring(2)
 
-                if raw = "" then
+                if raw.Length = 0 then
                     None
                 elif status = 'R' || status = 'C' then
                     let (oldRaw, newRaw) = expandRename raw

@@ -243,12 +243,12 @@ type RefName private (value: string) =
         // component such as `feature/.hidden`), and must not end with `.lock` (git's
         // lock-file suffix, e.g. `foo.lock/bar`).
         let badComponent (c: string) =
-            c = ""
+            c.Length = 0
             || c.StartsWith(".", StringComparison.Ordinal)
             || c.EndsWith(".lock", StringComparison.Ordinal)
 
         let bad =
-            name = ""
+            name.Length = 0
             || name = "@"
             || name.StartsWith("-", StringComparison.Ordinal)
             || name.EndsWith(".", StringComparison.Ordinal)

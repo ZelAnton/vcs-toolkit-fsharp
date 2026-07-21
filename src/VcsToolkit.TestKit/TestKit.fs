@@ -218,8 +218,8 @@ type GitSandbox private (dir: TempDir) =
         let full = Path.Combine(dir.Path, path)
 
         match Path.GetDirectoryName full with
-        | null
-        | "" -> ()
+        | null -> ()
+        | parent when parent.Length = 0 -> ()
         | parent -> Directory.CreateDirectory parent |> ignore
 
         File.WriteAllText(full, content)
@@ -334,8 +334,8 @@ type JjSandbox private (dir: TempDir) =
         let full = Path.Combine(dir.Path, path)
 
         match Path.GetDirectoryName full with
-        | null
-        | "" -> ()
+        | null -> ()
+        | parent when parent.Length = 0 -> ()
         | parent -> Directory.CreateDirectory parent |> ignore
 
         File.WriteAllText(full, content)

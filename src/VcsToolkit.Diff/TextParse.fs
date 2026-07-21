@@ -28,7 +28,7 @@ module TextParse =
     /// `"a\nb"` → `["a\n"; "b"]`, `"a\n"` → `["a\n"]`, `""` → `[]`. A caller needing random access
     /// converts with `List.toArray`.
     let splitInclusive (text: string) : string list =
-        if text = "" then
+        if text.Length = 0 then
             []
         else
             let result = ResizeArray<string>()
@@ -47,7 +47,7 @@ module TextParse =
     /// Lines with terminators stripped (mirrors Rust `str::lines`: strips the `\r` of a `\r\n`,
     /// keeps a bare trailing `\r`, and yields no trailing empty for a final `\n`).
     let linesOf (text: string) : string list =
-        if text = "" then
+        if text.Length = 0 then
             []
         else
             let parts = text.Split('\n')
@@ -57,7 +57,7 @@ module TextParse =
                   let part = parts.[idx]
                   let isLast = idx = n - 1
 
-                  if isLast && part = "" then
+                  if isLast && part.Length = 0 then
                       () // a final '\n' yields no trailing empty line
                   elif (not isLast) && part.EndsWith("\r", StringComparison.Ordinal) then
                       yield part.Substring(0, part.Length - 1) // the '\r' of a '\r\n' terminator

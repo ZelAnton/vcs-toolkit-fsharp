@@ -195,7 +195,7 @@ type ManagedClient private (cfg: ManagedConfig) =
                 | Ok(Some cred) ->
                     // An empty (or whitespace-only) secret is not a usable credential:
                     // injecting it would override the ambient login with nothing.
-                    if cred.Secret.Expose().Trim() = "" then
+                    if cred.Secret.Expose().Trim().Length = 0 then
                         return Ok None
                     else
                         return Ok(Some cred)

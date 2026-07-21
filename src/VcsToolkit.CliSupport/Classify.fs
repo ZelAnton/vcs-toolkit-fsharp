@@ -91,7 +91,11 @@ module Classify =
         let trimmed = value.Trim()
         let hasNul = value |> Seq.exists (fun ch -> ch = char 0)
 
-        if trimmed = "" || trimmed.StartsWith("-", StringComparison.Ordinal) || hasNul then
+        if
+            trimmed.Length = 0
+            || trimmed.StartsWith("-", StringComparison.Ordinal)
+            || hasNul
+        then
             Error(
                 ProcessError.Spawn(
                     program,

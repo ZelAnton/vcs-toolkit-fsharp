@@ -298,7 +298,7 @@ module internal GitParse =
             let current = line.StartsWith("*", StringComparison.Ordinal)
             let name = (if line.Length >= 1 then line.Substring 1 else "").Trim()
             // Skip the detached-HEAD pseudo-entry, e.g. "* (HEAD detached at …)".
-            if name = "" || name.StartsWith("(", StringComparison.Ordinal) then
+            if name.Length = 0 || name.StartsWith("(", StringComparison.Ordinal) then
                 None
             else
                 Some { Name = name; Current = current })
@@ -316,7 +316,7 @@ module internal GitParse =
             | None -> ()
 
         for line in TextParse.linesOf output do
-            if line = "" then
+            if line.Length = 0 then
                 flush ()
             else
                 let label, value =

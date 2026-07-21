@@ -109,10 +109,21 @@ layer) and, for the test projects, its split-out `ProcessKit.Testing` doubles â€
 nuget.org. No extra feeds or setup are needed.
 
 ```sh
-dotnet tool restore        # restores Fantomas (the F# formatter)
+dotnet tool restore        # restores Fantomas + the fsharp-analyzers runner
 dotnet build VcsToolkit.slnx
 dotnet test  VcsToolkit.slnx
 ```
+
+Two quality gates run in CI and can be run locally with a single command each:
+
+```sh
+dotnet fantomas --check src tests   # F# formatting gate (CI's `format` job)
+pwsh scripts/run-analyzers.ps1      # F# static-analysis gate (CI's `analyzers` job)
+```
+
+`scripts/run-analyzers.ps1` runs the [Ionide.Analyzers](https://github.com/ionide/ionide-analyzers)
+rule set (via the pinned `fsharp-analyzers` tool) over every `src/` project and fails on any
+Warning/Error finding â€” the only F#-class static analysis available, since CodeQL has no F# support.
 
 ## Publishing status
 

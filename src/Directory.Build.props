@@ -43,4 +43,15 @@
 	<ItemGroup>
 		<PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="All" />
 	</ItemGroup>
+
+	<!-- F# static-analysis rules (Ionide.Analyzers), consumed only by the `fsharp-analyzers`
+	     CLI tool (pinned in .config/dotnet-tools.json), never by the F#/Roslyn compiler.
+	     PrivateAssets=all keeps it a development-only dependency: it is not emitted as a
+	     NuGet dependency of the produced packages and does not reach consumers. The
+	     GeneratePathProperty exposes $(PkgIonide_Analyzers) so scripts/CI can point the
+	     tool at the restored analyzer assemblies (analyzers/dotnet/fs) in a machine- and
+	     version-independent way. See CLAUDE.md / AGENTS.md for the run command. -->
+	<ItemGroup>
+		<PackageReference Include="Ionide.Analyzers" PrivateAssets="all" GeneratePathProperty="true" />
+	</ItemGroup>
 </Project>

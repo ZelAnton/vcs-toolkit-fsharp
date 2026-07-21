@@ -59,14 +59,14 @@ module private HostClassify =
             else
                 // Otherwise strip an optional `:port`.
                 match RemoteUrl.stripPort hostPort with
-                | "" -> None
+                | h when h.Length = 0 -> None
                 | h -> Some h
         | None ->
             // No scheme: scp-like `user@host:path` or bare `host:path` / `host/path`.
             let afterUser = RemoteUrl.dropUserinfo url
 
             match afterUser.Split([| ':'; '/' |]).[0] with
-            | "" -> None
+            | h when h.Length = 0 -> None
             | h -> Some h
 
 /// Which forge backs a `Forge` handle.

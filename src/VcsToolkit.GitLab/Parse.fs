@@ -122,8 +122,8 @@ type CiStatus =
         | "failed"
         | "canceled"
         | "cancelled" -> CiStatus.Failing
-        | "skipped"
-        | "" -> CiStatus.None
+        | "skipped" -> CiStatus.None
+        | s when s.Length = 0 -> CiStatus.None
         | _ -> CiStatus.Pending
 
 /// Tolerant parsers over `glab … --output json` output (GitLab's REST JSON, which

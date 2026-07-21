@@ -106,7 +106,7 @@ module private GitHelpers =
         let forbidden = set [ ' '; '*'; '?'; '['; ':' ]
 
         let bad =
-            name = ""
+            name.Length = 0
             || name |> Seq.exists (fun c -> Char.IsControl c || Set.contains c forbidden)
 
         if bad then
@@ -1071,7 +1071,10 @@ type Git private (core: ManagedClient) =
                 // `Run [ "push"; "--force"; … ]`.
                 let sides = spec.Refspec.Split(':')
 
-                if sides.Length > 2 || sides |> Array.exists (fun s -> s.StartsWith '+' || s = "") then
+                if
+                    sides.Length > 2
+                    || sides |> Array.exists (fun s -> s.StartsWith '+' || s.Length = 0)
+                then
                     return
                         Error(
                             ProcessError.Spawn(

@@ -93,7 +93,7 @@ module Detect =
             else
                 match Path.GetDirectoryName current with
                 | null -> searching <- false
-                | parent when parent = "" || parent = current -> searching <- false
+                | parent when parent.Length = 0 || parent = current -> searching <- false
                 | parent -> current <- parent
 
         result

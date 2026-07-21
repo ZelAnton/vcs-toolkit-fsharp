@@ -31,7 +31,7 @@ module private JjConflictInternal =
     /// O(n) — advances an offset and takes one final substring (a recursive `Substring` per match
     /// would be O(n²) on an adversarial label, e.g. a huge run of `diff from:` before the newline).
     let trimStartMatches (prefix: string) (s: string) : string =
-        if prefix = "" then
+        if prefix.Length = 0 then
             s
         else
             let mutable i = 0
@@ -44,7 +44,7 @@ module private JjConflictInternal =
 
     /// Strip all consecutive trailing `suffix`es from `s` (Rust `str::trim_end_matches`). O(n).
     let trimEndMatches (suffix: string) (s: string) : string =
-        if suffix = "" then
+        if suffix.Length = 0 then
             s
         else
             let mutable len = s.Length
@@ -102,7 +102,7 @@ module private JjConflictInternal =
         let n = trimmed |> Seq.takeWhile (fun c -> c = ch) |> Seq.length
         let rest = trimmed.Substring n
 
-        if n >= 7 && (rest = "" || rest.StartsWith(' ')) then
+        if n >= 7 && (rest.Length = 0 || rest.StartsWith(' ')) then
             Some n
         else
             None

@@ -89,7 +89,10 @@ module Conflict =
         else
             let rest = trimmed.Substring n
 
-            if rest = "" || rest.StartsWith(' ') then Some n else None
+            if rest.Length = 0 || rest.StartsWith(' ') then
+                Some n
+            else
+                None
 
     /// The label after an `n`-char marker run (empty when none).
     let private markerLabel (line: string) (n: int) : string =
@@ -192,8 +195,8 @@ module Conflict =
                             else
                                 theirs.Add l
 
-                    match markerEnd with
-                    | Some endMarker ->
+                    match markerEnd, markerSep with
+                    | Some endMarker, Some markerSepLine ->
                         let theirsLabel = markerLabel endMarker n
 
                         segments.Add(
@@ -208,12 +211,14 @@ module Conflict =
                                     n,
                                     markerOurs,
                                     markerBase,
-                                    markerSep.Value,
+                                    markerSepLine,
                                     endMarker
                                 )
                             )
                         )
-                    | None -> () // an error was recorded above
+                    | _ -> ()
+            // markerEnd None: an error was recorded above. Some-markerEnd with a
+            // None markerSep is unreachable — the loop above exits only with markerSep set.
             | _ -> text.Add line
 
         match error with

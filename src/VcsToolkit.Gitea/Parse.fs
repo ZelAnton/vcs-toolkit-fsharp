@@ -209,7 +209,7 @@ module internal GiteaParse =
     let private toReleaseResult (cells: string array) : Result<Release, string> =
         let tag = cells[0]
 
-        if tag = "" then
+        if tag.Length = 0 then
             // No tag in the `Tag-Name` column: a real parse failure, not a silent empty tag.
             Error "expected a release tag in the `Tag-Name` column"
         else

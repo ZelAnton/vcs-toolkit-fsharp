@@ -200,7 +200,7 @@ module internal Paths =
             else
                 let rel = File.ReadAllText(commondir).Trim()
 
-                if rel = "" then
+                if rel.Length = 0 then
                     None
                 else
                     let joined =
@@ -228,7 +228,7 @@ module internal Paths =
             else
                 let path = File.ReadAllText(repoPointer).Trim()
 
-                if path = "" then
+                if path.Length = 0 then
                     None
                 else
                     let joined =
@@ -435,7 +435,11 @@ module internal Loop =
                     else
                         result <- Some(Choice2Of2 err)
 
-            return result.Value
+            match result with
+            | Some outcome -> return outcome
+            | None ->
+                // Unreachable: the `while result.IsNone` loop above exits only once `result` is set.
+                return failwith "requeryWithRetry: loop exited with no result"
         }
 
     /// The background loop: coalesce a burst of filesystem signals, re-query the settled

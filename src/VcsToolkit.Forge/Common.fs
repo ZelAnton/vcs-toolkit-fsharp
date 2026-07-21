@@ -18,7 +18,7 @@ module internal Common =
 
     /// Empty string (a CLI's "no value" for a required-but-blank JSON field) → `None`;
     /// anything else → `Some`.
-    let strOpt (s: string) : string option = if s = "" then None else Some s
+    let strOpt (s: string) : string option = if s.Length = 0 then None else Some s
 
 /// The single source of truth for the *kind/variant-dependent* `Unsupported` verdicts — the
 /// ones `ForgeOp`/`Forge.Supports` cannot express because the operation itself exists on every

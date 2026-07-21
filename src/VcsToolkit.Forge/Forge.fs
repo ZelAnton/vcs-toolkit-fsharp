@@ -381,7 +381,7 @@ type Forge private (cwd: string, backend: Backend) =
     /// so a body whose first non-space character is `-` is rejected by the client.
     member _.PrComment(number: uint64, body: string) =
         task {
-            if body.Trim() = "" then
+            if body.Trim().Length = 0 then
                 return Error(ForgeError.InvalidInput "prComment: comment body must not be empty")
             else
                 match backend with
@@ -590,7 +590,7 @@ type Forge private (cwd: string, backend: Backend) =
     /// handle is `Unsupported`. Version-gated once the input passes.
     member _.IssueComment(number: uint64, body: string) =
         task {
-            if body.Trim() = "" then
+            if body.Trim().Length = 0 then
                 return Error(ForgeError.InvalidInput "issueComment: comment body must not be empty")
             else
                 return!

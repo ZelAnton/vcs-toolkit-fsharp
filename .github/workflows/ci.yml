@@ -53,6 +53,32 @@ jobs:
       - name: Check formatting
         run: dotnet fantomas --check src tests
 
+  # F# static analysis — the compiled-language counterpart of the `format` check, and the
+  # only F#-class static analysis available (CodeQL has no F# support). Ionide.Analyzers
+  # (Directory.Packages.props) is driven by the pinned `fsharp-analyzers` tool
+  # (.config/dotnet-tools.json) over every src/ project. scripts/run-analyzers.ps1 restores
+  # the tool, builds the solution (the analyzers type-check against the built assemblies),
+  # runs the analyzers, and FAILS the job on any Warning/Error finding — not warn-only.
+  analyzers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
+
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-v2-${{ hashFiles('Directory.Packages.props', 'nuget.config', 'global.json') }}
+          restore-keys: ${{ runner.os }}-nuget-v2-
+
+      - name: Run F# analyzers
+        shell: pwsh
+        run: ./scripts/run-analyzers.ps1
+
   # `dotnet pack` otherwise runs only in the release workflow, so a regression
   # in the packaging mechanics (the post-pack sibling-dependency rewrite in
   # Directory.Build.targets, README/icon/XML-doc inclusion, the `vcs-mcp`
