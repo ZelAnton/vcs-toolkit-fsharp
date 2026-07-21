@@ -697,7 +697,8 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
                     | Ok out -> return Ok(Json.ok {| output = out |})
             })
 
-    /// Edit a pull/merge request's title and/or body (at least one required).
+    /// Edit a pull/merge request's title and/or body (at least one required). **Unsupported on
+    /// Gitea** (`tea` 0.9.2 has no `pr edit` command; K-063) — refused before any spawn there.
     member this.ForgePrEdit(number: uint64, title: string option, body: string option) =
         this.WithForgeWrite "forge_pr_edit" (fun f ->
             task {

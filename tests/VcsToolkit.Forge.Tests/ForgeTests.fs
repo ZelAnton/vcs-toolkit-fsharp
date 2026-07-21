@@ -469,8 +469,17 @@ type DispatchTests() =
             let! b = isUnsupported (forge.PrChecks 1UL)
             let! c = isUnsupported (forge.ReleaseView "v1")
             let! d = isUnsupported (forge.PrMarkReady 1UL)
+            // A non-empty edit (title set) proves the Gitea `Unsupported` refusal short-circuits
+            // ahead of the both-`None` input guard and before any spawn (including the version
+            // probe): tea 0.9.2 has no `pr edit` command at all (K-063).
+            let! e = isUnsupported (forge.PrEdit(1UL, PrEdit.Create().WithTitle "x"))
 
-            for flag, name in [ a, "repoView"; b, "prChecks"; c, "releaseView"; d, "prMarkReady" ] do
+            for flag, name in
+                [ a, "repoView"
+                  b, "prChecks"
+                  c, "releaseView"
+                  d, "prMarkReady"
+                  e, "prEdit" ] do
                 Assert.That(flag, Is.True, $"Gitea {name} must be Unsupported without spawning")
         }
 
@@ -683,6 +692,7 @@ type DispatchTests() =
             | Ok caps ->
                 Assert.That(caps.Authed, Is.True)
                 Assert.That(caps.PrChecks, Is.False, "tea has no checks command")
+                Assert.That(caps.PrEdit, Is.False, "tea 0.9.2 has no `pr edit` command (K-063)")
                 Assert.That(caps.PrCreate, Is.True)
                 Assert.That(caps.Kind, Is.EqualTo ForgeKind.Gitea)
             | Error e -> Assert.Fail $"capabilities failed: {e.Message}"

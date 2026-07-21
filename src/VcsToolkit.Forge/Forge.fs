@@ -52,10 +52,13 @@ module private ForgeCaps =
     /// GitLab ships the same command set as GitHub on the lean surface.
     let staticGitLabCaps: ForgeCapabilities = staticGitHubCaps
 
-    /// Gitea's `tea` has no checks command, so `PrChecks` is `false`.
+    /// Gitea's `tea` has no checks command, so `PrChecks` is `false`; and tea 0.9.2 has no
+    /// `pr edit` command at all (an unrecognised `pr edit` silently falls through to `pr list`
+    /// — K-063), so `PrEdit` is `false` too.
     let staticGiteaCaps: ForgeCapabilities =
         { staticGitHubCaps with
-            PrChecks = false }
+            PrChecks = false
+            PrEdit = false }
 
     /// Intersect a static "ships the command" map with the auth probe, then overlay the
     /// detected `version` and backend `kind`. When authed → the static map with
@@ -395,18 +398,29 @@ type Forge private (cwd: string, backend: Backend) =
     /// must be `Some` — both-`None` is rejected before any CLI is spawned. Version-gated
     /// once the input passes: refused with `UnsupportedVersion` before spawning if the CLI
     /// is below the wrapper's floor.
+    /// **`Unsupported` on Gitea** (`tea` 0.9.2 has no `pr edit` command — an unrecognised
+    /// `pr edit` silently falls through to `pr list`; K-063): refused structurally before any
+    /// spawn — including the version probe and the both-`None` input check, neither of which is
+    /// meaningful when the command can never run — like `PrChecks`/`PrDiff`/`PrList` on Gitea.
     member _.PrEdit(number: uint64, edit: PrEdit) =
         task {
-            if edit.Title.IsNone && edit.Body.IsNone then
-                return Error(ForgeError.InvalidInput "prEdit: at least one of title or body must be set")
-            else
-                return!
-                    gated backend "prEdit" (fun () ->
-                        match backend with
-                        | Backend.GitHub(c, _) -> GitHubForge.prEdit c cwd number edit
-                        | Backend.GitLab(c, _) -> GitLabForge.prEdit c cwd number edit
-                        | Backend.Gitea(c, _) -> GiteaForge.prEdit c cwd number edit
-                        | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prEdit")) })
+            match backend with
+            | Backend.Gitea(c, _) ->
+                // tea has no `pr edit`; `GiteaForge.prEdit` refuses with `Unsupported` before any
+                // spawn (including the version probe below), so route straight to it.
+                return! GiteaForge.prEdit c cwd number edit
+            | _ ->
+                if edit.Title.IsNone && edit.Body.IsNone then
+                    return Error(ForgeError.InvalidInput "prEdit: at least one of title or body must be set")
+                else
+                    return!
+                        gated backend "prEdit" (fun () ->
+                            match backend with
+                            | Backend.GitHub(c, _) -> GitHubForge.prEdit c cwd number edit
+                            | Backend.GitLab(c, _) -> GitLabForge.prEdit c cwd number edit
+                            | Backend.Gitea(c, _) -> GiteaForge.prEdit c cwd number edit
+                            | Backend.Unknown ->
+                                task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prEdit")) })
         }
 
     /// Merge a PR/MR with the given unified `PrMerge` spec. `Auto`/`DeleteBranch` map to real
