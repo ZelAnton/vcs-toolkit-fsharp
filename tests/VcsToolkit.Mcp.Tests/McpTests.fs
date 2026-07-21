@@ -10,6 +10,7 @@ open VcsToolkit.CliSupport
 open VcsToolkit.Core
 open VcsToolkit.Forge
 open VcsToolkit.Git
+open VcsToolkit.Gitea
 open VcsToolkit.GitHub
 open VcsToolkit.Mcp
 open VcsToolkit.TestKit
@@ -24,11 +25,27 @@ let private gitServer (runner: ScriptedRunner) (writes: WriteGate) =
     gitServerWithBudget runner writes Option.None
 
 /// A git-backed server with a GitHub forge, both wired to the same scripted runner (no real
-/// `git`/`gh` binaries).
-let private gitServerWithForge (runner: ScriptedRunner) (writes: WriteGate) =
+/// `git`/`gh` binaries), with an explicit output budget (`None` = unlimited).
+let private gitServerWithForgeAndBudget (runner: ScriptedRunner) (writes: WriteGate) (outputBudget: int option) =
     new VcsMcpServer(
         Repo.FromGit("/repo", "/repo", Git.WithRunner runner),
         Some(Forge.FromGitHub("/repo", GitHub.WithRunner runner)),
+        writes,
+        outputBudget
+    )
+
+/// A git-backed server with a GitHub forge, both wired to the same scripted runner (no real
+/// `git`/`gh` binaries).
+let private gitServerWithForge (runner: ScriptedRunner) (writes: WriteGate) =
+    gitServerWithForgeAndBudget runner writes Option.None
+
+/// A git-backed server with a Gitea forge (no real `git`/`tea` binaries) — used to exercise
+/// the structural `Unsupported` refusal `forge_pr_diff` shares with the other `ReadForge`-based
+/// forge tools that Gitea doesn't cover (`forge_pr_checks`, `forge_release_view`, ...).
+let private gitServerWithGiteaForge (runner: ScriptedRunner) (writes: WriteGate) =
+    new VcsMcpServer(
+        Repo.FromGit("/repo", "/repo", Git.WithRunner runner),
+        Some(Forge.FromGitea("/repo", Gitea.WithRunner runner)),
         writes,
         Option.None
     )
@@ -1360,6 +1377,31 @@ type OutputBudgetTests() =
             | Error e -> Assert.Fail $"repo_annotate failed: {e.Message}"
         }
 
+    [<Test>]
+    member _.ForgePrDiffOverBudgetIsTruncatedWithMarker() : Task =
+        task {
+            // forge_pr_diff applies the SAME budget mechanism as repo_show_file/repo_annotate,
+            // to the serialized per-file JSON array — a PR diff easily blows past a reasonable
+            // context budget.
+            let raw =
+                "diff --git a/foo.txt b/foo.txt\n"
+                + "index e69de29..4b825dc 100644\n"
+                + "--- a/foo.txt\n"
+                + "+++ b/foo.txt\n"
+                + "@@ -0,0 +1 @@\n"
+                + "+new line\n"
+
+            let server =
+                gitServerWithForgeAndBudget
+                    (ScriptedRunner().On([ "pr"; "diff"; "42" ], Reply.Ok raw))
+                    WriteGate.None
+                    (Some 10)
+
+            match! server.ForgePrDiff 42UL with
+            | Ok json -> Assert.That(json, Does.Contain "[truncated: showing 10 of")
+            | Error e -> Assert.Fail $"forge_pr_diff failed: {e.Message}"
+        }
+
 // ---------------------------------------------------------------------------
 // JSON serialization (clean F# → JSON)
 // ---------------------------------------------------------------------------
@@ -1395,8 +1437,8 @@ type CatalogTests() =
 
     [<Test>]
     member _.CatalogCoversEveryTool() =
-        // 12 repo-read + repo_try_merge + 12 repo-write + 11 forge-read + 12 forge-write = 48.
-        Assert.That(List.length Catalog.all, Is.EqualTo 48)
+        // 12 repo-read + repo_try_merge + 12 repo-write + 12 forge-read + 12 forge-write = 49.
+        Assert.That(List.length Catalog.all, Is.EqualTo 49)
         // Every write-gated tool name appears in the catalogue.
         let names = Catalog.all |> List.map (fun t -> t.Name) |> Set.ofList
         Assert.That(WriteTools.all |> List.forall names.Contains, Is.True, "every write tool is catalogued")
@@ -1788,6 +1830,48 @@ type CatalogTests() =
             | Error(McpError.InvalidParams message) -> Assert.That(message, Does.Contain "source_branch")
             | Error e -> Assert.Fail $"expected InvalidParams, got: {e.Message}"
             | Ok _ -> Assert.Fail "forge_pr_for_branch must require source_branch"
+        }
+
+    [<Test>]
+    member _.ForgePrDiffSchemaAdvertisesRequiredNumber() =
+        let prDiff = Catalog.all |> List.find (fun t -> t.Name = "forge_pr_diff")
+        let schema = Catalog.inputSchema prDiff
+        Assert.That(schema, Does.Contain "\"number\"")
+        Assert.That(schema, Does.Contain "\"required\":[\"number\"]")
+
+    [<Test>]
+    member _.CallToolDispatchesForgePrDiff() : Task =
+        task {
+            let raw =
+                "diff --git a/foo.txt b/foo.txt\n"
+                + "index e69de29..4b825dc 100644\n"
+                + "--- a/foo.txt\n"
+                + "+++ b/foo.txt\n"
+                + "@@ -0,0 +1 @@\n"
+                + "+new line\n"
+
+            let runner = ScriptedRunner().On([ "pr"; "diff"; "42" ], Reply.Ok raw)
+            let server = gitServerWithForge runner WriteGate.None
+
+            match! Catalog.callTool server "forge_pr_diff" (argsOf """{"number":42}""") with
+            | Ok json ->
+                Assert.That(json, Does.Contain "\"path\": \"foo.txt\"")
+                Assert.That(json, Does.Contain "\"change\": \"Modified\"")
+            | Error e -> Assert.Fail $"forge_pr_diff dispatch failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.CallToolForgePrDiffIsUnsupportedOnGiteaLikeItsNeighbours() : Task =
+        task {
+            // Same structural refusal as forge_pr_checks/forge_release_view: Gitea's dispatch
+            // returns `Unsupported` before spawning `tea` at all — an empty `ScriptedRunner`
+            // (no fallback) proves it never reaches a spawn.
+            let server = gitServerWithGiteaForge (ScriptedRunner()) WriteGate.None
+
+            match! Catalog.callTool server "forge_pr_diff" (argsOf """{"number":1}""") with
+            | Error(McpError.InvalidParams _) -> ()
+            | Error e -> Assert.Fail $"expected InvalidParams for an Unsupported forge op, got: {e.Message}"
+            | Ok _ -> Assert.Fail "forge_pr_diff must be Unsupported on Gitea"
         }
 
     [<Test>]
