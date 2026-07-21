@@ -241,6 +241,16 @@ type Repo private (root: string, cwd: string, backend: Backend) =
         | Backend.Git g -> GitBackend.renameBranch g cwd oldName newName
         | Backend.Jj j -> JjBackend.renameBranch j cwd oldName newName
 
+    /// The configured remotes (name + URL) — git's `remote -v` (deduplicated to one entry per
+    /// remote, carrying its fetch URL) / jj's `jj git remote list`. Read-only on both backends;
+    /// on jj the query always runs with `--ignore-working-copy`, so it never perturbs the working
+    /// copy. Backend nuance: on git the URL is the remote's fetch URL, on jj the single URL jj
+    /// records for the remote.
+    member _.Remotes() =
+        match backend with
+        | Backend.Git g -> GitBackend.remotes g cwd
+        | Backend.Jj j -> JjBackend.remotes j cwd
+
     // --- Status --------------------------------------------------------------
 
     /// Whether the working copy has uncommitted changes (git: a non-empty `status`; jj: a

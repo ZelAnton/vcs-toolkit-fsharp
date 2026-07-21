@@ -61,30 +61,13 @@ let private openRepo
     Repo.OpenWith(dir, (fun () -> hardenedGit timeout observer), (fun () -> timeoutJj timeout observer))
     |> Result.mapError (fun (e: RepoError) -> e.Message)
 
-/// Parse `jj git remote list` output (one `<name> <url>` line per configured remote,
-/// space-separated — verified against jj 0.42) and return the URL configured for
-/// `remote`, if listed. `None` when `remote` isn't in the list (or the output is empty).
-let internal parseJjRemoteUrl (remote: string) (output: string) : string option =
-    output.Split('\n')
-    |> Array.tryPick (fun rawLine ->
-        let line = rawLine.Trim()
-
-        match line.IndexOf(' ') with
-        | -1 -> None
-        | idx ->
-            let name = line.Substring(0, idx)
-
-            if name = remote then
-                Some(line.Substring(idx + 1).Trim())
-            else
-                None)
-
 /// Best-effort: read the `origin` remote URL and classify its host.
 ///
 /// Git-backed repos ask git directly (`remote get-url`). A jj-backed repo without git
-/// colocation has no `.git` at its root for that to find, so it falls back to `jj git
-/// remote list` (the `Jj.Run` escape hatch — there is no typed wrapper for this jj
-/// subcommand) and parses the `<name> <url>` line for `origin` out of the raw text.
+/// colocation has no `.git` at its root for that to find, so it uses the typed
+/// `Jj.GitRemoteList` (`jj git remote list`, run with `--ignore-working-copy` + `--color
+/// never`) and picks the `origin` entry out of the parsed `(name, url)` list — no raw text
+/// parsing in the binary any more.
 let internal detectForgeKind (repo: Repo) : Task<ForgeKind option> =
     task {
         match repo.Kind with
@@ -99,11 +82,11 @@ let internal detectForgeKind (repo: Repo) : Task<ForgeKind option> =
             match repo.Jj with
             | Option.None -> return Option.None // unreachable: Kind = Jj implies Jj = Some
             | Some jj ->
-                match! jj.Run(repo.Root, [ "git"; "remote"; "list"; "--ignore-working-copy"; "--color"; "never" ]) with
+                match! jj.GitRemoteList repo.Root with
                 | Error _ -> return Option.None
-                | Ok output ->
-                    match parseJjRemoteUrl "origin" output with
-                    | Some url -> return ForgeKind.OfRemoteUrl url
+                | Ok remotes ->
+                    match remotes |> List.tryFind (fun (r: VcsToolkit.Jj.Remote) -> r.Name = "origin") with
+                    | Some origin -> return ForgeKind.OfRemoteUrl origin.Url
                     | Option.None -> return Option.None
     }
 

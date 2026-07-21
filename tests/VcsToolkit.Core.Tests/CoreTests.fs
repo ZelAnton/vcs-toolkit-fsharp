@@ -502,6 +502,42 @@ type DispatchTests() =
             | Error e -> Assert.Fail $"changed files failed: {e.Message}"
         }
 
+    // `Repo.Remotes()` takes no caller-supplied argv, so there is no leading-`-`/injection value to
+    // guard-reject the way the argument-taking facade ops (K-040) do; these facade entry-point tests
+    // instead prove it routes through GitBackend/JjBackend and maps the backend Remote → the DTO.
+    [<Test>]
+    member _.GitRemotesRoutesThroughBackendAndMapsToDto() : Task =
+        task {
+            // `git remote -v` (fetch/push lines) → one facade Remote per remote (fetch URL).
+            let repo =
+                gitRepo
+                    [ "remote"; "-v" ]
+                    (Reply.Ok
+                        "origin\thttps://github.com/example/repo.git (fetch)\norigin\thttps://github.com/example/repo.git (push)\n")
+
+            match! repo.Remotes() with
+            | Ok [ origin ] ->
+                Assert.That(origin.Name, Is.EqualTo "origin")
+                Assert.That(origin.Url, Is.EqualTo "https://github.com/example/repo.git")
+            | Ok other -> Assert.Fail $"expected one remote, got {other.Length}"
+            | Error e -> Assert.Fail $"remotes failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.JjRemotesRoutesThroughBackendAndMapsToDto() : Task =
+        task {
+            // `jj git remote list` (`<name> <url>` lines) → one facade Remote per remote.
+            let repo =
+                jjRepo [ "git"; "remote"; "list" ] (Reply.Ok "origin https://github.com/example/repo.git\n")
+
+            match! repo.Remotes() with
+            | Ok [ origin ] ->
+                Assert.That(origin.Name, Is.EqualTo "origin")
+                Assert.That(origin.Url, Is.EqualTo "https://github.com/example/repo.git")
+            | Ok other -> Assert.Fail $"expected one remote, got {other.Length}"
+            | Error e -> Assert.Fail $"remotes failed: {e.Message}"
+        }
+
     [<Test>]
     member _.JjCurrentBranchIsNearestReachableBookmark() : Task =
         task {

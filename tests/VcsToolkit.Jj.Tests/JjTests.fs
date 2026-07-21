@@ -643,6 +643,40 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.GitRemoteListForcesReadOnlyFlagsAndParsesEntries() : Task =
+        task {
+            // A pure config read: the argv always carries `--ignore-working-copy` and `--color
+            // never` (even on this non-read-only client), and each `<name> <url>` line parses into
+            // a Remote.
+            let captured, runner =
+                capturing (Reply.Ok "origin https://github.com/example/repo.git\nupstream git@example.com:o/r.git\n")
+
+            let jj = Jj.WithRunner runner
+
+            match! jj.GitRemoteList "." with
+            | Ok [ origin; upstream ] ->
+                Assert.That(origin.Name, Is.EqualTo "origin")
+                Assert.That(origin.Url, Is.EqualTo "https://github.com/example/repo.git")
+                Assert.That(upstream.Name, Is.EqualTo "upstream")
+                Assert.That(upstream.Url, Is.EqualTo "git@example.com:o/r.git")
+            | Ok other -> Assert.Fail $"expected two remotes, got {other.Length}"
+            | Error e -> Assert.Fail $"git_remote_list failed: {e}"
+
+            match captured.Value with
+            | Some cmd ->
+                Assert.That(
+                    (cmd.Arguments |> Seq.toList = [ "git"
+                                                     "remote"
+                                                     "list"
+                                                     "--ignore-working-copy"
+                                                     "--color"
+                                                     "never" ]),
+                    Is.True
+                )
+            | None -> Assert.Fail "GitRemoteList did not spawn jj"
+        }
+
+    [<Test>]
     member _.NewChildStartsUndescribedChildOfParent() : Task =
         task {
             // Unlike `NewMerge`/`NewChange`, `NewChild` carries no `-m`: the resulting

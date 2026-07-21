@@ -266,6 +266,10 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
     member this.RepoWorktrees() =
         this.ReadRepo(fun () -> repo.ListWorktrees())
 
+    /// The configured remotes (name + URL) — git `remote -v` (one entry per remote, its fetch
+    /// URL) / jj `jj git remote list`.
+    member this.RepoRemotes() = this.ReadRepo(fun () -> repo.Remotes())
+
     /// The content of `path` as it exists at `rev`, untrimmed up to the server's output
     /// budget (`--output-budget`; a byte count). Content within the budget is returned
     /// byte-for-byte unchanged; content beyond it is truncated with a trailing

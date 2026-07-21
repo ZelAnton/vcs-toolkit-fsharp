@@ -695,6 +695,11 @@ type Git private (core: ManagedClient) =
             | Ok() -> return! core.Run(core.CommandIn(dir, [ "remote"; "get-url"; remote ]))
         }
 
+    /// The configured remotes (`remote -v`), one `Remote` (name + fetch URL) per remote — git
+    /// prints a fetch and a push line for each, deduplicated here to a single entry per remote.
+    member _.Remotes(dir: string) =
+        core.Parse(core.CommandIn(dir, [ "remote"; "-v" ]), GitParse.parseRemotes)
+
     /// The current branch's upstream, e.g. `Some "origin/main"`; `None` when unset.
     /// Requires HEAD to be an attached branch (`symbolic-ref` first): detached HEAD, a
     /// directory outside a repository, or any other `symbolic-ref` failure surfaces as
@@ -1761,6 +1766,9 @@ and [<Sealed>] GitAt internal (git: Git, dir: string) =
 
     /// A remote's URL (`remote get-url <remote>`).
     member _.RemoteUrl(remote: string) = git.RemoteUrl(dir, remote)
+
+    /// The configured remotes (`remote -v`), one entry (name + fetch URL) per remote.
+    member _.Remotes() = git.Remotes dir
 
     /// The current branch's upstream, e.g. `Some "origin/main"`; `None` when unset.
     member _.Upstream() = git.Upstream dir

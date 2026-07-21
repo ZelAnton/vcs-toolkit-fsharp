@@ -350,6 +350,28 @@ type ToolTests() =
         }
 
     [<Test>]
+    member _.RepoRemotesReturnsRemoteJson() : Task =
+        task {
+            // repo_remotes is a read tool (no write gate) surfacing the facade's `Remote` list as
+            // JSON — name + URL, with git's fetch/push lines deduplicated to one entry per remote.
+            let server =
+                gitServer
+                    (ScriptedRunner()
+                        .On(
+                            [ "remote"; "-v" ],
+                            Reply.Ok
+                                "origin\thttps://github.com/example/repo.git (fetch)\norigin\thttps://github.com/example/repo.git (push)\n"
+                        ))
+                    WriteGate.None
+
+            match! server.RepoRemotes() with
+            | Ok json ->
+                Assert.That(json, Does.Contain "origin")
+                Assert.That(json, Does.Contain "github.com/example/repo.git")
+            | Error e -> Assert.Fail $"repo_remotes failed: {e.Message}"
+        }
+
+    [<Test>]
     member _.RepoLogReturnsCommitJson() : Task =
         task {
             // repo_log is a read tool (no write gate) that surfaces the facade's unified `Commit`
@@ -1373,8 +1395,8 @@ type CatalogTests() =
 
     [<Test>]
     member _.CatalogCoversEveryTool() =
-        // 11 repo-read + repo_try_merge + 12 repo-write + 11 forge-read + 12 forge-write = 47.
-        Assert.That(List.length Catalog.all, Is.EqualTo 47)
+        // 12 repo-read + repo_try_merge + 12 repo-write + 11 forge-read + 12 forge-write = 48.
+        Assert.That(List.length Catalog.all, Is.EqualTo 48)
         // Every write-gated tool name appears in the catalogue.
         let names = Catalog.all |> List.map (fun t -> t.Name) |> Set.ofList
         Assert.That(WriteTools.all |> List.forall names.Contains, Is.True, "every write tool is catalogued")
