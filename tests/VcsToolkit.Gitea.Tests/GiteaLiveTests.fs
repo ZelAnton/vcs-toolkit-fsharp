@@ -381,7 +381,12 @@ let private waitForMergeable
     : Task<PrMergeStatus> =
     task {
         let deadline = DateTime.UtcNow.Add timeout
-        let mutable status = { Mergeable = false; State = ""; Merged = false }
+
+        let mutable status =
+            { Mergeable = false
+              State = ""
+              Merged = false }
+
         let mutable ready = false
 
         while not ready && DateTime.UtcNow < deadline do
