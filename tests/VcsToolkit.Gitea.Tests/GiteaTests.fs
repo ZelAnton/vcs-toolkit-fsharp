@@ -44,22 +44,47 @@ let private expectOk (r: Result<'T, string>) : 'T =
         Assert.Fail $"unexpected parse error: {e}"
         failwith "unreachable"
 
+// Build tea 0.9.2's `--output csv` (`outputdsv`) text from rows of cells: each row is printed
+// as `"c1","c2",...` — every cell wrapped in double quotes, joined by the literal three-char
+// delimiter `","`, one row per line, header row first. This mirrors exactly what the real
+// `tea` writes (and is the format `GiteaParse` is contracted against), so the fixtures below
+// document the contract instead of hand-escaping quotes.
+let private teaCsv (rows: string list list) : string =
+    rows
+    |> List.map (fun cells -> "\"" + String.concat "\",\"" cells + "\"")
+    |> String.concat "\n"
+
+// The column headers tea emits for each listing (pr/issue columns are pinned by this
+// wrapper's `--fields`; release/login use tea's fixed default columns).
+let private prHeader = [ "index"; "title"; "state"; "head"; "base"; "url" ]
+let private issueHeader = [ "index"; "title"; "state"; "body"; "url" ]
+
+let private releaseHeader =
+    [ "Tag-Name"; "Title"; "Published At"; "Status"; "Tar URL" ]
+
+let private loginHeader = [ "Name"; "URL"; "SSHHost"; "User"; "Default" ]
+
+// tea prints this to stdout at exit 0 when asked for an unsupported `--output` (e.g. `json`,
+// K-049) — it must never be read as a successful empty result.
+let private unknownOutputDiagnostic =
+    "unknown output type 'json', available types are:\n- csv\n- tsv\n- yaml"
+
 // ---------------------------------------------------------------------------
-// Pure parsers over `tea … --output json` (tea's all-strings print-table, plus the
-// typed issue-detail object)
+// Pure parsers over `tea … --output csv` (tea 0.9.2's quoted `outputdsv` tables)
 // ---------------------------------------------------------------------------
 
 [<TestFixture>]
 type ParseTests() =
 
     [<Test>]
-    member _.PrListTableRowParsesStringIndex() =
-        let json =
-            """[{"index":"7","title":"Add X","state":"open","head":"feat/x","base":"main","url":"https://gitea/pr/7"}]"""
+    member _.PrListRowParsesIndexAndColumns() =
+        let csv =
+            teaCsv [ prHeader; [ "7"; "Add X"; "open"; "feat/x"; "main"; "https://gitea/pr/7" ] ]
 
-        match expectOk (GiteaParse.parsePrList json) with
+        match expectOk (GiteaParse.parsePrList csv) with
         | [ pr ] ->
             Assert.That(pr.Number, Is.EqualTo 7UL)
+            Assert.That(pr.Title, Is.EqualTo "Add X")
             Assert.That(pr.State, Is.EqualTo "open")
             Assert.That(pr.Merged, Is.False)
             Assert.That(pr.HeadBranch, Is.EqualTo "feat/x")
@@ -69,10 +94,9 @@ type ParseTests() =
 
     [<Test>]
     member _.PrMergedStateDerivesTheFlag() =
-        let json =
-            """[{"index":"9","title":"done","state":"merged","head":"f","base":"main","url":"u"}]"""
+        let csv = teaCsv [ prHeader; [ "9"; "done"; "merged"; "f"; "main"; "u" ] ]
 
-        match expectOk (GiteaParse.parsePrList json) with
+        match expectOk (GiteaParse.parsePrList csv) with
         | [ pr ] ->
             Assert.That(pr.Number, Is.EqualTo 9UL)
             Assert.That(pr.Merged, Is.True)
@@ -81,11 +105,14 @@ type ParseTests() =
 
     [<Test>]
     member _.PrListPreservesElementOrder() =
-        // parseArrayResult must keep input order (a `List.rev` regression would flip it).
-        let json =
-            """[{"index":"6","title":"first","state":"open","head":"a","base":"main","url":"u6"},{"index":"7","title":"second","state":"open","head":"b","base":"main","url":"u7"}]"""
+        // The parser must keep input row order (a `List.rev` regression would flip it).
+        let csv =
+            teaCsv
+                [ prHeader
+                  [ "6"; "first"; "open"; "a"; "main"; "u6" ]
+                  [ "7"; "second"; "open"; "b"; "main"; "u7" ] ]
 
-        match expectOk (GiteaParse.parsePrList json) with
+        match expectOk (GiteaParse.parsePrList csv) with
         | [ a; b ] ->
             Assert.That(a.Number, Is.EqualTo 6UL)
             Assert.That(a.Title, Is.EqualTo "first")
@@ -96,20 +123,29 @@ type ParseTests() =
     [<Test>]
     member _.PrNonNumericIndexIsError() =
         // A non-numeric index is a real parse failure, not a silent 0 that PrView could "find".
-        match GiteaParse.parsePrList """[{"index":"x","title":"t","state":"open"}]""" with
+        match GiteaParse.parsePrList (teaCsv [ prHeader; [ "x"; "t"; "open"; "h"; "main"; "u" ] ]) with
         | Error _ -> ()
         | Ok _ -> Assert.Fail "a non-numeric index must be an Error"
 
     [<Test>]
-    member _.PrMissingIndexIsError() =
-        match GiteaParse.parsePrList """[{"title":"t","state":"open"}]""" with
+    member _.PrEmptyIndexIsError() =
+        // An empty `index` cell is a real parse failure, not a silent 0.
+        match GiteaParse.parsePrList (teaCsv [ prHeader; [ ""; "t"; "open"; "h"; "main"; "u" ] ]) with
         | Error _ -> ()
-        | Ok _ -> Assert.Fail "a missing index must be an Error"
+        | Ok _ -> Assert.Fail "a blank index must be an Error"
 
     [<Test>]
-    member _.IssueListTableRowAndTrimmedColumns() =
+    member _.PrWrongColumnCountIsError() =
+        // A row whose cell count differs from the pinned columns (an ambiguous embedded `","`
+        // in a value, or unexpected tea output) is an Error, never a silent field shift.
+        match GiteaParse.parsePrList (teaCsv [ prHeader; [ "7"; "only three"; "open" ] ]) with
+        | Error _ -> ()
+        | Ok _ -> Assert.Fail "a short row must be an Error, not a defaulted record"
+
+    [<Test>]
+    member _.IssueListRowAndEmptyColumns() =
         let full =
-            """[{"index":"12","title":"Bug","state":"open","body":"broken","url":"https://gitea/issues/12"}]"""
+            teaCsv [ issueHeader; [ "12"; "Bug"; "open"; "broken"; "https://gitea/issues/12" ] ]
 
         match expectOk (GiteaParse.parseIssueList full) with
         | [ issue ] ->
@@ -118,41 +154,26 @@ type ParseTests() =
             Assert.That(issue.Url, Is.EqualTo "https://gitea/issues/12")
         | other -> Assert.Fail $"expected one issue, got {other.Length}"
 
-        // A column trim (body/url absent) still parses via the defaults.
-        match expectOk (GiteaParse.parseIssueList """[{"index":"4","title":"wip","state":"open"}]""") with
+        // Empty body/url cells still parse (positional columns, empty string values).
+        match expectOk (GiteaParse.parseIssueList (teaCsv [ issueHeader; [ "4"; "wip"; "open"; ""; "" ] ])) with
         | [ issue ] ->
             Assert.That(issue.Number, Is.EqualTo 4UL)
             Assert.That(issue.Body, Is.EqualTo "")
+            Assert.That(issue.Url, Is.EqualTo "")
         | other -> Assert.Fail $"expected one issue, got {other.Length}"
 
     [<Test>]
-    member _.SingleIssueDetailIsTypedObject() =
-        // The detail view is a typed object: `index` is a real JSON number, not a string.
-        let json =
-            """{"index":7,"title":"One","state":"closed","body":"b","url":"https://gitea/issues/7"}"""
+    member _.ReleaseListParsesFixedColumns() =
+        let csv =
+            teaCsv
+                [ releaseHeader
+                  [ "0.1"
+                    "First"
+                    "2023-07-26T13:02:36Z"
+                    "released"
+                    "http://gitea/archive/0.1.tar.gz" ] ]
 
-        let issue = expectOk (GiteaParse.parseIssue json)
-        Assert.That(issue.Number, Is.EqualTo 7UL)
-        Assert.That(issue.Title, Is.EqualTo "One")
-        Assert.That(issue.State, Is.EqualTo "closed")
-        Assert.That(issue.Url, Is.EqualTo "https://gitea/issues/7")
-
-    [<Test>]
-    member _.IssueDetailToleratesNullBodyAndUrl() =
-        // Gitea can send a present null body/url; tolerate it (null → empty).
-        let json = """{"index":8,"title":"Empty","state":"open","body":null,"url":null}"""
-        let issue = expectOk (GiteaParse.parseIssue json)
-        Assert.That(issue.Number, Is.EqualTo 8UL)
-        Assert.That(issue.Body, Is.EqualTo "")
-        Assert.That(issue.Url, Is.EqualTo "")
-
-    [<Test>]
-    member _.ReleaseListParsesSnakeCasedHeaderKeys() =
-        // tea's toSnakeCase inserts a stray `_`: the keys are `tag-_name`/`published _at`.
-        let json =
-            """[{"tag-_name":"0.1","title":"First","status":"released","published _at":"2023-07-26T13:02:36Z"}]"""
-
-        match expectOk (GiteaParse.parseReleaseList json) with
+        match expectOk (GiteaParse.parseReleaseList csv) with
         | [ rel ] ->
             Assert.That(rel.Tag, Is.EqualTo "0.1")
             Assert.That(rel.Title, Is.EqualTo "First")
@@ -164,55 +185,104 @@ type ParseTests() =
 
     [<Test>]
     member _.ReleaseStatusDrivesDraftAndPrereleaseFlags() =
-        match expectOk (GiteaParse.parseReleaseList """[{"tag-_name":"v2","title":"Two","status":"draft"}]""") with
+        match expectOk (GiteaParse.parseReleaseList (teaCsv [ releaseHeader; [ "v2"; "Two"; ""; "draft"; "" ] ])) with
         | [ rel ] ->
             Assert.That(rel.Draft, Is.True)
             Assert.That(rel.Prerelease, Is.False)
         | _ -> Assert.Fail "expected one release"
 
-        match expectOk (GiteaParse.parseReleaseList """[{"tag-_name":"v3","title":"RC","status":"prerelease"}]""") with
+        match
+            expectOk (GiteaParse.parseReleaseList (teaCsv [ releaseHeader; [ "v3"; "RC"; ""; "prerelease"; "" ] ]))
+        with
         | [ rel ] ->
             Assert.That(rel.Prerelease, Is.True)
             Assert.That(rel.Draft, Is.False)
         | _ -> Assert.Fail "expected one release"
 
     [<Test>]
-    member _.ReleaseAcceptsPlainerAliasKeys() =
-        // A future tea that fixes the snake-case quirk (plain `tag_name`) still parses.
-        match expectOk (GiteaParse.parseReleaseList """[{"tag_name":"v4","Title":"Four","Status":"released"}]""") with
-        | [ rel ] ->
-            Assert.That(rel.Tag, Is.EqualTo "v4")
-            Assert.That(rel.Title, Is.EqualTo "Four")
-        | _ -> Assert.Fail "expected one release"
-
-    [<Test>]
-    member _.ReleaseSkipsNullPrimaryKeyForAlias() =
-        // strFirst must skip a present-null primary key and fall through to the next
-        // candidate (a null `tag-_name` with a real `tag_name` still yields the tag).
-        match expectOk (GiteaParse.parseReleaseList """[{"tag-_name":null,"tag_name":"v9","status":"released"}]""") with
-        | [ rel ] -> Assert.That(rel.Tag, Is.EqualTo "v9")
-        | _ -> Assert.Fail "expected one release"
-
-    [<Test>]
-    member _.ReleaseMissingTagIsError() =
-        match GiteaParse.parseReleaseList """[{"title":"no tag"}]""" with
+    member _.ReleaseEmptyTagIsError() =
+        match GiteaParse.parseReleaseList (teaCsv [ releaseHeader; [ ""; "no tag"; ""; "released"; "" ] ]) with
         | Error _ -> ()
-        | Ok _ -> Assert.Fail "a release row without a tag must be an Error"
+        | Ok _ -> Assert.Fail "a release row with a blank tag must be an Error"
 
     [<Test>]
-    member _.HasLoginsCountsArray() =
-        Assert.That(expectOk (GiteaParse.parseHasLogins """[{"name":"gitea"}]"""), Is.True)
-        Assert.That(expectOk (GiteaParse.parseHasLogins "[]"), Is.False)
+    member _.HasLoginsCountsDataRows() =
+        Assert.That(
+            expectOk (GiteaParse.parseHasLogins (teaCsv [ loginHeader; [ "gitea"; "u"; ""; "vcs"; "*" ] ])),
+            Is.True
+        )
 
-        match GiteaParse.parseHasLogins "{}" with
+        // A header-only table (no logins configured) reads as false.
+        Assert.That(expectOk (GiteaParse.parseHasLogins (teaCsv [ loginHeader ])), Is.False)
+
+        // A non-tabular first line (e.g. an unsupported-output diagnostic) is an Error.
+        match GiteaParse.parseHasLogins "not a table" with
         | Error _ -> ()
-        | Ok _ -> Assert.Fail "a non-array logins document must be an Error"
+        | Ok _ -> Assert.Fail "a non-tabular logins document must be an Error"
 
     [<Test>]
-    member _.MalformedJsonIsError() =
-        match GiteaParse.parsePrList "not json" with
+    member _.NonTabularOutputIsError() =
+        match GiteaParse.parsePrList "not csv output" with
         | Error _ -> ()
-        | Ok _ -> Assert.Fail "malformed JSON must be an Error"
+        | Ok _ -> Assert.Fail "non-tabular output must be an Error"
+
+    [<Test>]
+    member _.EmptyOutputParsesAsEmptyList() =
+        // Some tea builds print NOTHING for an empty listing (an empty repo is a normal state).
+        match GiteaParse.parsePrList "" with
+        | Ok [] -> ()
+        | other -> Assert.Fail $"empty output should parse as an empty list, got {other}"
+
+        match GiteaParse.parseIssueList "  \n " with
+        | Ok [] -> ()
+        | other -> Assert.Fail $"whitespace output should parse as an empty list, got {other}"
+
+        match GiteaParse.parseReleaseList "" with
+        | Ok [] -> ()
+        | other -> Assert.Fail $"empty output should parse as an empty list, got {other}"
+
+    [<Test>]
+    member _.HeaderOnlyParsesAsEmptyList() =
+        // Other tea builds print only the header row for an empty listing — also an empty list.
+        match GiteaParse.parsePrList (teaCsv [ prHeader ]) with
+        | Ok [] -> ()
+        | other -> Assert.Fail $"a header-only PR table should be an empty list, got {other}"
+
+        match GiteaParse.parseIssueList (teaCsv [ issueHeader ]) with
+        | Ok [] -> ()
+        | other -> Assert.Fail $"a header-only issue table should be an empty list, got {other}"
+
+        match GiteaParse.parseReleaseList (teaCsv [ releaseHeader ]) with
+        | Ok [] -> ()
+        | other -> Assert.Fail $"a header-only release table should be an empty list, got {other}"
+
+    [<Test>]
+    member _.UnicodeAndCommaInTextFieldsSurviveParsing() =
+        // A title with Unicode and an ordinary comma (not the `","` cell delimiter) round-trips
+        // intact — tea's `outputdsv` only shifts fields on a literal `","` inside a cell.
+        let title = "Ремонт, пожалуйста — fix the café build"
+
+        let csv = teaCsv [ prHeader; [ "7"; title; "open"; "feat/x"; "main"; "u" ] ]
+
+        match expectOk (GiteaParse.parsePrList csv) with
+        | [ pr ] ->
+            Assert.That(pr.Title, Is.EqualTo title)
+            Assert.That(pr.State, Is.EqualTo "open", "the comma in the title must not shift the state column")
+        | other -> Assert.Fail $"expected one PR, got {other.Length}"
+
+    [<Test>]
+    member _.UnsupportedOutputDiagnosticIsErrorNotEmptyList() =
+        // K-049 regression barrier: tea prints `unknown output type 'json' …` at exit 0 for an
+        // unsupported `--output`. Every list parser must reject that as an Error — NEVER read it
+        // as a successful empty result.
+        for name, parse in
+            [ "parsePrList", (GiteaParse.parsePrList >> Result.map (fun _ -> ()))
+              "parseIssueList", (GiteaParse.parseIssueList >> Result.map (fun _ -> ()))
+              "parseReleaseList", (GiteaParse.parseReleaseList >> Result.map (fun _ -> ()))
+              "parseHasLogins", (GiteaParse.parseHasLogins >> Result.map (fun _ -> ())) ] do
+            match parse unknownOutputDiagnostic with
+            | Error _ -> ()
+            | Ok _ -> Assert.Fail $"{name} must reject the `unknown output type` diagnostic, not read it as empty"
 
 // ---------------------------------------------------------------------------
 // Client: hermetic argv-building + parsing via ScriptedRunner
@@ -224,8 +294,7 @@ type ClientTests() =
     [<Test>]
     member _.PrListRequestsFieldsAndLimit() : Task =
         task {
-            let json =
-                """[{"index":"1","title":"t","state":"open","head":"h","base":"main","url":"u"}]"""
+            let csv = teaCsv [ prHeader; [ "1"; "t"; "open"; "h"; "main"; "u" ] ]
 
             let tea =
                 scripted
@@ -236,8 +305,8 @@ type ClientTests() =
                       "--fields"
                       "index,title,state,head,base,url"
                       "--output"
-                      "json" ]
-                    (Reply.Ok json)
+                      "csv" ]
+                    (Reply.Ok csv)
 
             match! tea.PrList "." with
             | Ok [ pr ] -> Assert.That(pr.Number, Is.EqualTo 1UL)
@@ -248,8 +317,11 @@ type ClientTests() =
     [<Test>]
     member _.PrViewFindsOnFirstPage() : Task =
         task {
-            let json =
-                """[{"index":"6","title":"other","state":"open","head":"a","base":"main","url":"u6"},{"index":"7","title":"mine","state":"open","head":"b","base":"main","url":"u7"}]"""
+            let csv =
+                teaCsv
+                    [ prHeader
+                      [ "6"; "other"; "open"; "a"; "main"; "u6" ]
+                      [ "7"; "mine"; "open"; "b"; "main"; "u7" ] ]
 
             let tea =
                 scripted
@@ -261,7 +333,7 @@ type ClientTests() =
                       "1"
                       "--fields"
                       "index,title,state,head,base,url" ]
-                    (Reply.Ok json)
+                    (Reply.Ok csv)
 
             match! tea.PrView(".", 7UL) with
             | Ok pr ->
@@ -274,11 +346,9 @@ type ClientTests() =
     member _.PrViewBuildsExactPagedArgv() : Task =
         task {
             // Lock the synthesized-view page-1 argv exactly (--state all, --limit 50, --page 1,
-            // --fields, --output json) — subset matching can't prove the paging flags.
-            let json =
-                """[{"index":"7","title":"mine","state":"open","head":"b","base":"main","url":"u"}]"""
-
-            let tea, args = capturing (Reply.Ok json)
+            // --fields, --output csv) — subset matching can't prove the paging flags.
+            let csv = teaCsv [ prHeader; [ "7"; "mine"; "open"; "b"; "main"; "u" ] ]
+            let tea, args = capturing (Reply.Ok csv)
 
             match! tea.PrView(".", 7UL) with
             | Ok pr ->
@@ -296,7 +366,7 @@ type ClientTests() =
                       "--fields"
                       "index,title,state,head,base,url"
                       "--output"
-                      "json" ]
+                      "csv" ]
                     args
             | Error e -> Assert.Fail $"pr view failed: {e}"
         }
@@ -306,11 +376,8 @@ type ClientTests() =
         task {
             // A PR past the first page (the Gitea server caps a page at ~50) must still be
             // found — `PrView` pages through with `--page N`, not a single large `--limit`.
-            let page1 =
-                """[{"index":"1","title":"a","state":"open","head":"x","base":"main","url":"u1"}]"""
-
-            let page2 =
-                """[{"index":"55","title":"target","state":"open","head":"y","base":"main","url":"u55"}]"""
+            let page1 = teaCsv [ prHeader; [ "1"; "a"; "open"; "x"; "main"; "u1" ] ]
+            let page2 = teaCsv [ prHeader; [ "55"; "target"; "open"; "y"; "main"; "u55" ] ]
 
             let runner =
                 ScriptedRunner()
@@ -327,8 +394,9 @@ type ClientTests() =
     [<Test>]
     member _.PrViewMissingNumberIsError() : Task =
         task {
-            // An empty page (past the last PR) → a genuine absence error, not a hang or crash.
-            let tea = scripted [ "pr"; "list"; "--state"; "all" ] (Reply.Ok "[]")
+            // A header-only page (past the last PR) → a genuine absence error, not a hang or crash.
+            let tea =
+                scripted [ "pr"; "list"; "--state"; "all" ] (Reply.Ok(teaCsv [ prHeader ]))
 
             let! r = tea.PrView(".", 99UL)
             Assert.That(Result.isError r, Is.True, "a PR number not in the listing is an error")
@@ -337,8 +405,8 @@ type ClientTests() =
     [<Test>]
     member _.ListParsersTreatEmptyOutputAsEmptyList() : Task =
         task {
-            // Some `tea` builds print NOTHING (not `[]`) for an empty result — an empty repo is
-            // a normal state, not a parse error.
+            // Some `tea` builds print NOTHING (not even a header) for an empty result — an empty
+            // repo is a normal state, not a parse error.
             let tea = scripted [ "pr"; "list" ] (Reply.Ok "")
 
             match! tea.PrList "." with
@@ -455,18 +523,85 @@ type ClientTests() =
         }
 
     [<Test>]
-    member _.IssueViewIsFirstClassDetail() : Task =
+    member _.IssueViewPagesAndFilters() : Task =
         task {
-            let json =
-                """{"index":3,"title":"Docs","state":"open","body":"write them","url":"u"}"""
+            // tea 0.9.2's bare-index view renders Markdown and ignores `--output`, so `IssueView`
+            // synthesizes the read by paging `issues list --state all … --output csv`.
+            let csv = teaCsv [ issueHeader; [ "3"; "Docs"; "open"; "write them"; "u" ] ]
 
-            let tea = scripted [ "issues"; "3"; "--output"; "json" ] (Reply.Ok json)
+            let tea =
+                scripted
+                    [ "issues"
+                      "list"
+                      "--state"
+                      "all"
+                      "--page"
+                      "1"
+                      "--fields"
+                      "index,title,state,body,url" ]
+                    (Reply.Ok csv)
 
             match! tea.IssueView(".", 3UL) with
             | Ok issue ->
                 Assert.That(issue.Number, Is.EqualTo 3UL)
                 Assert.That(issue.Body, Is.EqualTo "write them")
             | Error e -> Assert.Fail $"issue view failed: {e}"
+        }
+
+    [<Test>]
+    member _.IssueViewBuildsExactPagedArgv() : Task =
+        task {
+            // Lock the synthesized issue-view page-1 argv exactly (mirrors PrView).
+            let csv = teaCsv [ issueHeader; [ "3"; "Docs"; "open"; "write them"; "u" ] ]
+            let tea, args = capturing (Reply.Ok csv)
+
+            match! tea.IssueView(".", 3UL) with
+            | Ok issue ->
+                Assert.That(issue.Number, Is.EqualTo 3UL)
+
+                assertArgs
+                    [ "issues"
+                      "list"
+                      "--state"
+                      "all"
+                      "--limit"
+                      "50"
+                      "--page"
+                      "1"
+                      "--fields"
+                      "index,title,state,body,url"
+                      "--output"
+                      "csv" ]
+                    args
+            | Error e -> Assert.Fail $"issue view failed: {e}"
+        }
+
+    [<Test>]
+    member _.IssueViewPagesToFindLaterIssue() : Task =
+        task {
+            let page1 = teaCsv [ issueHeader; [ "1"; "a"; "open"; "b"; "u1" ] ]
+            let page2 = teaCsv [ issueHeader; [ "55"; "target"; "open"; "b"; "u55" ] ]
+
+            let runner =
+                ScriptedRunner()
+                    .On([ "issues"; "list"; "--page"; "1" ], Reply.Ok page1)
+                    .On([ "issues"; "list"; "--page"; "2" ], Reply.Ok page2)
+
+            let tea = Gitea.WithRunner runner
+
+            match! tea.IssueView(".", 55UL) with
+            | Ok issue -> Assert.That(issue.Title, Is.EqualTo "target", "found #55 on page 2")
+            | Error e -> Assert.Fail $"issue view failed: {e}"
+        }
+
+    [<Test>]
+    member _.IssueViewMissingNumberIsError() : Task =
+        task {
+            let tea =
+                scripted [ "issues"; "list"; "--state"; "all" ] (Reply.Ok(teaCsv [ issueHeader ]))
+
+            let! r = tea.IssueView(".", 99UL)
+            Assert.That(Result.isError r, Is.True, "an issue number not in the listing is an error")
         }
 
     [<Test>]
@@ -481,8 +616,8 @@ type ClientTests() =
                       "--fields"
                       "index,title,state,body,url"
                       "--output"
-                      "json" ]
-                    (Reply.Ok """[{"index":"12","title":"Bug","state":"open","body":"b","url":"u"}]""")
+                      "csv" ]
+                    (Reply.Ok(teaCsv [ issueHeader; [ "12"; "Bug"; "open"; "b"; "u" ] ]))
 
             match! list.IssueList "." with
             | Ok [ issue ] -> Assert.That(issue.Number, Is.EqualTo 12UL)
@@ -518,8 +653,8 @@ type ClientTests() =
         task {
             let tea =
                 scripted
-                    [ "releases"; "list"; "--limit"; "100"; "--output"; "json" ]
-                    (Reply.Ok """[{"tag-_name":"0.1","title":"First","status":"released"}]""")
+                    [ "releases"; "list"; "--limit"; "100"; "--output"; "csv" ]
+                    (Reply.Ok(teaCsv [ releaseHeader; [ "0.1"; "First"; ""; "released"; "" ] ]))
 
             match! tea.ReleaseList "." with
             | Ok [ rel ] -> Assert.That(rel.Tag, Is.EqualTo "0.1")
@@ -567,6 +702,71 @@ type ClientTests() =
         }
 
 // ---------------------------------------------------------------------------
+// K-049 regression barrier: the fixed operations must drive `--output csv`, never `json`
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type OutputFormatContractTests() =
+
+    /// The value following `--output` in a captured argv (`None` if the flag is absent).
+    let outputValue (args: ResizeArray<string>) : string option =
+        let got = List.ofSeq args
+
+        got
+        |> List.tryFindIndex (fun a -> a = "--output")
+        |> Option.bind (fun i -> List.tryItem (i + 1) got)
+
+    [<Test>]
+    member _.EveryListingOperationRequestsCsvNeverJson() : Task =
+        task {
+            // A live-CLI contract pinned hermetically: tea 0.9.2 rejects `--output json` on these
+            // commands (K-049). If any operation is ever changed back to `json`, this fails.
+            let prTea, prArgs = capturing (Reply.Ok(teaCsv [ prHeader ]))
+            let! _ = prTea.PrList "."
+
+            let issueTea, issueArgs = capturing (Reply.Ok(teaCsv [ issueHeader ]))
+            let! _ = issueTea.IssueList "."
+
+            let relTea, relArgs = capturing (Reply.Ok(teaCsv [ releaseHeader ]))
+            let! _ = relTea.ReleaseList "."
+
+            let prViewTea, prViewArgs = capturing (Reply.Ok(teaCsv [ prHeader ]))
+            let! _ = prViewTea.PrView(".", 1UL)
+
+            let issueViewTea, issueViewArgs = capturing (Reply.Ok(teaCsv [ issueHeader ]))
+            let! _ = issueViewTea.IssueView(".", 1UL)
+
+            let authTea, authArgs = capturing (Reply.Ok(teaCsv [ loginHeader ]))
+            let! _ = authTea.AuthStatus()
+
+            for name, args in
+                [ "pr list", prArgs
+                  "issues list", issueArgs
+                  "releases list", relArgs
+                  "pr view", prViewArgs
+                  "issue view", issueViewArgs
+                  "login list", authArgs ] do
+                Assert.That(outputValue args, Is.EqualTo(Some "csv"), $"{name} must request --output csv")
+
+                Assert.That(
+                    List.contains "json" (List.ofSeq args),
+                    Is.False,
+                    $"{name} must never send a `json` token (K-049)"
+                )
+        }
+
+    [<Test>]
+    member _.ReintroducingJsonOutputSurfacesAsErrorNotEmptyList() : Task =
+        task {
+            // If the `--output json` path is ever restored, the real tea replies with its
+            // `unknown output type` diagnostic at exit 0 — the operation must surface an error,
+            // never read it as a successful empty listing.
+            let tea = scripted [ "pr"; "list" ] (Reply.Ok unknownOutputDiagnostic)
+            let! r = tea.PrList "."
+            Assert.That(Result.isError r, Is.True, "the `unknown output type` diagnostic must be an error, not empty")
+        }
+
+// ---------------------------------------------------------------------------
 // auth_status (login-list based) and the injection guard on the bare comment body
 // ---------------------------------------------------------------------------
 
@@ -577,24 +777,27 @@ type SemanticsTests() =
     member _.AuthStatusCountsLogins() : Task =
         task {
             let some =
-                scripted [ "login"; "list"; "--output"; "json" ] (Reply.Ok """[{"name":"gitea"}]""")
+                scripted
+                    [ "login"; "list"; "--output"; "csv" ]
+                    (Reply.Ok(teaCsv [ loginHeader; [ "gitea"; "https://gitea"; ""; "vcs"; "*" ] ]))
 
             match! some.AuthStatus() with
             | Ok v -> Assert.That(v, Is.True)
             | Error e -> Assert.Fail $"auth status (some) failed: {e}"
 
-            let empty = scripted [ "login"; "list"; "--output"; "json" ] (Reply.Ok "[]")
+            let empty =
+                scripted [ "login"; "list"; "--output"; "csv" ] (Reply.Ok(teaCsv [ loginHeader ]))
 
             match! empty.AuthStatus() with
-            | Ok v -> Assert.That(v, Is.False, "an empty logins array means not logged in")
+            | Ok v -> Assert.That(v, Is.False, "a header-only logins table means not logged in")
             | Error e -> Assert.Fail $"auth status (empty) failed: {e}"
         }
 
     [<Test>]
     member _.AuthStatusEmptyOutputIsFalse() : Task =
         task {
-            // Some tea builds print nothing (not `[]`) when none are configured.
-            let tea = scripted [ "login"; "list"; "--output"; "json" ] (Reply.Ok "")
+            // Some tea builds print nothing (not even a header) when none are configured.
+            let tea = scripted [ "login"; "list"; "--output"; "csv" ] (Reply.Ok "")
 
             match! tea.AuthStatus() with
             | Ok v -> Assert.That(v, Is.False)
@@ -606,7 +809,7 @@ type SemanticsTests() =
         task {
             // A non-zero exit (e.g. no config file yet) reads as "not logged in", not an error.
             let tea =
-                scripted [ "login"; "list"; "--output"; "json" ] (Reply.Fail(1, "no config"))
+                scripted [ "login"; "list"; "--output"; "csv" ] (Reply.Fail(1, "no config"))
 
             match! tea.AuthStatus() with
             | Ok v -> Assert.That(v, Is.False)
@@ -617,10 +820,22 @@ type SemanticsTests() =
     member _.AuthStatusErrorsOnAbnormalTermination() : Task =
         task {
             // A signal kill has no exit code — it must surface as an error, not "false".
-            let tea = scripted [ "login"; "list"; "--output"; "json" ] (Reply.Signalled 9)
+            let tea = scripted [ "login"; "list"; "--output"; "csv" ] (Reply.Signalled 9)
 
             let! r = tea.AuthStatus()
             Assert.That(Result.isError r, Is.True, "an abnormal termination must error, not read false")
+        }
+
+    [<Test>]
+    member _.AuthStatusDiagnosticOutputIsError() : Task =
+        task {
+            // tea printing `unknown output type` at exit 0 must surface as an error, not a silent
+            // "not logged in" false (K-049).
+            let tea =
+                scripted [ "login"; "list"; "--output"; "csv" ] (Reply.Ok unknownOutputDiagnostic)
+
+            let! r = tea.AuthStatus()
+            Assert.That(Result.isError r, Is.True, "an `unknown output type` diagnostic must error, not read false")
         }
 
     [<Test>]

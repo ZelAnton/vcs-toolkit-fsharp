@@ -16,16 +16,17 @@ module internal Constants =
     [<Literal>]
     let BINARY = "tea"
 
-    /// The oldest `tea` this wrapper's typed `--output json`/`--fields` surface is written
-    /// against (the 0.9.x line where the print-table JSON output stabilised). Version-gated
-    /// operations refuse a CLI below this floor up front rather than driving it into a raw
-    /// failure.
+    /// The oldest `tea` this wrapper's typed `--output csv`/`--fields` surface is written
+    /// against (the 0.9.x line whose `outputdsv` print-table format this wrapper parses;
+    /// see `GiteaParse`). Version-gated operations refuse a CLI below this floor up front
+    /// rather than driving it into a raw failure.
     let MIN_SUPPORTED_VERSION: Version =
         { Major = 0UL
           Minor = 9UL
           Patch = 0UL }
 
-    /// `--fields` column set for `tea pr list` (every value comes back as a JSON string).
+    /// `--fields` column set for `tea pr list` — the exact columns, in order, the csv parser
+    /// reads positionally (`tea` 0.9.2 emits one quoted `outputdsv` cell per field).
     [<Literal>]
     let PR_FIELDS = "index,title,state,head,base,url"
 
@@ -44,6 +45,19 @@ module internal Constants =
     /// Safety bound on the `PrView` page walk (see `PR_VIEW_PAGE_SIZE`).
     [<Literal>]
     let PR_VIEW_MAX_PAGES = 200
+
+    /// `tea` 0.9.2's bare-index issue view (`tea issues <n>`) renders a human-readable
+    /// Markdown page and ignores `--output`, so there is no structured single-issue read.
+    /// `IssueView` therefore synthesizes one exactly like `PrView`: it lists `--state all`
+    /// and pages until #number is found or a page returns empty. `ISSUE_VIEW_PAGE_SIZE` is
+    /// the requested per-page size (an empty page ends the walk); `ISSUE_VIEW_MAX_PAGES`
+    /// bounds it.
+    [<Literal>]
+    let ISSUE_VIEW_PAGE_SIZE = 50
+
+    /// Safety bound on the `IssueView` page walk (see `ISSUE_VIEW_PAGE_SIZE`).
+    [<Literal>]
+    let ISSUE_VIEW_MAX_PAGES = 200
 
 /// How `prMerge` merges the PR — maps to `tea pr merge --style` (Gitea's default is a
 /// merge commit).

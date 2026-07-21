@@ -4,9 +4,10 @@ open System
 open ProcessKit
 open VcsToolkit.CliSupport
 
-/// The real Gitea (and Forgejo) client: typed async methods that run the real `tea`,
-/// ask it for `--output json`, and deserialize the result. `Gitea.Create()` uses the
-/// job-backed runner; `Gitea.WithRunner` injects a fake one for tests. Wraps a `ManagedClient`.
+/// The real Gitea (and Forgejo) client: typed async methods that run the real `tea`, ask it
+/// for its supported `--output csv` (tea 0.9.2 does not support `--output json`; see K-049 /
+/// `GiteaParse`), and parse the result. `Gitea.Create()` uses the job-backed runner;
+/// `Gitea.WithRunner` injects a fake one for tests. Wraps a `ManagedClient`.
 ///
 /// **Authentication is ambient.** Unlike the GitHub/GitLab wrappers, `tea` has no
 /// non-interactive per-invocation token mechanism — it authenticates only from the
@@ -89,25 +90,25 @@ type Gitea private (core: ManagedClient) =
                         Error(ProcessError.Parse(BINARY, sprintf "unrecognisable `tea --version` output: \"%s\"" raw))
         }
 
-    /// Whether at least one login is configured (`tea login list --output json` is a
-    /// non-empty array). `tea` has no per-instance `auth status`, so this is the closest
-    /// "are we logged in" signal. A non-zero exit (e.g. no config file yet) reads as
-    /// `false`, the same as an empty array; only a spawn failure or timeout errors.
+    /// Whether at least one login is configured (`tea login list --output csv` prints a data
+    /// row after its header). `tea` has no per-instance `auth status`, so this is the closest
+    /// "are we logged in" signal. A non-zero exit (e.g. no config file yet) reads as `false`,
+    /// the same as an empty table; only a spawn failure or timeout errors.
     member _.AuthStatus() =
         task {
-            match! core.Output(core.Command [ "login"; "list"; "--output"; "json" ]) with
+            match! core.Output(core.Command [ "login"; "list"; "--output"; "csv" ]) with
             | Error e -> return Error e
             | Ok res ->
                 match res.Code with
                 | Some 0 ->
-                    // Some tea builds print nothing (not `[]`) when none are configured;
-                    // treat empty output as "no logins" rather than a parse error.
-                    let json = res.Stdout.Trim()
+                    // Some tea builds print nothing (not even a header) when none are
+                    // configured; treat empty output as "no logins" rather than a parse error.
+                    let csv = res.Stdout.Trim()
 
-                    if json = "" then
+                    if csv = "" then
                         return Ok false
                     else
-                        return mapParse BINARY (GiteaParse.parseHasLogins json)
+                        return mapParse BINARY (GiteaParse.parseHasLogins csv)
                 | Some _ ->
                     // A plain non-zero exit just means "no logins" → false.
                     return Ok false
@@ -129,11 +130,10 @@ type Gitea private (core: ManagedClient) =
     /// against a build that replaced it outright.
     member this.PrList(dir: string) = this.PrList(dir, PrListOptions.Default)
 
-    /// Open pull requests for `dir` (`tea pr list --state <state> --limit <limit> --fields
-    /// … --output json`). `--fields` selects the columns the parser reads. See K-049: `tea`
-    /// 0.9.2 does not support `--output json` at all on `pr list` against the real CLI —
-    /// this method's shape is otherwise unchanged by that pre-existing, separately-tracked
-    /// gap.
+    /// Pull requests for `dir` (`tea pr list --state <state> --limit <limit> --fields …
+    /// --output csv`). `--fields` pins the exact columns the csv parser reads positionally.
+    /// tea 0.9.2 does not support `--output json` on `pr list` (K-049), so this drives its
+    /// supported `--output csv` (`outputdsv`) format instead.
     member _.PrList(dir: string, options: PrListOptions) =
         core.TryParse(
             core.CommandIn(
@@ -147,7 +147,7 @@ type Gitea private (core: ManagedClient) =
                   "--fields"
                   PR_FIELDS
                   "--output"
-                  "json" ]
+                  "csv" ]
             ),
             GiteaParse.parsePrList
         )
@@ -178,7 +178,7 @@ type Gitea private (core: ManagedClient) =
                           "--fields"
                           PR_FIELDS
                           "--output"
-                          "json" ]
+                          "csv" ]
                     )
 
                 match! core.TryParse(cmd, GiteaParse.parsePrList) with
@@ -307,10 +307,10 @@ type Gitea private (core: ManagedClient) =
     member this.IssueList(dir: string) =
         this.IssueList(dir, IssueListOptions.Default)
 
-    /// Open issues for `dir` (`tea issues list --state <state> --limit <limit> --fields …
-    /// --output json`). See K-049: `tea` 0.9.2 does not support `--output json` at all on
-    /// `issues list` against the real CLI — this method's shape is otherwise unchanged by
-    /// that pre-existing, separately-tracked gap.
+    /// Issues for `dir` (`tea issues list --state <state> --limit <limit> --fields …
+    /// --output csv`). `--fields` pins the exact columns the csv parser reads positionally.
+    /// tea 0.9.2 does not support `--output json` on `issues list` (K-049), so this drives
+    /// its supported `--output csv` (`outputdsv`) format instead.
     member _.IssueList(dir: string, options: IssueListOptions) =
         core.TryParse(
             core.CommandIn(
@@ -324,15 +324,68 @@ type Gitea private (core: ManagedClient) =
                   "--fields"
                   ISSUE_FIELDS
                   "--output"
-                  "json" ]
+                  "csv" ]
             ),
             GiteaParse.parseIssueList
         )
 
-    /// A single issue by number — the bare-index view (`tea issues <number> --output
-    /// json`), deserialising one typed object.
+    /// A single issue by number. `tea` 0.9.2's bare-index view (`tea issues <number>`) renders
+    /// a human-readable Markdown page and ignores `--output`, so there is no structured detail
+    /// read. This synthesizes one exactly like `PrView`: it **lists** all states and **pages**
+    /// (`tea issues list --state all --limit 50 --page N …`) until #number is found or a page
+    /// returns empty (past the end).
     member _.IssueView(dir: string, number: uint64) =
-        core.TryParse(core.CommandIn(dir, [ "issues"; string number; "--output"; "json" ]), GiteaParse.parseIssue)
+        task {
+            let limit = string ISSUE_VIEW_PAGE_SIZE
+            let mutable found: Result<Issue, ProcessError> option = None
+            let mutable page = 1
+
+            while Option.isNone found && page <= ISSUE_VIEW_MAX_PAGES do
+                let cmd =
+                    core.CommandIn(
+                        dir,
+                        [ "issues"
+                          "list"
+                          "--state"
+                          "all"
+                          "--limit"
+                          limit
+                          "--page"
+                          string page
+                          "--fields"
+                          ISSUE_FIELDS
+                          "--output"
+                          "csv" ]
+                    )
+
+                match! core.TryParse(cmd, GiteaParse.parseIssueList) with
+                | Error e -> found <- Some(Error e)
+                | Ok issues ->
+                    match issues |> List.tryFind (fun issue -> issue.Number = number) with
+                    | Some issue -> found <- Some(Ok issue)
+                    | None when List.isEmpty issues ->
+                        // An empty page means we walked past the last issue — a genuine absence.
+                        found <-
+                            Some(Error(ProcessError.Parse(BINARY, sprintf "no issue #%d in `tea issues list`" number)))
+                    | None -> page <- page + 1
+
+            match found with
+            | Some r -> return r
+            | None ->
+                // Hit the page safety bound without finding it — an extremely large repo.
+                // Report honestly rather than a confident false "not found".
+                return
+                    Error(
+                        ProcessError.Parse(
+                            BINARY,
+                            sprintf
+                                "issue #%d not found in the first %d of `tea issues list` (stopped at the %d-page safety bound; query `tea`/the Gitea API directly for a repository this large)"
+                                number
+                                (ISSUE_VIEW_MAX_PAGES * ISSUE_VIEW_PAGE_SIZE)
+                                ISSUE_VIEW_MAX_PAGES
+                        )
+                    )
+        }
 
     /// Open an issue, returning the command's textual output (`tea issues create
     /// --title <t> --description <d>`). Like `PrCreate`, `tea` prints a summary (with
@@ -355,12 +408,14 @@ type Gitea private (core: ManagedClient) =
             | Ok() -> return! core.Run(core.CommandIn(dir, [ "comment"; string number; body ]))
         }
 
-    /// Releases for `dir` (`tea releases list --limit 100 --output json`). Up to 100.
-    /// There is intentionally no `ReleaseView`: `tea releases` takes no positional and
-    /// always lists, so a single-release-by-tag view does not exist in `tea`.
+    /// Releases for `dir` (`tea releases list --limit 100 --output csv`). Up to 100. tea 0.9.2
+    /// does not support `--output json` on `releases list` (K-049), so this drives its
+    /// supported `--output csv` (`outputdsv`) format, parsed positionally by tea's fixed
+    /// release columns. There is intentionally no `ReleaseView`: `tea releases` takes no
+    /// positional and always lists, so a single-release-by-tag view does not exist in `tea`.
     member _.ReleaseList(dir: string) =
         core.TryParse(
-            core.CommandIn(dir, [ "releases"; "list"; "--limit"; "100"; "--output"; "json" ]),
+            core.CommandIn(dir, [ "releases"; "list"; "--limit"; "100"; "--output"; "csv" ]),
             GiteaParse.parseReleaseList
         )
 
@@ -408,7 +463,7 @@ and [<Sealed>] GiteaAt internal (gitea: Gitea, dir: string) =
     /// The installed binary's parsed version, as `GiteaCapabilities`.
     member _.Capabilities() = gitea.Capabilities()
 
-    /// Whether at least one login is configured (`tea login list --output json`).
+    /// Whether at least one login is configured (`tea login list --output csv`).
     member _.AuthStatus() = gitea.AuthStatus()
 
     // --- Modelled methods (dir injected as the first argument) ----------------
@@ -456,7 +511,7 @@ and [<Sealed>] GiteaAt internal (gitea: Gitea, dir: string) =
     /// Open issues for the bound `dir`, filtered and capped by `options`.
     member _.IssueList(options: IssueListOptions) = gitea.IssueList(dir, options)
 
-    /// A single issue by number (`tea issues <n> --output json`).
+    /// A single issue by number (synthesized via `tea issues list --state all …`).
     member _.IssueView(number: uint64) = gitea.IssueView(dir, number)
 
     /// Open an issue (`tea issues create …`).

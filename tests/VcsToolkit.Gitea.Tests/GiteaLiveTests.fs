@@ -524,11 +524,18 @@ type GiteaLiveTests() =
             let! created = forge.PrCreate spec
             expectOk "PrCreate" created |> ignore
 
-            let! listed = forge.PrList()
-            let prs = expectOk "PrList" listed
+            // The Gitea forge facade deliberately keeps `PrList` structurally Unsupported
+            // (the K-049 mitigation is retained at the facade); the low-level client's
+            // now-fixed `--output csv` listing is what finds the freshly-created PR by its
+            // head branch (T-115).
+            let! listed = client.At(clonePath).PrList()
+            let prs = expectOk "PrList (client)" listed
 
             let number =
-                match prs |> List.tryFind (fun pr -> pr.SourceBranch = branch) with
+                match
+                    prs
+                    |> List.tryFind (fun (pr: VcsToolkit.Gitea.PullRequest) -> pr.HeadBranch = branch)
+                with
                 | Some pr -> pr.Number
                 | None -> failTest (sprintf "the created PR for %s was not found among %d listed PRs" branch prs.Length)
 

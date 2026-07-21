@@ -20,6 +20,23 @@ let private glForge (tokens: string list) (reply: Reply) =
 let private teaForge (tokens: string list) (reply: Reply) =
     Forge.FromGitea(".", VcsToolkit.Gitea.Gitea.WithRunner(ScriptedRunner().On(tokens, reply)))
 
+// Build tea 0.9.2's `--output csv` (`outputdsv`) text from rows of cells: `"c1","c2",...` per
+// row, header row first — the format the low-level Gitea client parses (T-115). tea has no
+// `--output json` on its list commands (K-049), so the Gitea-backed listing/view paths that
+// reach `mapPr`/`mapIssue` are exercised with this format.
+let private teaCsv (rows: string list list) : string =
+    rows
+    |> List.map (fun cells -> "\"" + String.concat "\",\"" cells + "\"")
+    |> String.concat "\n"
+
+let private prHeader = [ "index"; "title"; "state"; "head"; "base"; "url" ]
+let private issueHeader = [ "index"; "title"; "state"; "body"; "url" ]
+
+let private releaseHeader =
+    [ "Tag-Name"; "Title"; "Published At"; "Status"; "Tar URL" ]
+
+let private loginHeader = [ "Name"; "URL"; "SSHHost"; "User"; "Default" ]
+
 // Create a unique temp directory, run `f` against it, then remove it.
 // On macOS, Path.GetTempPath() returns /var/... which is a symlink to /private/var.
 // Directory.GetCurrentDirectory() after chdir() returns the resolved path /private/var/...
@@ -414,15 +431,14 @@ type DispatchTests() =
     [<Test>]
     member _.GiteaPrViewDerivesMergedFromFlag() : Task =
         task {
-            // `PrList` is structurally Unsupported on Gitea for every state (K-049 — see
-            // PrListOptionsTests below), so `mapPr`'s field-mapping behaviour is exercised
-            // through `PrView` instead, which still reaches the same `tea pr list --state
-            // all --output json` JSON path (untouched by this task's scope).
-            let json =
-                """[{"index":"9","title":"done","state":"merged","head":"f","base":"main","url":"u"}]"""
+            // `PrList` is structurally Unsupported on Gitea for every state (the facade retains
+            // that refusal — see PrListOptionsTests below), so `mapPr`'s field-mapping behaviour
+            // is exercised through `PrView` instead, which drives `tea pr list --state all …
+            // --output csv` (tea 0.9.2 has no `--output json`; K-049 / T-115).
+            let csv = teaCsv [ prHeader; [ "9"; "done"; "merged"; "f"; "main"; "u" ] ]
 
             let forge =
-                teaForge [ "pr"; "list"; "--state"; "all"; "--page"; "1"; "--fields" ] (Reply.Ok json)
+                teaForge [ "pr"; "list"; "--state"; "all"; "--page"; "1"; "--fields" ] (Reply.Ok csv)
 
             match! forge.PrView 9UL with
             | Ok pr ->
@@ -659,7 +675,7 @@ type DispatchTests() =
                     VcsToolkit.Gitea.Gitea.WithRunner(
                         ScriptedRunner()
                             .On([ "--version" ], Reply.Ok "tea version 0.9.2\n")
-                            .On([ "login"; "list" ], Reply.Ok """[{"name":"g"}]""")
+                            .On([ "login"; "list" ], Reply.Ok(teaCsv [ loginHeader; [ "g"; "u"; ""; "vcs"; "*" ] ]))
                     )
                 )
 
@@ -727,14 +743,13 @@ type OptionalFieldTests() =
     member _.GiteaPrDraftIsNoneWhenUnreported() : Task =
         task {
             // tea's lean PR surface has no draft column → None. `PrList` is structurally
-            // Unsupported on Gitea for every state (K-049), so this goes through `PrView`
-            // instead, which reaches the same `mapPr` mapper via the untouched `tea pr
-            // list --state all` JSON path.
-            let json =
-                """[{"index":"1","title":"t","state":"open","head":"f","base":"main","url":"u"}]"""
+            // Unsupported on Gitea for every state (the facade retains that refusal), so this
+            // goes through `PrView` instead, which reaches the same `mapPr` mapper via the
+            // `tea pr list --state all … --output csv` path (K-049 / T-115).
+            let csv = teaCsv [ prHeader; [ "1"; "t"; "open"; "f"; "main"; "u" ] ]
 
             let forge =
-                teaForge [ "pr"; "list"; "--state"; "all"; "--page"; "1"; "--fields" ] (Reply.Ok json)
+                teaForge [ "pr"; "list"; "--state"; "all"; "--page"; "1"; "--fields" ] (Reply.Ok csv)
 
             match! forge.PrView 1UL with
             | Ok pr -> Assert.That(pr.Draft, Is.EqualTo None, "Gitea PR draft is unreported → None")
@@ -842,8 +857,8 @@ type OptionalFieldTests() =
         task {
             // tea's release `Status` column drives both flags → Some, and the complementary
             // flag is a confirmed `Some false`, not None.
-            let draftJson = """[{"tag-_name":"v1","title":"One","status":"draft"}]"""
-            let draftForge = teaForge [ "releases"; "list" ] (Reply.Ok draftJson)
+            let draftCsv = teaCsv [ releaseHeader; [ "v1"; "One"; ""; "draft"; "" ] ]
+            let draftForge = teaForge [ "releases"; "list" ] (Reply.Ok draftCsv)
 
             match! draftForge.ReleaseList() with
             | Ok [ rel ] ->
@@ -852,8 +867,8 @@ type OptionalFieldTests() =
             | Ok other -> Assert.Fail $"expected one release, got {other.Length}"
             | Error e -> Assert.Fail $"release list failed: {e.Message}"
 
-            let preJson = """[{"tag-_name":"v2","title":"RC","status":"prerelease"}]"""
-            let preForge = teaForge [ "releases"; "list" ] (Reply.Ok preJson)
+            let preCsv = teaCsv [ releaseHeader; [ "v2"; "RC"; ""; "prerelease"; "" ] ]
+            let preForge = teaForge [ "releases"; "list" ] (Reply.Ok preCsv)
 
             match! preForge.ReleaseList() with
             | Ok [ rel ] ->
@@ -939,13 +954,13 @@ type OptionalFieldTests() =
     member _.GiteaPrLabelsAndAssigneesAreNone() : Task =
         task {
             // tea's PR table has no labels/assignees columns → honest None (unknown), not [].
-            // `PrList` is structurally Unsupported on Gitea for every state (K-049), so this
-            // goes through `PrView` instead, which reaches the same `mapPr` mapper.
-            let json =
-                """[{"index":"1","title":"t","state":"open","head":"f","base":"main","url":"u"}]"""
+            // `PrList` is structurally Unsupported on Gitea for every state (the facade retains
+            // that refusal), so this goes through `PrView` instead, which reaches the same
+            // `mapPr` mapper via the `tea pr list --state all … --output csv` path (K-049 / T-115).
+            let csv = teaCsv [ prHeader; [ "1"; "t"; "open"; "f"; "main"; "u" ] ]
 
             let forge =
-                teaForge [ "pr"; "list"; "--state"; "all"; "--page"; "1"; "--fields" ] (Reply.Ok json)
+                teaForge [ "pr"; "list"; "--state"; "all"; "--page"; "1"; "--fields" ] (Reply.Ok csv)
 
             match! forge.PrView 1UL with
             | Ok pr ->
@@ -1019,11 +1034,14 @@ type OptionalFieldTests() =
     member _.GiteaIssueLabelsAndAssigneesAreNone() : Task =
         task {
             // tea's issue table has no labels/assignees columns → honest None (unknown).
-            // `IssueList` is structurally Unsupported on Gitea for every state (K-049), so
-            // this goes through `IssueView` instead, which reaches the same `mapIssue`
-            // mapper via the untouched `tea issues <n> --output json` JSON path.
-            let json = """{"index":1,"title":"t","state":"open","url":"u"}"""
-            let forge = teaForge [ "issues"; "1"; "--output"; "json" ] (Reply.Ok json)
+            // `IssueList` is structurally Unsupported on Gitea for every state (the facade
+            // retains that refusal), so this goes through `IssueView` instead, which reaches
+            // the same `mapIssue` mapper by paging `tea issues list --state all … --output csv`
+            // (tea 0.9.2's bare-index view renders Markdown; K-049 / T-115).
+            let csv = teaCsv [ issueHeader; [ "1"; "t"; "open"; "b"; "u" ] ]
+
+            let forge =
+                teaForge [ "issues"; "list"; "--state"; "all"; "--page"; "1"; "--fields" ] (Reply.Ok csv)
 
             match! forge.IssueView 1UL with
             | Ok issue ->
