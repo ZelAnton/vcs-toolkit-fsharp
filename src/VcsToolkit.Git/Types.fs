@@ -290,8 +290,10 @@ type StashEntry =
         /// in the subject unambiguously ends the branch component. `None` when the subject
         /// doesn't match either shape (a foreign/hand-written reflog entry).
         Branch: string option
-        /// The stash's reflog subject (`%gs`), verbatim — e.g. `"WIP on main: 1234567 subject"`
-        /// or `"On main: custom message"`. Left un-stripped (rather than trying to peel off the
+        /// The stash's reflog subject (`%gs`), verbatim for valid UTF-8 output — e.g.
+        /// `"WIP on main: 1234567 subject"` or `"On main: custom message"`. If git emits
+        /// malformed UTF-8, .NET decoding replaces the invalid byte sequences with U+FFFD
+        /// replacement characters. Left un-stripped (rather than trying to peel off the
         /// `"WIP on <branch>: "`/`"On <branch>: "` prefix) so the field can never lose or
         /// misplace part of a message that itself contains colons or embedded newlines.
         Message: string

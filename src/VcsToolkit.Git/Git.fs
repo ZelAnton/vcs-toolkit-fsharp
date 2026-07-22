@@ -1286,8 +1286,10 @@ type Git private (core: ManagedClient) =
     member _.StashPop(dir: string) =
         core.RunUnit(cLocale (core.CommandIn(dir, [ "stash"; "pop" ])))
 
-    /// List stash entries (`git stash list -z --format=%gd%x1f%H%x1f%gs`), newest first — index 0
-    /// is what a bare `StashApply`/`StashPop` would target.
+    /// List a snapshot of the stash entries (`git stash list -z --format=%gd%x1f%H%x1f%gs`),
+    /// newest first — index 0 is what a bare `StashApply`/`StashPop` would target. The returned
+    /// indices are meaningful only for this snapshot; another process can add or drop entries
+    /// before a subsequent index-based operation runs.
     member _.StashList(dir: string) =
         core.Parse(core.CommandIn(dir, [ "stash"; "list"; "-z"; "--format=%gd%x1f%H%x1f%gs" ]), GitParse.parseStashList)
 
@@ -1295,13 +1297,20 @@ type Git private (core: ManagedClient) =
     /// which applies-and-removes in one step. C-locale so a conflicting apply's `CONFLICT (...)`
     /// output stays classifiable by `isMergeConflict`, same as `StashPop`. `index` is a `uint32`,
     /// not an arbitrary string, so flag-injection through this argument is structurally
-    /// impossible.
+    /// impossible. The index is resolved against the stash at operation time, not against a
+    /// previous `StashList` snapshot; concurrent stash changes can therefore apply a different
+    /// entry. Callers that need a specific entry must serialize stash access or re-list and
+    /// validate the expected `StashEntry.Hash` immediately before operating.
     member _.StashApply(dir: string, index: uint32) =
         core.RunUnit(cLocale (core.CommandIn(dir, [ "stash"; "apply"; sprintf "stash@{%d}" index ])))
 
     /// Drop a stash entry without applying it (`stash drop stash@{<index>}`). Same `uint32` index
     /// discipline as `StashApply` — flag-injection through this argument is structurally
-    /// impossible.
+    /// impossible. The index is resolved against the stash at operation time, not against a
+    /// previous `StashList` snapshot; if another process drops or adds an earlier entry first,
+    /// this operation can delete a different entry. Callers that need a specific entry must
+    /// serialize stash access or re-list and validate the expected `StashEntry.Hash` immediately
+    /// before operating.
     member _.StashDrop(dir: string, index: uint32) =
         core.RunUnit(core.CommandIn(dir, [ "stash"; "drop"; sprintf "stash@{%d}" index ]))
 
@@ -1928,13 +1937,20 @@ and [<Sealed>] GitAt internal (git: Git, dir: string) =
     /// Restore the most recent stash and drop it (`stash pop`).
     member _.StashPop() = git.StashPop dir
 
-    /// List stash entries, newest first.
+    /// List a snapshot of stash entries, newest first. Indices can become stale if another
+    /// process changes the stash before a subsequent index-based operation.
     member _.StashList() = git.StashList dir
 
-    /// Apply a stash entry without dropping it (`stash apply stash@{<index>}`).
+    /// Apply a stash entry without dropping it (`stash apply stash@{<index>}`). The index is
+    /// resolved at operation time, so concurrent stash changes can apply a different entry than
+    /// the one at that index in an earlier `StashList` snapshot. Serialize stash access or
+    /// re-list and validate the expected `StashEntry.Hash` immediately before operating.
     member _.StashApply(index: uint32) = git.StashApply(dir, index)
 
-    /// Drop a stash entry without applying it (`stash drop stash@{<index>}`).
+    /// Drop a stash entry without applying it (`stash drop stash@{<index>}`). The index is
+    /// resolved at operation time, so concurrent stash changes can delete a different entry than
+    /// the one at that index in an earlier `StashList` snapshot. Serialize stash access or
+    /// re-list and validate the expected `StashEntry.Hash` immediately before operating.
     member _.StashDrop(index: uint32) = git.StashDrop(dir, index)
 
     /// Switch to `branch`, carrying uncommitted changes across via the stash.
