@@ -42,6 +42,32 @@ module private JjHelpers =
         else
             Ok()
 
+    let rejectEmptyRemote (program: string) (value: string) : Result<unit, ProcessError> =
+        if String.IsNullOrWhiteSpace value then
+            Error(
+                ProcessError.Spawn(
+                    program,
+                    sprintf
+                        "remote \"%s\" is empty or contains only whitespace — refusing to pass it as a remote name"
+                        value
+                )
+            )
+        else
+            Ok()
+
+    let rejectAtInRemote (program: string) (value: string) : Result<unit, ProcessError> =
+        if value |> Seq.contains '@' then
+            Error(
+                ProcessError.Spawn(
+                    program,
+                    sprintf
+                        "remote \"%s\" contains `@` which would exploit jj's positional parsing — refusing to pass it as a remote name"
+                        value
+                )
+            )
+        else
+            Ok()
+
     /// The first bookmark name from an `.escape_json()`-framed `BOOKMARKS_TEMPLATE` render;
     /// `None` when the commit carries no local bookmark.
     let firstBookmark (rendered: string) : string option =
@@ -359,10 +385,16 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
                 match rejectGlobLike BINARY "remote" remote with
                 | Error e -> return Error e
                 | Ok() ->
-                    // `exact:` on the whole `name@remote` token stops a `*`/pattern name from
-                    // tracking every remote bookmark at once.
-                    let target = sprintf "exact:%s@%s" name remote
-                    return! core.RunUnit(cmdIn dir [ "bookmark"; "track"; target ])
+                    match rejectEmptyRemote BINARY remote with
+                    | Error e -> return Error e
+                    | Ok() ->
+                        match rejectAtInRemote BINARY remote with
+                        | Error e -> return Error e
+                        | Ok() ->
+                            // `exact:` on the whole `name@remote` token stops a `*`/pattern name from
+                            // tracking every remote bookmark at once.
+                            let target = sprintf "exact:%s@%s" name remote
+                            return! core.RunUnit(cmdIn dir [ "bookmark"; "track"; target ])
         }
 
     /// Point a bookmark at `revision` (`jj bookmark set <name> -r <revision>`).
