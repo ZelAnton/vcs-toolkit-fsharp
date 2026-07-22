@@ -46,8 +46,8 @@
 	     (ScriptedRunner/Reply) — a TEST-only dependency, now also published on nuget.org
 	     (no local feed / vendoring). -->
 	<ItemGroup>
-		<PackageVersion Include="ProcessKit" Version="2.4.0" />
-		<PackageVersion Include="ProcessKit.Testing" Version="2.4.0" />
+		<PackageVersion Include="ProcessKit" Version="2.5.0" />
+		<PackageVersion Include="ProcessKit.Testing" Version="2.5.0" />
 	</ItemGroup>
 
 	<!-- VcsToolkit.Mcp dependencies: clean F#→JSON for tool results, and the Model Context
