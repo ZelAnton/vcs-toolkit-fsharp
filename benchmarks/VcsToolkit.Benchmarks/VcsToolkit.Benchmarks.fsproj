@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<OutputType>Exe</OutputType>
+		<IsPackable>false</IsPackable>
+		<AssemblySearchPaths>$(AssemblySearchPaths);$(DiffDir)bin\$(Configuration)\$(TargetFramework);$(GitDir)bin\$(Configuration)\$(TargetFramework);$(JjDir)bin\$(Configuration)\$(TargetFramework);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework);$(TestKitDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<Compile Include="Benchmarks.fs" />
+		<Compile Include="Program.fs" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<None Include="fixtures\*.txt" CopyToOutputDirectory="PreserveNewest" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="FSharp.Core" />
+		<PackageReference Include="BenchmarkDotNet" />
+		<PackageReference Include="ProcessKit" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Reference Include="VcsToolkit.Diff" />
+		<Reference Include="VcsToolkit.Git" />
+		<Reference Include="VcsToolkit.Jj" />
+		<Reference Include="VcsToolkit.CliSupport" />
+	</ItemGroup>
+
+</Project>

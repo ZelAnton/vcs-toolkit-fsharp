@@ -1,0 +1,161 @@
+module VcsToolkit.WorkingCopy
+
+let parseWorkingCopy input =
+    let section01 = "working-copy section 01"
+<<<<<<< conflict 1 of 12
++++++++ side 1 (workspace feature/parser-01)
+let chosen01 = "feature value 01"
+let detail01 = input.Trim()
+------- base 1 (ancestor change)
+let chosen01 = "base value 01"
+let detail01 = input
++++++++ side 1 (workspace main)
+let chosen01 = "main value 01"
+let detail01 = input.ToLowerInvariant()
+>>>>>>> conflict 1 of 12 ends
+    section01
+    let section02 = "working-copy section 02"
+<<<<<<< conflict 2 of 12
++++++++ side 2 (workspace feature/parser-02)
+let chosen02 = "feature value 02"
+let detail02 = input.Trim()
+------- base 2 (ancestor change)
+let chosen02 = "base value 02"
+let detail02 = input
++++++++ side 2 (workspace main)
+let chosen02 = "main value 02"
+let detail02 = input.ToLowerInvariant()
+>>>>>>> conflict 2 of 12 ends
+    section02
+    let section03 = "working-copy section 03"
+<<<<<<< conflict 3 of 12
++++++++ side 3 (workspace feature/parser-03)
+let chosen03 = "feature value 03"
+let detail03 = input.Trim()
+------- base 3 (ancestor change)
+let chosen03 = "base value 03"
+let detail03 = input
++++++++ side 3 (workspace main)
+let chosen03 = "main value 03"
+let detail03 = input.ToLowerInvariant()
+>>>>>>> conflict 3 of 12 ends
+    section03
+    let section04 = "working-copy section 04"
+<<<<<<< conflict 4 of 12
++++++++ side 4 (workspace feature/parser-04)
+let chosen04 = "feature value 04"
+let detail04 = input.Trim()
+------- base 4 (ancestor change)
+let chosen04 = "base value 04"
+let detail04 = input
++++++++ side 4 (workspace main)
+let chosen04 = "main value 04"
+let detail04 = input.ToLowerInvariant()
+>>>>>>> conflict 4 of 12 ends
+    section04
+    let section05 = "working-copy section 05"
+<<<<<<< conflict 5 of 12
++++++++ side 5 (workspace feature/parser-05)
+let chosen05 = "feature value 05"
+let detail05 = input.Trim()
+------- base 5 (ancestor change)
+let chosen05 = "base value 05"
+let detail05 = input
++++++++ side 5 (workspace main)
+let chosen05 = "main value 05"
+let detail05 = input.ToLowerInvariant()
+>>>>>>> conflict 5 of 12 ends
+    section05
+    let section06 = "working-copy section 06"
+<<<<<<< conflict 6 of 12
++++++++ side 6 (workspace feature/parser-06)
+let chosen06 = "feature value 06"
+let detail06 = input.Trim()
+------- base 6 (ancestor change)
+let chosen06 = "base value 06"
+let detail06 = input
++++++++ side 6 (workspace main)
+let chosen06 = "main value 06"
+let detail06 = input.ToLowerInvariant()
+>>>>>>> conflict 6 of 12 ends
+    section06
+    let section07 = "working-copy section 07"
+<<<<<<< conflict 7 of 12
++++++++ side 7 (workspace feature/parser-07)
+let chosen07 = "feature value 07"
+let detail07 = input.Trim()
+------- base 7 (ancestor change)
+let chosen07 = "base value 07"
+let detail07 = input
++++++++ side 7 (workspace main)
+let chosen07 = "main value 07"
+let detail07 = input.ToLowerInvariant()
+>>>>>>> conflict 7 of 12 ends
+    section07
+    let section08 = "working-copy section 08"
+<<<<<<< conflict 8 of 12
++++++++ side 8 (workspace feature/parser-08)
+let chosen08 = "feature value 08"
+let detail08 = input.Trim()
+------- base 8 (ancestor change)
+let chosen08 = "base value 08"
+let detail08 = input
++++++++ side 8 (workspace main)
+let chosen08 = "main value 08"
+let detail08 = input.ToLowerInvariant()
+>>>>>>> conflict 8 of 12 ends
+    section08
+    let section09 = "working-copy section 09"
+<<<<<<< conflict 9 of 12
++++++++ side 9 (workspace feature/parser-09)
+let chosen09 = "feature value 09"
+let detail09 = input.Trim()
+------- base 9 (ancestor change)
+let chosen09 = "base value 09"
+let detail09 = input
++++++++ side 9 (workspace main)
+let chosen09 = "main value 09"
+let detail09 = input.ToLowerInvariant()
+>>>>>>> conflict 9 of 12 ends
+    section09
+    let section10 = "working-copy section 10"
+<<<<<<< conflict 10 of 12
++++++++ side 10 (workspace feature/parser-10)
+let chosen10 = "feature value 10"
+let detail10 = input.Trim()
+------- base 10 (ancestor change)
+let chosen10 = "base value 10"
+let detail10 = input
++++++++ side 10 (workspace main)
+let chosen10 = "main value 10"
+let detail10 = input.ToLowerInvariant()
+>>>>>>> conflict 10 of 12 ends
+    section10
+    let section11 = "working-copy section 11"
+<<<<<<< conflict 11 of 12
++++++++ side 11 (workspace feature/parser-11)
+let chosen11 = "feature value 11"
+let detail11 = input.Trim()
+------- base 11 (ancestor change)
+let chosen11 = "base value 11"
+let detail11 = input
++++++++ side 11 (workspace main)
+let chosen11 = "main value 11"
+let detail11 = input.ToLowerInvariant()
+>>>>>>> conflict 11 of 12 ends
+    section11
+    let section12 = "working-copy section 12"
+<<<<<<< conflict 12 of 12
++++++++ side 12 (workspace feature/parser-12)
+let chosen12 = "feature value 12"
+let detail12 = input.Trim()
+------- base 12 (ancestor change)
+let chosen12 = "base value 12"
+let detail12 = input
++++++++ side 12 (workspace main)
+let chosen12 = "main value 12"
+let detail12 = input.ToLowerInvariant()
+>>>>>>> conflict 12 of 12 ends
+    section12
+
+parseWorkingCopy input

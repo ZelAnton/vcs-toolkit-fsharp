@@ -1,0 +1,219 @@
+namespace VcsToolkit.Generated
+open System
+
+let parseStage01 input =
+    let trimmed = input.Trim()
+    // conflict fixture record 01
+    match trimmed with
+    | "left-01" -> "left branch 01"
+    | "right-01" -> "right branch 01"
+<<<<<<< HEAD feature/parser-01
+let leftValue01 = "main implementation 01"
+let sharedValue01 = normalize input
+||||||| base commit 01
+let leftValue01 = "common implementation 01"
+let sharedValue01 = input
+=======
+let rightValue01 = "topic implementation 01"
+let sharedValue01 = input.Trim()
+>>>>>>> topic/parser-01
+let result01 = parseStage01 input
+
+let parseStage02 input =
+    let trimmed = input.Trim()
+    // conflict fixture record 02
+    match trimmed with
+    | "left-02" -> "left branch 02"
+    | "right-02" -> "right branch 02"
+<<<<<<< HEAD feature/parser-02
+let leftValue02 = "main implementation 02"
+let sharedValue02 = normalize input
+||||||| base commit 02
+let leftValue02 = "common implementation 02"
+let sharedValue02 = input
+=======
+let rightValue02 = "topic implementation 02"
+let sharedValue02 = input.Trim()
+>>>>>>> topic/parser-02
+let result02 = parseStage02 input
+
+let parseStage03 input =
+    let trimmed = input.Trim()
+    // conflict fixture record 03
+    match trimmed with
+    | "left-03" -> "left branch 03"
+    | "right-03" -> "right branch 03"
+<<<<<<< HEAD feature/parser-03
+let leftValue03 = "main implementation 03"
+let sharedValue03 = normalize input
+||||||| base commit 03
+let leftValue03 = "common implementation 03"
+let sharedValue03 = input
+=======
+let rightValue03 = "topic implementation 03"
+let sharedValue03 = input.Trim()
+>>>>>>> topic/parser-03
+let result03 = parseStage03 input
+
+let parseStage04 input =
+    let trimmed = input.Trim()
+    // conflict fixture record 04
+    match trimmed with
+    | "left-04" -> "left branch 04"
+    | "right-04" -> "right branch 04"
+<<<<<<< HEAD feature/parser-04
+let leftValue04 = "main implementation 04"
+let sharedValue04 = normalize input
+||||||| base commit 04
+let leftValue04 = "common implementation 04"
+let sharedValue04 = input
+=======
+let rightValue04 = "topic implementation 04"
+let sharedValue04 = input.Trim()
+>>>>>>> topic/parser-04
+let result04 = parseStage04 input
+
+let parseStage05 input =
+    let trimmed = input.Trim()
+    // conflict fixture record 05
+    match trimmed with
+    | "left-05" -> "left branch 05"
+    | "right-05" -> "right branch 05"
+<<<<<<< HEAD feature/parser-05
+let leftValue05 = "main implementation 05"
+let sharedValue05 = normalize input
+||||||| base commit 05
+let leftValue05 = "common implementation 05"
+let sharedValue05 = input
+=======
+let rightValue05 = "topic implementation 05"
+let sharedValue05 = input.Trim()
+>>>>>>> topic/parser-05
+let result05 = parseStage05 input
+
+let parseStage06 input =
+    let trimmed = input.Trim()
+    // conflict fixture record 06
+    match trimmed with
+    | "left-06" -> "left branch 06"
+    | "right-06" -> "right branch 06"
+<<<<<<< HEAD feature/parser-06
+let leftValue06 = "main implementation 06"
+let sharedValue06 = normalize input
+||||||| base commit 06
+let leftValue06 = "common implementation 06"
+let sharedValue06 = input
+=======
+let rightValue06 = "topic implementation 06"
+let sharedValue06 = input.Trim()
+>>>>>>> topic/parser-06
+let result06 = parseStage06 input
+
+let parseStage07 input =
+    let trimmed = input.Trim()
+    // conflict fixture record 07
+    match trimmed with
+    | "left-07" -> "left branch 07"
+    | "right-07" -> "right branch 07"
+<<<<<<< HEAD feature/parser-07
+let leftValue07 = "main implementation 07"
+let sharedValue07 = normalize input
+||||||| base commit 07
+let leftValue07 = "common implementation 07"
+let sharedValue07 = input
+=======
+let rightValue07 = "topic implementation 07"
+let sharedValue07 = input.Trim()
+>>>>>>> topic/parser-07
+let result07 = parseStage07 input
+
+let parseStage08 input =
+    let trimmed = input.Trim()
+    // conflict fixture record 08
+    match trimmed with
+    | "left-08" -> "left branch 08"
+    | "right-08" -> "right branch 08"
+<<<<<<< HEAD feature/parser-08
+let leftValue08 = "main implementation 08"
+let sharedValue08 = normalize input
+||||||| base commit 08
+let leftValue08 = "common implementation 08"
+let sharedValue08 = input
+=======
+let rightValue08 = "topic implementation 08"
+let sharedValue08 = input.Trim()
+>>>>>>> topic/parser-08
+let result08 = parseStage08 input
+
+let parseStage09 input =
+    let trimmed = input.Trim()
+    // conflict fixture record 09
+    match trimmed with
+    | "left-09" -> "left branch 09"
+    | "right-09" -> "right branch 09"
+<<<<<<< HEAD feature/parser-09
+let leftValue09 = "main implementation 09"
+let sharedValue09 = normalize input
+||||||| base commit 09
+let leftValue09 = "common implementation 09"
+let sharedValue09 = input
+=======
+let rightValue09 = "topic implementation 09"
+let sharedValue09 = input.Trim()
+>>>>>>> topic/parser-09
+let result09 = parseStage09 input
+
+let parseStage10 input =
+    let trimmed = input.Trim()
+    // conflict fixture record 10
+    match trimmed with
+    | "left-10" -> "left branch 10"
+    | "right-10" -> "right branch 10"
+<<<<<<< HEAD feature/parser-10
+let leftValue10 = "main implementation 10"
+let sharedValue10 = normalize input
+||||||| base commit 10
+let leftValue10 = "common implementation 10"
+let sharedValue10 = input
+=======
+let rightValue10 = "topic implementation 10"
+let sharedValue10 = input.Trim()
+>>>>>>> topic/parser-10
+let result10 = parseStage10 input
+
+let parseStage11 input =
+    let trimmed = input.Trim()
+    // conflict fixture record 11
+    match trimmed with
+    | "left-11" -> "left branch 11"
+    | "right-11" -> "right branch 11"
+<<<<<<< HEAD feature/parser-11
+let leftValue11 = "main implementation 11"
+let sharedValue11 = normalize input
+||||||| base commit 11
+let leftValue11 = "common implementation 11"
+let sharedValue11 = input
+=======
+let rightValue11 = "topic implementation 11"
+let sharedValue11 = input.Trim()
+>>>>>>> topic/parser-11
+let result11 = parseStage11 input
+
+let parseStage12 input =
+    let trimmed = input.Trim()
+    // conflict fixture record 12
+    match trimmed with
+    | "left-12" -> "left branch 12"
+    | "right-12" -> "right branch 12"
+<<<<<<< HEAD feature/parser-12
+let leftValue12 = "main implementation 12"
+let sharedValue12 = normalize input
+||||||| base commit 12
+let leftValue12 = "common implementation 12"
+let sharedValue12 = input
+=======
+let rightValue12 = "topic implementation 12"
+let sharedValue12 = input.Trim()
+>>>>>>> topic/parser-12
+let result12 = parseStage12 input
+

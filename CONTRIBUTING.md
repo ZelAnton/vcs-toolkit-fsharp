@@ -28,6 +28,15 @@ before opening a pull request. Run a single test with:
 dotnet test VcsToolkit.slnx --filter "FullyQualifiedName~TestMethodName"
 ```
 
+## Adding a new capability
+
+Adding a new git/jj/forge operation touches up to three layers — a CLI wrapper, a
+backend-agnostic facade, and the MCP tool surface. See
+[docs/extending.md](docs/extending.md) for the full, layer-by-layer contributor
+workflow: validating a CLI's real contract before designing an API, where argv
+guards and option types live, the `Unsupported`/`Supports` facade contract, and
+`WriteGate`-gating an MCP tool.
+
 ## Conventions
 
 - **Formatting** is governed by [Fantomas](https://fsprojects.github.io/fantomas/),

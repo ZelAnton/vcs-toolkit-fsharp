@@ -1,0 +1,2041 @@
+diff --git a/src/VcsToolkit/Parser001.fs b/src/VcsToolkit/Parser001.fs
+index 0000001..0000901 100644
+--- a/src/VcsToolkit/Parser001.fs
++++ b/src/VcsToolkit/Parser001.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser001
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser001
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser001
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser002.fs b/src/VcsToolkit/Parser002.fs
+index 0000002..0000902 100644
+--- a/src/VcsToolkit/Parser002.fs
++++ b/src/VcsToolkit/Parser002.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser002
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser002
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser002
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser003.fs b/src/VcsToolkit/Parser003.fs
+index 0000003..0000903 100644
+--- a/src/VcsToolkit/Parser003.fs
++++ b/src/VcsToolkit/Parser003.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser003
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser003
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser003
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser004.fs b/src/VcsToolkit/Parser004.fs
+index 0000004..0000904 100644
+--- a/src/VcsToolkit/Parser004.fs
++++ b/src/VcsToolkit/Parser004.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser004
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser004
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser004
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser005.fs b/src/VcsToolkit/Parser005Renamed.fs
+similarity index 88%
+rename from src/VcsToolkit/Parser005.fs
+rename to src/VcsToolkit/Parser005Renamed.fs
+--- a/src/VcsToolkit/Parser005.fs
++++ b/src/VcsToolkit/Parser005Renamed.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser005
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser005
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser005
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser006.fs b/src/VcsToolkit/Parser006.fs
+index 0000006..0000906 100644
+--- a/src/VcsToolkit/Parser006.fs
++++ b/src/VcsToolkit/Parser006.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser006
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser006
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser006
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser007.fs b/src/VcsToolkit/Parser007.fs
+index 0000007..0000907 100644
+--- a/src/VcsToolkit/Parser007.fs
++++ b/src/VcsToolkit/Parser007.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser007
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser007
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser007
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser008.fs b/src/VcsToolkit/Parser008.fs
+index 0000008..0000908 100644
+--- a/src/VcsToolkit/Parser008.fs
++++ b/src/VcsToolkit/Parser008.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser008
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser008
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser008
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser009.fs b/src/VcsToolkit/Parser009.fs
+index 0000009..0000909 100644
+--- a/src/VcsToolkit/Parser009.fs
++++ b/src/VcsToolkit/Parser009.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser009
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser009
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser009
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser010.fs b/src/VcsToolkit/Parser010Renamed.fs
+similarity index 88%
+rename from src/VcsToolkit/Parser010.fs
+rename to src/VcsToolkit/Parser010Renamed.fs
+--- a/src/VcsToolkit/Parser010.fs
++++ b/src/VcsToolkit/Parser010Renamed.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser010
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser010
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser010
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser011.fs b/src/VcsToolkit/Parser011.fs
+index 0000011..0000911 100644
+--- a/src/VcsToolkit/Parser011.fs
++++ b/src/VcsToolkit/Parser011.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser011
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser011
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser011
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser012.fs b/src/VcsToolkit/Parser012.fs
+index 0000012..0000912 100644
+--- a/src/VcsToolkit/Parser012.fs
++++ b/src/VcsToolkit/Parser012.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser012
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser012
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser012
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser013.fs b/src/VcsToolkit/Parser013.fs
+new file mode 100644
+index 0000000..0000013
+--- /dev/null
++++ b/src/VcsToolkit/Parser013.fs
+@@ -0,5 +11,6 @@ let parseRecord1
+ module Parser013
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -0,5 +48,6 @@ let parseRecord2
+ module Parser013
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -0,5 +85,6 @@ let parseRecord3
+ module Parser013
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser014.fs b/src/VcsToolkit/Parser014.fs
+index 0000014..0000914 100644
+--- a/src/VcsToolkit/Parser014.fs
++++ b/src/VcsToolkit/Parser014.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser014
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser014
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser014
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser015.fs b/src/VcsToolkit/Parser015Renamed.fs
+similarity index 88%
+rename from src/VcsToolkit/Parser015.fs
+rename to src/VcsToolkit/Parser015Renamed.fs
+--- a/src/VcsToolkit/Parser015.fs
++++ b/src/VcsToolkit/Parser015Renamed.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser015
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser015
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser015
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser016.fs b/src/VcsToolkit/Parser016.fs
+index 0000016..0000916 100644
+--- a/src/VcsToolkit/Parser016.fs
++++ b/src/VcsToolkit/Parser016.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser016
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser016
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser016
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser017.fs b/src/VcsToolkit/Parser017.fs
+deleted file mode 100644
+index 0000017..0000000
+--- a/src/VcsToolkit/Parser017.fs
++++ /dev/null
+@@ -11,5 +0,6 @@ let parseRecord1
+ module Parser017
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +0,6 @@ let parseRecord2
+ module Parser017
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +0,6 @@ let parseRecord3
+ module Parser017
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser018.fs b/src/VcsToolkit/Parser018.fs
+index 0000018..0000918 100644
+--- a/src/VcsToolkit/Parser018.fs
++++ b/src/VcsToolkit/Parser018.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser018
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser018
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser018
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser019.fs b/src/VcsToolkit/Parser019.fs
+index 0000019..0000919 100644
+--- a/src/VcsToolkit/Parser019.fs
++++ b/src/VcsToolkit/Parser019.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser019
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser019
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser019
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser020.fs b/src/VcsToolkit/Parser020Renamed.fs
+similarity index 88%
+rename from src/VcsToolkit/Parser020.fs
+rename to src/VcsToolkit/Parser020Renamed.fs
+--- a/src/VcsToolkit/Parser020.fs
++++ b/src/VcsToolkit/Parser020Renamed.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser020
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser020
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser020
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser021.fs b/src/VcsToolkit/Parser021.fs
+index 0000021..0000921 100644
+--- a/src/VcsToolkit/Parser021.fs
++++ b/src/VcsToolkit/Parser021.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser021
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser021
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser021
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser022.fs b/src/VcsToolkit/Parser022.fs
+index 0000022..0000922 100644
+--- a/src/VcsToolkit/Parser022.fs
++++ b/src/VcsToolkit/Parser022.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser022
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser022
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser022
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser023.fs b/src/VcsToolkit/Parser023.fs
+index 0000023..0000923 100644
+--- a/src/VcsToolkit/Parser023.fs
++++ b/src/VcsToolkit/Parser023.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser023
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser023
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser023
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser024.fs b/src/VcsToolkit/Parser024.fs
+index 0000024..0000924 100644
+--- a/src/VcsToolkit/Parser024.fs
++++ b/src/VcsToolkit/Parser024.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser024
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser024
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser024
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser025.fs b/src/VcsToolkit/Parser025Renamed.fs
+similarity index 88%
+rename from src/VcsToolkit/Parser025.fs
+rename to src/VcsToolkit/Parser025Renamed.fs
+--- a/src/VcsToolkit/Parser025.fs
++++ b/src/VcsToolkit/Parser025Renamed.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser025
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser025
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser025
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser026.fs b/src/VcsToolkit/Parser026.fs
+new file mode 100644
+index 0000000..0000026
+--- /dev/null
++++ b/src/VcsToolkit/Parser026.fs
+@@ -0,5 +11,6 @@ let parseRecord1
+ module Parser026
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -0,5 +48,6 @@ let parseRecord2
+ module Parser026
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -0,5 +85,6 @@ let parseRecord3
+ module Parser026
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser027.fs b/src/VcsToolkit/Parser027.fs
+index 0000027..0000927 100644
+--- a/src/VcsToolkit/Parser027.fs
++++ b/src/VcsToolkit/Parser027.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser027
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser027
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser027
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser028.fs b/src/VcsToolkit/Parser028.fs
+index 0000028..0000928 100644
+--- a/src/VcsToolkit/Parser028.fs
++++ b/src/VcsToolkit/Parser028.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser028
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser028
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser028
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser029.fs b/src/VcsToolkit/Parser029.fs
+index 0000029..0000929 100644
+--- a/src/VcsToolkit/Parser029.fs
++++ b/src/VcsToolkit/Parser029.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser029
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser029
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser029
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser030.fs b/src/VcsToolkit/Parser030Renamed.fs
+similarity index 88%
+rename from src/VcsToolkit/Parser030.fs
+rename to src/VcsToolkit/Parser030Renamed.fs
+--- a/src/VcsToolkit/Parser030.fs
++++ b/src/VcsToolkit/Parser030Renamed.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser030
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser030
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser030
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser031.fs b/src/VcsToolkit/Parser031.fs
+index 0000031..0000931 100644
+--- a/src/VcsToolkit/Parser031.fs
++++ b/src/VcsToolkit/Parser031.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser031
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser031
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser031
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser032.fs b/src/VcsToolkit/Parser032.fs
+index 0000032..0000932 100644
+--- a/src/VcsToolkit/Parser032.fs
++++ b/src/VcsToolkit/Parser032.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser032
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser032
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser032
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser033.fs b/src/VcsToolkit/Parser033.fs
+index 0000033..0000933 100644
+--- a/src/VcsToolkit/Parser033.fs
++++ b/src/VcsToolkit/Parser033.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser033
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser033
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser033
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser034.fs b/src/VcsToolkit/Parser034.fs
+deleted file mode 100644
+index 0000034..0000000
+--- a/src/VcsToolkit/Parser034.fs
++++ /dev/null
+@@ -11,5 +0,6 @@ let parseRecord1
+ module Parser034
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +0,6 @@ let parseRecord2
+ module Parser034
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +0,6 @@ let parseRecord3
+ module Parser034
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser035.fs b/src/VcsToolkit/Parser035Renamed.fs
+similarity index 88%
+rename from src/VcsToolkit/Parser035.fs
+rename to src/VcsToolkit/Parser035Renamed.fs
+--- a/src/VcsToolkit/Parser035.fs
++++ b/src/VcsToolkit/Parser035Renamed.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser035
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser035
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser035
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser036.fs b/src/VcsToolkit/Parser036.fs
+index 0000036..0000936 100644
+--- a/src/VcsToolkit/Parser036.fs
++++ b/src/VcsToolkit/Parser036.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser036
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser036
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser036
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser037.fs b/src/VcsToolkit/Parser037.fs
+index 0000037..0000937 100644
+--- a/src/VcsToolkit/Parser037.fs
++++ b/src/VcsToolkit/Parser037.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser037
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser037
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser037
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser038.fs b/src/VcsToolkit/Parser038.fs
+index 0000038..0000938 100644
+--- a/src/VcsToolkit/Parser038.fs
++++ b/src/VcsToolkit/Parser038.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser038
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser038
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser038
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser039.fs b/src/VcsToolkit/Parser039.fs
+new file mode 100644
+index 0000000..0000039
+--- /dev/null
++++ b/src/VcsToolkit/Parser039.fs
+@@ -0,5 +11,6 @@ let parseRecord1
+ module Parser039
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -0,5 +48,6 @@ let parseRecord2
+ module Parser039
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -0,5 +85,6 @@ let parseRecord3
+ module Parser039
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser040.fs b/src/VcsToolkit/Parser040Renamed.fs
+similarity index 88%
+rename from src/VcsToolkit/Parser040.fs
+rename to src/VcsToolkit/Parser040Renamed.fs
+--- a/src/VcsToolkit/Parser040.fs
++++ b/src/VcsToolkit/Parser040Renamed.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser040
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser040
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser040
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser041.fs b/src/VcsToolkit/Parser041.fs
+index 0000041..0000941 100644
+--- a/src/VcsToolkit/Parser041.fs
++++ b/src/VcsToolkit/Parser041.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser041
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser041
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser041
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser042.fs b/src/VcsToolkit/Parser042.fs
+index 0000042..0000942 100644
+--- a/src/VcsToolkit/Parser042.fs
++++ b/src/VcsToolkit/Parser042.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser042
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser042
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser042
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser043.fs b/src/VcsToolkit/Parser043.fs
+index 0000043..0000943 100644
+--- a/src/VcsToolkit/Parser043.fs
++++ b/src/VcsToolkit/Parser043.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser043
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser043
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser043
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser044.fs b/src/VcsToolkit/Parser044.fs
+index 0000044..0000944 100644
+--- a/src/VcsToolkit/Parser044.fs
++++ b/src/VcsToolkit/Parser044.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser044
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser044
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser044
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser045.fs b/src/VcsToolkit/Parser045Renamed.fs
+similarity index 88%
+rename from src/VcsToolkit/Parser045.fs
+rename to src/VcsToolkit/Parser045Renamed.fs
+--- a/src/VcsToolkit/Parser045.fs
++++ b/src/VcsToolkit/Parser045Renamed.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser045
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser045
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser045
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser046.fs b/src/VcsToolkit/Parser046.fs
+index 0000046..0000946 100644
+--- a/src/VcsToolkit/Parser046.fs
++++ b/src/VcsToolkit/Parser046.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser046
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser046
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser046
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser047.fs b/src/VcsToolkit/Parser047.fs
+index 0000047..0000947 100644
+--- a/src/VcsToolkit/Parser047.fs
++++ b/src/VcsToolkit/Parser047.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser047
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser047
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser047
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser048.fs b/src/VcsToolkit/Parser048.fs
+index 0000048..0000948 100644
+--- a/src/VcsToolkit/Parser048.fs
++++ b/src/VcsToolkit/Parser048.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser048
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser048
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser048
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser049.fs b/src/VcsToolkit/Parser049.fs
+index 0000049..0000949 100644
+--- a/src/VcsToolkit/Parser049.fs
++++ b/src/VcsToolkit/Parser049.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser049
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser049
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser049
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser050.fs b/src/VcsToolkit/Parser050Renamed.fs
+similarity index 88%
+rename from src/VcsToolkit/Parser050.fs
+rename to src/VcsToolkit/Parser050Renamed.fs
+--- a/src/VcsToolkit/Parser050.fs
++++ b/src/VcsToolkit/Parser050Renamed.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser050
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser050
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser050
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser051.fs b/src/VcsToolkit/Parser051.fs
+deleted file mode 100644
+index 0000051..0000000
+--- a/src/VcsToolkit/Parser051.fs
++++ /dev/null
+@@ -11,5 +0,6 @@ let parseRecord1
+ module Parser051
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +0,6 @@ let parseRecord2
+ module Parser051
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +0,6 @@ let parseRecord3
+ module Parser051
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser052.fs b/src/VcsToolkit/Parser052.fs
+new file mode 100644
+index 0000000..0000052
+--- /dev/null
++++ b/src/VcsToolkit/Parser052.fs
+@@ -0,5 +11,6 @@ let parseRecord1
+ module Parser052
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -0,5 +48,6 @@ let parseRecord2
+ module Parser052
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -0,5 +85,6 @@ let parseRecord3
+ module Parser052
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser053.fs b/src/VcsToolkit/Parser053.fs
+index 0000053..0000953 100644
+--- a/src/VcsToolkit/Parser053.fs
++++ b/src/VcsToolkit/Parser053.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser053
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser053
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser053
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser054.fs b/src/VcsToolkit/Parser054.fs
+index 0000054..0000954 100644
+--- a/src/VcsToolkit/Parser054.fs
++++ b/src/VcsToolkit/Parser054.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser054
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser054
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser054
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser055.fs b/src/VcsToolkit/Parser055Renamed.fs
+similarity index 88%
+rename from src/VcsToolkit/Parser055.fs
+rename to src/VcsToolkit/Parser055Renamed.fs
+--- a/src/VcsToolkit/Parser055.fs
++++ b/src/VcsToolkit/Parser055Renamed.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser055
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser055
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser055
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser056.fs b/src/VcsToolkit/Parser056.fs
+index 0000056..0000956 100644
+--- a/src/VcsToolkit/Parser056.fs
++++ b/src/VcsToolkit/Parser056.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser056
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser056
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser056
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser057.fs b/src/VcsToolkit/Parser057.fs
+index 0000057..0000957 100644
+--- a/src/VcsToolkit/Parser057.fs
++++ b/src/VcsToolkit/Parser057.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser057
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser057
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser057
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser058.fs b/src/VcsToolkit/Parser058.fs
+index 0000058..0000958 100644
+--- a/src/VcsToolkit/Parser058.fs
++++ b/src/VcsToolkit/Parser058.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser058
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser058
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser058
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser059.fs b/src/VcsToolkit/Parser059.fs
+index 0000059..0000959 100644
+--- a/src/VcsToolkit/Parser059.fs
++++ b/src/VcsToolkit/Parser059.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser059
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser059
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser059
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser060.fs b/src/VcsToolkit/Parser060Renamed.fs
+similarity index 88%
+rename from src/VcsToolkit/Parser060.fs
+rename to src/VcsToolkit/Parser060Renamed.fs
+--- a/src/VcsToolkit/Parser060.fs
++++ b/src/VcsToolkit/Parser060Renamed.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser060
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser060
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser060
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser061.fs b/src/VcsToolkit/Parser061.fs
+index 0000061..0000961 100644
+--- a/src/VcsToolkit/Parser061.fs
++++ b/src/VcsToolkit/Parser061.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser061
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser061
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser061
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser062.fs b/src/VcsToolkit/Parser062.fs
+index 0000062..0000962 100644
+--- a/src/VcsToolkit/Parser062.fs
++++ b/src/VcsToolkit/Parser062.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser062
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser062
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser062
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser063.fs b/src/VcsToolkit/Parser063.fs
+index 0000063..0000963 100644
+--- a/src/VcsToolkit/Parser063.fs
++++ b/src/VcsToolkit/Parser063.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser063
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser063
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser063
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser064.fs b/src/VcsToolkit/Parser064.fs
+index 0000064..0000964 100644
+--- a/src/VcsToolkit/Parser064.fs
++++ b/src/VcsToolkit/Parser064.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser064
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser064
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser064
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser065.fs b/src/VcsToolkit/Parser065Renamed.fs
+similarity index 88%
+rename from src/VcsToolkit/Parser065.fs
+rename to src/VcsToolkit/Parser065Renamed.fs
+--- a/src/VcsToolkit/Parser065.fs
++++ b/src/VcsToolkit/Parser065Renamed.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser065
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser065
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser065
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser066.fs b/src/VcsToolkit/Parser066.fs
+index 0000066..0000966 100644
+--- a/src/VcsToolkit/Parser066.fs
++++ b/src/VcsToolkit/Parser066.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser066
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser066
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser066
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser067.fs b/src/VcsToolkit/Parser067.fs
+index 0000067..0000967 100644
+--- a/src/VcsToolkit/Parser067.fs
++++ b/src/VcsToolkit/Parser067.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser067
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser067
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser067
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser068.fs b/src/VcsToolkit/Parser068.fs
+deleted file mode 100644
+index 0000068..0000000
+--- a/src/VcsToolkit/Parser068.fs
++++ /dev/null
+@@ -11,5 +0,6 @@ let parseRecord1
+ module Parser068
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +0,6 @@ let parseRecord2
+ module Parser068
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +0,6 @@ let parseRecord3
+ module Parser068
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser069.fs b/src/VcsToolkit/Parser069.fs
+index 0000069..0000969 100644
+--- a/src/VcsToolkit/Parser069.fs
++++ b/src/VcsToolkit/Parser069.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser069
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser069
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser069
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser070.fs b/src/VcsToolkit/Parser070Renamed.fs
+similarity index 88%
+rename from src/VcsToolkit/Parser070.fs
+rename to src/VcsToolkit/Parser070Renamed.fs
+--- a/src/VcsToolkit/Parser070.fs
++++ b/src/VcsToolkit/Parser070Renamed.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser070
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser070
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser070
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser071.fs b/src/VcsToolkit/Parser071.fs
+index 0000071..0000971 100644
+--- a/src/VcsToolkit/Parser071.fs
++++ b/src/VcsToolkit/Parser071.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser071
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser071
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser071
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser072.fs b/src/VcsToolkit/Parser072.fs
+index 0000072..0000972 100644
+--- a/src/VcsToolkit/Parser072.fs
++++ b/src/VcsToolkit/Parser072.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser072
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser072
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser072
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser073.fs b/src/VcsToolkit/Parser073.fs
+index 0000073..0000973 100644
+--- a/src/VcsToolkit/Parser073.fs
++++ b/src/VcsToolkit/Parser073.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser073
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser073
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser073
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser074.fs b/src/VcsToolkit/Parser074.fs
+index 0000074..0000974 100644
+--- a/src/VcsToolkit/Parser074.fs
++++ b/src/VcsToolkit/Parser074.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser074
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser074
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser074
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser075.fs b/src/VcsToolkit/Parser075Renamed.fs
+similarity index 88%
+rename from src/VcsToolkit/Parser075.fs
+rename to src/VcsToolkit/Parser075Renamed.fs
+--- a/src/VcsToolkit/Parser075.fs
++++ b/src/VcsToolkit/Parser075Renamed.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser075
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser075
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser075
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser076.fs b/src/VcsToolkit/Parser076.fs
+index 0000076..0000976 100644
+--- a/src/VcsToolkit/Parser076.fs
++++ b/src/VcsToolkit/Parser076.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser076
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser076
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser076
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser077.fs b/src/VcsToolkit/Parser077.fs
+index 0000077..0000977 100644
+--- a/src/VcsToolkit/Parser077.fs
++++ b/src/VcsToolkit/Parser077.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser077
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser077
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser077
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser078.fs b/src/VcsToolkit/Parser078.fs
+new file mode 100644
+index 0000000..0000078
+--- /dev/null
++++ b/src/VcsToolkit/Parser078.fs
+@@ -0,5 +11,6 @@ let parseRecord1
+ module Parser078
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -0,5 +48,6 @@ let parseRecord2
+ module Parser078
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -0,5 +85,6 @@ let parseRecord3
+ module Parser078
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser079.fs b/src/VcsToolkit/Parser079.fs
+index 0000079..0000979 100644
+--- a/src/VcsToolkit/Parser079.fs
++++ b/src/VcsToolkit/Parser079.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser079
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser079
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser079
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length
+diff --git a/src/VcsToolkit/Parser080.fs b/src/VcsToolkit/Parser080Renamed.fs
+similarity index 88%
+rename from src/VcsToolkit/Parser080.fs
+rename to src/VcsToolkit/Parser080Renamed.fs
+--- a/src/VcsToolkit/Parser080.fs
++++ b/src/VcsToolkit/Parser080Renamed.fs
+@@ -11,5 +11,6 @@ let parseRecord1
+ module Parser080
+ let parseRecord1 input = input.Trim()
+-let result1 = parseRecord1 input
++let result1 = parseRecord1 input |> normalize
+ let normalized1 = result1.ToLowerInvariant()
++let audit1 = normalized1.Length
+@@ -48,5 +48,6 @@ let parseRecord2
+ module Parser080
+ let parseRecord2 input = input.Trim()
+-let result2 = parseRecord2 input
++let result2 = parseRecord2 input |> normalize
+ let normalized2 = result2.ToLowerInvariant()
++let audit2 = normalized2.Length
+@@ -85,5 +85,6 @@ let parseRecord3
+ module Parser080
+ let parseRecord3 input = input.Trim()
+-let result3 = parseRecord3 input
++let result3 = parseRecord3 input |> normalize
+ let normalized3 = result3.ToLowerInvariant()
++let audit3 = normalized3.Length

@@ -1028,11 +1028,19 @@ type ClientTests() =
         task {
             // The whole `name@remote` token is `exact:`-prefixed (a `*` name would otherwise
             // track every remote bookmark).
-            let jj = scripted [ "bookmark"; "track"; "exact:feat@origin" ] (Reply.Ok "")
+            let calls, runner = recording (Reply.Ok "")
+            let jj = Jj.WithRunner runner
 
             match! jj.BookmarkTrack(".", "feat", "origin") with
             | Ok() -> ()
             | Error e -> Assert.Fail $"bookmark_track failed: {e}"
+
+            Assert.That(calls.Count, Is.EqualTo 1)
+
+            Assert.That(
+                calls.[0].Arguments |> Seq.truncate 3 |> String.concat " ",
+                Is.EqualTo "bookmark track exact:feat@origin"
+            )
         }
 
     [<Test>]
@@ -1048,6 +1056,49 @@ type ClientTests() =
                 | Ok() -> Assert.Fail $"expected bookmark_track to reject glob-like remote \"{badRemote}\""
                 | Error(ProcessError.Spawn _) -> ()
                 | Error e -> Assert.Fail $"expected a Spawn error for remote \"{badRemote}\", got: {e}"
+        }
+
+    [<Test>]
+    member _.BookmarkTrackRejectsEmptyRemote() : Task =
+        task {
+            let calls, runner = recording (Reply.Ok "")
+            let jj = Jj.WithRunner runner
+
+            match! jj.BookmarkTrack(".", "feat", "") with
+            | Error(ProcessError.Spawn _) -> ()
+            | Ok() -> Assert.Fail "expected bookmark_track to reject an empty remote"
+            | Error e -> Assert.Fail $"expected a Spawn error for an empty remote, got: {e}"
+
+            Assert.That(calls.Count, Is.EqualTo 0, "an empty remote must be rejected before spawning")
+        }
+
+    [<Test>]
+    member _.BookmarkTrackRejectsWhitespaceRemote() : Task =
+        task {
+            let calls, runner = recording (Reply.Ok "")
+            let jj = Jj.WithRunner runner
+
+            match! jj.BookmarkTrack(".", "feat", "  \t  ") with
+            | Error(ProcessError.Spawn _) -> ()
+            | Ok() -> Assert.Fail "expected bookmark_track to reject a whitespace-only remote"
+            | Error e -> Assert.Fail $"expected a Spawn error for a whitespace-only remote, got: {e}"
+
+            Assert.That(calls.Count, Is.EqualTo 0, "a whitespace-only remote must be rejected before spawning")
+        }
+
+    [<Test>]
+    member _.BookmarkTrackRejectsAtInRemote() : Task =
+        task {
+            let calls, runner = recording (Reply.Ok "")
+            let jj = Jj.WithRunner runner
+
+            for badRemote in [ "a@b"; "a@b@c" ] do
+                match! jj.BookmarkTrack(".", "feat", badRemote) with
+                | Error(ProcessError.Spawn _) -> ()
+                | Ok() -> Assert.Fail $"expected bookmark_track to reject remote \"{badRemote}\""
+                | Error e -> Assert.Fail $"expected a Spawn error for remote \"{badRemote}\", got: {e}"
+
+            Assert.That(calls.Count, Is.EqualTo 0, "an @-containing remote must be rejected before spawning")
         }
 
     [<Test>]

@@ -1290,6 +1290,84 @@ type SequencerStateTests() =
             Assert.That(argv (), Is.EqualTo "bisect reset")
         }
 
+/// T-125: `Git.Clean` — the pre-spawn guard (refuses without `DryRun`/`Force`, before `git` ever
+/// runs), the argv built for each flag, and the `Would remove`/`Removing` output parse.
+[<TestFixture>]
+type CleanTests() =
+
+    [<Test>]
+    member _.CleanRejectsSpecWithNeitherDryRunNorForce() : Task =
+        task {
+            let git =
+                Git.WithRunner(ScriptedRunner().Fallback(Reply.Fail(1, "must not spawn — refusal must precede it")))
+
+            match! git.Clean(".", Clean.Create()) with
+            | Error(ProcessError.Spawn(program, _)) -> Assert.That(program, Is.EqualTo "git")
+            | Error e -> Assert.Fail $"expected a Spawn refusal, got {e}"
+            | Ok entries -> Assert.Fail $"expected the spec to be refused, got {entries}"
+        }
+
+    [<Test>]
+    member _.CleanBuildsArgvForDryRunAlone() : Task =
+        task {
+            let git = scripted [ "clean"; "-n" ] (Reply.Ok "")
+
+            match! git.Clean(".", Clean.Create().WithDryRun()) with
+            | Ok [] -> ()
+            | Ok other -> Assert.Fail $"expected no entries, got {other}"
+            | Error e -> Assert.Fail $"clean failed: {e}"
+        }
+
+    [<Test>]
+    member _.CleanBuildsArgvForForceAlone() : Task =
+        task {
+            let git = scripted [ "clean"; "-f" ] (Reply.Ok "")
+
+            match! git.Clean(".", Clean.Create().WithForce()) with
+            | Ok [] -> ()
+            | Ok other -> Assert.Fail $"expected no entries, got {other}"
+            | Error e -> Assert.Fail $"clean failed: {e}"
+        }
+
+    [<Test>]
+    member _.CleanBuildsArgvForEveryFlagCombined() : Task =
+        task {
+            // Order matters: -d -x -X -n -f, matching Git.Clean's build order.
+            let git = scripted [ "clean"; "-d"; "-x"; "-X"; "-n"; "-f" ] (Reply.Ok "")
+
+            let spec =
+                Clean.Create().WithDirectories().WithIncludeIgnored().WithOnlyIgnored().WithDryRun().WithForce()
+
+            match! git.Clean(".", spec) with
+            | Ok [] -> ()
+            | Ok other -> Assert.Fail $"expected no entries, got {other}"
+            | Error e -> Assert.Fail $"clean failed: {e}"
+        }
+
+    [<Test>]
+    member _.CleanParsesDryRunAndRealRemovalEntriesIncludingCQuotedPaths() : Task =
+        task {
+            // A plain path, a C-quoted path with an embedded space, and a C-quoted non-ASCII
+            // path (UTF-8 octal-escaped, as git emits under the default core.quotePath).
+            let output =
+                "Would remove plain.txt\n"
+                + "Would remove \"has space.txt\"\n"
+                + "Removing \"caf\\303\\251.txt\"\n"
+
+            let git = scripted [ "clean"; "-n"; "-f" ] (Reply.Ok output)
+
+            match! git.Clean(".", Clean.Create().WithDryRun().WithForce()) with
+            | Ok entries ->
+                Assert.That(entries.Length, Is.EqualTo 3)
+                Assert.That(entries.[0].Path, Is.EqualTo "plain.txt")
+                Assert.That(entries.[0].DryRun, Is.True)
+                Assert.That(entries.[1].Path, Is.EqualTo "has space.txt")
+                Assert.That(entries.[1].DryRun, Is.True)
+                Assert.That(entries.[2].Path, Is.EqualTo "café.txt")
+                Assert.That(entries.[2].DryRun, Is.False)
+            | Error e -> Assert.Fail $"clean failed: {e}"
+        }
+
 /// T-018: the known target host of a remote op reaches BOTH the provider lookup (host-keyed
 /// secret selection) and the credential helper (host gating), and the fallback policy —
 /// no provider / `Ok None` / empty secret → ambient auth; provider `Error` → fail-closed —
