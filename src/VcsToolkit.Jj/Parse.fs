@@ -237,7 +237,13 @@ module internal JjParse =
             else
                 l)
 
-    let private normalize (p: string) = p.Replace(char 92, '/')
+    // Verified: no drive-letter heuristic found in jj workspace-path parsing.
+    // Match `JjFileset.Path`: only Windows treats backslash as a path separator.
+    let private normalize (p: string) =
+        if OperatingSystem.IsWindows() then
+            p.Replace(char 92, '/')
+        else
+            p
 
     /// Hex digit → its 0-15 value, or `-1` for a non-hex char (total; drives the
     /// `\uXXXX` branch of `decodeJsonField`).

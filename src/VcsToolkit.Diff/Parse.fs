@@ -208,14 +208,12 @@ module Parse =
 
         closeCurrent ()
 
-        let normalize (p: string) = p.Replace('\\', '/')
-
         // A rename keeps its old path so a caller can record the deletion too.
         let oldPath =
             match renameTo with
             | Some _ ->
                 kind <- ChangeKind.Renamed
-                Option.map normalize renameFrom
+                renameFrom
             | None -> None
 
         // Resolve the path by priority (rename target → `+++ b/` → `--- a/` → header),
@@ -231,7 +229,7 @@ module Parse =
         | Some p ->
             Some
                 { Change = kind
-                  Path = normalize p
+                  Path = p
                   OldPath = oldPath
                   Hunks = List.ofSeq hunks
                   Raw = section }
