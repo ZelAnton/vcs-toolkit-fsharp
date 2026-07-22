@@ -816,11 +816,9 @@ type CloneDestCleanableTests() =
 
     [<Test>]
     member _.PreExistingFileIsNotCleanable() =
-        // `dest` exists as a plain file rather than a directory. `Directory.Exists`/`File.Exists`
-        // alone would misclassify this: `Directory.Exists` reads it as "absent" (false), which is
-        // exactly the ambiguity `cloneDestCleanableCore` no longer trusts (R-01) - real filesystem
-        // enumeration of a file path raises `IOException`, not `DirectoryNotFoundException`, so it
-        // correctly falls through to "not proven" / not cleanable.
+        // `dest` exists as a plain file rather than a directory. `File.Exists`'s true-side
+        // short-circuit catches this on every platform; its false-side remains untrusted, so
+        // unreadable destinations still go through the fail-closed enumeration path (R-01).
         let dest = Path.Combine(tempRoot, "a-file")
         File.WriteAllText(dest, "the caller's data")
         Assert.That(cloneDestCleanable dest, Is.False)

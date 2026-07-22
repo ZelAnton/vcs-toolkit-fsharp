@@ -86,6 +86,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `vcs-mcp` now maps its two `McpError` cases onto the two distinct MCP error channels, so a client can tell a "fix your call" refusal apart from a backend failure: an `InvalidParams` error (an unknown tool, a bad/missing argument, a disabled write tool, an unsupported forge op) is raised as a JSON-RPC **protocol** error carrying `McpErrorCode.InvalidParams`, while an `Internal` error (a git/jj/forge backend or network failure) is still returned inside the tool result with `IsError = true`. Previously both were flattened into an `IsError` result, losing the distinction the server's doc-comment already promised.
 
 ### Fixed
+- Clone destination cleanup now refuses pre-existing plain files on Unix as well as Windows, despite the platforms mapping file-path enumeration errors differently.
 - Unix filenames containing literal backslashes are no longer corrupted by the Diff and Jj parsers; Jj separator normalisation remains Windows-only.
 - `Gitea.PrMerge` (and `Forge.PrMerge` on the Gitea backend) no longer fails against a real `tea` 0.9.2 with `Error: Must specify a PR index`: `--style` now precedes the positional PR index in the argv, matching `tea`'s `urfave/cli`-based flag parser, which stops recognising `--flag` tokens once it hits the first bare positional.
 - Repo.TryMerge no longer silently drops the original merge failure (or the rollback failure) when both a merge/probe step and its cleanup/rollback step fail on the same call, on either backend.
