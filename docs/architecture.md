@@ -5,7 +5,9 @@ between its packages, why each layer exists, the design principles that repeat
 across every wrapper client, and the seams a consumer can hook into. It
 complements the [package table in the README](../README.md#packages), which
 answers "what's in each package"; this document answers "why is it shaped this
-way" and "how do the pieces fit together".
+way" and "how do the pieces fit together". Adding a new capability to one of
+these layers? See [docs/extending.md](extending.md) for the step-by-step
+contributor workflow built on top of the map below.
 
 ## Package layering
 

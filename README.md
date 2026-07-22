@@ -102,6 +102,11 @@ driving, total/tolerant parsing, argv guards, credential provisioning, error
 classification, cancellation-safe cleanup), and the escape hatches available
 at each layer, see [docs/architecture.md](docs/architecture.md).
 
+Already know the CLI command you need (`git rebase --onto`, `jj parallelize`, `gh api`) and
+want to know whether it's covered by a typed method or needs the escape hatch? See
+[docs/command-index.md](docs/command-index.md) — a reverse index, one row per typed method and
+the exact subcommand/flags it runs, plus each wrapper's "not modeled" list.
+
 ## Building from source
 
 `VcsToolkit` restores every dependency — ProcessKit (the runtime process-execution

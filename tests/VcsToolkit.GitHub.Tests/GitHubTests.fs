@@ -81,12 +81,55 @@ type ParseTests() =
         Assert.That(pr.HeadRefName, Is.EqualTo "", "a null head branch reads as empty, not a crash")
 
     [<Test>]
+    member _.PrFlattensAuthorMilestoneAndReadsTimestamps() =
+        // gh nests `author` (`{"login": …}`) and `milestone` (`{"title": …}`); both flatten to
+        // the inner field, and `createdAt`/`updatedAt` are RFC 3339 strings.
+        let json =
+            """{"number":7,"title":"t","state":"OPEN","headRefName":"f","baseRefName":"main","url":"u","author":{"login":"octocat"},"createdAt":"2026-01-02T03:04:05Z","updatedAt":"2026-01-03T04:05:06Z","milestone":{"title":"v1.0"}}"""
+
+        let pr = expectOk (GitHubParse.parsePr json)
+        Assert.That(pr.Author, Is.EqualTo "octocat", "author.login flattened")
+        Assert.That(pr.CreatedAt, Is.EqualTo "2026-01-02T03:04:05Z")
+        Assert.That(pr.UpdatedAt, Is.EqualTo "2026-01-03T04:05:06Z")
+        Assert.That(pr.Milestone, Is.EqualTo "v1.0", "milestone.title flattened")
+
+    [<Test>]
+    member _.PrReadsNullAuthorAndMilestoneAsEmpty() =
+        // A deleted/ghost account → gh sends `author: null`; an unset milestone → `milestone: null`.
+        // Both must flatten to "" (the wrapper's "absent" marker), never a crash.
+        let json =
+            """{"number":8,"title":"t","state":"MERGED","headRefName":"f","baseRefName":"main","url":"u","author":null,"createdAt":"t","updatedAt":"t","milestone":null}"""
+
+        let pr = expectOk (GitHubParse.parsePr json)
+        Assert.That(pr.Author, Is.EqualTo "", "null author (deleted account) reads as empty")
+        Assert.That(pr.Milestone, Is.EqualTo "", "null milestone (unset) reads as empty")
+
+    [<Test>]
     member _.IssueParsesBodyAndUrl() =
         let json = """{"number":5,"title":"bug","state":"OPEN","body":"broken","url":"u"}"""
         let issue = expectOk (GitHubParse.parseIssue json)
         Assert.That(issue.Number, Is.EqualTo 5UL)
         Assert.That(issue.Body, Is.EqualTo "broken")
         Assert.That(issue.Url, Is.EqualTo "u")
+
+    [<Test>]
+    member _.IssueFlattensAuthorMilestoneAndReadsNullAsEmpty() =
+        // A populated issue flattens author/milestone; a null author/milestone reads as "".
+        let populated =
+            """{"number":5,"title":"bug","state":"OPEN","body":"b","url":"u","author":{"login":"alice"},"createdAt":"2026-01-02T03:04:05Z","updatedAt":"2026-01-03T04:05:06Z","milestone":{"title":"backlog"}}"""
+
+        let issue = expectOk (GitHubParse.parseIssue populated)
+        Assert.That(issue.Author, Is.EqualTo "alice", "author.login flattened")
+        Assert.That(issue.CreatedAt, Is.EqualTo "2026-01-02T03:04:05Z")
+        Assert.That(issue.UpdatedAt, Is.EqualTo "2026-01-03T04:05:06Z")
+        Assert.That(issue.Milestone, Is.EqualTo "backlog", "milestone.title flattened")
+
+        let nulls =
+            """{"number":6,"title":"bug","state":"CLOSED","body":"b","url":"u","author":null,"milestone":null}"""
+
+        let ghostIssue = expectOk (GitHubParse.parseIssue nulls)
+        Assert.That(ghostIssue.Author, Is.EqualTo "", "null author reads as empty")
+        Assert.That(ghostIssue.Milestone, Is.EqualTo "", "null milestone reads as empty")
 
     [<Test>]
     member _.RunListParsesDatabaseIdAndEmptyConclusion() =
@@ -157,6 +200,23 @@ type ParseTests() =
         Assert.That(rel.Body, Is.EqualTo "notes")
         Assert.That(rel.IsPrerelease, Is.True)
         Assert.That(rel.IsLatest, Is.False, "release view does not report isLatest → defaults false")
+
+    [<Test>]
+    member _.ReleaseViewFlattensAuthorAndListLeavesItEmpty() =
+        // `release view` fetches `author` (nested `{"login": …}`); the lean `release list`
+        // doesn't, so a list release reads an empty author (like its empty body/url).
+        let viewJson =
+            """{"tagName":"v1.0.0","name":"1.0.0","body":"n","url":"u","publishedAt":"t","isDraft":false,"isPrerelease":false,"author":{"login":"releaser"}}"""
+
+        let viewed = expectOk (GitHubParse.parseRelease viewJson)
+        Assert.That(viewed.Author, Is.EqualTo "releaser", "author.login flattened from release view")
+
+        let listJson =
+            """[{"tagName":"v1.0.0","name":"1.0.0","isLatest":true,"isDraft":false,"isPrerelease":false,"publishedAt":"t"}]"""
+
+        match expectOk (GitHubParse.parseReleaseList listJson) with
+        | [ rel ] -> Assert.That(rel.Author, Is.EqualTo "", "release list does not fetch the author")
+        | other -> Assert.Fail $"expected one release, got {other.Length}"
 
     [<Test>]
     member _.RepoFlattensNestedObjectsAndDescriptionSome() =
@@ -1021,7 +1081,7 @@ type HardeningTests() =
                       "--limit"
                       "100"
                       "--json"
-                      "number,title,state,body,url,labels,assignees" ]
+                      "number,title,state,body,url,labels,assignees,author,createdAt,updatedAt,milestone" ]
                     (Reply.Ok json)
 
             match! gh.IssueList "." with
@@ -1066,7 +1126,7 @@ type HardeningTests() =
                       "--limit"
                       "100"
                       "--json"
-                      "number,title,state,headRefName,baseRefName,url,labels,assignees" ]
+                      "number,title,state,headRefName,baseRefName,url,labels,assignees,author,createdAt,updatedAt,milestone" ]
                     (Reply.Ok json)
 
             match! gh.PrList "." with

@@ -25,6 +25,16 @@ type PullRequest =
         /// Logins of assigned users (gh `--json assignees`, flattened from
         /// `[{"login": …}]` to plain logins). Empty when gh sends none.
         Assignees: string list
+        /// Author login (gh `--json author`, flattened from `{"login": …}`); empty for a
+        /// deleted/ghost account (gh sends a `null` author).
+        Author: string
+        /// Creation timestamp (RFC 3339); empty when absent.
+        CreatedAt: string
+        /// Last-update timestamp (RFC 3339); empty when absent.
+        UpdatedAt: string
+        /// Milestone title (gh `--json milestone`, flattened from `{"title": …}`); empty when
+        /// the PR has no milestone (gh sends a `null` milestone).
+        Milestone: string
     }
 
 /// An issue (`gh issue list --json …`; `gh issue view` additionally fills `Body`/`Url`).
@@ -46,6 +56,16 @@ type Issue =
         /// Logins of assigned users (gh `--json assignees`, flattened from
         /// `[{"login": …}]` to plain logins). Empty when gh sends none.
         Assignees: string list
+        /// Author login (gh `--json author`, flattened from `{"login": …}`); empty for a
+        /// deleted/ghost account (gh sends a `null` author).
+        Author: string
+        /// Creation timestamp (RFC 3339); empty when absent.
+        CreatedAt: string
+        /// Last-update timestamp (RFC 3339); empty when absent.
+        UpdatedAt: string
+        /// Milestone title (gh `--json milestone`, flattened from `{"title": …}`); empty when
+        /// the issue has no milestone (gh sends a `null` milestone).
+        Milestone: string
     }
 
 /// A GitHub Actions workflow run (`gh run list/view --json …`).
@@ -141,6 +161,10 @@ type Release =
         /// `true` for the latest release. Only `releaseList` reports this; from
         /// `releaseView` it defaults to `false`.
         IsLatest: bool
+        /// Author login (gh `--json author`, flattened from `{"login": …}`); empty from
+        /// `releaseList`, which doesn't fetch it (gh's lean list surface, like `Body`/`Url`),
+        /// and empty for a deleted/ghost account (gh sends a `null` author).
+        Author: string
     }
 
 /// A submitted PR review (from `gh pr view --json reviews`).
@@ -225,7 +249,13 @@ module internal GitHubParse =
           BaseRefName = Json.strOr el "baseRefName"
           Url = Json.strOr el "url"
           Labels = nestedNames el "labels" "name"
-          Assignees = nestedNames el "assignees" "login" }
+          Assignees = nestedNames el "assignees" "login"
+          // `author`/`milestone` are nested objects (or a `null`); flatten to the inner field,
+          // reading "" for a null author (deleted account) or null milestone (unset).
+          Author = Json.nestedStr el "author" "login"
+          CreatedAt = Json.strOr el "createdAt"
+          UpdatedAt = Json.strOr el "updatedAt"
+          Milestone = Json.nestedStr el "milestone" "title" }
 
     let private toIssue (el: JsonElement) : Issue =
         { Number = Json.u64Or el "number"
@@ -234,7 +264,11 @@ module internal GitHubParse =
           Body = Json.strOr el "body"
           Url = Json.strOr el "url"
           Labels = nestedNames el "labels" "name"
-          Assignees = nestedNames el "assignees" "login" }
+          Assignees = nestedNames el "assignees" "login"
+          Author = Json.nestedStr el "author" "login"
+          CreatedAt = Json.strOr el "createdAt"
+          UpdatedAt = Json.strOr el "updatedAt"
+          Milestone = Json.nestedStr el "milestone" "title" }
 
     let private toRun (el: JsonElement) : WorkflowRun =
         { DatabaseId = Json.u64Or el "databaseId"
@@ -279,7 +313,10 @@ module internal GitHubParse =
           PublishedAt = Json.strOr el "publishedAt"
           IsDraft = Json.boolOr el "isDraft"
           IsPrerelease = Json.boolOr el "isPrerelease"
-          IsLatest = Json.boolOr el "isLatest" }
+          IsLatest = Json.boolOr el "isLatest"
+          // `releaseList` doesn't fetch `author` (gh's lean list surface) → "" there; `releaseView`
+          // flattens the nested `{"login": …}`, reading "" for a null (deleted) author.
+          Author = Json.nestedStr el "author" "login" }
 
     let private toReview (el: JsonElement) : Review =
         { Author = Json.nestedStr el "author" "login"

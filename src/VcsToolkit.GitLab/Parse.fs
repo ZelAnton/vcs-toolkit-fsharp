@@ -32,6 +32,16 @@ type MergeRequest =
         /// Usernames of assigned users, flattened from GitLab's REST `assignees` array
         /// of User objects (`[{"username": …}]`) to plain usernames. Empty when absent.
         Assignees: string list
+        /// Author username, flattened from GitLab's REST `author` User object
+        /// (`{"username": …}`); empty for a deleted account (GitLab sends a `null` author).
+        Author: string
+        /// Creation timestamp (GitLab's `created_at`, RFC 3339); empty when absent.
+        CreatedAt: string
+        /// Last-update timestamp (GitLab's `updated_at`, RFC 3339); empty when absent.
+        UpdatedAt: string
+        /// Milestone title, flattened from GitLab's REST `milestone` object (`{"title": …}`);
+        /// empty when the MR has no milestone (GitLab sends a `null` milestone).
+        Milestone: string
     }
 
 /// A project, returned by `repoView` (`glab repo view --output json`) — the fields are
@@ -74,6 +84,16 @@ type Issue =
         /// Usernames of assigned users, flattened from GitLab's REST `assignees` array
         /// of User objects (`[{"username": …}]`) to plain usernames. Empty when absent.
         Assignees: string list
+        /// Author username, flattened from GitLab's REST `author` User object
+        /// (`{"username": …}`); empty for a deleted account (GitLab sends a `null` author).
+        Author: string
+        /// Creation timestamp (GitLab's `created_at`, RFC 3339); empty when absent.
+        CreatedAt: string
+        /// Last-update timestamp (GitLab's `updated_at`, RFC 3339); empty when absent.
+        UpdatedAt: string
+        /// Milestone title, flattened from GitLab's REST `milestone` object (`{"title": …}`);
+        /// empty when the issue has no milestone (GitLab sends a `null` milestone).
+        Milestone: string
     }
 
 /// A release (`glab release list/view --output json`) — GitLab's REST `Release` object.
@@ -92,6 +112,10 @@ type Release =
         PublishedAt: string
         /// Release notes (GitLab's `description`, markdown); empty when absent/null.
         Description: string
+        /// Author username, flattened from GitLab's REST `author` User object
+        /// (`{"username": …}`); empty for a deleted account or when absent. GitLab carries the
+        /// author on both `release list` and `release view` (unlike gh's lean list surface).
+        Author: string
     }
 
 /// The coarse CI/pipeline outcome for an MR (`glab mr view … --output json`'s
@@ -163,7 +187,13 @@ module internal GitLabParse =
           Url = Json.strOr el "web_url"
           Draft = Json.boolOr el "draft"
           Labels = stringArray el "labels"
-          Assignees = objectField el "assignees" "username" }
+          Assignees = objectField el "assignees" "username"
+          // `author`/`milestone` are nested objects (or a `null`); flatten to the inner field,
+          // reading "" for a null author (deleted account) or null milestone (unset).
+          Author = Json.nestedStr el "author" "username"
+          CreatedAt = Json.strOr el "created_at"
+          UpdatedAt = Json.strOr el "updated_at"
+          Milestone = Json.nestedStr el "milestone" "title" }
 
     let private toRepo (el: JsonElement) : Repo =
         { Name = Json.strOr el "name"
@@ -179,7 +209,11 @@ module internal GitLabParse =
           Body = Json.strOr el "description"
           Url = Json.strOr el "web_url"
           Labels = stringArray el "labels"
-          Assignees = objectField el "assignees" "username" }
+          Assignees = objectField el "assignees" "username"
+          Author = Json.nestedStr el "author" "username"
+          CreatedAt = Json.strOr el "created_at"
+          UpdatedAt = Json.strOr el "updated_at"
+          Milestone = Json.nestedStr el "milestone" "title" }
 
     let private toRelease (el: JsonElement) : Release =
         { TagName = Json.strOr el "tag_name"
@@ -187,7 +221,8 @@ module internal GitLabParse =
           // GitLab nests the release-page URL under `_links.self` (no top-level web_url).
           Url = Json.nestedStr el "_links" "self"
           PublishedAt = Json.strOr el "released_at"
-          Description = Json.strOr el "description" }
+          Description = Json.strOr el "description"
+          Author = Json.nestedStr el "author" "username" }
 
     /// The pipeline status for an MR: `head_pipeline.status`, falling back to the
     /// deprecated `pipeline.status` only when `head_pipeline` is absent (matching the

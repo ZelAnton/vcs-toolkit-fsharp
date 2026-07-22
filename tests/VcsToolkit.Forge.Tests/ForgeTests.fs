@@ -1060,6 +1060,166 @@ type OptionalFieldTests() =
             | Error e -> Assert.Fail $"issue view failed: {e.Message}"
         }
 
+    // --- ForgePr/ForgeIssue Author/CreatedAt/UpdatedAt/Milestone — Some on GitHub/GitLab
+    //     (incl. Some "" for a deleted author; None for an unset milestone), None on Gitea (T-130) ---
+
+    [<Test>]
+    member _.GitHubPrMetadataIsConfirmedIncludingDeletedAuthorAndUnsetMilestone() : Task =
+        task {
+            // gh returns author/createdAt/updatedAt/milestone → confirmed Some; a set milestone
+            // flattens to Some title.
+            let json =
+                """[{"number":1,"title":"t","state":"OPEN","headRefName":"f","baseRefName":"main","url":"u","author":{"login":"octocat"},"createdAt":"2026-01-02T03:04:05Z","updatedAt":"2026-01-03T04:05:06Z","milestone":{"title":"v1"}}]"""
+
+            let forge = ghForge [ "pr"; "list"; "--json" ] (Reply.Ok json)
+
+            match! forge.PrList() with
+            | Ok [ pr ] ->
+                Assert.That(pr.Author, Is.EqualTo(Some "octocat"), "gh author.login → Some")
+                Assert.That(pr.CreatedAt, Is.EqualTo(Some "2026-01-02T03:04:05Z"))
+                Assert.That(pr.UpdatedAt, Is.EqualTo(Some "2026-01-03T04:05:06Z"))
+                Assert.That(pr.Milestone, Is.EqualTo(Some "v1"), "gh milestone.title → Some")
+            | Ok other -> Assert.Fail $"expected one PR, got {other.Length}"
+            | Error e -> Assert.Fail $"pr list failed: {e.Message}"
+
+            // A deleted author (null) is a *confirmed* `Some ""`, distinct from None; an unset
+            // milestone (null) → None.
+            let ghostJson =
+                """[{"number":2,"title":"t","state":"MERGED","headRefName":"f","baseRefName":"main","url":"u","author":null,"createdAt":"t","updatedAt":"t","milestone":null}]"""
+
+            let ghostForge = ghForge [ "pr"; "list"; "--json" ] (Reply.Ok ghostJson)
+
+            match! ghostForge.PrList() with
+            | Ok [ pr ] ->
+                Assert.That(pr.Author, Is.EqualTo(Some ""), "deleted author → confirmed Some \"\", not None")
+                Assert.That(pr.Milestone, Is.EqualTo None, "unset milestone → None")
+            | Ok other -> Assert.Fail $"expected one PR, got {other.Length}"
+            | Error e -> Assert.Fail $"pr list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabMrMetadataIsConfirmedIncludingDeletedAuthorAndUnsetMilestone() : Task =
+        task {
+            let json =
+                """[{"iid":1,"title":"t","state":"opened","source_branch":"s","target_branch":"main","web_url":"u","draft":false,"author":{"username":"steiza"},"created_at":"2026-01-02T03:04:05Z","updated_at":"2026-01-03T04:05:06Z","milestone":{"title":"16.0"}}]"""
+
+            let forge = glForge [ "mr"; "list" ] (Reply.Ok json)
+
+            match! forge.PrList() with
+            | Ok [ pr ] ->
+                Assert.That(pr.Author, Is.EqualTo(Some "steiza"), "GitLab author.username → Some")
+                Assert.That(pr.CreatedAt, Is.EqualTo(Some "2026-01-02T03:04:05Z"))
+                Assert.That(pr.UpdatedAt, Is.EqualTo(Some "2026-01-03T04:05:06Z"))
+                Assert.That(pr.Milestone, Is.EqualTo(Some "16.0"), "GitLab milestone.title → Some")
+            | Ok other -> Assert.Fail $"expected one MR, got {other.Length}"
+            | Error e -> Assert.Fail $"mr list failed: {e.Message}"
+
+            let ghostJson =
+                """[{"iid":2,"title":"t","state":"merged","source_branch":"s","target_branch":"main","web_url":"u","draft":false,"author":null,"milestone":null}]"""
+
+            let ghostForge = glForge [ "mr"; "list" ] (Reply.Ok ghostJson)
+
+            match! ghostForge.PrList() with
+            | Ok [ pr ] ->
+                Assert.That(pr.Author, Is.EqualTo(Some ""), "deleted author → confirmed Some \"\"")
+                Assert.That(pr.Milestone, Is.EqualTo None, "unset milestone → None")
+            | Ok other -> Assert.Fail $"expected one MR, got {other.Length}"
+            | Error e -> Assert.Fail $"mr list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaPrMetadataIsNone() : Task =
+        task {
+            // tea's csv PR surface has no author/timestamp/milestone columns → honest None.
+            // `PrList` is structurally Unsupported on Gitea for every state (the facade retains
+            // that refusal), so this goes through `PrView` (K-049 / T-115).
+            let csv = teaCsv [ prHeader; [ "1"; "t"; "open"; "f"; "main"; "u" ] ]
+
+            let forge =
+                teaForge [ "pr"; "list"; "--state"; "all"; "--page"; "1"; "--fields" ] (Reply.Ok csv)
+
+            match! forge.PrView 1UL with
+            | Ok pr ->
+                Assert.That(pr.Author, Is.EqualTo None, "Gitea PR author unreported → None")
+                Assert.That(pr.CreatedAt, Is.EqualTo None, "Gitea PR createdAt unreported → None")
+                Assert.That(pr.UpdatedAt, Is.EqualTo None, "Gitea PR updatedAt unreported → None")
+                Assert.That(pr.Milestone, Is.EqualTo None, "Gitea PR milestone unreported → None")
+            | Error e -> Assert.Fail $"pr view failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaIssueMetadataIsNone() : Task =
+        task {
+            // tea's csv issue surface has no author/timestamp/milestone columns → honest None,
+            // reached via `IssueView` (paging `tea issues list --state all … --output csv`).
+            let csv = teaCsv [ issueHeader; [ "1"; "t"; "open"; "b"; "u" ] ]
+
+            let forge =
+                teaForge [ "issues"; "list"; "--state"; "all"; "--page"; "1"; "--fields" ] (Reply.Ok csv)
+
+            match! forge.IssueView 1UL with
+            | Ok issue ->
+                Assert.That(issue.Author, Is.EqualTo None, "Gitea issue author unreported → None")
+                Assert.That(issue.CreatedAt, Is.EqualTo None, "Gitea issue createdAt unreported → None")
+                Assert.That(issue.UpdatedAt, Is.EqualTo None, "Gitea issue updatedAt unreported → None")
+                Assert.That(issue.Milestone, Is.EqualTo None, "Gitea issue milestone unreported → None")
+            | Error e -> Assert.Fail $"issue view failed: {e.Message}"
+        }
+
+    // --- ForgeRelease.Author — Some from GitLab / gh releaseView, None from gh lean list, None on Gitea ---
+
+    [<Test>]
+    member _.GitHubReleaseAuthorIsNoneFromLeanListSomeFromView() : Task =
+        task {
+            // gh's lean release list doesn't fetch the author → None; release view does → Some.
+            let listJson =
+                """[{"tagName":"v1","name":"1","isDraft":false,"isPrerelease":false,"publishedAt":"t"}]"""
+
+            let listForge = ghForge [ "release"; "list" ] (Reply.Ok listJson)
+
+            match! listForge.ReleaseList() with
+            | Ok [ rel ] -> Assert.That(rel.Author, Is.EqualTo None, "gh lean release list → author None")
+            | Ok other -> Assert.Fail $"expected one release, got {other.Length}"
+            | Error e -> Assert.Fail $"release list failed: {e.Message}"
+
+            let viewJson =
+                """{"tagName":"v1","name":"1","body":"n","url":"u","publishedAt":"t","isDraft":false,"isPrerelease":false,"author":{"login":"releaser"}}"""
+
+            let viewForge = ghForge [ "release"; "view" ] (Reply.Ok viewJson)
+
+            match! viewForge.ReleaseView "v1" with
+            | Ok rel -> Assert.That(rel.Author, Is.EqualTo(Some "releaser"), "gh release view author → Some")
+            | Error e -> Assert.Fail $"release view failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabReleaseAuthorIsSome() : Task =
+        task {
+            // GitLab carries the author on both release list and view → Some.
+            let json =
+                """[{"tag_name":"v1","name":"One","description":"notes","author":{"username":"releaser"}}]"""
+
+            let forge = glForge [ "release"; "list" ] (Reply.Ok json)
+
+            match! forge.ReleaseList() with
+            | Ok [ rel ] -> Assert.That(rel.Author, Is.EqualTo(Some "releaser"), "GitLab release author → Some")
+            | Ok other -> Assert.Fail $"expected one release, got {other.Length}"
+            | Error e -> Assert.Fail $"release list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaReleaseAuthorIsNone() : Task =
+        task {
+            // tea's release csv table has no author column → honest None.
+            let csv = teaCsv [ releaseHeader; [ "v1"; "One"; ""; ""; "" ] ]
+            let forge = teaForge [ "releases"; "list" ] (Reply.Ok csv)
+
+            match! forge.ReleaseList() with
+            | Ok [ rel ] -> Assert.That(rel.Author, Is.EqualTo None, "Gitea release author unreported → None")
+            | Ok other -> Assert.Fail $"expected one release, got {other.Length}"
+            | Error e -> Assert.Fail $"release list failed: {e.Message}"
+        }
+
 // ---------------------------------------------------------------------------
 // PrList/IssueList options — unified state filter + result cap, per backend (T-102)
 // ---------------------------------------------------------------------------

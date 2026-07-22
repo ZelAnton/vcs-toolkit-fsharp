@@ -34,7 +34,14 @@ module internal GiteaForge =
           // tea's PR list/view has no labels/assignees columns → the honest answer is
           // "unknown" (None), never a false empty `Some []`.
           Labels = None
-          Assignees = None }
+          Assignees = None
+          // tea's csv PR surface (`--output csv` + `--fields`, K-049/T-115) carries no
+          // author/timestamp/milestone columns → the honest "unknown", None (same contract as
+          // Labels/Assignees/Draft above), never a fabricated value.
+          Author = None
+          CreatedAt = None
+          UpdatedAt = None
+          Milestone = None }
 
     let private mapIssue (i: VcsToolkit.Gitea.Issue) : ForgeIssue =
         { Number = i.Number
@@ -48,7 +55,12 @@ module internal GiteaForge =
           Url = i.Url
           // tea's issue surface has no labels/assignees columns → None (unknown), not [].
           Labels = None
-          Assignees = None }
+          Assignees = None
+          // tea's csv issue surface has no author/timestamp/milestone columns → None (unknown).
+          Author = None
+          CreatedAt = None
+          UpdatedAt = None
+          Milestone = None }
 
     let private mapRelease (r: VcsToolkit.Gitea.Release) : ForgeRelease =
         { Tag = r.Tag
@@ -59,7 +71,9 @@ module internal GiteaForge =
           Body = Option.None
           // tea's release `Status` column carries draft/prerelease → Some.
           Draft = Some r.Draft
-          Prerelease = Some r.Prerelease }
+          Prerelease = Some r.Prerelease
+          // tea's release csv table has no author column → None (unknown), never fabricated.
+          Author = Option.None }
 
     // --- operations ----------------------------------------------------------
 
