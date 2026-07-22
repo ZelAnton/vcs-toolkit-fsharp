@@ -452,6 +452,67 @@ type GitHub private (core: ManagedClient) =
                 | Ok _ -> return! this.RunView(dir, id)
         }
 
+    /// Trigger a `workflow_dispatch` event for a workflow (`gh workflow run <workflow>
+    /// [--ref <ref>] [--raw-field key=value …]`). See `WorkflowDispatch`.
+    ///
+    /// GitHub answers a dispatch with `204 No Content` — there is no run id to hand back, so
+    /// this returns `Result<unit, _>`; poll `RunList` for the newly queued run instead. The
+    /// workflow name/id is a bare positional, so an empty or `-`-leading value is refused before
+    /// spawning (the same guard `ReleaseView` applies to a release tag). Input values are passed
+    /// as **`--raw-field`, never `--field`**: `--field`'s value is subject to gh's `@`-syntax (a
+    /// leading `@` reads a *local file* instead of taking the value literally), which would turn
+    /// an input value the caller doesn't fully control into a local-file-disclosure vector;
+    /// `--raw-field` always keeps the value a literal string.
+    ///
+    /// gh exit codes (checked against the installed gh 2.95.0 via `gh help exit-codes`, which
+    /// documents these as the general codes across all commands, not dispatch-specific ones):
+    /// `0` success; `1` any failure (unknown workflow, a workflow with no `workflow_dispatch`
+    /// trigger, …); `2` cancelled; `4` not authenticated. No dispatch-specific classifier is
+    /// added on top — the generic `isLockContention`/`isTransientFetchError` classifiers in
+    /// `VcsToolkit.CliSupport.Classify` already reason over the `ProcessError.Exit` this surfaces,
+    /// the same way they do for every other mutating command in this wrapper.
+    member _.WorkflowDispatch(dir: string, spec: WorkflowDispatch) =
+        task {
+            match checkFlags BINARY [ "workflow", spec.Workflow ] with
+            | Error e -> return Error e
+            | Ok() ->
+                let args =
+                    [ "workflow"; "run"; spec.Workflow ]
+                    @ (match spec.Ref with
+                       | Some r -> [ "--ref"; r ]
+                       | None -> [])
+                    @ (spec.Inputs
+                       |> List.collect (fun (k, v) -> [ "--raw-field"; sprintf "%s=%s" k v ]))
+
+                return! core.RunUnit(core.CommandIn(dir, args))
+        }
+
+    /// Rerun a workflow run — the whole run, or only its failed jobs (`gh run rerun <id>
+    /// [--failed]`). See `RerunScope`. The id is always digits (`uint64`), so no injection guard
+    /// is needed.
+    ///
+    /// gh exit codes (gh 2.95.0): `0` success; `1` any failure (unknown run id, …); `2`
+    /// cancelled; `4` not authenticated — the same general codes `WorkflowDispatch` documents,
+    /// already reachable through the generic classifiers in `Classify.fs`.
+    member _.RunRerun(dir: string, id: uint64, scope: RerunScope) =
+        let args =
+            [ "run"; "rerun"; string id ]
+            @ (match scope with
+               | RerunScope.FailedOnly -> [ "--failed" ]
+               | RerunScope.All -> [])
+
+        core.RunUnit(core.CommandIn(dir, args))
+
+    /// Cancel a workflow run (`gh run cancel <id>`). The id is always digits (`uint64`), so no
+    /// injection guard is needed.
+    ///
+    /// gh exit codes (gh 2.95.0): `0` success; `1` any failure (unknown run id, a run that
+    /// already finished, …); `2` cancelled; `4` not authenticated — the same general codes
+    /// `WorkflowDispatch` documents, already reachable through the generic classifiers in
+    /// `Classify.fs`.
+    member _.RunCancel(dir: string, id: uint64) =
+        core.RunUnit(core.CommandIn(dir, [ "run"; "cancel"; string id ]))
+
     // --- Issues / releases ---------------------------------------------------
 
     /// Open an issue, returning its URL (`gh issue create --title <title> --body <body>`).
@@ -631,6 +692,15 @@ and [<Sealed>] GitHubAt internal (github: GitHub, dir: string) =
 
     /// Block until the run finishes, then return its final state (`gh run watch <id>`).
     member _.RunWatch(id: uint64) = github.RunWatch(dir, id)
+
+    /// Trigger a `workflow_dispatch` event (`gh workflow run …`).
+    member _.WorkflowDispatch(spec: WorkflowDispatch) = github.WorkflowDispatch(dir, spec)
+
+    /// Rerun a workflow run (`gh run rerun <id> [--failed]`).
+    member _.RunRerun(id: uint64, scope: RerunScope) = github.RunRerun(dir, id, scope)
+
+    /// Cancel a workflow run (`gh run cancel <id>`).
+    member _.RunCancel(id: uint64) = github.RunCancel(dir, id)
 
     /// Open an issue, returning its URL (`gh issue create …`).
     member _.IssueCreate(title: string, body: string) = github.IssueCreate(dir, title, body)

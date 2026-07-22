@@ -455,6 +455,46 @@ type ReviewAction private (kind: ReviewKind, body: string option) =
     /// Attach or replace the body — mainly to give an `Approve` a message.
     member _.WithBody(body: string) = ReviewAction(kind, Some body)
 
+/// Which jobs `runRerun` reruns (`gh run rerun <id> [--failed]`).
+[<RequireQualifiedAccess>]
+type RerunScope =
+    /// Rerun the whole run (gh's default — no extra flag).
+    | All
+    /// Rerun only the jobs that failed, including their dependencies (`--failed`).
+    | FailedOnly
+
+/// Options for `workflowDispatch` (`gh workflow run <workflow> [--ref <ref>] [--raw-field
+/// key=value …]`). Build it through `WorkflowDispatch.Create` (the workflow name/id) and the
+/// chained `WithRef`/`WithInput` setters. The workflow name lands in a bare positional slot —
+/// `workflowDispatch` refuses an empty or flag-like value before spawning (the same guard
+/// `ReleaseView` applies to a release tag).
+type WorkflowDispatch =
+    {
+        /// The workflow file name or numeric id (a bare positional, guarded before spawning).
+        Workflow: string
+        /// Branch or tag holding the workflow version to run (`--ref`); `None` runs the
+        /// remote's default branch version.
+        Ref: string option
+        /// `workflow_dispatch` input key/value pairs, each emitted as its own `--raw-field
+        /// key=value` — **never** `--field`, whose value is subject to gh's `@`-syntax (a
+        /// `@value` reads a *local file* instead of taking it literally).
+        Inputs: (string * string) list
+    }
+
+    /// Dispatch `workflow` at the remote's default branch version, with no inputs.
+    static member Create(workflow: string) =
+        { Workflow = workflow
+          Ref = None
+          Inputs = [] }
+
+    /// Run the version of the workflow file at `gitRef` instead of the default branch (`--ref`).
+    member this.WithRef(gitRef: string) = { this with Ref = Some gitRef }
+
+    /// Append a `workflow_dispatch` input (emitted as `--raw-field key=value`).
+    member this.WithInput(key: string, value: string) =
+        { this with
+            Inputs = this.Inputs @ [ (key, value) ] }
+
 /// What the installed `gh` binary supports, probed via `GitHub.Capabilities`.
 type GitHubCapabilities =
     {

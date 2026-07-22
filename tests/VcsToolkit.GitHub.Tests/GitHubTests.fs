@@ -760,6 +760,8 @@ type SemanticsTests() =
             let! d = isErr (gh.ReleaseView(".", ""))
             let! e = isErr (gh.ReleaseCreate(".", ReleaseCreate.Create "--draft"))
             let! f = isErr (gh.ReleaseCreate(".", ReleaseCreate.Create ""))
+            let! g = isErr (gh.WorkflowDispatch(".", WorkflowDispatch.Create "--ref"))
+            let! h = isErr (gh.WorkflowDispatch(".", WorkflowDispatch.Create ""))
 
             for flag, name in
                 [ a, "api dash"
@@ -767,7 +769,9 @@ type SemanticsTests() =
                   c, "release view dash"
                   d, "release view empty"
                   e, "release create dash tag"
-                  f, "release create empty tag" ] do
+                  f, "release create empty tag"
+                  g, "workflow dispatch dash-leading workflow name"
+                  h, "workflow dispatch empty workflow name" ] do
                 Assert.That(flag, Is.True, $"{name} must be refused")
 
             // …and a legitimate endpoint still passes through.
@@ -930,6 +934,79 @@ type HardeningTests() =
             match! gh.PrEdit(".", 7UL, PrEdit.Create().WithTitle "") with
             | Ok() -> assertArgs [ "pr"; "edit"; "7"; "--title"; "" ] args
             | Error e -> Assert.Fail $"pr edit (empty title) failed: {e}"
+        }
+
+    [<Test>]
+    member _.WorkflowDispatchWithRefAndInputsUsesRawFieldNotField() : Task =
+        task {
+            // The whole point of this method: input values MUST ride on --raw-field, never
+            // --field — --field's value is subject to gh's @-syntax (file read), --raw-field
+            // is always literal.
+            let gh, args = capturing (Reply.Ok "")
+
+            let spec =
+                WorkflowDispatch
+                    .Create("triage.yml")
+                    .WithRef("my-branch")
+                    .WithInput("name", "scully")
+                    .WithInput("greeting", "hello")
+
+            match! gh.WorkflowDispatch(".", spec) with
+            | Ok() ->
+                assertArgs
+                    [ "workflow"
+                      "run"
+                      "triage.yml"
+                      "--ref"
+                      "my-branch"
+                      "--raw-field"
+                      "name=scully"
+                      "--raw-field"
+                      "greeting=hello" ]
+                    args
+
+                Assert.That(args |> Seq.contains "--field", Is.False, "must never emit --field")
+            | Error e -> Assert.Fail $"workflow dispatch failed: {e}"
+        }
+
+    [<Test>]
+    member _.WorkflowDispatchWithoutRefOrInputsOmitsThem() : Task =
+        task {
+            let gh, args = capturing (Reply.Ok "")
+
+            match! gh.WorkflowDispatch(".", WorkflowDispatch.Create "triage.yml") with
+            | Ok() -> assertArgs [ "workflow"; "run"; "triage.yml" ] args
+            | Error e -> Assert.Fail $"workflow dispatch (bare) failed: {e}"
+        }
+
+    [<Test>]
+    member _.RunRerunAllScopeOmitsFailedFlag() : Task =
+        task {
+            let gh, args = capturing (Reply.Ok "")
+
+            match! gh.RunRerun(".", 42UL, RerunScope.All) with
+            | Ok() -> assertArgs [ "run"; "rerun"; "42" ] args
+            | Error e -> Assert.Fail $"run rerun (all) failed: {e}"
+        }
+
+    [<Test>]
+    member _.RunRerunFailedOnlyScopeEmitsFailedFlag() : Task =
+        task {
+            let gh, args = capturing (Reply.Ok "")
+
+            match! gh.RunRerun(".", 42UL, RerunScope.FailedOnly) with
+            | Ok() -> assertArgs [ "run"; "rerun"; "42"; "--failed" ] args
+            | Error e -> Assert.Fail $"run rerun (failed only) failed: {e}"
+        }
+
+    [<Test>]
+    member _.RunCancelBuildsExactArgv() : Task =
+        task {
+            let gh, args = capturing (Reply.Ok "")
+
+            match! gh.RunCancel(".", 7UL) with
+            | Ok() -> assertArgs [ "run"; "cancel"; "7" ] args
+            | Error e -> Assert.Fail $"run cancel failed: {e}"
         }
 
     [<Test>]

@@ -96,9 +96,11 @@ namespace VcsToolkit.GitHub
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitHub.Repo, ProcessKit.ProcessError>> RepoView(string dir) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> Run(System.Collections.Generic.IEnumerable<string> args) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> Run(string dir, System.Collections.Generic.IEnumerable<string> args) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> RunCancel(string dir, ulong id) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitHub.WorkflowRun>, ProcessKit.ProcessError>> RunList(string dir, int limit, Microsoft.FSharp.Core.FSharpOption<string>? branch) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<ProcessKit.ProcessResult<string>, ProcessKit.ProcessError>> RunRaw(System.Collections.Generic.IEnumerable<string> args) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<ProcessKit.ProcessResult<string>, ProcessKit.ProcessError>> RunRaw(string dir, System.Collections.Generic.IEnumerable<string> args) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> RunRerun(string dir, ulong id, VcsToolkit.GitHub.RerunScope scope) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitHub.WorkflowRun, ProcessKit.ProcessError>> RunView(string dir, ulong id) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitHub.WorkflowRun, ProcessKit.ProcessError>> RunWatch(string dir, ulong id) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> Version() { }
@@ -108,6 +110,7 @@ namespace VcsToolkit.GitHub
         public VcsToolkit.GitHub.GitHub WithObserver(VcsToolkit.CliSupport.ICommandObserver observer) { }
         public VcsToolkit.GitHub.GitHub WithRetry(VcsToolkit.CliSupport.RetryPolicy policy) { }
         public VcsToolkit.GitHub.GitHub WithToken(string token) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> WorkflowDispatch(string dir, VcsToolkit.GitHub.WorkflowDispatch spec) { }
         public static VcsToolkit.GitHub.GitHub Create() { }
         public static VcsToolkit.GitHub.GitHub WithRunner(ProcessKit.IProcessRunner runner) { }
     }
@@ -147,11 +150,14 @@ namespace VcsToolkit.GitHub
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitHub.Release, ProcessKit.ProcessError>> ReleaseView(string tag) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitHub.Repo, ProcessKit.ProcessError>> RepoView() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> Run(System.Collections.Generic.IEnumerable<string> args) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> RunCancel(ulong id) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitHub.WorkflowRun>, ProcessKit.ProcessError>> RunList(int limit, Microsoft.FSharp.Core.FSharpOption<string>? branch) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<ProcessKit.ProcessResult<string>, ProcessKit.ProcessError>> RunRaw(System.Collections.Generic.IEnumerable<string> args) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> RunRerun(ulong id, VcsToolkit.GitHub.RerunScope scope) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitHub.WorkflowRun, ProcessKit.ProcessError>> RunView(ulong id) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitHub.WorkflowRun, ProcessKit.ProcessError>> RunWatch(ulong id) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> Version() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> WorkflowDispatch(VcsToolkit.GitHub.WorkflowDispatch spec) { }
     }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
     [System.Serializable]
@@ -415,6 +421,18 @@ namespace VcsToolkit.GitHub
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
         public string Url { get; }
     }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+    [System.Serializable]
+    public sealed class RerunScope : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.GitHub.RerunScope>, System.IEquatable<VcsToolkit.GitHub.RerunScope>
+    {
+        public static class Tags
+        {
+            public const int All = 0;
+            public const int FailedOnly = 1;
+        }
+    }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
     [System.Serializable]
     public sealed class Review : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.GitHub.Review>, System.IEquatable<VcsToolkit.GitHub.Review>
@@ -454,6 +472,22 @@ namespace VcsToolkit.GitHub
             public const int Comment = 2;
             public const int RequestChanges = 1;
         }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class WorkflowDispatch : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.GitHub.WorkflowDispatch>, System.IEquatable<VcsToolkit.GitHub.WorkflowDispatch>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.GitHub.WorkflowDispatch))]
+        public WorkflowDispatch(string workflow, Microsoft.FSharp.Core.FSharpOption<string>? @ref, Microsoft.FSharp.Collections.FSharpList<System.Tuple<string, string>> inputs) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public Microsoft.FSharp.Collections.FSharpList<System.Tuple<string, string>> Inputs { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? Ref { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public string Workflow { get; }
+        public VcsToolkit.GitHub.WorkflowDispatch WithInput(string key, string value) { }
+        public VcsToolkit.GitHub.WorkflowDispatch WithRef(string gitRef) { }
+        public static VcsToolkit.GitHub.WorkflowDispatch Create(string workflow) { }
     }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
     [System.Serializable]
