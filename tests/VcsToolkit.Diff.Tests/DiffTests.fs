@@ -159,6 +159,24 @@ type DiffTests() =
         Assert.That(files.[0].Path, Is.EqualTo p)
 
     [<Test>]
+    member _.PreservesLiteralBackslashesInGitPaths() =
+        let bs = string (char 92)
+        let path = "dir" + bs + "literal.txt"
+
+        let full =
+            doc
+                [ sprintf "diff --git %s %s" (gitQuote ("a/" + path)) (gitQuote ("b/" + path))
+                  sprintf "--- %s" (gitQuote ("a/" + path))
+                  sprintf "+++ %s" (gitQuote ("b/" + path))
+                  "@@ -1 +1 @@"
+                  "-old"
+                  "+new" ]
+
+        let files = parseDiff full
+        Assert.That(files.Length, Is.EqualTo 1)
+        Assert.That(files.[0].Path, Is.EqualTo path)
+
+    [<Test>]
     member _.DropsSectionsWithNoResolvablePath() =
         let bad = doc [ "diff --git a/x b/"; "binary files differ" ]
         Assert.That(parseDiff bad, Is.Empty)
