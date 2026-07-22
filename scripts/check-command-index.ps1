@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Fails if a public wrapper method has no row in docs/command-index.md.
+    Fails if the wrapper API and docs/command-index.md drift in either direction.
 
 .DESCRIPTION
     docs/command-index.md is a hand-maintained reverse index: one table row per typed method
@@ -18,17 +18,16 @@
     index's "How to read this" section) that isn't a configuration/construction member (see
     $excludedMembers below — `DefaultTimeout`, `WithRetry`, `Create`, `At`, …).
 
-    For each expected method name, it checks that docs/command-index.md contains at least one
-    literal `` `MethodName` `` occurrence (Markdown inline-code, exact case) — i.e. some row
-    somewhere in the index still names that method. It does not attempt to verify the row is
-    under the "correct" wrapper section or that the "Runs" column is accurate — a human still
-    owns the row's content; this only catches a public method with NO row at all.
+    For each wrapper, it extracts the method rows from that wrapper's dedicated section and
+    compares them with the wrapper's approved public API. This catches both a public method
+    with no row and a stale row whose method no longer exists. It does not attempt to verify
+    that the "Runs" column is accurate — a human still owns the row's content.
 
-    Exits 1 (listing every issue) on any wrapper method missing a doc reference, on a stale
-    exclusion (a name in $excludedMembers that no longer exists on any wrapper's approved
-    surface — most likely a typo or a rename this script should instead be catching), or if a
-    wrapper's approved-API file / class block / docs/command-index.md itself is missing.
-    Exits 0 when every public wrapper method is referenced somewhere in the index.
+    Exits 1 (listing every issue) on any asymmetric wrapper drift, on a stale exclusion (a name
+    in $excludedMembers that no longer exists on any wrapper's approved surface — most likely a
+    typo or a rename this script should instead be catching), or if a wrapper's approved-API file
+    / class block / docs/command-index.md itself is missing. Exits 0 when every wrapper's public
+    method set matches its section in the index.
 
 .PARAMETER RepoRoot
     Repository root. Defaults to the parent of this script's directory.
@@ -56,11 +55,11 @@ $approvedDir = Join-Path $RepoRoot 'tests' 'VcsToolkit.PublicApi.Tests' 'Approve
 
 # Wrapper name (for messages) -> approved-API file name + the client type whose block to read.
 $wrappers = [ordered]@{
-    'VcsToolkit.Git'    = @{ File = 'VcsToolkit.Git.approved.txt'; Type = 'Git' }
-    'VcsToolkit.Jj'     = @{ File = 'VcsToolkit.Jj.approved.txt'; Type = 'Jj' }
-    'VcsToolkit.GitHub' = @{ File = 'VcsToolkit.GitHub.approved.txt'; Type = 'GitHub' }
-    'VcsToolkit.GitLab' = @{ File = 'VcsToolkit.GitLab.approved.txt'; Type = 'GitLab' }
-    'VcsToolkit.Gitea'  = @{ File = 'VcsToolkit.Gitea.approved.txt'; Type = 'Gitea' }
+    'VcsToolkit.Git'    = @{ File = 'VcsToolkit.Git.approved.txt'; Type = 'Git'; Section = 'git' }
+    'VcsToolkit.Jj'     = @{ File = 'VcsToolkit.Jj.approved.txt'; Type = 'Jj'; Section = 'jj' }
+    'VcsToolkit.GitHub' = @{ File = 'VcsToolkit.GitHub.approved.txt'; Type = 'GitHub'; Section = 'gh' }
+    'VcsToolkit.GitLab' = @{ File = 'VcsToolkit.GitLab.approved.txt'; Type = 'GitLab'; Section = 'glab' }
+    'VcsToolkit.Gitea'  = @{ File = 'VcsToolkit.Gitea.approved.txt'; Type = 'Gitea'; Section = 'tea' }
 }
 
 # Members that configure or construct the client rather than shape a CLI argv — outside the
@@ -86,11 +85,24 @@ $indexText = Get-Content -Raw -LiteralPath $IndexPath
 
 $failures = [System.Collections.Generic.List[string]]::new()
 $excludedSeen = [System.Collections.Generic.HashSet[string]]::new()
+$methodRowPattern = '(?m)^\|\s*`(?<name>[A-Za-z_]\w*)`\s*\|'
 
 foreach ($wrapperName in $wrappers.Keys) {
     $info = $wrappers[$wrapperName]
     $approvedPath = Join-Path $approvedDir $info.File
 
+    $sectionPattern = "(?ms)^## $([regex]::Escape($info.Section)) \([^\r\n]*\)\r?\n(.*?)(?=^## |\z)"
+    $sectionMatch = [regex]::Match($indexText, $sectionPattern)
+
+    if (-not $sectionMatch.Success) {
+        $failures.Add("${wrapperName}: dedicated '## $($info.Section)' section not found in docs/command-index.md")
+        continue
+    }
+
+    $documentedMethodNames = [System.Collections.Generic.SortedSet[string]]::new()
+    foreach ($rowMatch in [regex]::Matches($sectionMatch.Groups[1].Value, $methodRowPattern)) {
+        [void]$documentedMethodNames.Add($rowMatch.Groups['name'].Value)
+    }
     if (-not (Test-Path -LiteralPath $approvedPath)) {
         $failures.Add("${wrapperName}: approved API file not found: $approvedPath")
         continue
@@ -133,9 +145,14 @@ foreach ($wrapperName in $wrappers.Keys) {
             continue
         }
 
-        $needle = '`' + $name + '`'
-        if ($indexText.IndexOf($needle, [System.StringComparison]::Ordinal) -lt 0) {
-            $failures.Add("${wrapperName}: public method '$name' has no ``$name`` reference in docs/command-index.md")
+        if (-not $documentedMethodNames.Contains($name)) {
+            $failures.Add("${wrapperName}: public method '$name' has no ``$name`` row in its '$($info.Section)' section of docs/command-index.md")
+        }
+    }
+
+    foreach ($name in $documentedMethodNames) {
+        if (-not $methodNames.Contains($name)) {
+            $failures.Add("${wrapperName}: docs/command-index.md has stale ``$name`` row in its '$($info.Section)' section; method is absent from the approved API surface")
         }
     }
 }
@@ -155,5 +172,5 @@ if ($failures.Count -gt 0) {
     exit 1
 }
 
-Write-Host 'OK: every public wrapper method is referenced in docs/command-index.md.' -ForegroundColor Green
+Write-Host 'OK: every wrapper section matches its approved public API surface.' -ForegroundColor Green
 exit 0

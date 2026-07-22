@@ -121,11 +121,10 @@ jobs:
         shell: pwsh
         run: ./scripts/validate-packages.ps1 -PackagesDir ./artifacts
 
-  # docs/command-index.md is a hand-maintained reverse index (CLI command -> typed method);
-  # it drifts whenever a wrapper gains a public method and nobody adds its row. This job
-  # re-derives the expected method set from the approved public-API surface
-  # (tests/VcsToolkit.PublicApi.Tests/ApprovedApi/*.approved.txt) and fails if any public
-  # wrapper method has no corresponding row. Pure text processing — no build/dotnet needed.
+  # docs/command-index.md is a hand-maintained reverse index (CLI command -> typed method).
+  # This job compares each wrapper section bidirectionally with the approved public-API
+  # surface (tests/VcsToolkit.PublicApi.Tests/ApprovedApi/*.approved.txt). Pure text
+  # processing — no build/dotnet needed.
   command-index:
     runs-on: ubuntu-latest
     steps:
@@ -134,6 +133,10 @@ jobs:
       - name: Check docs/command-index.md against the approved API surface
         shell: pwsh
         run: ./scripts/check-command-index.ps1
+
+      - name: Run command-index drift regression tests
+        shell: pwsh
+        run: ./scripts/test-check-command-index.ps1
 
   test:
     strategy:

@@ -79,7 +79,13 @@ for this client's place in the layering.
 | `StagedIsEmpty` | `diff --cached --quiet` | |
 | `EmptyTreeOid` | `hash-object -t tree --stdin` (empty stdin) | this repo's actual empty-tree id (SHA-1 or SHA-256) |
 | `DiffIsEmpty` | `diff --quiet` | tracked files only |
-| `IsRebaseInProgress` / `IsAmInProgress` / `IsMergeInProgress` / `IsMergeInProgressDetached` / `IsCherryPickInProgress` / `IsRevertInProgress` / `IsBisectInProgress` | probes on-disk markers under the resolved git dir (no subcommand) | `IsMergeInProgressDetached` runs on a fresh cancellation budget, for cleanup paths |
+| `IsRebaseInProgress` | probes `rebase-merge/` or `rebase-apply/` markers under the resolved git dir | no subcommand |
+| `IsAmInProgress` | probes the `rebase-apply/applying` marker under the resolved git dir | no subcommand |
+| `IsMergeInProgress` | probes the `MERGE_HEAD` marker under the resolved git dir | no subcommand |
+| `IsMergeInProgressDetached` | probes the `MERGE_HEAD` marker under the resolved git dir | fresh cancellation budget for cleanup paths |
+| `IsCherryPickInProgress` | probes the `CHERRY_PICK_HEAD` marker under the resolved git dir | no subcommand |
+| `IsRevertInProgress` | probes the `REVERT_HEAD` marker under the resolved git dir | no subcommand |
+| `IsBisectInProgress` | probes the `BISECT_LOG` marker under the resolved git dir | no subcommand |
 
 ### Staging & committing
 
@@ -401,7 +407,7 @@ hatch; authentication is **ambient only** (`tea login add`, out of band — ther
 |---|---|---|
 | `AuthStatus` | `login list --output csv`, non-empty | `tea` has no per-instance auth status |
 | `PrList` | `pr list --state <state> --limit <limit> --fields … --output csv` | via `PrListOptions`; tea 0.9.2 has no `--output json` on `pr list` (K-049), so this drives `--output csv` |
-| `PrView` | `pr list --state all --limit 50 --page N …` (paged) + filter | synthesized — `tea` has no single-PR view |
+| `PrView` | `pr list --state all --limit 50 --page N --fields … --output csv` (paged) + filter | synthesized — `tea` has no single-PR view |
 | `PrCreate` | `pr create --title … --description … [--head …] [--base …]` | via `PrCreate`; returns tea's text output, **not** a URL |
 | `PrMerge` | `pr merge --style merge\|rebase\|squash <number>` | via `MergeStrategy`; the `--style` flag **must precede** the positional index (K-061) |
 | `PrClose` | `pr close <number>` | |
@@ -411,7 +417,7 @@ hatch; authentication is **ambient only** (`tea login add`, out of band — ther
 | `PrComment` | `comment <index> <body>` | shared with issues |
 | `PrEdit` | *(none — refused before spawning)* | `tea` 0.9.2 has no `pr edit` command at all (K-063); calling this returns a structural `Spawn` error rather than letting an unrecognised `pr edit` silently fall through to `pr list` |
 | `IssueList` | `issues list --state <state> --limit <limit> --fields … --output csv` | via `IssueListOptions`; same `--output csv` reason as `PrList` |
-| `IssueView` | `issues list --state all --limit 50 --page N …` (paged) + filter | synthesized — `tea issues <number>` renders Markdown and ignores `--output` |
+| `IssueView` | `issues list --state all --limit 50 --page N --fields … --output csv` (paged) + filter | synthesized — `tea issues <number>` renders Markdown and ignores `--output` |
 | `IssueCreate` | `issues create --title … --description …` | returns tea's text output (URL on the final line) |
 | `IssueClose` | `issues close <number>` | |
 | `IssueComment` | `comment <index> <body>` | shared with PRs |
@@ -462,9 +468,9 @@ A new typed method changes what a row in this index should say. When adding one 
 wrapper's client type, add or update the row in the matching table above — and drop it from
 that wrapper's "not modeled" list if it was mentioned there. `scripts/check-command-index.ps1`
 (wired into CI, see `.github/workflows/ci.yml`) compares each wrapper's approved public API
-surface (`tests/VcsToolkit.PublicApi.Tests/ApprovedApi/*.approved.txt`) against this file's
-method references and fails the build the first time a public method has no corresponding
-`` `MethodName` `` reference here.
+ surface (`tests/VcsToolkit.PublicApi.Tests/ApprovedApi/*.approved.txt`) against this file's
+ wrapper-specific method rows in both directions, so it fails the build if a public method is
+ missing a row or if a row names a method absent from that wrapper's approved API surface.
 
 ## See also
 
