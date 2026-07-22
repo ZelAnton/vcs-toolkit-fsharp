@@ -204,6 +204,51 @@ type AnnotatedTag =
     /// Tag `r` instead of `HEAD`.
     member this.WithRev(r: string) = { this with Rev = Some r }
 
+/// Options for `clean` (`git clean`). Deliberately defensive, mirroring the already-explicit
+/// `force` parameter on `WorktreeRemove`: bare `Create()` sets neither `DryRun` nor `Force`, and
+/// `Git.Clean` refuses to spawn `git` at all until the caller opts into one via `WithDryRun`/
+/// `WithForce` — independent of the repository's own `clean.requireForce` config, which this
+/// wrapper never relies on to make the operation safe.
+type Clean =
+    {
+        /// Also remove untracked directories, not just files (`-d`).
+        Directories: bool
+        /// Also remove ignored files (`-x`).
+        IncludeIgnored: bool
+        /// Remove *only* ignored files, leaving other untracked files alone (`-X`, mutually
+        /// exclusive with `IncludeIgnored` in git itself — setting both is the caller's error).
+        OnlyIgnored: bool
+        /// Show what would be removed, without removing anything (`-n` / `--dry-run`).
+        DryRun: bool
+        /// Actually remove the files — the caller's explicit, first-class acknowledgement that
+        /// this operation deletes untracked files irrecoverably (`-f` / `--force`).
+        Force: bool
+    }
+
+    /// Bare defaults: no directories/ignored files targeted, and neither `DryRun` nor `Force`
+    /// set. `Git.Clean` refuses a spec still in this shape.
+    static member Create() =
+        { Directories = false
+          IncludeIgnored = false
+          OnlyIgnored = false
+          DryRun = false
+          Force = false }
+
+    /// Show what would be removed without removing anything (`-n`).
+    member this.WithDryRun() = { this with DryRun = true }
+
+    /// Actually remove the files (`-f`).
+    member this.WithForce() = { this with Force = true }
+
+    /// Also remove untracked directories (`-d`).
+    member this.WithDirectories() = { this with Directories = true }
+
+    /// Also remove ignored files (`-x`).
+    member this.WithIncludeIgnored() = { this with IncludeIgnored = true }
+
+    /// Remove *only* ignored files (`-X`).
+    member this.WithOnlyIgnored() = { this with OnlyIgnored = true }
+
 /// A pre-validated git reference name (branch/tag/remote), for callers that accept
 /// names from untrusted input and want to fail early. Validation follows the
 /// load-bearing core of `git check-ref-format`, evaluated per slash-separated path
