@@ -171,13 +171,37 @@ type ParseTests() =
         Assert.That(got.[0], Is.EqualTo "src/a.rs")
         Assert.That(got.[1], Is.EqualTo "b.txt")
         Assert.That(JjParse.parseResolveList("").Length, Is.EqualTo 0)
-        // OS-native backslash separators (Windows, from `path.display()`) are normalised to
-        // `/`; `.escape_json()` renders a literal backslash doubled (`\\`), which
-        // `decodeJsonField` unescapes to one backslash before normalisation.
+        // `.escape_json()` renders a literal backslash doubled (`\\`), which
+        // `decodeJsonField` unescapes to one backslash before platform-aware normalisation.
         let win =
             JjParse.parseResolveList $"\"sub{string (char 92)}{string (char 92)}c.txt\"\n"
 
-        Assert.That(win.[0], Is.EqualTo "sub/c.txt")
+        let expected =
+            if System.OperatingSystem.IsWindows() then
+                "sub/c.txt"
+            else
+                $"sub{string (char 92)}c.txt"
+
+        Assert.That(win.[0], Is.EqualTo expected)
+
+    [<Test>]
+    member _.PreservesLiteralBackslashesAccordingToPlatform() =
+        let bs = string (char 92)
+        let literal = $"dir{bs}literal.txt"
+
+        let expected =
+            if System.OperatingSystem.IsWindows() then
+                "dir/literal.txt"
+            else
+                literal
+
+        let resolved = JjParse.parseResolveList $"\"dir{bs}{bs}literal.txt\"\n"
+        let summary = JjParse.parseDiffSummary $"M {literal}\n"
+
+        Assert.That(resolved.Length, Is.EqualTo 1)
+        Assert.That(resolved.[0], Is.EqualTo expected)
+        Assert.That(summary.Length, Is.EqualTo 1)
+        Assert.That(summary.[0].Path, Is.EqualTo expected)
 
     [<Test>]
     member _.ResolveListPreservesInternalRunsOfSpacesInPaths() =
@@ -307,9 +331,27 @@ type ParseTests() =
         let got =
             JjParse.parseDiffSummary $"M deep{bs}nested{bs}f.rs\nR win{bs}{{a.rs => b.rs}}\n"
 
-        Assert.That(got.[0].Path, Is.EqualTo "deep/nested/f.rs")
-        Assert.That(got.[1].Path, Is.EqualTo "win/b.rs")
-        Assert.That(got.[1].OldPath, Is.EqualTo(Some "win/a.rs"))
+        let expectedDeep =
+            if System.OperatingSystem.IsWindows() then
+                "deep/nested/f.rs"
+            else
+                $"deep{bs}nested{bs}f.rs"
+
+        let expectedOld =
+            if System.OperatingSystem.IsWindows() then
+                "win/a.rs"
+            else
+                $"win{bs}a.rs"
+
+        let expectedNew =
+            if System.OperatingSystem.IsWindows() then
+                "win/b.rs"
+            else
+                $"win{bs}b.rs"
+
+        Assert.That(got.[0].Path, Is.EqualTo expectedDeep)
+        Assert.That(got.[1].Path, Is.EqualTo expectedNew)
+        Assert.That(got.[1].OldPath, Is.EqualTo(Some expectedOld))
 
     [<Test>]
     member _.DiffStatParsesFooter() =
