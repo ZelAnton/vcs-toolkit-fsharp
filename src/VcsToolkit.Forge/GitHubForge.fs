@@ -45,7 +45,14 @@ module internal GitHubForge =
           // gh returns labels/assignees when requested (both are in `PR_FIELDS`), so these
           // are confirmed values — an empty list is a confirmed "none", never unknown.
           Labels = Some pr.Labels
-          Assignees = Some pr.Assignees }
+          Assignees = Some pr.Assignees
+          // author/createdAt/updatedAt are confirmed (all in `PR_FIELDS`) → Some; a deleted
+          // author reads as `Some ""` (a confirmed fact), never None. A null milestone
+          // flattens to "" in the wrapper → None here (no milestone), a set one → Some title.
+          Author = Some pr.Author
+          CreatedAt = Some pr.CreatedAt
+          UpdatedAt = Some pr.UpdatedAt
+          Milestone = Common.strOpt pr.Milestone }
 
     let private mapIssue (i: VcsToolkit.GitHub.Issue) : ForgeIssue =
         { Number = i.Number
@@ -56,7 +63,13 @@ module internal GitHubForge =
           // gh returns labels/assignees on issues too (both are in `ISSUE_*_FIELDS`) →
           // confirmed values, never unknown.
           Labels = Some i.Labels
-          Assignees = Some i.Assignees }
+          Assignees = Some i.Assignees
+          // author/createdAt/updatedAt confirmed (all in `ISSUE_*_FIELDS`) → Some (deleted
+          // author is `Some ""`); a null milestone → None, a set one → Some title.
+          Author = Some i.Author
+          CreatedAt = Some i.CreatedAt
+          UpdatedAt = Some i.UpdatedAt
+          Milestone = Common.strOpt i.Milestone }
 
     let private mapRelease (r: VcsToolkit.GitHub.Release) : ForgeRelease =
         { Tag = r.TagName
@@ -67,7 +80,10 @@ module internal GitHubForge =
           Body = Common.strOpt r.Body
           // gh's release surface carries both flags on list and view → Some.
           Draft = Some r.IsDraft
-          Prerelease = Some r.IsPrerelease }
+          Prerelease = Some r.IsPrerelease
+          // `releaseList` doesn't fetch the author (lean list, like Body/Url) → "" → None here;
+          // `releaseView` supplies it → Some login (a deleted author also reads "" → None).
+          Author = Common.strOpt r.Author }
 
     let private mapRepo (r: VcsToolkit.GitHub.Repo) : ForgeRepo =
         { Name = r.Name

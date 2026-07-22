@@ -249,6 +249,21 @@ type ForgePr =
         /// `username`) report `Some` — an empty `Some []` is a *confirmed* "unassigned";
         /// Gitea is always `None` (`tea`'s PR list/view has no assignees column).
         Assignees: string list option
+        /// Author login/username, or `None` when the backend can't report it. GitHub
+        /// (`author.login`) and GitLab (`author.username`) report `Some` — including `Some ""`
+        /// for a *confirmed* deleted/anonymised account, which is a fact, never conflated with
+        /// `None`. Gitea is always `None` (`tea`'s csv PR surface has no author column — K-049).
+        Author: string option
+        /// Creation timestamp (RFC 3339), or `None` when the backend can't report it.
+        /// GitHub/GitLab report `Some`; Gitea is always `None` (no timestamp column).
+        CreatedAt: string option
+        /// Last-update timestamp (RFC 3339), or `None` when the backend can't report it.
+        /// GitHub/GitLab report `Some`; Gitea is always `None` (no timestamp column).
+        UpdatedAt: string option
+        /// Milestone title, or `None` when there is no milestone or the backend can't report
+        /// one. GitHub/GitLab map an unset milestone (a `null`) to `None` and a set one to
+        /// `Some title`; Gitea is always `None` (no milestone column).
+        Milestone: string option
     }
 
 /// A repository (GitHub) / project (GitLab), unified. (Gitea's `tea` has no current-repo
@@ -352,6 +367,21 @@ type ForgeIssue =
         /// them. GitHub and GitLab report `Some` (an empty `Some []` is a *confirmed*
         /// "unassigned"); Gitea is always `None` — `tea` has no assignees column.
         Assignees: string list option
+        /// Author login/username, or `None` when the backend can't report it. GitHub
+        /// (`author.login`) and GitLab (`author.username`) report `Some` — including `Some ""`
+        /// for a *confirmed* deleted/anonymised account, which is a fact, never conflated with
+        /// `None`. Gitea is always `None` (`tea`'s csv issue surface has no author column — K-049).
+        Author: string option
+        /// Creation timestamp (RFC 3339), or `None` when the backend can't report it.
+        /// GitHub/GitLab report `Some`; Gitea is always `None` (no timestamp column).
+        CreatedAt: string option
+        /// Last-update timestamp (RFC 3339), or `None` when the backend can't report it.
+        /// GitHub/GitLab report `Some`; Gitea is always `None` (no timestamp column).
+        UpdatedAt: string option
+        /// Milestone title, or `None` when there is no milestone or the backend can't report
+        /// one. GitHub/GitLab map an unset milestone (a `null`) to `None` and a set one to
+        /// `Some title`; Gitea is always `None` (no milestone column).
+        Milestone: string option
     }
 
 /// A release, unified across the three forges. (Gitea's `tea` always lists, so
@@ -376,6 +406,12 @@ type ForgeRelease =
         /// Whether this is a pre-release, or `None` when the backend has no pre-release
         /// concept. GitHub/Gitea report it (`Some`); GitLab has none, so `None`.
         Prerelease: bool option
+        /// Release author login/username, or `None` when the backend can't report it.
+        /// **Best-effort on GitHub:** `None` from the lean `releaseList` (which doesn't fetch
+        /// the author, like `Url`/`Body`), `Some` from `releaseView`. GitLab carries the author
+        /// on both list and view (`Some`). Gitea is always `None` — `tea`'s release csv has no
+        /// author column (K-049).
+        Author: string option
     }
 
 /// The coarse CI status for a PR/MR, bucketed into the four states a caller acts on.

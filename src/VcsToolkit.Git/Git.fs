@@ -1335,6 +1335,33 @@ type Git private (core: ManagedClient) =
     member private _.StashPopIndex(dir: string) =
         core.RunUnit(cLocale (core.CommandIn(dir, [ "stash"; "pop"; "--index" ])))
 
+    // --- Clean -----------------------------------------------------------------
+
+    /// Remove untracked files (`git clean`). Deliberately defensive: refuses to spawn `git` at
+    /// all unless `spec` selects `DryRun` or `Force` — independent of the repository's own
+    /// `clean.requireForce` config, which this wrapper never consults, so the refusal holds even
+    /// when that config is unset or `false`. Runs under the C locale (`cLocale`) so the
+    /// `Would remove`/`Removing` lines parse regardless of the operator's locale.
+    member _.Clean(dir: string, spec: Clean) =
+        task {
+            if not spec.DryRun && not spec.Force then
+                return
+                    Error(
+                        ProcessError.Spawn(
+                            BINARY,
+                            "Clean requires DryRun or Force to be set explicitly — refusing to run a command that could silently delete untracked files"
+                        )
+                    )
+            else
+                let cmd = cLocale (core.CommandIn(dir, [ "clean" ]))
+                let cmd = if spec.Directories then cmd.Arg "-d" else cmd
+                let cmd = if spec.IncludeIgnored then cmd.Arg "-x" else cmd
+                let cmd = if spec.OnlyIgnored then cmd.Arg "-X" else cmd
+                let cmd = if spec.DryRun then cmd.Arg "-n" else cmd
+                let cmd = if spec.Force then cmd.Arg "-f" else cmd
+                return! core.Parse(cmd, GitParse.parseClean)
+        }
+
     // --- Worktrees -----------------------------------------------------------
 
     /// List worktrees (`worktree list --porcelain`).
@@ -1955,6 +1982,10 @@ and [<Sealed>] GitAt internal (git: Git, dir: string) =
 
     /// Switch to `branch`, carrying uncommitted changes across via the stash.
     member _.SwitchWithStash(branch: string) = git.SwitchWithStash(dir, branch)
+
+    /// Remove untracked files (`git clean`). Refuses to spawn `git` at all unless `spec` selects
+    /// `DryRun` or `Force` — see `Git.Clean`'s doc comment.
+    member _.Clean(spec: Clean) = git.Clean(dir, spec)
 
     /// List worktrees (`worktree list --porcelain`).
     member _.WorktreeList() = git.WorktreeList dir
