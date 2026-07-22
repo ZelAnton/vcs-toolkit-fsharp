@@ -1,6 +1,7 @@
 module VcsToolkit.CliSupport.Tests
 
 open System
+open System.IO
 open System.Threading
 open System.Threading.Tasks
 open NUnit.Framework
@@ -772,3 +773,95 @@ type ObserverTests() =
             | Ok out -> Assert.That(out, Is.EqualTo "ok")
             | Error e -> Assert.Fail $"a throwing observer must not fail the command: {e}"
         }
+
+[<TestFixture>]
+type CloneDestCleanableTests() =
+
+    let mutable tempRoot = ""
+
+    [<SetUp>]
+    member _.SetUp() =
+        tempRoot <- Path.Combine(Path.GetTempPath(), "vcs-toolkit-clone-cleanable-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory tempRoot |> ignore
+
+    [<TearDown>]
+    member _.TearDown() =
+        try
+            if Directory.Exists tempRoot then
+                Directory.Delete(tempRoot, true)
+        with _ ->
+            // Best-effort cleanup of the scratch temp tree; a leftover empty/near-empty temp dir
+            // from a failed test is not fatal.
+            ()
+
+    [<Test>]
+    member _.AbsentPathIsCleanable() =
+        // Real filesystem probes (the production `Directory.Exists` / `EnumerateFileSystemEntries`)
+        // through the actual public entry point.
+        let dest = Path.Combine(tempRoot, "does-not-exist")
+        Assert.That(cloneDestCleanable dest)
+
+    [<Test>]
+    member _.EmptyExistingDirectoryIsCleanable() =
+        let dest = Path.Combine(tempRoot, "empty")
+        Directory.CreateDirectory dest |> ignore
+        Assert.That(cloneDestCleanable dest)
+
+    [<Test>]
+    member _.NonEmptyDirectoryIsNotCleanable() =
+        let dest = Path.Combine(tempRoot, "nonempty")
+        Directory.CreateDirectory dest |> ignore
+        File.WriteAllText(Path.Combine(dest, "keep.txt"), "the caller's data")
+        Assert.That(cloneDestCleanable dest, Is.False)
+
+    [<Test>]
+    member _.PreExistingFileIsNotCleanable() =
+        // `dest` exists as a plain file rather than a directory. `Directory.Exists`/`File.Exists`
+        // alone would misclassify this: `Directory.Exists` reads it as "absent" (false), which is
+        // exactly the ambiguity `cloneDestCleanableCore` no longer trusts (R-01) - real filesystem
+        // enumeration of a file path raises `IOException`, not `DirectoryNotFoundException`, so it
+        // correctly falls through to "not proven" / not cleanable.
+        let dest = Path.Combine(tempRoot, "a-file")
+        File.WriteAllText(dest, "the caller's data")
+        Assert.That(cloneDestCleanable dest, Is.False)
+
+    // The remaining scenarios exercise `cloneDestCleanableCore` directly with a stubbed
+    // `enumerate`, forcing a specific exception to reproduce a real unreadable directory
+    // deterministically across platforms, rather than depending on OS-specific permission tricks
+    // (denying read access) that behave differently per-OS and per-CI-runner privilege level.
+
+    [<Test>]
+    member _.EnumerationUnauthorizedAccessIsNotCleanable() =
+        // R-01 regression: an existing-but-unreadable directory is exactly the case where
+        // `Directory.Exists`/`File.Exists` silently swallow the access error and report `false`
+        // (as if absent). `cloneDestCleanableCore` takes no `exists` probe at all - it can only
+        // ever see this outcome through `enumerate` raising `UnauthorizedAccessException`, which
+        // must fail closed (not cleanable), never fall through to "absent, therefore cleanable".
+        let throwing =
+            fun (_: string) -> raise (UnauthorizedAccessException "access denied"): string seq
+
+        Assert.That(cloneDestCleanableCore throwing "irrelevant", Is.False)
+
+    [<Test>]
+    member _.EnumerationIOExceptionIsNotCleanable() =
+        let throwing =
+            fun (_: string) -> raise (IOException "transient I/O error"): string seq
+
+        Assert.That(cloneDestCleanableCore throwing "irrelevant", Is.False)
+
+    [<Test>]
+    member _.EnumerationUnforeseenExceptionIsNotCleanable() =
+        // "Any other error" - fail-closed even for exception types not explicitly named above.
+        let throwing =
+            fun (_: string) -> raise (InvalidOperationException "unexpected"): string seq
+
+        Assert.That(cloneDestCleanableCore throwing "irrelevant", Is.False)
+
+    [<Test>]
+    member _.EnumerationDirectoryNotFoundIsCleanable() =
+        // A `DirectoryNotFoundException` from `enumerate` is *proven* absence - cleanable, unlike
+        // every other enumeration failure above.
+        let throwing =
+            fun (_: string) -> raise (DirectoryNotFoundException "gone"): string seq
+
+        Assert.That(cloneDestCleanableCore throwing "irrelevant")

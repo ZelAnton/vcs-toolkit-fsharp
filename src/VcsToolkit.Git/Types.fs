@@ -276,6 +276,29 @@ type RevSpec private (value: string) =
         | Error e -> Error e
         | Ok() -> Ok(RevSpec rev)
 
+/// One entry from `git stash list -z --format=%gd%x1f%H%x1f%gs`.
+type StashEntry =
+    {
+        /// Position in the stash list (`stash@{Index}`) — 0 is the most recently pushed entry,
+        /// the one a bare `stash pop`/`stash apply` would target.
+        Index: uint32
+        /// Full commit hash of the stash commit (`%H`).
+        Hash: string
+        /// Branch the stash was created on, parsed from the reflog subject (`%gs`) when it
+        /// matches git's own `"WIP on <branch>: ..."` / `"On <branch>: ..."` shape — a ref name
+        /// structurally can't contain `:` (`RefName.Create`'s forbidden set), so the first colon
+        /// in the subject unambiguously ends the branch component. `None` when the subject
+        /// doesn't match either shape (a foreign/hand-written reflog entry).
+        Branch: string option
+        /// The stash's reflog subject (`%gs`), verbatim for valid UTF-8 output — e.g.
+        /// `"WIP on main: 1234567 subject"` or `"On main: custom message"`. If git emits
+        /// malformed UTF-8, .NET decoding replaces the invalid byte sequences with U+FFFD
+        /// replacement characters. Left un-stripped (rather than trying to peel off the
+        /// `"WIP on <branch>: "`/`"On <branch>: "` prefix) so the field can never lose or
+        /// misplace part of a message that itself contains colons or embedded newlines.
+        Message: string
+    }
+
 /// What the installed `git` binary supports, probed via `capabilities`.
 type GitCapabilities =
     {

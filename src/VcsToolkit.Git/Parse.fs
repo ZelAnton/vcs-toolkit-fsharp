@@ -284,6 +284,63 @@ module internal GitParse =
                 None)
         |> Array.toList
 
+    /// `stash@{<digits>}` -> the index, or `None` on anything else. Requires both the `stash@{`
+    /// prefix and the closing `}` before trusting the digits in between, so a malformed selector
+    /// (rather than a wrong number) is skipped like any other unparseable record.
+    let private parseStashIndex (gd: string) : uint32 option =
+        if
+            gd.StartsWith("stash@{", StringComparison.Ordinal)
+            && gd.EndsWith("}", StringComparison.Ordinal)
+        then
+            let inner = gd.Substring(7, gd.Length - 8)
+
+            if inner.Length > 0 && inner |> Seq.forall Char.IsAsciiDigit then
+                match
+                    UInt32.TryParse(inner, Globalization.NumberStyles.None, Globalization.CultureInfo.InvariantCulture)
+                with
+                | true, v -> Some v
+                | _ -> None
+            else
+                None
+        else
+            None
+
+    /// Best-effort branch out of a stash reflog subject (`%gs`): recognizes git's own `"WIP on
+    /// <branch>: ..."` and `"On <branch>: ..."` shapes. The first `:` after the prefix always
+    /// ends the branch component — a ref name can't contain `:` — so this never needs to guess
+    /// where the branch name stops even when the trailing message itself contains colons.
+    let private parseStashBranch (gs: string) : string option =
+        [ "WIP on "; "On " ]
+        |> List.tryPick (fun prefix ->
+            if gs.StartsWith(prefix, StringComparison.Ordinal) then
+                match gs.Substring(prefix.Length).IndexOf ':' with
+                | -1 -> None
+                | idx -> Some(gs.Substring(prefix.Length, idx))
+            else
+                None)
+
+    /// Parse `git stash list -z --format=%gd%x1f%H%x1f%gs` into typed `StashEntry`s. Total: a
+    /// record whose `%gd` doesn't match `stash@{<digits>}`, or that is missing a field, is
+    /// skipped rather than raising.
+    let parseStashList (output: string) : StashEntry list =
+        output.Split nul
+        |> Array.filter (fun r -> r <> "")
+        |> Array.choose (fun record ->
+            // Limited to 3 fields so the trailing %gs keeps any literal 0x1f/newline it
+            // contains, the same convention as `parseLog`'s 5-field cap for %s.
+            let f = record.Split(unitSep, 3)
+
+            if f.Length >= 3 then
+                parseStashIndex f.[0]
+                |> Option.map (fun index ->
+                    { Index = index
+                      Hash = f.[1]
+                      Branch = parseStashBranch f.[2]
+                      Message = f.[2] })
+            else
+                None)
+        |> Array.toList
+
     /// Parse a NUL-delimited `git log -z --format=%H` hash list into git's own commit order
     /// for the queried revspec — the ranking oracle that restores order across `LogPaths`'s
     /// merged chunk results. Same framing as `parseNulPaths`, kept distinct for its role.

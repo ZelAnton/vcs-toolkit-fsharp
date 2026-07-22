@@ -276,6 +276,9 @@ namespace VcsToolkit.Git
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> ShowFile(string dir, string rev, string path) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<byte[], ProcessKit.ProcessError>> ShowFileBytes(string dir, string rev, string path) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<bool, ProcessKit.ProcessError>> StagedIsEmpty(string dir) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> StashApply(string dir, uint index) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> StashDrop(string dir, uint index) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Git.StashEntry>, ProcessKit.ProcessError>> StashList(string dir) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> StashPop(string dir) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> StashPush(string dir, bool includeUntracked) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Git.StatusEntry>, ProcessKit.ProcessError>> Status(string dir) { }
@@ -388,6 +391,9 @@ namespace VcsToolkit.Git
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> ShowFile(string rev, string path) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<byte[], ProcessKit.ProcessError>> ShowFileBytes(string rev, string path) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<bool, ProcessKit.ProcessError>> StagedIsEmpty() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> StashApply(uint index) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> StashDrop(uint index) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Git.StashEntry>, ProcessKit.ProcessError>> StashList() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> StashPop() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> StashPush(bool includeUntracked) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Git.StatusEntry>, ProcessKit.ProcessError>> Status() { }
@@ -531,6 +537,21 @@ namespace VcsToolkit.Git
         public string Value { get; }
         public override string ToString() { }
         public static Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Git.RevSpec, ProcessKit.ProcessError> Create(string rev) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class StashEntry : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Git.StashEntry>, System.IEquatable<VcsToolkit.Git.StashEntry>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Git.StashEntry))]
+        public StashEntry(uint index, string hash, Microsoft.FSharp.Core.FSharpOption<string>? branch, string message) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? Branch { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public string Hash { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public uint Index { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+        public string Message { get; }
     }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
     [System.Serializable]
