@@ -27,4 +27,10 @@
 		<PackageReference Include="ProcessKit" />
 	</ItemGroup>
 
+	<!-- `cloneDestCleanableCore` (Wrappers.fs) is internal - tests exercise it directly to force a
+	     specific enumeration exception without depending on OS-specific permission tricks. -->
+	<ItemGroup>
+		<InternalsVisibleTo Include="VcsToolkit.CliSupport.Tests" />
+	</ItemGroup>
+
 </Project>

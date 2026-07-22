@@ -38,17 +38,47 @@ module Wrappers =
         | Ok v -> Ok v
         | Error m -> Error(ProcessError.Parse(program, m))
 
-    /// R7: whether `dest` is one a clone could have *created* — absent, unreadable, or an empty
-    /// directory — as opposed to a non-empty pre-existing dir (the caller's data, which git/jj
-    /// refuses to clone into). Captured **before** the clone so a failure can clean only its own
-    /// partial output.
-    let cloneDestCleanable (dest: string) : bool =
+    /// Core of `cloneDestCleanable`, parameterized over the filesystem probes so tests can force a
+    /// specific enumeration outcome (incl. a specific exception type) without depending on
+    /// OS-specific permission tricks to reproduce a real unreadable directory. `internal` +
+    /// `InternalsVisibleTo` exposes it to `VcsToolkit.CliSupport.Tests` only; `cloneDestCleanable`
+    /// is the sole real caller.
+    ///
+    /// Fail-closed: `true` (cleanable) only when absence or emptiness is *proven* —
+    /// `exists dest = false`, or `enumerate dest` raises `DirectoryNotFoundException` (the
+    /// directory was proven absent, e.g. removed between the `exists` check and this call), or
+    /// `enumerate dest` yields no entries. Any other failure from `enumerate` —
+    /// `UnauthorizedAccessException`, `IOException`, or anything else — means absence/emptiness
+    /// could NOT be proven, so it is treated as "not ours, don't touch" (`false`), never as
+    /// cleanable.
+    let internal cloneDestCleanableCore
+        (exists: string -> bool)
+        (enumerate: string -> seq<string>)
+        (dest: string)
+        : bool =
         try
-            (not (Directory.Exists dest))
-            || (Directory.EnumerateFileSystemEntries dest |> Seq.isEmpty)
-        with _ ->
-            // Unreadable → the clone would create/populate it; treat as cleanable.
+            (not (exists dest)) || (enumerate dest |> Seq.isEmpty)
+        with
+        | :? DirectoryNotFoundException ->
+            // The directory is proven absent (a race between `exists` and `enumerate`, or a
+            // filesystem that reports non-existence only on the enumerate call) - cleanable.
             true
+        | _ ->
+            // Permission denied, a transient I/O error, `dest` being a plain file rather than a
+            // directory, or anything else unforeseen: emptiness/absence could not be proven, so
+            // fail closed and refuse cleanup rather than risk deleting the caller's data.
+            false
+
+    /// R7: whether `dest` is one a clone could have *created* — absent or an empty directory — as
+    /// opposed to a non-empty pre-existing dir or a pre-existing file (the caller's data, which
+    /// git/jj refuses to clone into). Captured **before** the clone so a failure can clean only its
+    /// own partial output. Fail-closed (see `cloneDestCleanableCore`): a `dest` that already exists
+    /// as a plain file, or whose directory listing cannot be proven empty, is never cleanable.
+    let cloneDestCleanable (dest: string) : bool =
+        if File.Exists dest then
+            false
+        else
+            cloneDestCleanableCore Directory.Exists Directory.EnumerateFileSystemEntries dest
 
     /// R7: on a failed clone into a `cleanable` `dest`, best-effort remove the partial output so a
     /// retry isn't blocked by "destination path already exists and is not empty". A timeout grace
