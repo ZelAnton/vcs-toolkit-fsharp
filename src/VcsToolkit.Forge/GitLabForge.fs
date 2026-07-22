@@ -38,7 +38,13 @@ module internal GitLabForge =
           // GitLab's REST MR always carries labels/assignees → confirmed values (an empty
           // list is a confirmed "none", never unknown).
           Labels = Some mr.Labels
-          Assignees = Some mr.Assignees }
+          Assignees = Some mr.Assignees
+          // GitLab's REST MR always carries author/timestamps → Some (a deleted author is
+          // `Some ""`, a confirmed fact); a null milestone → None, a set one → Some title.
+          Author = Some mr.Author
+          CreatedAt = Some mr.CreatedAt
+          UpdatedAt = Some mr.UpdatedAt
+          Milestone = Common.strOpt mr.Milestone }
 
     let private mapIssue (i: VcsToolkit.GitLab.Issue) : ForgeIssue =
         { Number = i.Number
@@ -48,7 +54,13 @@ module internal GitLabForge =
           Url = i.Url
           // GitLab's REST issue always carries labels/assignees → confirmed values.
           Labels = Some i.Labels
-          Assignees = Some i.Assignees }
+          Assignees = Some i.Assignees
+          // GitLab's REST issue always carries author/timestamps → Some (deleted author is
+          // `Some ""`); a null milestone → None, a set one → Some title.
+          Author = Some i.Author
+          CreatedAt = Some i.CreatedAt
+          UpdatedAt = Some i.UpdatedAt
+          Milestone = Common.strOpt i.Milestone }
 
     let private mapRelease (r: VcsToolkit.GitLab.Release) : ForgeRelease =
         { Tag = r.TagName
@@ -59,7 +71,10 @@ module internal GitLabForge =
           // GitLab has no draft/pre-release concept on a release → unknown, None (not a
           // fabricated `Some false`).
           Draft = None
-          Prerelease = None }
+          Prerelease = None
+          // GitLab carries the author on both release list and view → Some (a deleted author
+          // is `Some ""`, a confirmed fact), unlike gh's lean list which can't report it.
+          Author = Some r.Author }
 
     let private mapProject (p: VcsToolkit.GitLab.Repo) : ForgeRepo =
         // GitLab has no separate "owner" — everything before the last `/` in the

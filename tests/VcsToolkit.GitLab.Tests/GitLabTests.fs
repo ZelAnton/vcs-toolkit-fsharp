@@ -86,6 +86,30 @@ type ParseTests() =
         Assert.That(mr.TargetBranch, Is.EqualTo "")
 
     [<Test>]
+    member _.MrFlattensAuthorMilestoneAndReadsTimestamps() =
+        // GitLab nests `author` (`{"username": …}`) and `milestone` (`{"title": …}`); both
+        // flatten to the inner field, and `created_at`/`updated_at` are RFC 3339 strings.
+        let json =
+            """{"iid":4,"title":"t","state":"opened","source_branch":"s","target_branch":"main","web_url":"u","author":{"username":"steiza"},"created_at":"2026-01-02T03:04:05Z","updated_at":"2026-01-03T04:05:06Z","milestone":{"title":"16.0"}}"""
+
+        let mr = expectOk (GitLabParse.parseMr json)
+        Assert.That(mr.Author, Is.EqualTo "steiza", "author.username flattened")
+        Assert.That(mr.CreatedAt, Is.EqualTo "2026-01-02T03:04:05Z")
+        Assert.That(mr.UpdatedAt, Is.EqualTo "2026-01-03T04:05:06Z")
+        Assert.That(mr.Milestone, Is.EqualTo "16.0", "milestone.title flattened")
+
+    [<Test>]
+    member _.MrReadsNullAuthorAndMilestoneAsEmpty() =
+        // A deleted account → `author: null`; an unset milestone → `milestone: null`. Both
+        // flatten to "" (the wrapper's "absent" marker), never a crash.
+        let json =
+            """{"iid":5,"title":"t","state":"merged","author":null,"milestone":null}"""
+
+        let mr = expectOk (GitLabParse.parseMr json)
+        Assert.That(mr.Author, Is.EqualTo "", "null author (deleted account) reads as empty")
+        Assert.That(mr.Milestone, Is.EqualTo "", "null milestone (unset) reads as empty")
+
+    [<Test>]
     member _.IssueParsesIidAsNumberAndDescriptionAsBody() =
         let json =
             """[{"iid":1,"title":"Fix bug","state":"opened","description":"the body","web_url":"https://gl/i/1"}]"""
@@ -96,6 +120,25 @@ type ParseTests() =
             Assert.That(issue.Body, Is.EqualTo "the body")
             Assert.That(issue.Url, Is.EqualTo "https://gl/i/1")
         | other -> Assert.Fail $"expected one issue, got {other.Length}"
+
+    [<Test>]
+    member _.IssueFlattensAuthorMilestoneAndReadsNullAsEmpty() =
+        // A populated issue flattens author/milestone; a null author/milestone reads as "".
+        let populated =
+            """{"iid":2,"title":"t","state":"opened","description":"b","web_url":"u","author":{"username":"andyfeller"},"created_at":"2026-01-02T03:04:05Z","updated_at":"2026-01-03T04:05:06Z","milestone":{"title":"backlog"}}"""
+
+        let issue = expectOk (GitLabParse.parseIssue populated)
+        Assert.That(issue.Author, Is.EqualTo "andyfeller", "author.username flattened")
+        Assert.That(issue.CreatedAt, Is.EqualTo "2026-01-02T03:04:05Z")
+        Assert.That(issue.UpdatedAt, Is.EqualTo "2026-01-03T04:05:06Z")
+        Assert.That(issue.Milestone, Is.EqualTo "backlog", "milestone.title flattened")
+
+        let nulls =
+            """{"iid":3,"title":"t","state":"closed","description":"b","web_url":"u","author":null,"milestone":null}"""
+
+        let ghostIssue = expectOk (GitLabParse.parseIssue nulls)
+        Assert.That(ghostIssue.Author, Is.EqualTo "", "null author reads as empty")
+        Assert.That(ghostIssue.Milestone, Is.EqualTo "", "null milestone reads as empty")
 
     [<Test>]
     member _.ProjectFlattensAndVisibilityIsSome() =
@@ -121,13 +164,14 @@ type ParseTests() =
     [<Test>]
     member _.ReleaseReadsUrlFromNestedLinksSelf() =
         let json =
-            """{"tag_name":"v1.0","name":"Release 1.0","released_at":"2026-01-02T03:04:05.000Z","description":"the notes","_links":{"self":"https://gl/-/releases/v1.0"}}"""
+            """{"tag_name":"v1.0","name":"Release 1.0","released_at":"2026-01-02T03:04:05.000Z","description":"the notes","author":{"username":"releaser"},"_links":{"self":"https://gl/-/releases/v1.0"}}"""
 
         let rel = expectOk (GitLabParse.parseRelease json)
         Assert.That(rel.TagName, Is.EqualTo "v1.0")
         Assert.That(rel.Url, Is.EqualTo "https://gl/-/releases/v1.0", "url flattened from _links.self")
         Assert.That(rel.PublishedAt, Is.EqualTo "2026-01-02T03:04:05.000Z")
         Assert.That(rel.Description, Is.EqualTo "the notes")
+        Assert.That(rel.Author, Is.EqualTo "releaser", "author.username flattened")
 
     [<Test>]
     member _.ReleaseToleratesMissingLinksAndDate() =
