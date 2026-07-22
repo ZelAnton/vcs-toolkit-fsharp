@@ -98,6 +98,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed silent acceptance of wrong-typed optional string arguments in `forge_pr_create` and `forge_pr_edit`.
 - `Git.RemoteBranchExists` now inherits the client's `DefaultTimeout`, matching `Git.RemoteBranches`, instead of unconditionally replacing it with a 10-second deadline.
 - `VcsToolkit.Jj`'s internal `decodeJsonField` no longer emits a NUL character for a truncated `\uXXXX` escape (fewer than four hex digits); decoding now stops instead, matching the parser's own documented total-decoding contract.
+- `Jj.BookmarkTrack` now rejects empty, whitespace-only, or `@`-containing remotes before spawning; callers that relied on the previous silent `Ok()` or last-`@` parsing behavior now receive `Error` instead (breaking contract change).
 - `VcsToolkit.Watch` now observes shared jj stores when watching a secondary workspace.
 - `vcs-mcp`'s MCP handshake no longer advertises a hardcoded `1.0.0` `ServerInfo.Version`; it now tracks the actual built assembly version.
 - `Jj.CommitPaths` and `JjAt.CommitPaths` now refuse an empty fileset before spawning `jj commit`, preventing a direct client call from committing the entire working copy.
