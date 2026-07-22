@@ -38,30 +38,29 @@ module Wrappers =
         | Ok v -> Ok v
         | Error m -> Error(ProcessError.Parse(program, m))
 
-    /// Core of `cloneDestCleanable`, parameterized over the filesystem probes so tests can force a
-    /// specific enumeration outcome (incl. a specific exception type) without depending on
-    /// OS-specific permission tricks to reproduce a real unreadable directory. `internal` +
+    /// Core of `cloneDestCleanable`, parameterized over the enumeration probe so tests can force a
+    /// specific outcome (incl. a specific exception type) without depending on OS-specific
+    /// permission tricks to reproduce a real unreadable directory. `internal` +
     /// `InternalsVisibleTo` exposes it to `VcsToolkit.CliSupport.Tests` only; `cloneDestCleanable`
     /// is the sole real caller.
     ///
-    /// Fail-closed: `true` (cleanable) only when absence or emptiness is *proven* —
-    /// `exists dest = false`, or `enumerate dest` raises `DirectoryNotFoundException` (the
-    /// directory was proven absent, e.g. removed between the `exists` check and this call), or
-    /// `enumerate dest` yields no entries. Any other failure from `enumerate` —
-    /// `UnauthorizedAccessException`, `IOException`, or anything else — means absence/emptiness
-    /// could NOT be proven, so it is treated as "not ours, don't touch" (`false`), never as
-    /// cleanable.
-    let internal cloneDestCleanableCore
-        (exists: string -> bool)
-        (enumerate: string -> seq<string>)
-        (dest: string)
-        : bool =
+    /// Deliberately does **not** take a separate `exists` probe: `Directory.Exists`/`File.Exists`
+    /// swallow every error (including `UnauthorizedAccessException`) and report plain `false`, so
+    /// an *existing but unreadable* `dest` would be indistinguishable from a genuinely absent one —
+    /// exactly the fail-open gap this function must not reintroduce. Instead, absence/emptiness is
+    /// proven from `enumerate`'s own outcome alone: a nonexistent `dest` makes
+    /// `Directory.EnumerateFileSystemEntries` raise `DirectoryNotFoundException` (proven absence);
+    /// a `dest` that exists as a plain file raises `IOException` (not `DirectoryNotFoundException`,
+    /// so it correctly falls through to "not proven" below); a successful enumeration proves
+    /// emptiness by yielding no entries. Any other failure — `UnauthorizedAccessException`,
+    /// `IOException`, or anything else — means absence/emptiness could NOT be proven, so it is
+    /// treated as "not ours, don't touch" (`false`), never as cleanable.
+    let internal cloneDestCleanableCore (enumerate: string -> seq<string>) (dest: string) : bool =
         try
-            (not (exists dest)) || (enumerate dest |> Seq.isEmpty)
+            enumerate dest |> Seq.isEmpty
         with
         | :? DirectoryNotFoundException ->
-            // The directory is proven absent (a race between `exists` and `enumerate`, or a
-            // filesystem that reports non-existence only on the enumerate call) - cleanable.
+            // The directory is proven absent - cleanable.
             true
         | _ ->
             // Permission denied, a transient I/O error, `dest` being a plain file rather than a
@@ -75,10 +74,7 @@ module Wrappers =
     /// own partial output. Fail-closed (see `cloneDestCleanableCore`): a `dest` that already exists
     /// as a plain file, or whose directory listing cannot be proven empty, is never cleanable.
     let cloneDestCleanable (dest: string) : bool =
-        if File.Exists dest then
-            false
-        else
-            cloneDestCleanableCore Directory.Exists Directory.EnumerateFileSystemEntries dest
+        cloneDestCleanableCore Directory.EnumerateFileSystemEntries dest
 
     /// R7: on a failed clone into a `cleanable` `dest`, best-effort remove the partial output so a
     /// retry isn't blocked by "destination path already exists and is not empty". A timeout grace

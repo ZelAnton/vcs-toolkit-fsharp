@@ -816,8 +816,11 @@ type CloneDestCleanableTests() =
 
     [<Test>]
     member _.PreExistingFileIsNotCleanable() =
-        // `dest` exists as a plain file rather than a directory - `Directory.Exists` alone would
-        // (wrongly) read this as "absent"; the explicit `File.Exists` guard must catch it.
+        // `dest` exists as a plain file rather than a directory. `Directory.Exists`/`File.Exists`
+        // alone would misclassify this: `Directory.Exists` reads it as "absent" (false), which is
+        // exactly the ambiguity `cloneDestCleanableCore` no longer trusts (R-01) - real filesystem
+        // enumeration of a file path raises `IOException`, not `DirectoryNotFoundException`, so it
+        // correctly falls through to "not proven" / not cleanable.
         let dest = Path.Combine(tempRoot, "a-file")
         File.WriteAllText(dest, "the caller's data")
         Assert.That(cloneDestCleanable dest, Is.False)
@@ -829,40 +832,36 @@ type CloneDestCleanableTests() =
 
     [<Test>]
     member _.EnumerationUnauthorizedAccessIsNotCleanable() =
-        let alwaysExists = fun (_: string) -> true
-
+        // R-01 regression: an existing-but-unreadable directory is exactly the case where
+        // `Directory.Exists`/`File.Exists` silently swallow the access error and report `false`
+        // (as if absent). `cloneDestCleanableCore` takes no `exists` probe at all - it can only
+        // ever see this outcome through `enumerate` raising `UnauthorizedAccessException`, which
+        // must fail closed (not cleanable), never fall through to "absent, therefore cleanable".
         let throwing =
             fun (_: string) -> raise (UnauthorizedAccessException "access denied"): string seq
 
-        Assert.That(cloneDestCleanableCore alwaysExists throwing "irrelevant", Is.False)
+        Assert.That(cloneDestCleanableCore throwing "irrelevant", Is.False)
 
     [<Test>]
     member _.EnumerationIOExceptionIsNotCleanable() =
-        let alwaysExists = fun (_: string) -> true
-
         let throwing =
             fun (_: string) -> raise (IOException "transient I/O error"): string seq
 
-        Assert.That(cloneDestCleanableCore alwaysExists throwing "irrelevant", Is.False)
+        Assert.That(cloneDestCleanableCore throwing "irrelevant", Is.False)
 
     [<Test>]
     member _.EnumerationUnforeseenExceptionIsNotCleanable() =
         // "Any other error" - fail-closed even for exception types not explicitly named above.
-        let alwaysExists = fun (_: string) -> true
-
         let throwing =
             fun (_: string) -> raise (InvalidOperationException "unexpected"): string seq
 
-        Assert.That(cloneDestCleanableCore alwaysExists throwing "irrelevant", Is.False)
+        Assert.That(cloneDestCleanableCore throwing "irrelevant", Is.False)
 
     [<Test>]
     member _.EnumerationDirectoryNotFoundIsCleanable() =
-        // A `DirectoryNotFoundException` from `enumerate` (e.g. a race between the `exists` check
-        // and this call - the directory was removed in between) is *proven* absence - cleanable,
-        // unlike every other enumeration failure above.
-        let alwaysExists = fun (_: string) -> true
-
+        // A `DirectoryNotFoundException` from `enumerate` is *proven* absence - cleanable, unlike
+        // every other enumeration failure above.
         let throwing =
             fun (_: string) -> raise (DirectoryNotFoundException "gone"): string seq
 
-        Assert.That(cloneDestCleanableCore alwaysExists throwing "irrelevant")
+        Assert.That(cloneDestCleanableCore throwing "irrelevant")
