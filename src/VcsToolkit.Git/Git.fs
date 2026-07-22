@@ -1286,8 +1286,33 @@ type Git private (core: ManagedClient) =
     member _.StashPop(dir: string) =
         core.RunUnit(cLocale (core.CommandIn(dir, [ "stash"; "pop" ])))
 
+    /// List stash entries (`git stash list -z --format=%gd%x1f%H%x1f%gs`), newest first — index 0
+    /// is what a bare `StashApply`/`StashPop` would target.
+    member _.StashList(dir: string) =
+        core.Parse(core.CommandIn(dir, [ "stash"; "list"; "-z"; "--format=%gd%x1f%H%x1f%gs" ]), GitParse.parseStashList)
+
+    /// Apply a stash entry without dropping it (`stash apply stash@{<index>}`), unlike `StashPop`
+    /// which applies-and-removes in one step. C-locale so a conflicting apply's `CONFLICT (...)`
+    /// output stays classifiable by `isMergeConflict`, same as `StashPop`. `index` is a `uint32`,
+    /// not an arbitrary string, so flag-injection through this argument is structurally
+    /// impossible.
+    member _.StashApply(dir: string, index: uint32) =
+        core.RunUnit(cLocale (core.CommandIn(dir, [ "stash"; "apply"; sprintf "stash@{%d}" index ])))
+
+    /// Drop a stash entry without applying it (`stash drop stash@{<index>}`). Same `uint32` index
+    /// discipline as `StashApply` — flag-injection through this argument is structurally
+    /// impossible.
+    member _.StashDrop(dir: string, index: uint32) =
+        core.RunUnit(core.CommandIn(dir, [ "stash"; "drop"; sprintf "stash@{%d}" index ]))
+
     /// The number of entries in the stash list (`git stash list`) — used by `SwitchWithStash` to
     /// tell whether a `stash push` actually saved anything. Internal helper (private in Rust too).
+    ///
+    /// Deliberately NOT reimplemented on top of `StashList`/`parseStashList`: `SwitchWithStash`'s
+    /// depth-bracketing only needs a raw entry *count* immediately before/after `stash push`, and
+    /// this plain `stash list` + line-count keeps that count correct even for a stash entry whose
+    /// `%gd`/`%gs` fields fail `parseStashList`'s stricter, typed parse (which would silently
+    /// under-count and defeat the data-loss guard `SwitchWithStash` relies on). Kept as-is.
     member private _.StashDepth(dir: string) =
         task {
             match! core.Run(core.CommandIn(dir, [ "stash"; "list" ])) with
@@ -1902,6 +1927,15 @@ and [<Sealed>] GitAt internal (git: Git, dir: string) =
 
     /// Restore the most recent stash and drop it (`stash pop`).
     member _.StashPop() = git.StashPop dir
+
+    /// List stash entries, newest first.
+    member _.StashList() = git.StashList dir
+
+    /// Apply a stash entry without dropping it (`stash apply stash@{<index>}`).
+    member _.StashApply(index: uint32) = git.StashApply(dir, index)
+
+    /// Drop a stash entry without applying it (`stash drop stash@{<index>}`).
+    member _.StashDrop(index: uint32) = git.StashDrop(dir, index)
 
     /// Switch to `branch`, carrying uncommitted changes across via the stash.
     member _.SwitchWithStash(branch: string) = git.SwitchWithStash(dir, branch)

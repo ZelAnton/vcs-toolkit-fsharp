@@ -301,6 +301,78 @@ type QueryTests() =
         }
 
     [<Test>]
+    member _.StashListBuildsArgvAndParsesFields() : Task =
+        task {
+            let out =
+                $"stash@{{0}}{us}abc123{us}WIP on main: 1234567 subject{nul}"
+                + $"stash@{{1}}{us}def456{us}On feature: custom message{nul}"
+
+            let git =
+                scripted [ "stash"; "list"; "-z"; "--format=%gd%x1f%H%x1f%gs" ] (Reply.Ok out)
+
+            match! git.StashList "." with
+            | Ok entries ->
+                Assert.That(entries.Length, Is.EqualTo 2)
+                Assert.That(entries.[0].Index, Is.EqualTo 0u)
+                Assert.That(entries.[0].Hash, Is.EqualTo "abc123")
+                Assert.That(entries.[0].Branch, Is.EqualTo(Some "main"))
+                Assert.That(entries.[0].Message, Is.EqualTo "WIP on main: 1234567 subject")
+                Assert.That(entries.[1].Index, Is.EqualTo 1u)
+                Assert.That(entries.[1].Hash, Is.EqualTo "def456")
+                Assert.That(entries.[1].Branch, Is.EqualTo(Some "feature"))
+                Assert.That(entries.[1].Message, Is.EqualTo "On feature: custom message")
+            | Error e -> Assert.Fail $"stash list failed: {e}"
+        }
+
+    [<Test>]
+    member _.StashListPreservesMessageWithEmbeddedNewlineAndColon() : Task =
+        task {
+            // The message itself contains a colon AND a newline — total-parser discipline
+            // (K: the -z / %x1f field framing is what protects this, not a `Split`-by-`:`).
+            let message = "On main: line one: still message\nline two"
+            let out = $"stash@{{0}}{us}abc123{us}{message}{nul}"
+
+            let git =
+                scripted [ "stash"; "list"; "-z"; "--format=%gd%x1f%H%x1f%gs" ] (Reply.Ok out)
+
+            match! git.StashList "." with
+            | Ok entries ->
+                Assert.That(entries.Length, Is.EqualTo 1)
+                Assert.That(entries.[0].Message, Is.EqualTo message)
+                Assert.That(entries.[0].Branch, Is.EqualTo(Some "main"))
+            | Error e -> Assert.Fail $"stash list failed: {e}"
+        }
+
+    [<Test>]
+    member _.StashListSkipsAnUnparseableSelectorRecord() : Task =
+        task {
+            // A malformed %gd (no digits) is skipped rather than raising — total parser.
+            let out = $"garbage{us}abc123{us}whatever{nul}"
+
+            let git =
+                scripted [ "stash"; "list"; "-z"; "--format=%gd%x1f%H%x1f%gs" ] (Reply.Ok out)
+
+            match! git.StashList "." with
+            | Ok entries -> Assert.That(entries, Is.Empty)
+            | Error e -> Assert.Fail $"stash list failed: {e}"
+        }
+
+    [<Test>]
+    member _.StashListLeavesBranchNoneOnAForeignReflogSubject() : Task =
+        task {
+            let out = $"stash@{{0}}{us}abc123{us}some hand-written reflog entry{nul}"
+
+            let git =
+                scripted [ "stash"; "list"; "-z"; "--format=%gd%x1f%H%x1f%gs" ] (Reply.Ok out)
+
+            match! git.StashList "." with
+            | Ok entries ->
+                Assert.That(entries.Length, Is.EqualTo 1)
+                Assert.That(entries.[0].Branch, Is.EqualTo None)
+            | Error e -> Assert.Fail $"stash list failed: {e}"
+        }
+
+    [<Test>]
     member _.DiffStatParsesShortstat() : Task =
         task {
             let git =
@@ -570,6 +642,26 @@ type MutationTests() =
             match! git.SwitchWithStash(".", "feature") with
             | Ok() -> ()
             | Error e -> Assert.Fail $"switch must succeed without popping when nothing was stashed: {e}"
+        }
+
+    [<Test>]
+    member _.StashApplyBuildsPositionalSelectorFromIndex() : Task =
+        task {
+            let git = scripted [ "stash"; "apply"; "stash@{2}" ] (Reply.Ok "")
+
+            match! git.StashApply(".", 2u) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"stash apply failed: {e}"
+        }
+
+    [<Test>]
+    member _.StashDropBuildsPositionalSelectorFromIndex() : Task =
+        task {
+            let git = scripted [ "stash"; "drop"; "stash@{0}" ] (Reply.Ok "")
+
+            match! git.StashDrop(".", 0u) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"stash drop failed: {e}"
         }
 
     [<Test>]
