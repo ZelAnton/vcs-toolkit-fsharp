@@ -139,4 +139,9 @@
 		<BuildDependency Project="src/VcsToolkit.Forge/VcsToolkit.Forge.fsproj" />
 		<BuildDependency Project="src/VcsToolkit.Mcp/VcsToolkit.Mcp.fsproj" />
 	</Project>
+	<Project Path="benchmarks/VcsToolkit.Benchmarks/VcsToolkit.Benchmarks.fsproj">
+		<BuildDependency Project="src/VcsToolkit.Diff/VcsToolkit.Diff.fsproj" />
+		<BuildDependency Project="src/VcsToolkit.Git/VcsToolkit.Git.fsproj" />
+		<BuildDependency Project="src/VcsToolkit.Jj/VcsToolkit.Jj.fsproj" />
+	</Project>
 </Solution>

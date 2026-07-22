@@ -24,6 +24,10 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<InternalsVisibleTo Include="VcsToolkit.Benchmarks" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<Reference Include="VcsToolkit.CliSupport" />
 		<Reference Include="VcsToolkit.Diff" />
 	</ItemGroup>

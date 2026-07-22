@@ -39,6 +39,7 @@
 		     assemblies from each src project's restore graph. Built against
 		     FSharp.Analyzers.SDK 0.36.0, compatible with the 0.37.2 tool. -->
 		<PackageVersion Include="Ionide.Analyzers" Version="0.15.0" />
+		<PackageVersion Include="BenchmarkDotNet" Version="0.15.0" />
 	</ItemGroup>
 
 	<!-- Production dependency: the process-execution layer every CLI wrapper drives

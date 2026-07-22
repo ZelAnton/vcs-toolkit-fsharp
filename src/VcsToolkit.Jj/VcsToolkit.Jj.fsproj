@@ -21,6 +21,7 @@
 	<!-- The parse module is internal (Rust: `mod parse` / `pub(crate)`); the tests exercise it directly. -->
 	<ItemGroup>
 		<InternalsVisibleTo Include="VcsToolkit.Jj.Tests" />
+		<InternalsVisibleTo Include="VcsToolkit.Benchmarks" />
 	</ItemGroup>
 
 	<ItemGroup>
