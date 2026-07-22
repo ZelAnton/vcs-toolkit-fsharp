@@ -189,19 +189,27 @@ namespace VcsToolkit.GitHub
     public sealed class Issue : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.GitHub.Issue>, System.IEquatable<VcsToolkit.GitHub.Issue>
     {
         [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.GitHub.Issue))]
-        public Issue(ulong number, string title, string state, string body, string url, Microsoft.FSharp.Collections.FSharpList<string> labels, Microsoft.FSharp.Collections.FSharpList<string> assignees) { }
+        public Issue(ulong number, string title, string state, string body, string url, Microsoft.FSharp.Collections.FSharpList<string> labels, Microsoft.FSharp.Collections.FSharpList<string> assignees, string author, string createdAt, string updatedAt, string milestone) { }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 6)]
         public Microsoft.FSharp.Collections.FSharpList<string> Assignees { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 7)]
+        public string Author { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
         public string Body { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 8)]
+        public string CreatedAt { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 5)]
         public Microsoft.FSharp.Collections.FSharpList<string> Labels { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 10)]
+        public string Milestone { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
         public ulong Number { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
         public string State { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
         public string Title { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 9)]
+        public string UpdatedAt { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
         public string Url { get; }
     }
@@ -339,21 +347,29 @@ namespace VcsToolkit.GitHub
     public sealed class PullRequest : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.GitHub.PullRequest>, System.IEquatable<VcsToolkit.GitHub.PullRequest>
     {
         [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.GitHub.PullRequest))]
-        public PullRequest(ulong number, string title, string state, string headRefName, string baseRefName, string url, Microsoft.FSharp.Collections.FSharpList<string> labels, Microsoft.FSharp.Collections.FSharpList<string> assignees) { }
+        public PullRequest(ulong number, string title, string state, string headRefName, string baseRefName, string url, Microsoft.FSharp.Collections.FSharpList<string> labels, Microsoft.FSharp.Collections.FSharpList<string> assignees, string author, string createdAt, string updatedAt, string milestone) { }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 7)]
         public Microsoft.FSharp.Collections.FSharpList<string> Assignees { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 8)]
+        public string Author { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
         public string BaseRefName { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 9)]
+        public string CreatedAt { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
         public string HeadRefName { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 6)]
         public Microsoft.FSharp.Collections.FSharpList<string> Labels { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 11)]
+        public string Milestone { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
         public ulong Number { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
         public string State { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
         public string Title { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 10)]
+        public string UpdatedAt { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 5)]
         public string Url { get; }
     }
@@ -362,7 +378,9 @@ namespace VcsToolkit.GitHub
     public sealed class Release : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.GitHub.Release>, System.IEquatable<VcsToolkit.GitHub.Release>
     {
         [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.GitHub.Release))]
-        public Release(string tagName, string name, string body, string url, string publishedAt, bool isDraft, bool isPrerelease, bool isLatest) { }
+        public Release(string tagName, string name, string body, string url, string publishedAt, bool isDraft, bool isPrerelease, bool isLatest, string author) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 8)]
+        public string Author { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
         public string Body { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 5)]

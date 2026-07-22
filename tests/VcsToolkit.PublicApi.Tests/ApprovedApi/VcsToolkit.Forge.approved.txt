@@ -133,19 +133,27 @@ namespace VcsToolkit.Forge
     public sealed class ForgeIssue : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Forge.ForgeIssue>, System.IEquatable<VcsToolkit.Forge.ForgeIssue>
     {
         [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Forge.ForgeIssue))]
-        public ForgeIssue(ulong number, string title, VcsToolkit.Forge.ForgeIssueState state, string body, string url, Microsoft.FSharp.Core.FSharpOption<Microsoft.FSharp.Collections.FSharpList<string>>? labels, Microsoft.FSharp.Core.FSharpOption<Microsoft.FSharp.Collections.FSharpList<string>>? assignees) { }
+        public ForgeIssue(ulong number, string title, VcsToolkit.Forge.ForgeIssueState state, string body, string url, Microsoft.FSharp.Core.FSharpOption<Microsoft.FSharp.Collections.FSharpList<string>>? labels, Microsoft.FSharp.Core.FSharpOption<Microsoft.FSharp.Collections.FSharpList<string>>? assignees, Microsoft.FSharp.Core.FSharpOption<string>? author, Microsoft.FSharp.Core.FSharpOption<string>? createdAt, Microsoft.FSharp.Core.FSharpOption<string>? updatedAt, Microsoft.FSharp.Core.FSharpOption<string>? milestone) { }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 6)]
         public Microsoft.FSharp.Core.FSharpOption<Microsoft.FSharp.Collections.FSharpList<string>>? Assignees { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 7)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? Author { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
         public string Body { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 8)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? CreatedAt { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 5)]
         public Microsoft.FSharp.Core.FSharpOption<Microsoft.FSharp.Collections.FSharpList<string>>? Labels { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 10)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? Milestone { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
         public ulong Number { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
         public VcsToolkit.Forge.ForgeIssueState State { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
         public string Title { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 9)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? UpdatedAt { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
         public string Url { get; }
     }
@@ -198,13 +206,19 @@ namespace VcsToolkit.Forge
     public sealed class ForgePr : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Forge.ForgePr>, System.IEquatable<VcsToolkit.Forge.ForgePr>
     {
         [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Forge.ForgePr))]
-        public ForgePr(ulong number, string title, VcsToolkit.Forge.ForgePrState state, string sourceBranch, string targetBranch, string url, Microsoft.FSharp.Core.FSharpOption<bool>? draft, Microsoft.FSharp.Core.FSharpOption<Microsoft.FSharp.Collections.FSharpList<string>>? labels, Microsoft.FSharp.Core.FSharpOption<Microsoft.FSharp.Collections.FSharpList<string>>? assignees) { }
+        public ForgePr(ulong number, string title, VcsToolkit.Forge.ForgePrState state, string sourceBranch, string targetBranch, string url, Microsoft.FSharp.Core.FSharpOption<bool>? draft, Microsoft.FSharp.Core.FSharpOption<Microsoft.FSharp.Collections.FSharpList<string>>? labels, Microsoft.FSharp.Core.FSharpOption<Microsoft.FSharp.Collections.FSharpList<string>>? assignees, Microsoft.FSharp.Core.FSharpOption<string>? author, Microsoft.FSharp.Core.FSharpOption<string>? createdAt, Microsoft.FSharp.Core.FSharpOption<string>? updatedAt, Microsoft.FSharp.Core.FSharpOption<string>? milestone) { }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 8)]
         public Microsoft.FSharp.Core.FSharpOption<Microsoft.FSharp.Collections.FSharpList<string>>? Assignees { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 9)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? Author { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 10)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? CreatedAt { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 6)]
         public Microsoft.FSharp.Core.FSharpOption<bool>? Draft { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 7)]
         public Microsoft.FSharp.Core.FSharpOption<Microsoft.FSharp.Collections.FSharpList<string>>? Labels { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 12)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? Milestone { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
         public ulong Number { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
@@ -215,6 +229,8 @@ namespace VcsToolkit.Forge
         public string TargetBranch { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
         public string Title { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 11)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? UpdatedAt { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 5)]
         public string Url { get; }
     }
@@ -236,7 +252,9 @@ namespace VcsToolkit.Forge
     public sealed class ForgeRelease : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Forge.ForgeRelease>, System.IEquatable<VcsToolkit.Forge.ForgeRelease>
     {
         [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Forge.ForgeRelease))]
-        public ForgeRelease(string tag, string title, string url, Microsoft.FSharp.Core.FSharpOption<string>? publishedAt, Microsoft.FSharp.Core.FSharpOption<string>? body, Microsoft.FSharp.Core.FSharpOption<bool>? draft, Microsoft.FSharp.Core.FSharpOption<bool>? prerelease) { }
+        public ForgeRelease(string tag, string title, string url, Microsoft.FSharp.Core.FSharpOption<string>? publishedAt, Microsoft.FSharp.Core.FSharpOption<string>? body, Microsoft.FSharp.Core.FSharpOption<bool>? draft, Microsoft.FSharp.Core.FSharpOption<bool>? prerelease, Microsoft.FSharp.Core.FSharpOption<string>? author) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 7)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? Author { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
         public Microsoft.FSharp.Core.FSharpOption<string>? Body { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 5)]

@@ -20,21 +20,26 @@ module internal Constants =
           Minor = 0UL
           Patch = 0UL }
 
-    /// `--json` field set for a pull request (`pr list`/`pr view`).
+    /// `--json` field set for a pull request (`pr list`/`pr view`). `author` and `milestone`
+    /// are nested objects (`{"login": …}` / `{"title": …}`) the parser flattens; `createdAt`/
+    /// `updatedAt` are RFC 3339 timestamps.
     [<Literal>]
-    let PR_FIELDS = "number,title,state,headRefName,baseRefName,url,labels,assignees"
+    let PR_FIELDS =
+        "number,title,state,headRefName,baseRefName,url,labels,assignees,author,createdAt,updatedAt,milestone"
 
     /// `--json` field set for `repo view`.
     [<Literal>]
     let REPO_FIELDS = "name,owner,description,url,isPrivate,defaultBranchRef"
 
-    /// `--json` field set for `issue list`.
+    /// `--json` field set for `issue list` (see `PR_FIELDS` on the nested author/milestone).
     [<Literal>]
-    let ISSUE_LIST_FIELDS = "number,title,state,body,url,labels,assignees"
+    let ISSUE_LIST_FIELDS =
+        "number,title,state,body,url,labels,assignees,author,createdAt,updatedAt,milestone"
 
-    /// `--json` field set for `issue view`.
+    /// `--json` field set for `issue view` (see `PR_FIELDS` on the nested author/milestone).
     [<Literal>]
-    let ISSUE_VIEW_FIELDS = "number,title,state,body,url,labels,assignees"
+    let ISSUE_VIEW_FIELDS =
+        "number,title,state,body,url,labels,assignees,author,createdAt,updatedAt,milestone"
 
     /// `--json` field set for a workflow run (`run list`/`run view`).
     [<Literal>]
@@ -45,13 +50,17 @@ module internal Constants =
     [<Literal>]
     let CHECK_FIELDS = "name,state,bucket,workflow,link,startedAt,completedAt"
 
-    /// `--json` field set for `release list`.
+    /// `--json` field set for `release list`. **No `author`** — `gh release list --json` does
+    /// not expose it (nor `body`/`url`), so the list surface stays lean exactly as before; the
+    /// author is filled only by `release view` (see `RELEASE_VIEW_FIELDS`).
     [<Literal>]
     let RELEASE_LIST_FIELDS = "tagName,name,isLatest,isDraft,isPrerelease,publishedAt"
 
-    /// `--json` field set for `release view`.
+    /// `--json` field set for `release view`. `author` is a nested object (`{"login": …}`) the
+    /// parser flattens; it is unavailable on the lean `release list` (see `RELEASE_LIST_FIELDS`).
     [<Literal>]
-    let RELEASE_VIEW_FIELDS = "tagName,name,body,url,publishedAt,isDraft,isPrerelease"
+    let RELEASE_VIEW_FIELDS =
+        "tagName,name,body,url,publishedAt,isDraft,isPrerelease,author"
 
 /// Host-classification helpers for `GitHubHost`. The gh-specific *policy* is kept local to
 /// this crate — the Forge facade sits *above* GitHub in the dependency stack, so its
