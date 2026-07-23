@@ -1,5 +1,6 @@
 module VcsToolkit.Jj.Tests
 
+open System
 open System.Threading.Tasks
 open NUnit.Framework
 open ProcessKit
@@ -61,8 +62,12 @@ let private requireJj () =
     try
         Raw.jj "." [ "--version" ]
     with _ ->
-        // jj is optional for local runs; skip the real-process fixture when it is unavailable.
-        Assert.Ignore "jj not available on PATH"
+        let message = "jj not available on PATH"
+
+        if Environment.GetEnvironmentVariable "REQUIRE_JJ" = "1" then
+            Assert.Fail $"REQUIRE_JJ=1 but {message}"
+        else
+            Assert.Ignore message
 
 // ---------------------------------------------------------------------------
 // Pure parsers
