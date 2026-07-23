@@ -426,7 +426,12 @@ module internal Catalog =
           write "forge_issue_close" "Close an issue (reopenable)." false true [ pIssueNumber ]
           // Non-destructive: reopening is a reversible status change; idempotent: reopening an
           // already-open issue is a no-op.
-          write "forge_issue_reopen" "Reopen a closed issue." false true [ pIssueNumber ]
+          write
+              "forge_issue_reopen"
+              "Reopen a closed issue. Unsupported on Gitea (tea 0.9.2 has no `issues reopen` command)."
+              false
+              true
+              [ pIssueNumber ]
           write
               "forge_issue_comment"
               "Post a comment to an existing issue, returning the CLI's output."
@@ -581,7 +586,7 @@ module internal Catalog =
           // already-deleted release is an error on the underlying CLIs.
           write
               "forge_release_delete"
-              "Delete a release by tag (Unsupported on Gitea)."
+              "Delete a release by tag. Unsupported on Gitea (tea 0.9.2 has no `release delete` command)."
               true
               false
               [ { Name = "tag"

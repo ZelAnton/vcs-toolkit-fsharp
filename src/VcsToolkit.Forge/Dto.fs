@@ -648,7 +648,7 @@ type ForgeCapabilities =
         IssueReopen: bool
         /// The CLI can delete a release by tag.
         ReleaseDelete: bool
-        /// The CLI reports an authenticated session. The other six flags are all `false`
+        /// The CLI reports an authenticated session. The other eight flags are all `false`
         /// when this is `false`. **Best-effort for GitLab:** `glab auth status` can exit
         /// `0` while unauthenticated (gitlab-org/cli#911), so a `true` means "probably".
         Authed: bool

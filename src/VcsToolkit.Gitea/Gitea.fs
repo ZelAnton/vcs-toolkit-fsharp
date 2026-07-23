@@ -427,7 +427,12 @@ type Gitea private (core: ManagedClient) =
     /// Reopening issues is unsupported by `tea` 0.9.2, which exposes only issue list/create
     /// subcommands; refuses structurally before any spawn.
     member _.IssueReopen(_dir: string, _number: uint64) =
-        task { return Error(ProcessError.Spawn(BINARY, "tea 0.9.2 has no `issues reopen` command")) }
+        task {
+            let refusal: Result<unit, ProcessError> =
+                Error(ProcessError.Spawn(BINARY, "tea 0.9.2 has no `issues reopen` command"))
+
+            return refusal
+        }
 
     /// Add a comment to an issue, returning the command's output (`tea comment <index>
     /// <body>`). Gitea PRs and issues share the `index` space, so this is the same
@@ -472,7 +477,12 @@ type Gitea private (core: ManagedClient) =
     /// Deleting releases is unsupported by `tea` 0.9.2, which exposes only release creation;
     /// refuses structurally before any spawn.
     member _.ReleaseDelete(_dir: string, _tag: string) =
-        task { return Error(ProcessError.Spawn(BINARY, "tea 0.9.2 has no `release delete` command")) }
+        task {
+            let refusal: Result<unit, ProcessError> =
+                Error(ProcessError.Spawn(BINARY, "tea 0.9.2 has no `release delete` command"))
+
+            return refusal
+        }
 
     /// A view of this client bound to repository `dir`: modelled methods drop their leading
     /// `dir` argument, and the raw `Run`/`RunRaw` hatches run in the bound `dir` too.
