@@ -1114,6 +1114,13 @@ type ClientTests() =
             | Ok None -> ()
             | other -> Assert.Fail $"unset config_get failed: {other}"
 
+            let badExit =
+                scripted [ "config"; "get"; "bad.key" ] (Reply.Fail(42, "error message"))
+
+            match! badExit.ConfigGet(".", "bad.key") with
+            | Error _ -> ()
+            | Ok result -> Assert.Fail $"config_get with non-zero exit code should fail, got: {result}"
+
             let set =
                 scripted [ "config"; "set"; "--repo"; "--"; "user.name"; "-1" ] (Reply.Ok "")
 
