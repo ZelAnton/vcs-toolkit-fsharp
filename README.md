@@ -158,12 +158,15 @@ the `IProcessRunner` capture/parse verbs; it does not use `RunningProcess`, `Pro
 processes, supplementary groups, inherited stdin, profiling, or readiness probes, and none of the
 new 2.6.0 surface (`ProcessGroup.Adopt`, `Command.KillOnParentDeath`/`KillOnParentDeathScope`,
 `ProcessGroup.MembersInfo`, `Command.ResolveProgram`/`CliClient.ResolveProgram`,
-`Command.PreferLocal`) is used anywhere in the toolkit. Every bundled CLI client (`git`, `jj`,
-`gh`, `glab`, `tea`) is a native binary — never a `.cmd`/`.bat` shim — so the Windows fix that
-routes a bare-name program whose only `PATH` match is a `.cmd`/`.bat` shim through `cmd.exe /d /c`
-does not change any bundled client's observed behaviour; see the CHANGELOG entry below for what
-it does mean for a consumer who builds their own `ManagedClient.Create(program)` around such a
-shim. Its only stdin sources (`Stdin.Empty` and `Stdin.FromBytes`) are repeatable, so the
+`Command.PreferLocal`) is used anywhere in the toolkit. As distributed today, every bundled CLI
+client (`git`, `jj`, `gh`, `glab`, `tea`) is a native binary — never a `.cmd`/`.bat` shim — a fact
+about those external tools' current distribution formats, not an invariant `VcsToolkit` enforces
+in code or re-verifies at runtime (the wrappers pass the bare program name to
+`ManagedClient.Create` without programmatic validation of the resolved executable's type), so the
+Windows fix that routes a bare-name program whose only `PATH` match is a `.cmd`/`.bat` shim
+through `cmd.exe /d /c` does not change any bundled client's observed behaviour today; see the
+CHANGELOG entry below for what it does mean for a consumer who builds their own
+`ManagedClient.Create(program)` around such a shim. Its only stdin sources (`Stdin.Empty` and `Stdin.FromBytes`) are repeatable, so the
 retry/supervision guard is also inapplicable. Tests use `ScriptedRunner`/`Reply` only: there are
 no record/replay cassettes or cwd-sensitive matches, and no `WaitForAsync`/`WaitForPortAsync`
 calls. Thus the 2.6.0 additions do not require source or test changes here.
