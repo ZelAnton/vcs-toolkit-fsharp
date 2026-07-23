@@ -1100,6 +1100,73 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.ConfigAndBookmarkMutationsBuildExactArgs() : Task =
+        task {
+            let getSet = scripted [ "config"; "get"; "user.name" ] (Reply.Ok " Ada \n")
+
+            match! getSet.ConfigGet(".", "user.name") with
+            | Ok(Some value) -> Assert.That(value, Is.EqualTo "Ada")
+            | other -> Assert.Fail $"config_get failed: {other}"
+
+            let missing = scripted [ "config"; "get"; "missing.key" ] (Reply.Fail(1, ""))
+
+            match! missing.ConfigGet(".", "missing.key") with
+            | Ok None -> ()
+            | other -> Assert.Fail $"unset config_get failed: {other}"
+
+            let set =
+                scripted [ "config"; "set"; "--repo"; "--"; "user.name"; "-1" ] (Reply.Ok "")
+
+            match! set.ConfigSet(".", "user.name", "-1") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"config_set failed: {e}"
+
+            let forget = scripted [ "bookmark"; "forget"; "exact:gone" ] (Reply.Ok "")
+
+            match! forget.BookmarkForget(".", "gone") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"bookmark_forget failed: {e}"
+
+            let untrack =
+                scripted [ "bookmark"; "untrack"; "--remote"; "origin"; "exact:feat" ] (Reply.Ok "")
+
+            match! untrack.BookmarkUntrack(".", "feat", "origin") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"bookmark_untrack failed: {e}"
+
+            let revert = scripted [ "revert"; "-r"; "abc123"; "--onto"; "@" ] (Reply.Ok "")
+
+            match! revert.Revert(".", "abc123") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"revert failed: {e}"
+        }
+
+    [<Test>]
+    member _.NewJjOperationsRejectUnsafeInputsBeforeSpawning() : Task =
+        task {
+            let calls, runner = recording (Reply.Ok "")
+            let jj = Jj.WithRunner runner
+
+            let! badConfigKey = jj.ConfigGet(".", "")
+            let! badConfigSetKey = jj.ConfigSet(".", "--repo", "value")
+            let! badForgetName = jj.BookmarkForget(".", "--all")
+            let! badUntrackName = jj.BookmarkUntrack(".", "", "origin")
+            let! badUntrackRemote = jj.BookmarkUntrack(".", "feat", "")
+            let! badRevert = jj.Revert(".", "-r")
+
+            for result, name in
+                [ Result.isError badConfigKey, "config_get empty key"
+                  Result.isError badConfigSetKey, "config_set flag-like key"
+                  Result.isError badForgetName, "bookmark_forget flag-like name"
+                  Result.isError badUntrackName, "bookmark_untrack empty name"
+                  Result.isError badUntrackRemote, "bookmark_untrack empty remote"
+                  Result.isError badRevert, "revert flag-like revset" ] do
+                Assert.That(result, Is.True, $"{name} must be refused")
+
+            Assert.That(calls.Count, Is.EqualTo 0, "guard failures must not spawn jj")
+        }
+
+    [<Test>]
     member _.BookmarkTrackRejectsGlobLikeRemote() : Task =
         task {
             // The positional `exact:<name>@<remote>` target `exact:`-prefixes the whole token,

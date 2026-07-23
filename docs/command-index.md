@@ -202,10 +202,12 @@ for this client's place in the layering. Every bookmark/remote name a caller sup
 matched with jj's `exact:` string-pattern prefix (never a bare name), so a `*`/`?`/`[]` in a
 caller-supplied name can't fan a mutation out across every matching ref.
 
-### Status, log, describe, bookmarks
+### Configuration, status, log, describe, bookmarks
 
 | Method | Runs | Notes |
 |---|---|---|
+| `ConfigGet` | `config get <key>` | `None` on exit code 1; trimmed value on exit code 0 |
+| `ConfigSet` | `config set --repo -- <key> <value>` | key guarded; flag-like values are accepted |
 | `Status` | `diff -r @ --summary` | resolves the workspace root first; snapshots the WC |
 | `StatusText` | `status` (human text) | |
 | `Log` | `log -r <revset> -n<max> --no-graph -T <template>` | up to `max`, newest first |
@@ -225,6 +227,8 @@ caller-supplied name can't fan a mutation out across every matching ref.
 | `BookmarkCreate` | `bookmark create <name> -r <revision>` | |
 | `BookmarkRename` | `bookmark rename <old> <new>` | |
 | `BookmarkDelete` | `bookmark delete exact:<name>` | |
+| `BookmarkForget` | `bookmark forget exact:<name>` | does not mark the bookmark for remote deletion |
+| `BookmarkUntrack` | `bookmark untrack --remote <remote> exact:<name>` | remote glob-like, empty, and `@` values rejected |
 | `BookmarkMove` | `bookmark move exact:<name> --to <rev> [--allow-backwards]` | |
 
 ### Diff, query, conflicts, files
@@ -262,6 +266,7 @@ caller-supplied name can't fan a mutation out across every matching ref.
 | `NewMerge` | `new -m <message> <p1> <p2> …` | multiple parents |
 | `Duplicate` | `duplicate <revset>` | |
 | `Abandon` | `abandon <revset>` | |
+| `Revert` | `revert -r <revset> --onto @` | new reversing commit on `@`; unlike Git.Revert, does not rewrite `@` or rebase descendants |
 
 ### Git integration, workspaces, operation log
 
@@ -298,8 +303,7 @@ caller-supplied name can't fan a mutation out across every matching ref.
 
 ### jj — not modeled (examples) → escape hatch
 
-`config` (`get`/`set`/`list`/`edit` — none of jj's `config` subcommand is typed on this
-client), `debug`, `file chmod`/`file track`/`file untrack`, `fix`,
+`config list`/`config edit`, `debug`, `file chmod`/`file track`/`file untrack`, `fix`,
 `git init`, `git remote add`/`remove`/`rename`/`set-url` (only `git remote list` is typed, as
 `GitRemoteList`), `interdiff`, `next`/`prev`, `parallelize`, `resolve` (interactive; only the
 non-interactive listing is typed, as `ResolveList`), `simplify-parents`, `util`. Reach any of

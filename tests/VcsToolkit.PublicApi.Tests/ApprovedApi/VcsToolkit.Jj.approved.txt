@@ -110,15 +110,19 @@ namespace VcsToolkit.Jj
         public VcsToolkit.Jj.JjAt At(string dir) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> BookmarkCreate(string dir, string name, string revision) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> BookmarkDelete(string dir, string name) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> BookmarkForget(string dir, string name) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> BookmarkMove(string dir, string name, string toRev, bool allowBackwards) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> BookmarkRename(string dir, string oldName, string newName) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> BookmarkSet(string dir, string name, string revision) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> BookmarkTrack(string dir, string name, string remote) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> BookmarkUntrack(string dir, string name, string remote) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Jj.Bookmark>, ProcessKit.ProcessError>> Bookmarks(string dir) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Jj.BookmarkRef>, ProcessKit.ProcessError>> BookmarksAll(string dir) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Jj.JjCapabilities, ProcessKit.ProcessError>> Capabilities() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<int, ProcessKit.ProcessError>> CommitCount(string dir, string revset) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> CommitPaths(string dir, Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Jj.JjFileset> filesets, string message) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.FSharpOption<string>?, ProcessKit.ProcessError>> ConfigGet(string dir, string key) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> ConfigSet(string dir, string key, string value) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.FSharpOption<string>?, ProcessKit.ProcessError>> CurrentBookmark(string dir) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Jj.Change, ProcessKit.ProcessError>> CurrentChange(string dir) { }
         public VcsToolkit.Jj.Jj DefaultCancelOn(System.Threading.CancellationToken token) { }
@@ -161,6 +165,7 @@ namespace VcsToolkit.Jj
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> Rebase(string dir, string onto) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> RebaseBranch(string dir, string branch, string dest) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<string>, ProcessKit.ProcessError>> ResolveList(string dir, string revset) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> Revert(string dir, string revset) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Jj.RollbackOutcome, ProcessKit.ProcessError>> RollbackTo(string dir, string capturedOpHead) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> Root(string dir) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> Run(System.Collections.Generic.IEnumerable<string> args) { }
@@ -196,15 +201,19 @@ namespace VcsToolkit.Jj
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> Absorb(Microsoft.FSharp.Core.FSharpOption<string>? from, Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Jj.JjFileset> filesets) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> BookmarkCreate(string name, string revision) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> BookmarkDelete(string name) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> BookmarkForget(string name) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> BookmarkMove(string name, string toRev, bool allowBackwards) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> BookmarkRename(string oldName, string newName) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> BookmarkSet(string name, string revision) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> BookmarkTrack(string name, string remote) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> BookmarkUntrack(string name, string remote) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Jj.Bookmark>, ProcessKit.ProcessError>> Bookmarks() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Jj.BookmarkRef>, ProcessKit.ProcessError>> BookmarksAll() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Jj.JjCapabilities, ProcessKit.ProcessError>> Capabilities() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<int, ProcessKit.ProcessError>> CommitCount(string revset) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> CommitPaths(Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Jj.JjFileset> filesets, string message) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.FSharpOption<string>?, ProcessKit.ProcessError>> ConfigGet(string key) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> ConfigSet(string key, string value) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.FSharpOption<string>?, ProcessKit.ProcessError>> CurrentBookmark() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Jj.Change, ProcessKit.ProcessError>> CurrentChange() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> Describe(string message) { }
@@ -242,6 +251,7 @@ namespace VcsToolkit.Jj
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> Rebase(string onto) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> RebaseBranch(string branch, string dest) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<string>, ProcessKit.ProcessError>> ResolveList(string revset) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> Revert(string revset) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Jj.RollbackOutcome, ProcessKit.ProcessError>> RollbackTo(string capturedOpHead) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> Root() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> Run(System.Collections.Generic.IEnumerable<string> args) { }

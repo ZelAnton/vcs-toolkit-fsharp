@@ -437,6 +437,34 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
             | Ok() -> return! core.RunUnit(cmdIn dir [ "bookmark"; "delete"; exact name ])
         }
 
+    /// Forget a bookmark without marking it for deletion on a remote (bookmark forget exact:<name>).
+    member _.BookmarkForget(dir: string, name: string) =
+        task {
+            match checkFlags BINARY [ "bookmark name", name ] with
+            | Error e -> return Error e
+            | Ok() -> return! core.RunUnit(cmdIn dir [ "bookmark"; "forget"; exact name ])
+        }
+
+    /// Stop tracking a remote bookmark without forgetting the local bookmark
+    /// (bookmark untrack --remote <remote> exact:<name>). The remote is guarded against
+    /// glob syntax because jj's --remote value is a string pattern.
+    member _.BookmarkUntrack(dir: string, name: string, remote: string) =
+        task {
+            match checkFlags BINARY [ "bookmark name", name ] with
+            | Error e -> return Error e
+            | Ok() ->
+                match rejectGlobLike BINARY "remote" remote with
+                | Error e -> return Error e
+                | Ok() ->
+                    match rejectEmptyRemote BINARY remote with
+                    | Error e -> return Error e
+                    | Ok() ->
+                        match rejectAtInRemote BINARY remote with
+                        | Error e -> return Error e
+                        | Ok() ->
+                            return! core.RunUnit(cmdIn dir [ "bookmark"; "untrack"; "--remote"; remote; exact name ])
+        }
+
     /// Move a bookmark to a revision (`bookmark move exact:<name> --to <rev> [--allow-backwards]`).
     member _.BookmarkMove(dir: string, name: string, toRev: string, allowBackwards: bool) =
         task {
@@ -697,6 +725,38 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
         let fileset = JjFileset.Path path
         runUntrimmedBytes core (cmdInRead dir [ "file"; "show"; "-r"; revset; fileset.Value ])
 
+    // --- Configuration -------------------------------------------------------
+
+    /// Get a config value (config get <key>), or None when the key is not set. jj uses
+    /// exit code 1 for the latter; other non-zero exits are returned through
+    /// ProcessResult.ensureSuccess.
+    member _.ConfigGet(dir: string, key: string) =
+        task {
+            match checkFlags BINARY [ "config key", key ] with
+            | Error e -> return Error e
+            | Ok() ->
+                match! core.Output(cmdInRead dir [ "config"; "get"; key ]) with
+                | Error e -> return Error e
+                | Ok res ->
+                    match res.Code with
+                    | Some 0 -> return Ok(Some(res.Stdout.Trim()))
+                    | Some 1 -> return Ok None
+                    | _ ->
+                        match ProcessResult.ensureSuccess res with
+                        | Error e -> return Error e
+                        | Ok _ -> return Ok None
+        }
+
+    /// Set a repository config value (config set --repo -- <key> <value>). The key is
+    /// guarded, while the value intentionally is not: a value such as -1 is valid and is
+    /// protected by the end-of-options separator.
+    member _.ConfigSet(dir: string, key: string, value: string) =
+        task {
+            match checkFlags BINARY [ "config key", key ] with
+            | Error e -> return Error e
+            | Ok() -> return! core.RunUnit(cmdIn dir [ "config"; "set"; "--repo"; "--"; key; value ])
+        }
+
     // --- Mutations -----------------------------------------------------------
 
     /// Rebase the working copy onto a destination (`rebase -d <onto>`).
@@ -841,6 +901,19 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
             match checkFlags BINARY [ "revset", revset ] with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(cmdIn dir [ "duplicate"; revset ])
+        }
+
+    /// Create a reversing commit with @ as its new head (revert -r <revset> --onto @).
+    /// Unlike Git.Revert, this does not rewrite or move the original @, and does not rebase
+    /// other descendants. The old backout command is not available in supported jj versions:
+    /// it was deprecated in 0.28.0 and removed in 0.35.0, both below this toolkit's jj >= 0.38
+    /// minimum (and the installed jj binary reports no such command), so no capabilities gate is
+    /// needed here.
+    member _.Revert(dir: string, revset: string) =
+        task {
+            match checkFlags BINARY [ "revset", revset ] with
+            | Error e -> return Error e
+            | Ok() -> return! core.RunUnit(cmdIn dir [ "revert"; "-r"; revset; "--onto"; "@" ])
         }
 
     // --- Git sync ------------------------------------------------------------
@@ -1222,6 +1295,12 @@ and [<Sealed>] JjAt internal (jj: Jj, dir: string) =
     /// Delete a bookmark (`bookmark delete exact:<name>`).
     member _.BookmarkDelete(name: string) = jj.BookmarkDelete(dir, name)
 
+    /// Forget a bookmark without marking it for deletion on a remote.
+    member _.BookmarkForget(name: string) = jj.BookmarkForget(dir, name)
+
+    /// Stop tracking a remote bookmark.
+    member _.BookmarkUntrack(name: string, remote: string) = jj.BookmarkUntrack(dir, name, remote)
+
     /// Move a bookmark to a revision (`bookmark move exact:<name> --to <rev>`).
     member _.BookmarkMove(name: string, toRev: string, allowBackwards: bool) =
         jj.BookmarkMove(dir, name, toRev, allowBackwards)
@@ -1272,6 +1351,12 @@ and [<Sealed>] JjAt internal (jj: Jj, dir: string) =
     /// A file's content at a revision as raw, verbatim bytes (`jj file show -r <revset> root-file:"<path>"`).
     member _.FileShowBytes(revset: string, path: string) = jj.FileShowBytes(dir, revset, path)
 
+    /// Get a config value, or None when the key is not set.
+    member _.ConfigGet(key: string) = jj.ConfigGet(dir, key)
+
+    /// Set a repository config value.
+    member _.ConfigSet(key: string, value: string) = jj.ConfigSet(dir, key, value)
+
     /// Fold working-copy edits into the ancestors that introduced the touched lines.
     member _.Absorb(from: string option, filesets: JjFileset list) = jj.Absorb(dir, from, filesets)
 
@@ -1280,6 +1365,10 @@ and [<Sealed>] JjAt internal (jj: Jj, dir: string) =
 
     /// Duplicate the commits a revset resolves to (`duplicate <revset>`).
     member _.Duplicate(revset: string) = jj.Duplicate(dir, revset)
+
+    /// Create a reversing commit on @; unlike Git.Revert, the original @ is not rewritten
+    /// and other descendants are not rebased.
+    member _.Revert(revset: string) = jj.Revert(dir, revset)
 
     /// Rebase the working copy onto a destination (`rebase -d <onto>`).
     member _.Rebase(onto: string) = jj.Rebase(dir, onto)
