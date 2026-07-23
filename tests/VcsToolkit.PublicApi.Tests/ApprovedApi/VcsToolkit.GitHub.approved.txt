@@ -73,6 +73,7 @@ namespace VcsToolkit.GitHub
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> IssueCreate(string dir, string title, string body) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitHub.Issue>, ProcessKit.ProcessError>> IssueList(string dir) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitHub.Issue>, ProcessKit.ProcessError>> IssueList(string dir, VcsToolkit.GitHub.IssueListOptions options) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> IssueReopen(string dir, ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitHub.Issue, ProcessKit.ProcessError>> IssueView(string dir, ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> PrCheckout(string dir, ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitHub.CheckRun>, ProcessKit.ProcessError>> PrChecks(string dir, ulong number) { }
@@ -91,6 +92,7 @@ namespace VcsToolkit.GitHub
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> PrReview(string dir, ulong number, VcsToolkit.GitHub.ReviewAction action) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitHub.PullRequest, ProcessKit.ProcessError>> PrView(string dir, ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> ReleaseCreate(string dir, VcsToolkit.GitHub.ReleaseCreate spec) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> ReleaseDelete(string dir, string tag) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitHub.Release>, ProcessKit.ProcessError>> ReleaseList(string dir) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitHub.Release, ProcessKit.ProcessError>> ReleaseView(string dir, string tag) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitHub.Repo, ProcessKit.ProcessError>> RepoView(string dir) { }
@@ -128,6 +130,7 @@ namespace VcsToolkit.GitHub
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> IssueCreate(string title, string body) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitHub.Issue>, ProcessKit.ProcessError>> IssueList() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitHub.Issue>, ProcessKit.ProcessError>> IssueList(VcsToolkit.GitHub.IssueListOptions options) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> IssueReopen(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitHub.Issue, ProcessKit.ProcessError>> IssueView(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> PrCheckout(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitHub.CheckRun>, ProcessKit.ProcessError>> PrChecks(ulong number) { }
@@ -146,6 +149,7 @@ namespace VcsToolkit.GitHub
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> PrReview(ulong number, VcsToolkit.GitHub.ReviewAction action) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitHub.PullRequest, ProcessKit.ProcessError>> PrView(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> ReleaseCreate(VcsToolkit.GitHub.ReleaseCreate spec) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> ReleaseDelete(string tag) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitHub.Release>, ProcessKit.ProcessError>> ReleaseList() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitHub.Release, ProcessKit.ProcessError>> ReleaseView(string tag) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitHub.Repo, ProcessKit.ProcessError>> RepoView() { }

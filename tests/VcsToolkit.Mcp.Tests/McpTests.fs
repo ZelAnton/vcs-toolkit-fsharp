@@ -67,12 +67,13 @@ type WriteGateTests() =
 
     [<Test>]
     member _.WriteToolsCoversTheGatedTools() =
-        Assert.That(List.length WriteTools.all, Is.EqualTo 25)
+        Assert.That(List.length WriteTools.all, Is.EqualTo 27)
         Assert.That(WriteTools.asSet.Contains "repo_commit", Is.True)
         Assert.That(WriteTools.asSet.Contains "repo_rebase", Is.True, "the new rebase tool is write-gated")
         Assert.That(WriteTools.asSet.Contains "forge_pr_checkout", Is.True, "the local-checkout tool is write-gated")
         Assert.That(WriteTools.asSet.Contains "forge_pr_review", Is.True, "the new pr-review tool is write-gated")
         Assert.That(WriteTools.asSet.Contains "forge_issue_close", Is.True, "the new issue-close tool is write-gated")
+        Assert.That(WriteTools.asSet.Contains "forge_issue_reopen", Is.True, "the new issue-reopen tool is write-gated")
 
         Assert.That(
             WriteTools.asSet.Contains "forge_issue_comment",
@@ -761,6 +762,16 @@ type ToolTests() =
         }
 
     [<Test>]
+    member _.ForgeIssueReopenIsWriteGated() : Task =
+        task {
+            let server = gitServer (ScriptedRunner()) WriteGate.None
+
+            match! server.ForgeIssueReopen 1UL with
+            | Error e -> Assert.That(e.Message, Does.Contain "allow-write")
+            | Ok _ -> Assert.Fail "forge_issue_reopen must be gated in read-only mode"
+        }
+
+    [<Test>]
     member _.ForgeIssueCloseAcceptsAndReportsClosed() : Task =
         task {
             let server =
@@ -773,6 +784,35 @@ type ToolTests() =
             match! server.ForgeIssueClose 7UL with
             | Ok json -> Assert.That(json, Does.Contain "closed")
             | Error e -> Assert.Fail $"forge_issue_close failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.ForgeIssueReopenAcceptsAndReportsReopened() : Task =
+        task {
+            let server =
+                gitServerWithForge
+                    (ScriptedRunner()
+                        .On([ "--version" ], Reply.Ok "gh version 2.40.0\n")
+                        .On([ "issue"; "reopen" ], Reply.Ok ""))
+                    WriteGate.All
+
+            match! server.ForgeIssueReopen 7UL with
+            | Ok json -> Assert.That(json, Does.Contain "reopened")
+            | Error e -> Assert.Fail $"forge_issue_reopen failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.ForgeReleaseDeleteIsWriteGatedAndDestructive() : Task =
+        task {
+            let server = gitServer (ScriptedRunner()) WriteGate.None
+
+            match! server.ForgeReleaseDelete "v1" with
+            | Error e -> Assert.That(e.Message, Does.Contain "allow-write")
+            | Ok _ -> Assert.Fail "forge_release_delete must be gated in read-only mode"
+
+            let tool = Catalog.all |> List.find (fun t -> t.Name = "forge_release_delete")
+            Assert.That(tool.Destructive, Is.True)
+            Assert.That(tool.Idempotent, Is.False)
         }
 
     [<Test>]
@@ -1437,8 +1477,8 @@ type CatalogTests() =
 
     [<Test>]
     member _.CatalogCoversEveryTool() =
-        // 12 repo-read + repo_try_merge + 12 repo-write + 12 forge-read + 12 forge-write = 49.
-        Assert.That(List.length Catalog.all, Is.EqualTo 49)
+        // 12 repo-read + repo_try_merge + 12 repo-write + 12 forge-read + 14 forge-write = 51.
+        Assert.That(List.length Catalog.all, Is.EqualTo 51)
         // Every write-gated tool name appears in the catalogue.
         let names = Catalog.all |> List.map (fun t -> t.Name) |> Set.ofList
         Assert.That(WriteTools.all |> List.forall names.Contains, Is.True, "every write tool is catalogued")
@@ -1466,6 +1506,7 @@ type CatalogTests() =
               "repo_new_child", false, false
               "forge_issue_create", false, false
               "forge_issue_close", false, true
+              "forge_issue_reopen", false, true
               "forge_issue_comment", false, false
               "forge_pr_create", false, false
               "forge_pr_merge", true, false
@@ -1475,7 +1516,8 @@ type CatalogTests() =
               "forge_pr_edit", false, true
               "forge_pr_checkout", false, true
               "forge_pr_review", false, false
-              "forge_release_create", false, false ]
+              "forge_release_create", false, false
+              "forge_release_delete", true, false ]
 
         let expectedNames: Set<string> =
             expected |> List.map (fun (name, _, _) -> name) |> Set.ofList
@@ -1562,6 +1604,7 @@ type CatalogTests() =
                 ScriptedRunner()
                     .On([ "--version" ], Reply.Ok "gh version 2.40.0\n")
                     .On([ "issue"; "close" ], Reply.Ok "")
+                    .On([ "issue"; "reopen" ], Reply.Ok "")
                     .On([ "issue"; "comment" ], Reply.Ok "https://c/1\n")
 
             let server = gitServerWithForge runner WriteGate.All
@@ -1569,6 +1612,10 @@ type CatalogTests() =
             match! Catalog.callTool server "forge_issue_close" (argsOf """{"number":3}""") with
             | Ok json -> Assert.That(json, Does.Contain "closed")
             | Error e -> Assert.Fail $"forge_issue_close dispatch failed: {e.Message}"
+
+            match! Catalog.callTool server "forge_issue_reopen" (argsOf """{"number":3}""") with
+            | Ok json -> Assert.That(json, Does.Contain "reopened")
+            | Error e -> Assert.Fail $"forge_issue_reopen dispatch failed: {e.Message}"
 
             match! Catalog.callTool server "forge_issue_comment" (argsOf """{"number":3,"body":"nice"}""") with
             | Ok json -> Assert.That(json, Does.Contain "output")

@@ -424,6 +424,9 @@ module internal Catalog =
           // Non-destructive: closing an issue is a reversible status change (reopenable),
           // discarding no data; idempotent: closing an already-closed issue is a no-op.
           write "forge_issue_close" "Close an issue (reopenable)." false true [ pIssueNumber ]
+          // Non-destructive: reopening is a reversible status change; idempotent: reopening an
+          // already-open issue is a no-op.
+          write "forge_issue_reopen" "Reopen a closed issue." false true [ pIssueNumber ]
           write
               "forge_issue_comment"
               "Post a comment to an existing issue, returning the CLI's output."
@@ -573,7 +576,18 @@ module internal Catalog =
                 { Name = "prerelease"
                   JsonType = "boolean"
                   Description = "Mark as a pre-release (GitHub/Gitea only; refused as Unsupported on GitLab)."
-                  Required = false } ] ]
+                  Required = false } ]
+          // Destructive: deletion removes the remote release; not idempotent because deleting an
+          // already-deleted release is an error on the underlying CLIs.
+          write
+              "forge_release_delete"
+              "Delete a release by tag (Unsupported on Gitea)."
+              true
+              false
+              [ { Name = "tag"
+                  JsonType = "string"
+                  Description = "The Git tag identifying the release to delete."
+                  Required = true } ] ]
 
     /// The JSON-Schema `inputSchema` object for a tool spec.
     let inputSchema (spec: ToolSpec) : string =
@@ -674,6 +688,7 @@ module internal Catalog =
             bind (reqStr args "title") (fun title ->
                 bind (reqStr args "body") (fun body -> server.ForgeIssueCreate(title, body)))
         | "forge_issue_close" -> bind (reqU64 args "number") server.ForgeIssueClose
+        | "forge_issue_reopen" -> bind (reqU64 args "number") server.ForgeIssueReopen
         | "forge_issue_comment" ->
             bind (reqU64 args "number") (fun number ->
                 bind (reqStr args "body") (fun body -> server.ForgeIssueComment(number, body)))
@@ -711,4 +726,5 @@ module internal Catalog =
                         bind (optBool args "draft") (fun draft ->
                             bind (optBool args "prerelease") (fun prerelease ->
                                 server.ForgeReleaseCreate(tag, title, notes, draft, prerelease))))))
+        | "forge_release_delete" -> bind (reqStr args "tag") server.ForgeReleaseDelete
         | unknown -> task { return Error(McpError.InvalidParams(sprintf "unknown tool %A" unknown)) }

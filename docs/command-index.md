@@ -326,6 +326,7 @@ Client: `GitHub` / `GitHubAt` (`src/VcsToolkit.GitHub/GitHub.fs`). See
 | `IssueView` | `issue view <n> --json …` | |
 | `IssueCreate` | `issue create --title <t> --body <b>` | returns the issue URL |
 | `IssueClose` | `issue close <n>` | |
+| `IssueReopen` | `issue reopen <n>` | |
 | `IssueComment` | `issue comment <n> --body <body>` | returns the comment URL |
 | `RunList` | `run list --limit <n> [--branch <b>] --json …` | Actions runs, newest first |
 | `RunView` | `run view <id> --json …` | id is `WorkflowRun`'s database id |
@@ -336,6 +337,7 @@ Client: `GitHub` / `GitHubAt` (`src/VcsToolkit.GitHub/GitHub.fs`). See
 | `ReleaseList` | `release list --limit 100 --json …` | `Body`/`Url` not fetched — use `ReleaseView` |
 | `ReleaseView` | `release view <tag> --json …` | |
 | `ReleaseCreate` | `release create <tag> [--title] --notes [--draft] [--prerelease]` | via `ReleaseCreate`; returns the URL |
+| `ReleaseDelete` | `release delete <tag> --yes` | confirmation is always supplied |
 | `Version` | `--version` | |
 | `Capabilities` | `--version`, parsed (`gh ≥ 2.0` floor) | |
 | `Run` | `gh <args>` in the process cwd (client) or the bound `dir` (`GitHubAt`); **unguarded** | |
@@ -379,10 +381,12 @@ not its breadth. See
 | `IssueView` | `issue view <number> --output json` | |
 | `IssueCreate` | `issue create --title … --description … --yes` | body rejected if exactly `-`; returns the issue URL |
 | `IssueClose` | `issue close <id>` | |
+| `IssueReopen` | `issue reopen <id>` | |
 | `IssueComment` | `issue note <id> -m <body>` | body rejected if exactly `-` |
 | `ReleaseList` | `release list --per-page 100 --output json` | ≤100 |
 | `ReleaseView` | `release view <tag> --output json` | |
 | `ReleaseCreate` | `release create <tag> [--name …] [--notes …]` | via `ReleaseCreate`; no draft/pre-release (glab has none) |
+| `ReleaseDelete` | `release delete <tag> --yes` | confirmation is always supplied |
 | `Version` | `--version` | |
 | `Capabilities` | `--version`, parsed | |
 | `Run` | `glab <args>` in the process cwd (client) or the bound `dir` (`GitLabAt`); **unguarded** | |
@@ -421,16 +425,18 @@ hatch; authentication is **ambient only** (`tea login add`, out of band — ther
 | `IssueView` | `issues list --state all --limit 50 --page N --fields … --output csv` (paged) + filter | synthesized — `tea issues <number>` renders Markdown and ignores `--output` |
 | `IssueCreate` | `issues create --title … --description …` | returns tea's text output (URL on the final line) |
 | `IssueClose` | `issues close <number>` | |
+| `IssueReopen` | *(none — refused before spawning)* | `tea` 0.9.2 has no `issues reopen` command |
 | `IssueComment` | `comment <index> <body>` | shared with PRs |
 | `ReleaseList` | `releases list --limit 100 --output csv` | ≤~50 (Gitea server page cap); same `--output csv` reason |
 | `ReleaseCreate` | `release create --tag <tag> [--title …] [--note …] [--draft] [--prerelease]` | via `ReleaseCreate`; returns tea's text output |
+| `ReleaseDelete` | *(none — refused before spawning)* | `tea` 0.9.2 has no `release delete` command |
 | `Version` | `--version` | |
 | `Capabilities` | `--version`, parsed (`tea ≥ 0.9` floor) | |
 | `Run` | `tea <args>` in the process cwd (client) or the bound `dir` (`GiteaAt`); **unguarded** | |
 | `RunRaw` | like `Run`, never errors on a non-zero exit; **unguarded** | |
 
-There is intentionally **no** `RepoView`, `PrMarkReady`, `PrChecks`, or `ReleaseView` on
-`Gitea` — `tea` has no equivalent command; the [`VcsToolkit.Forge`](#facade-escape-hatch-routers)
+There is intentionally **no** `RepoView`, `PrMarkReady`, `PrChecks`, `ReleaseView`, `IssueReopen`, or
+`ReleaseDelete` command implementation on `Gitea` — `tea` has no equivalent command; the [`VcsToolkit.Forge`](#facade-escape-hatch-routers)
 facade reports these `Unsupported` for the Gitea backend.
 
 ### tea — not modeled (examples) → escape hatch

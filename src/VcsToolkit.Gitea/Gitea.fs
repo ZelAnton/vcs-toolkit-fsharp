@@ -424,6 +424,11 @@ type Gitea private (core: ManagedClient) =
     member _.IssueClose(dir: string, number: uint64) =
         core.RunUnit(core.CommandIn(dir, [ "issues"; "close"; string number ]))
 
+    /// Reopening issues is unsupported by `tea` 0.9.2, which exposes only issue list/create
+    /// subcommands; refuses structurally before any spawn.
+    member _.IssueReopen(_dir: string, _number: uint64) =
+        task { return Error(ProcessError.Spawn(BINARY, "tea 0.9.2 has no `issues reopen` command")) }
+
     /// Add a comment to an issue, returning the command's output (`tea comment <index>
     /// <body>`). Gitea PRs and issues share the `index` space, so this is the same
     /// `tea comment` command `PrComment` uses. The `body` is a bare positional, so it is
@@ -463,6 +468,11 @@ type Gitea private (core: ManagedClient) =
             @ (if spec.Prerelease then [ "--prerelease" ] else [])
 
         core.Run(core.CommandIn(dir, args))
+
+    /// Deleting releases is unsupported by `tea` 0.9.2, which exposes only release creation;
+    /// refuses structurally before any spawn.
+    member _.ReleaseDelete(_dir: string, _tag: string) =
+        task { return Error(ProcessError.Spawn(BINARY, "tea 0.9.2 has no `release delete` command")) }
 
     /// A view of this client bound to repository `dir`: modelled methods drop their leading
     /// `dir` argument, and the raw `Run`/`RunRaw` hatches run in the bound `dir` too.
@@ -549,6 +559,9 @@ and [<Sealed>] GiteaAt internal (gitea: Gitea, dir: string) =
     /// Close an issue (`tea issues close <index>`).
     member _.IssueClose(number: uint64) = gitea.IssueClose(dir, number)
 
+    /// Reopening issues is unsupported by `tea` 0.9.2.
+    member _.IssueReopen(number: uint64) = gitea.IssueReopen(dir, number)
+
     /// Add a comment to an issue (`tea comment <index> <body>`).
     member _.IssueComment(number: uint64, body: string) = gitea.IssueComment(dir, number, body)
 
@@ -557,3 +570,6 @@ and [<Sealed>] GiteaAt internal (gitea: Gitea, dir: string) =
 
     /// Create a release (`tea release create --tag <tag> …`).
     member _.ReleaseCreate(spec: ReleaseCreate) = gitea.ReleaseCreate(dir, spec)
+
+    /// Deleting releases is unsupported by `tea` 0.9.2.
+    member _.ReleaseDelete(tag: string) = gitea.ReleaseDelete(dir, tag)

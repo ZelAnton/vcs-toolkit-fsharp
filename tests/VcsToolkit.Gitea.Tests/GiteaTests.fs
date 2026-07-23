@@ -659,6 +659,16 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.IssueReopenIsUnsupportedBeforeSpawning() : Task =
+        task {
+            let tea = Gitea.WithRunner(ScriptedRunner())
+
+            match! tea.IssueReopen(".", 4UL) with
+            | Error e -> Assert.That(e.Message, Does.Contain "issues reopen")
+            | Ok() -> Assert.Fail "tea 0.9.2 must refuse issue reopen before spawning"
+        }
+
+    [<Test>]
     member _.ReleaseListRequestsLimit() : Task =
         task {
             let tea =
@@ -709,6 +719,16 @@ type ClientTests() =
             match! tea.ReleaseCreate(".", ReleaseCreate.Create "v2") with
             | Ok _ -> assertArgs [ "release"; "create"; "--tag"; "v2" ] args
             | Error e -> Assert.Fail $"release create failed: {e}"
+        }
+
+    [<Test>]
+    member _.ReleaseDeleteIsUnsupportedBeforeSpawning() : Task =
+        task {
+            let tea = Gitea.WithRunner(ScriptedRunner())
+
+            match! tea.ReleaseDelete(".", "v1") with
+            | Error e -> Assert.That(e.Message, Does.Contain "release delete")
+            | Ok() -> Assert.Fail "tea 0.9.2 must refuse release delete before spawning"
         }
 
 // ---------------------------------------------------------------------------

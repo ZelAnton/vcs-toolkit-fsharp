@@ -138,6 +138,12 @@ type ForgeOp =
     /// `prDiff` — a PR/MR's unified diff. **`Unsupported` on Gitea** (`tea` has no diff
     /// command); supported on GitHub/GitLab.
     | PrDiff
+    /// `issueReopen` — reopen a closed issue. **`Unsupported` on Gitea** (`tea` 0.9.2 has no
+    /// issue reopen command).
+    | IssueReopen
+    /// `releaseDelete` — delete a release by tag. **`Unsupported` on Gitea** (`tea` 0.9.2 has
+    /// no release delete command).
+    | ReleaseDelete
 
     /// Every capability-varying operation — iterate it to build a full support matrix.
     static member All =
@@ -145,7 +151,9 @@ type ForgeOp =
           ForgeOp.PrMarkReady
           ForgeOp.PrChecks
           ForgeOp.ReleaseView
-          ForgeOp.PrDiff ]
+          ForgeOp.PrDiff
+          ForgeOp.IssueReopen
+          ForgeOp.ReleaseDelete ]
 
 /// The normalised state of a `ForgePr`, unifying GitHub's `OPEN`/`CLOSED`/`MERGED`,
 /// GitLab's `opened`/`closed`/`locked`/`merged`, and Gitea's `open`/`closed`.
@@ -636,6 +644,10 @@ type ForgeCapabilities =
         PrMerge: bool
         /// The CLI can open an issue.
         IssueCreate: bool
+        /// The CLI can reopen a closed issue.
+        IssueReopen: bool
+        /// The CLI can delete a release by tag.
+        ReleaseDelete: bool
         /// The CLI reports an authenticated session. The other six flags are all `false`
         /// when this is `false`. **Best-effort for GitLab:** `glab auth status` can exit
         /// `0` while unauthenticated (gitlab-org/cli#911), so a `true` means "probably".
@@ -657,6 +669,8 @@ type ForgeCapabilities =
           PrChecks = false
           PrMerge = false
           IssueCreate = false
+          IssueReopen = false
+          ReleaseDelete = false
           Authed = false
           Version = None
           Kind = ForgeKind.Unknown }

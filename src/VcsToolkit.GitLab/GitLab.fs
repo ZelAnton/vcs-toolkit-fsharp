@@ -355,6 +355,10 @@ type GitLab private (core: ManagedClient) =
     member _.IssueClose(dir: string, number: uint64) =
         core.RunUnit(core.CommandIn(dir, [ "issue"; "close"; string number ]))
 
+    /// Reopen an issue (`glab issue reopen <id>`).
+    member _.IssueReopen(dir: string, number: uint64) =
+        core.RunUnit(core.CommandIn(dir, [ "issue"; "reopen"; string number ]))
+
     /// Add a comment (note) to an issue, returning the command's output
     /// (`glab issue note <id> -m <message>`) — the issue counterpart of `MrComment`, with
     /// the same `-`-sentinel body check the other mutating methods use.
@@ -414,6 +418,15 @@ type GitLab private (core: ManagedClient) =
                            | None -> [])
 
                     return! core.Run(core.CommandIn(dir, args))
+        }
+
+    /// Delete a release by tag (`glab release delete <tag> --yes`). The confirmation flag is
+    /// always emitted so the headless wrapper never waits for an interactive prompt.
+    member _.ReleaseDelete(dir: string, tag: string) =
+        task {
+            match checkFlags BINARY [ "tag", tag ] with
+            | Error e -> return Error e
+            | Ok() -> return! core.RunUnit(core.CommandIn(dir, [ "release"; "delete"; tag; "--yes" ]))
         }
 
     /// A view of this client bound to repository `dir`: modelled methods drop their leading
@@ -520,6 +533,9 @@ and [<Sealed>] GitLabAt internal (gitlab: GitLab, dir: string) =
     /// Close an issue (`glab issue close <id>`).
     member _.IssueClose(number: uint64) = gitlab.IssueClose(dir, number)
 
+    /// Reopen an issue (`glab issue reopen <id>`).
+    member _.IssueReopen(number: uint64) = gitlab.IssueReopen(dir, number)
+
     /// Add a comment (note) to an issue (`glab issue note <id> -m …`).
     member _.IssueComment(number: uint64, body: string) = gitlab.IssueComment(dir, number, body)
 
@@ -531,3 +547,6 @@ and [<Sealed>] GitLabAt internal (gitlab: GitLab, dir: string) =
 
     /// Create a release on `tag` (`glab release create <tag> …`).
     member _.ReleaseCreate(spec: ReleaseCreate) = gitlab.ReleaseCreate(dir, spec)
+
+    /// Delete a release by tag (`glab release delete <tag> --yes`).
+    member _.ReleaseDelete(tag: string) = gitlab.ReleaseDelete(dir, tag)

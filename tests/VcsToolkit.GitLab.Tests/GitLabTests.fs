@@ -559,6 +559,16 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.IssueReopenBuildsArgs() : Task =
+        task {
+            let reopen, args = capturing (Reply.Ok "")
+
+            match! reopen.IssueReopen(".", 4UL) with
+            | Ok() -> assertArgs [ "issue"; "reopen"; "4" ] args
+            | Error e -> Assert.Fail $"issue reopen failed: {e}"
+        }
+
+    [<Test>]
     member _.ReleaseListAndView() : Task =
         task {
             let list =
@@ -579,6 +589,16 @@ type ClientTests() =
             match! view.ReleaseView(".", "v1") with
             | Ok rel -> Assert.That(rel.Description, Is.EqualTo "notes")
             | Error e -> Assert.Fail $"release view failed: {e}"
+        }
+
+    [<Test>]
+    member _.ReleaseDeleteBuildsConfirmedArgs() : Task =
+        task {
+            let glab, args = capturing (Reply.Ok "")
+
+            match! glab.ReleaseDelete(".", "v1") with
+            | Ok() -> assertArgs [ "release"; "delete"; "v1"; "--yes" ] args
+            | Error e -> Assert.Fail $"release delete failed: {e}"
         }
 
 // ---------------------------------------------------------------------------

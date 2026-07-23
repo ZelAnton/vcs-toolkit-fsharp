@@ -39,6 +39,7 @@ namespace VcsToolkit.Mcp
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> ForgeIssueCreate(string title, string body) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> ForgeIssueList() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> ForgeIssueList(Microsoft.FSharp.Core.FSharpOption<string>? state, Microsoft.FSharp.Core.FSharpOption<int>? limit) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> ForgeIssueReopen(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> ForgeIssueView(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> ForgePrCheckout(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> ForgePrChecks(ulong number) { }
@@ -55,6 +56,7 @@ namespace VcsToolkit.Mcp
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> ForgePrReview(ulong number, string kind, Microsoft.FSharp.Core.FSharpOption<string>? body) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> ForgePrView(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> ForgeReleaseCreate(string tag, Microsoft.FSharp.Core.FSharpOption<string>? title, Microsoft.FSharp.Core.FSharpOption<string>? notes, bool draft, bool prerelease) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> ForgeReleaseDelete(string tag) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> ForgeReleaseList() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> ForgeReleaseView(string tag) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> ForgeRepoView() { }

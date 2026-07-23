@@ -531,6 +531,11 @@ type GitHub private (core: ManagedClient) =
     member _.IssueClose(dir: string, number: uint64) =
         core.RunUnit(core.CommandIn(dir, [ "issue"; "close"; string number ]))
 
+    /// Reopen an issue (`gh issue reopen <n>`). The number is always digits (`uint64`), so
+    /// no injection guard is needed.
+    member _.IssueReopen(dir: string, number: uint64) =
+        core.RunUnit(core.CommandIn(dir, [ "issue"; "reopen"; string number ]))
+
     /// Add a comment to an issue, returning its URL (`gh issue comment <n> --body <body>`).
     /// By the `PrComment` pattern: `--body` is mandatory — without it gh falls back to an
     /// interactive prompt, which would hang a headless run.
@@ -580,6 +585,15 @@ type GitHub private (core: ManagedClient) =
                     @ (if spec.Prerelease then [ "--prerelease" ] else [])
 
                 return! core.Run(core.CommandIn(dir, args))
+        }
+
+    /// Delete a release by tag (`gh release delete <tag> --yes`). The confirmation flag is
+    /// always emitted so the headless wrapper never waits for an interactive prompt.
+    member _.ReleaseDelete(dir: string, tag: string) =
+        task {
+            match checkFlags BINARY [ "tag", tag ] with
+            | Error e -> return Error e
+            | Ok() -> return! core.RunUnit(core.CommandIn(dir, [ "release"; "delete"; tag; "--yes" ]))
         }
 
     /// A view of this client bound to repository `dir`: modelled methods drop their leading
@@ -711,6 +725,9 @@ and [<Sealed>] GitHubAt internal (github: GitHub, dir: string) =
     /// Close an issue (`gh issue close <n>`).
     member _.IssueClose(number: uint64) = github.IssueClose(dir, number)
 
+    /// Reopen an issue (`gh issue reopen <n>`).
+    member _.IssueReopen(number: uint64) = github.IssueReopen(dir, number)
+
     /// Add a comment to an issue, returning its URL (`gh issue comment <n> --body …`).
     member _.IssueComment(number: uint64, body: string) = github.IssueComment(dir, number, body)
 
@@ -722,3 +739,6 @@ and [<Sealed>] GitHubAt internal (github: GitHub, dir: string) =
 
     /// Create a release on `tag` (`gh release create <tag> …`).
     member _.ReleaseCreate(spec: ReleaseCreate) = github.ReleaseCreate(dir, spec)
+
+    /// Delete a release by tag (`gh release delete <tag> --yes`).
+    member _.ReleaseDelete(tag: string) = github.ReleaseDelete(dir, tag)

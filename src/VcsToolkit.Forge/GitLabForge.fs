@@ -327,6 +327,12 @@ module internal GitLabForge =
             return ofForge r
         }
 
+    let issueReopen (glab: VcsToolkit.GitLab.GitLab) (dir: string) (number: uint64) =
+        task {
+            let! r = glab.IssueReopen(dir, number)
+            return ofForge r
+        }
+
     let issueComment (glab: VcsToolkit.GitLab.GitLab) (dir: string) (number: uint64) (body: string) =
         task {
             let! r = glab.IssueComment(dir, number, body)
@@ -364,5 +370,11 @@ module internal GitLabForge =
                     | None -> c
 
             let! r = glab.ReleaseCreate(dir, create)
+            return ofForge r
+        }
+
+    let releaseDelete (glab: VcsToolkit.GitLab.GitLab) (dir: string) (tag: string) =
+        task {
+            let! r = glab.ReleaseDelete(dir, tag)
             return ofForge r
         }

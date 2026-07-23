@@ -45,6 +45,8 @@ module private ForgeCaps =
           PrChecks = true
           PrMerge = true
           IssueCreate = true
+          IssueReopen = true
+          ReleaseDelete = true
           Authed = false
           Version = None
           Kind = ForgeKind.Unknown }
@@ -52,12 +54,15 @@ module private ForgeCaps =
     /// GitLab ships the same command set as GitHub on the lean surface.
     let staticGitLabCaps: ForgeCapabilities = staticGitHubCaps
 
-    /// Gitea's `tea` has no checks command, so `PrChecks` is `false`; and tea 0.9.2 has no
+    /// Gitea's `tea` has no checks command, issue reopen command, or release delete command, so
+    /// `PrChecks`, `IssueReopen`, and `ReleaseDelete` are `false`; and tea 0.9.2 has no
     /// `pr edit` command at all (an unrecognised `pr edit` silently falls through to `pr list`
     /// — K-063), so `PrEdit` is `false` too.
     let staticGiteaCaps: ForgeCapabilities =
         { staticGitHubCaps with
             PrChecks = false
+            IssueReopen = false
+            ReleaseDelete = false
             PrEdit = false }
 
     /// Intersect a static "ships the command" map with the auth probe, then overlay the
@@ -236,7 +241,8 @@ type Forge private (cwd: string, backend: Backend) =
         match this.Kind, op with
         | ForgeKind.Unknown, _ -> false
         | ForgeKind.Gitea,
-          (ForgeOp.RepoView | ForgeOp.PrMarkReady | ForgeOp.PrChecks | ForgeOp.ReleaseView | ForgeOp.PrDiff) -> false
+          (ForgeOp.RepoView | ForgeOp.PrMarkReady | ForgeOp.PrChecks | ForgeOp.ReleaseView | ForgeOp.PrDiff | ForgeOp.IssueReopen | ForgeOp.ReleaseDelete) ->
+            false
         | _ -> true
 
     /// Whether this handle's backend can submit a `PrReview` of `kind`. Unlike `Supports` (which
@@ -596,6 +602,21 @@ type Forge private (cwd: string, backend: Backend) =
             | Backend.Gitea(c, _) -> GiteaForge.issueClose c cwd number
             | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "issueClose")) })
 
+    /// Reopen a closed issue. GitHub and GitLab expose native reopen commands; `tea` 0.9.2
+    /// does not, so Gitea and Unknown handles return `Unsupported` before any version probe or
+    /// operation spawn. Version-gated like the other supported mutations.
+    member _.IssueReopen(number: uint64) =
+        match backend with
+        | Backend.Gitea _ -> task { return Error(ForgeError.Unsupported(ForgeKind.Gitea, "issueReopen")) }
+        | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "issueReopen")) }
+        | _ ->
+            gated backend "issueReopen" (fun () ->
+                match backend with
+                | Backend.GitHub(c, _) -> GitHubForge.issueReopen c cwd number
+                | Backend.GitLab(c, _) -> GitLabForge.issueReopen c cwd number
+                | Backend.Gitea _ -> task { return Error(ForgeError.Unsupported(ForgeKind.Gitea, "issueReopen")) }
+                | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "issueReopen")) })
+
     /// Post a comment to an existing issue, returning the CLI's success output. An empty
     /// (or whitespace-only) body is rejected with `InvalidInput` before any CLI spawn — by
     /// the `PrComment` pattern. Note: on Gitea the body is a positional, so a body whose
@@ -662,3 +683,18 @@ type Forge private (cwd: string, backend: Backend) =
                 | Backend.GitLab(c, _) -> GitLabForge.releaseCreate c cwd spec
                 | Backend.Gitea(c, _) -> GiteaForge.releaseCreate c cwd spec
                 | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "releaseCreate")) })
+
+    /// Delete a release by tag. GitHub and GitLab expose native delete commands; `tea` 0.9.2
+    /// does not, so Gitea and Unknown handles return `Unsupported` before any version probe or
+    /// operation spawn. The wrapper always supplies the confirmation flag on supported CLIs.
+    member _.ReleaseDelete(tag: string) =
+        match backend with
+        | Backend.Gitea _ -> task { return Error(ForgeError.Unsupported(ForgeKind.Gitea, "releaseDelete")) }
+        | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "releaseDelete")) }
+        | _ ->
+            gated backend "releaseDelete" (fun () ->
+                match backend with
+                | Backend.GitHub(c, _) -> GitHubForge.releaseDelete c cwd tag
+                | Backend.GitLab(c, _) -> GitLabForge.releaseDelete c cwd tag
+                | Backend.Gitea _ -> task { return Error(ForgeError.Unsupported(ForgeKind.Gitea, "releaseDelete")) }
+                | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "releaseDelete")) })

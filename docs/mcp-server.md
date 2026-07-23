@@ -134,7 +134,7 @@ simple and race-free), and `repo_try_merge` (a real trial merge that materialize
 rolling itself back, so it needs the same isolation). An MCP host can dispatch tool calls
 concurrently; without this lock, two working-copy mutations could interleave (e.g. a
 `repo_try_merge` probe's materialize-then-rollback racing a `repo_commit`).
-**Remote-only forge writes** (`forge_issue_create`, `forge_issue_close`, `forge_issue_comment`,
+**Remote-only forge writes** (`forge_issue_create`, `forge_issue_close`, `forge_issue_reopen`, `forge_issue_comment`,
 `forge_pr_create`, `forge_pr_comment`, `forge_pr_edit`, `forge_pr_mark_ready`, `forge_pr_review`)
 do **not** take this local lock — they only touch the remote forge, and the forge's own server
 serializes concurrent requests on its side. `forge_pr_merge`/`forge_pr_close` are **not** in this
@@ -238,6 +238,7 @@ that forge, rather than silently degrading.
 |---|---|---|---|---|
 | `forge_issue_create` | Open an issue, returning the CLI's output (the URL on success). | `title` (string, required), `body` (string, required) | no | no |
 | `forge_issue_close` | Close an issue (reopenable). | `number` (integer, required) | no | yes |
+| `forge_issue_reopen` | Reopen a closed issue. | `number` (integer, required) | no | yes |
 | `forge_issue_comment` | Post a comment to an existing issue, returning the CLI's output. | `number` (integer, required), `body` (string, required) | no | no |
 | `forge_pr_create` | Open a pull/merge request, returning the CLI's output (the URL on success). | `title` (string, required), `body` (string, required), `source` (string, optional — defaults to the current branch), `target` (string, optional — defaults to the repo default) | no | no |
 | `forge_pr_merge` | Merge a pull/merge request with a strategy (`merge`/`squash`/`rebase`). `auto`/`delete_branch` are GitHub-only — refused as Unsupported on GitLab/Gitea if set. `delete_branch=true` deletes the source branch. | `number` (integer, required), `strategy` (string, required), `auto` (boolean, optional), `delete_branch` (boolean, optional) | **yes** | no |
@@ -247,6 +248,7 @@ that forge, rather than silently degrading.
 | `forge_pr_edit` | Edit a pull/merge request's title and/or body (at least one required). | `number` (integer, required), `title` (string, optional), `body` (string, optional) | no | yes |
 | `forge_pr_checkout` | Check out a pull/merge request's branch into the local working copy (`gh pr checkout` / `glab mr checkout` / `tea pr checkout`). Holds the per-repo write lock — it mutates the local working tree. | `number` (integer, required) | no | yes |
 | `forge_pr_review` | Submit a review on a pull/merge request: `approve`, `request_changes`, or `comment`. `body` is required for `request_changes`/`comment`, optional for `approve`. `request_changes` is Unsupported on GitLab; `comment` is Unsupported on GitLab and Gitea (use `forge_pr_comment` there instead). | `number` (integer, required), `kind` (string, required), `body` (string, optional) | no | no |
+| `forge_release_delete` | Delete a release by tag. **Unsupported on Gitea.** | `tag` (string, required) | **yes** | no |
 
 ## Output-size budget
 

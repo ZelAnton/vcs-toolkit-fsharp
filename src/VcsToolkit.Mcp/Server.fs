@@ -604,6 +604,16 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
                 | Ok() -> return Ok(Json.ok {| closed = number |})
             })
 
+    /// Reopen a closed issue. A remote-only status change — no local working-copy mutation —
+    /// so it uses `WithForgeWrite` (write gate only), like `forge_issue_close`.
+    member this.ForgeIssueReopen(number: uint64) =
+        this.WithForgeWrite "forge_issue_reopen" (fun f ->
+            task {
+                match! f.IssueReopen number with
+                | Error e -> return Error(forgeErr e)
+                | Ok() -> return Ok(Json.ok {| reopened = number |})
+            })
+
     /// Post a comment to an existing issue, returning the CLI's output. Remote-only, so it
     /// uses `WithForgeWrite` (like `forge_pr_comment`/`forge_issue_create`).
     member this.ForgeIssueComment(number: uint64, body: string) =
@@ -615,6 +625,19 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
                     match! f.IssueComment(number, body) with
                     | Error e -> return Error(forgeErr e)
                     | Ok out -> return Ok(Json.ok {| output = out |})
+            })
+
+    /// Delete a release by tag. This is a remote-only destructive mutation, so it uses
+    /// `WithForgeWrite` without taking the per-repo local write lock.
+    member this.ForgeReleaseDelete(tag: string) =
+        this.WithForgeWrite "forge_release_delete" (fun f ->
+            task {
+                match guardArgvField "tag" tag with
+                | Error e -> return Error e
+                | Ok() ->
+                    match! f.ReleaseDelete tag with
+                    | Error e -> return Error(forgeErr e)
+                    | Ok() -> return Ok(Json.ok {| deleted = tag |})
             })
 
     /// Open a pull/merge request, returning the CLI's output (the URL on success).

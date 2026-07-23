@@ -715,6 +715,16 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.IssueReopenBuildsArgs() : Task =
+        task {
+            let reopen = scripted [ "issue"; "reopen"; "3" ] (Reply.Ok "")
+
+            match! reopen.IssueReopen(".", 3UL) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"issue reopen failed: {e}"
+        }
+
+    [<Test>]
     member _.ReleaseViewBuildsTaggedQuery() : Task =
         task {
             let json =
@@ -899,6 +909,16 @@ type HardeningTests() =
             match! gh.ReleaseCreate(".", ReleaseCreate.Create "v2") with
             | Ok _ -> assertArgs [ "release"; "create"; "v2"; "--notes"; "" ] args
             | Error e -> Assert.Fail $"release create failed: {e}"
+        }
+
+    [<Test>]
+    member _.ReleaseDeleteBuildsConfirmedArgs() : Task =
+        task {
+            let gh, args = capturing (Reply.Ok "")
+
+            match! gh.ReleaseDelete(".", "v1.0.0") with
+            | Ok() -> assertArgs [ "release"; "delete"; "v1.0.0"; "--yes" ] args
+            | Error e -> Assert.Fail $"release delete failed: {e}"
         }
 
     [<Test>]

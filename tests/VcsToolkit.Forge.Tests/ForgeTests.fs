@@ -226,9 +226,11 @@ type ForgeKindTests() =
 
     [<Test>]
     member _.ForgeOpAllEnumeratesTheVaryingOps() =
-        Assert.That(ForgeOp.All.Length, Is.EqualTo 5)
+        Assert.That(ForgeOp.All.Length, Is.EqualTo 7)
         Assert.That(List.contains ForgeOp.PrChecks ForgeOp.All, Is.True)
         Assert.That(List.contains ForgeOp.PrDiff ForgeOp.All, Is.True)
+        Assert.That(List.contains ForgeOp.IssueReopen ForgeOp.All, Is.True)
+        Assert.That(List.contains ForgeOp.ReleaseDelete ForgeOp.All, Is.True)
 
 // ---------------------------------------------------------------------------
 // ForgeError classifiers
@@ -325,6 +327,8 @@ type DispatchTests() =
         Assert.That(tea.Supports ForgeOp.PrChecks, Is.False)
         Assert.That(tea.Supports ForgeOp.ReleaseView, Is.False)
         Assert.That(tea.Supports ForgeOp.PrDiff, Is.False)
+        Assert.That(tea.Supports ForgeOp.IssueReopen, Is.False)
+        Assert.That(tea.Supports ForgeOp.ReleaseDelete, Is.False)
 
     [<Test>]
     member _.SupportsReviewMergeOptionsAndCloseReflectTheBackend() =
@@ -473,13 +477,17 @@ type DispatchTests() =
             // ahead of the both-`None` input guard and before any spawn (including the version
             // probe): tea 0.9.2 has no `pr edit` command at all (K-063).
             let! e = isUnsupported (forge.PrEdit(1UL, PrEdit.Create().WithTitle "x"))
+            let! f = isUnsupported (forge.IssueReopen 1UL)
+            let! g = isUnsupported (forge.ReleaseDelete "v1")
 
             for flag, name in
                 [ a, "repoView"
                   b, "prChecks"
                   c, "releaseView"
                   d, "prMarkReady"
-                  e, "prEdit" ] do
+                  e, "prEdit"
+                  f, "issueReopen"
+                  g, "releaseDelete" ] do
                 Assert.That(flag, Is.True, $"Gitea {name} must be Unsupported without spawning")
         }
 
@@ -509,6 +517,8 @@ type DispatchTests() =
             let! d = isUnsupported (forge.PrMerge(1UL, PrMerge.Merge))
             let! e = isUnsupported (forge.IssueCreate("t", "b"))
             let! f = isUnsupported (forge.ReleaseView "v1")
+            let! g = isUnsupported (forge.IssueReopen 1UL)
+            let! h = isUnsupported (forge.ReleaseDelete "v1")
 
             for flag, name in
                 [ a, "prList"
@@ -516,7 +526,9 @@ type DispatchTests() =
                   c, "repoView"
                   d, "prMerge"
                   e, "issueCreate"
-                  f, "releaseView" ] do
+                  f, "releaseView"
+                  g, "issueReopen"
+                  h, "releaseDelete" ] do
                 Assert.That(flag, Is.True, $"Unknown {name} must be Unsupported")
 
             match! forge.Capabilities() with
@@ -649,6 +661,8 @@ type DispatchTests() =
                 Assert.That(caps.Authed, Is.True)
                 Assert.That(caps.PrCreate, Is.True)
                 Assert.That(caps.PrChecks, Is.True)
+                Assert.That(caps.IssueReopen, Is.True)
+                Assert.That(caps.ReleaseDelete, Is.True)
                 Assert.That(caps.Kind, Is.EqualTo ForgeKind.GitHub)
                 Assert.That(caps.Version |> Option.map (fun v -> v.ToString()), Is.EqualTo(Some "2.40.0"))
             | Error e -> Assert.Fail $"capabilities failed: {e.Message}"
@@ -668,6 +682,8 @@ type DispatchTests() =
             | Ok caps ->
                 Assert.That(caps.Authed, Is.False)
                 Assert.That(caps.PrCreate, Is.False)
+                Assert.That(caps.IssueReopen, Is.False)
+                Assert.That(caps.ReleaseDelete, Is.False)
                 Assert.That(caps.Kind, Is.EqualTo ForgeKind.GitHub, "backend kind reported even when unauthed")
 
                 Assert.That(
@@ -694,6 +710,8 @@ type DispatchTests() =
                 Assert.That(caps.PrChecks, Is.False, "tea has no checks command")
                 Assert.That(caps.PrEdit, Is.False, "tea 0.9.2 has no `pr edit` command (K-063)")
                 Assert.That(caps.PrCreate, Is.True)
+                Assert.That(caps.IssueReopen, Is.False, "tea 0.9.2 has no `issues reopen` command")
+                Assert.That(caps.ReleaseDelete, Is.False, "tea 0.9.2 has no `release delete` command")
                 Assert.That(caps.Kind, Is.EqualTo ForgeKind.Gitea)
             | Error e -> Assert.Fail $"capabilities failed: {e.Message}"
         }
@@ -1982,6 +2000,53 @@ type ReleaseCreateTests() =
         }
 
     [<Test>]
+    member _.GitHubReleaseDeleteDispatchesWithConfirmation() : Task =
+        task {
+            let forge =
+                Forge.FromGitHub(
+                    ".",
+                    VcsToolkit.GitHub.GitHub.WithRunner(
+                        ScriptedRunner()
+                            .On([ "--version" ], Reply.Ok "gh version 2.40.0\n")
+                            .On([ "release"; "delete"; "v1"; "--yes" ], Reply.Exit 0)
+                    )
+                )
+
+            match! forge.ReleaseDelete "v1" with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"gh release delete must dispatch: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabReleaseDeleteDispatchesWithConfirmation() : Task =
+        task {
+            let forge =
+                Forge.FromGitLab(
+                    ".",
+                    VcsToolkit.GitLab.GitLab.WithRunner(
+                        ScriptedRunner()
+                            .On([ "--version" ], Reply.Ok "glab 1.40.0\n")
+                            .On([ "release"; "delete"; "v1"; "--yes" ], Reply.Exit 0)
+                    )
+                )
+
+            match! forge.ReleaseDelete "v1" with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"glab release delete must dispatch: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaReleaseDeleteIsUnsupportedWithoutSpawning() : Task =
+        task {
+            let forge =
+                Forge.FromGitea(".", VcsToolkit.Gitea.Gitea.WithRunner(ScriptedRunner()))
+
+            match! forge.ReleaseDelete "v1" with
+            | Error e -> Assert.That(e.IsUnsupported, Is.True, "tea release delete must be Unsupported")
+            | Ok() -> Assert.Fail "tea release delete must be Unsupported"
+        }
+
+    [<Test>]
     member _.GitLabRefusesDraftAndPrereleaseWithoutSpawning() : Task =
         task {
             // An empty ScriptedRunner RAISES on any spawn, so reaching Unsupported proves that
@@ -2117,10 +2182,9 @@ type PrCheckoutTests() =
         }
 
 // ---------------------------------------------------------------------------
-// Issue lifecycle: close + comment dispatch to each backend's native subcommand, the
+// Issue lifecycle: close/reopen + comment dispatch to each supported backend's native subcommand, the
 // empty-body refusal precedes any spawn, and both ops are version-gated like issueCreate.
-// All three CLIs support both ops, so they are NOT capability-varying — only the CLI-less
-// Unknown handle is Unsupported without spawning.
+// Gitea 0.9.2 has no reopen command; it is Unsupported there and on the CLI-less Unknown handle.
 // ---------------------------------------------------------------------------
 
 [<TestFixture>]
@@ -2171,6 +2235,37 @@ type IssueLifecycleTests() =
             match! forge.IssueClose 2UL with
             | Ok() -> ()
             | Error e -> Assert.Fail $"glab issue close must dispatch: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitHubDispatchesIssueReopen() : Task =
+        task {
+            let forge = ghIssueForge [ "issue"; "reopen"; "1" ] (Reply.Exit 0)
+
+            match! forge.IssueReopen 1UL with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"gh issue reopen must dispatch: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabDispatchesIssueReopen() : Task =
+        task {
+            let forge = glIssueForge [ "issue"; "reopen"; "2" ] (Reply.Exit 0)
+
+            match! forge.IssueReopen 2UL with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"glab issue reopen must dispatch: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaIssueReopenIsUnsupportedWithoutSpawning() : Task =
+        task {
+            let forge =
+                Forge.FromGitea(".", VcsToolkit.Gitea.Gitea.WithRunner(ScriptedRunner()))
+
+            match! forge.IssueReopen 3UL with
+            | Error e -> Assert.That(e.IsUnsupported, Is.True, "tea issue reopen must be Unsupported")
+            | Ok() -> Assert.Fail "tea issue reopen must be Unsupported"
         }
 
     [<Test>]

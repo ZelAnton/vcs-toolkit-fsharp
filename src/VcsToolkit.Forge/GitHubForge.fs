@@ -350,6 +350,12 @@ module internal GitHubForge =
             return ofForge r
         }
 
+    let issueReopen (gh: VcsToolkit.GitHub.GitHub) (dir: string) (number: uint64) =
+        task {
+            let! r = gh.IssueReopen(dir, number)
+            return ofForge r
+        }
+
     let issueComment (gh: VcsToolkit.GitHub.GitHub) (dir: string) (number: uint64) (body: string) =
         task {
             let! r = gh.IssueComment(dir, number, body)
@@ -386,5 +392,11 @@ module internal GitHubForge =
                 |> fun c -> if spec.Prerelease then c.WithPrerelease() else c
 
             let! r = gh.ReleaseCreate(dir, create)
+            return ofForge r
+        }
+
+    let releaseDelete (gh: VcsToolkit.GitHub.GitHub) (dir: string) (tag: string) =
+        task {
+            let! r = gh.ReleaseDelete(dir, tag)
             return ofForge r
         }

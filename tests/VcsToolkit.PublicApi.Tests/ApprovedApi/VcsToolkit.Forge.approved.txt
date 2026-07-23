@@ -35,6 +35,7 @@ namespace VcsToolkit.Forge
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Forge.ForgeError>> IssueCreate(string title, string body) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Forge.ForgeIssue>, VcsToolkit.Forge.ForgeError>> IssueList() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Forge.ForgeIssue>, VcsToolkit.Forge.ForgeError>> IssueList(VcsToolkit.Forge.IssueListOptions options) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Forge.ForgeError>> IssueReopen(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Forge.ForgeIssue, VcsToolkit.Forge.ForgeError>> IssueView(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Forge.ForgeError>> PrCheckout(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Forge.CiStatus, VcsToolkit.Forge.ForgeError>> PrChecks(ulong number) { }
@@ -51,6 +52,7 @@ namespace VcsToolkit.Forge
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Forge.ForgeError>> PrReview(ulong number, VcsToolkit.Forge.ReviewAction action) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Forge.ForgePr, VcsToolkit.Forge.ForgeError>> PrView(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Forge.ForgeError>> ReleaseCreate(VcsToolkit.Forge.ReleaseCreate spec) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Forge.ForgeError>> ReleaseDelete(string tag) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Forge.ForgeRelease>, VcsToolkit.Forge.ForgeError>> ReleaseList() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Forge.ForgeRelease, VcsToolkit.Forge.ForgeError>> ReleaseView(string tag) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Forge.ForgeRepo, VcsToolkit.Forge.ForgeError>> RepoView() { }
@@ -71,12 +73,14 @@ namespace VcsToolkit.Forge
     public sealed class ForgeCapabilities : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Forge.ForgeCapabilities>, System.IEquatable<VcsToolkit.Forge.ForgeCapabilities>
     {
         [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Forge.ForgeCapabilities))]
-        public ForgeCapabilities(bool prCreate, bool prComment, bool prEdit, bool prChecks, bool prMerge, bool issueCreate, bool authed, Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Diff.Version>? version, VcsToolkit.Forge.ForgeKind kind) { }
-        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 6)]
+        public ForgeCapabilities(bool prCreate, bool prComment, bool prEdit, bool prChecks, bool prMerge, bool issueCreate, bool issueReopen, bool releaseDelete, bool authed, Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Diff.Version>? version, VcsToolkit.Forge.ForgeKind kind) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 8)]
         public bool Authed { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 5)]
         public bool IssueCreate { get; }
-        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 8)]
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 6)]
+        public bool IssueReopen { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 10)]
         public VcsToolkit.Forge.ForgeKind Kind { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
         public bool PrChecks { get; }
@@ -89,6 +93,8 @@ namespace VcsToolkit.Forge
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
         public bool PrMerge { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 7)]
+        public bool ReleaseDelete { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 9)]
         public Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Diff.Version>? Version { get; }
         public static VcsToolkit.Forge.ForgeCapabilities AllFalse { get; }
     }
@@ -194,9 +200,11 @@ namespace VcsToolkit.Forge
         public static Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Forge.ForgeOp> All { get; }
         public static class Tags
         {
+            public const int IssueReopen = 5;
             public const int PrChecks = 2;
             public const int PrDiff = 4;
             public const int PrMarkReady = 1;
+            public const int ReleaseDelete = 6;
             public const int ReleaseView = 3;
             public const int RepoView = 0;
         }

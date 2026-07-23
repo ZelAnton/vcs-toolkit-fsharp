@@ -30,6 +30,7 @@ module WriteTools =
           "repo_new_child"
           "forge_issue_create"
           "forge_issue_close"
+          "forge_issue_reopen"
           "forge_issue_comment"
           "forge_pr_create"
           "forge_pr_merge"
@@ -39,7 +40,8 @@ module WriteTools =
           "forge_pr_edit"
           "forge_pr_checkout"
           "forge_pr_review"
-          "forge_release_create" ]
+          "forge_release_create"
+          "forge_release_delete" ]
 
     /// The same set as a `Set` for membership tests.
     let asSet = Set.ofList all
