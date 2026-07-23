@@ -33,7 +33,7 @@ escape hatch reaches but no typed method models yet is a candidate for a future 
   hatch.
 - A method already reachable through a facade (`VcsToolkit.Core`'s `Repo`, `VcsToolkit.Forge`'s
   `Forge`) is not repeated here — this index is the wrapper-level wiring the facades dispatch
-  to; see [Facade escape-hatch routers](#facade-escape-hatch-routers) for how a facade caller
+  to; see [Facade escape-hatch routers](#Facade-escape-hatch-routers) for how a facade caller
   drops back to the wrapper level.
 
 ## git (`VcsToolkit.Git` — the `git` binary)
@@ -453,7 +453,7 @@ hatch; authentication is **ambient only** (`tea login add`, out of band — ther
 | `RunRaw` | like `Run`, never errors on a non-zero exit; **unguarded** | |
 
 There is intentionally **no** `RepoView`, `PrMarkReady`, `PrChecks`, `ReleaseView`, `IssueReopen`, or
-`ReleaseDelete` command implementation on `Gitea` — `tea` has no equivalent command; the [`VcsToolkit.Forge`](#facade-escape-hatch-routers)
+`ReleaseDelete` command implementation on `Gitea` — `tea` has no equivalent command; the [`VcsToolkit.Forge`](#Facade-escape-hatch-routers)
 facade reports these `Unsupported` for the Gitea backend.
 
 ### tea — not modeled (examples) → escape hatch

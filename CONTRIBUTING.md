@@ -19,10 +19,18 @@ Thanks for your interest in improving **VcsToolkit**.
 dotnet tool restore
 dotnet build VcsToolkit.slnx
 dotnet test  VcsToolkit.slnx
+dotnet fantomas --check src tests
+pwsh ./scripts/run-analyzers.ps1
+pwsh ./scripts/check-command-index.ps1
+pwsh ./scripts/check-docs.ps1
+pwsh ./scripts/build-docs.ps1
+pwsh ./scripts/check-docs-output.ps1
 ```
 
-The build treats **warnings as errors**, so a clean local build is required
-before opening a pull request. Run a single test with:
+The build treats **warnings as errors**, so a clean local build is required before opening a
+pull request. The source checks keep the CLI command index and MCP tool reference synchronized
+with their executable API/catalogue sources. The generated-output check catches broken targets
+and case-sensitive fragments after fsdocs renders the site. Run a single test with:
 
 ```sh
 dotnet test VcsToolkit.slnx --filter "FullyQualifiedName~TestMethodName"
