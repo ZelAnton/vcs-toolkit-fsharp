@@ -114,6 +114,18 @@ type Remote =
 [<RequireQualifiedAccess>]
 module internal JjParse =
 
+    /// Parse a root path from stdout that has already been decoded into a .NET string. Only one
+    /// final LF or CRLF line terminator is removed; trailing spaces, tabs, and all other content
+    /// are preserved. Because the process output was decoded as UTF-8 before this function sees
+    /// it, invalid UTF-8 bytes have already become U+FFFD and cannot be recovered losslessly.
+    let parseRoot (output: string) : string =
+        if output.EndsWith("\r\n", StringComparison.Ordinal) then
+            output.Substring(0, output.Length - 2)
+        elif output.EndsWith("\n", StringComparison.Ordinal) then
+            output.Substring(0, output.Length - 1)
+        else
+            output
+
     // --- Templates -----------------------------------------------------------
     // Each is a jj template-language expression. The literal `\t` / `\n` sequences
     // are passed verbatim to jj (its template language interprets them), so they

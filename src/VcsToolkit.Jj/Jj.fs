@@ -172,6 +172,13 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
         else
             cmdIn dir args
 
+    let runRoot (cmd: Command) : Task<Result<string, ProcessError>> =
+        task {
+            match! runUntrimmed core cmd with
+            | Error e -> return Error e
+            | Ok output -> return Ok(JjParse.parseRoot output)
+        }
+
     /// Create a client driving the real job-backed runner.
     static member Create() = Jj(ManagedClient.Create BINARY, false)
 
@@ -447,7 +454,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
     // --- Discovery / identity ------------------------------------------------
 
     /// Working-copy root of the current workspace (`jj root`).
-    member _.Root(dir: string) : Task<Result<string, ProcessError>> = core.Run(cmdInRead dir [ "root" ])
+    member _.Root(dir: string) : Task<Result<string, ProcessError>> = runRoot (cmdInRead dir [ "root" ])
 
     /// The local bookmark on the working-copy change `@`, if exactly one (or the
     /// first of several); `None` when `@` carries no bookmark.
@@ -978,7 +985,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
                | Some n -> [ "--name"; n ]
                | None -> [])
 
-        core.Run(cmdInRead dir args)
+        runRoot (cmdInRead dir args)
 
     /// Add a workspace (`workspace add --name <name> -r <base> <path>`). `spec.Path` is a bare
     /// positional, so a leading-`-` value would be parsed as a flag — it is refused before
@@ -1025,14 +1032,9 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
                     do! sem.WaitAsync()
 
                     try
-                        match! core.Output(cmdInRead dir [ "workspace"; "root"; "--name"; n ]) with
+                        match! runRoot (cmdInRead dir [ "workspace"; "root"; "--name"; n ]) with
                         | Error e -> return Error e
-                        | Ok res ->
-                            match ProcessResult.ensureSuccess res with
-                            | Error e -> return Error e
-                            // `TrimEnd` (not `Trim`) for parity with the single
-                            // `WorkspaceRoot`, whose `core.Run` trims trailing whitespace.
-                            | Ok ok -> return Ok(ok.Stdout.TrimEnd())
+                        | Ok root -> return Ok root
                     finally
                         sem.Release() |> ignore
                 }

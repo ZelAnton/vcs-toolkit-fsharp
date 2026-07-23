@@ -641,3 +641,99 @@ module internal GitParse =
                       DryRun = false }
             else
                 None)
+
+    /// Parse `git config --file .gitmodules --list -z` into one `Submodule` per configured
+    /// submodule, in first-seen order. The `-z` framing terminates each `key\nvalue` entry with
+    /// a NUL (and separates the key from its value with a newline); a valueless boolean key has
+    /// no newline. Only `submodule.<name>.{path,url,branch}` entries are consumed — the variable
+    /// name is the FINAL dot-component, so everything between `submodule.` and the last dot is
+    /// the submodule's logical name (which may itself contain dots or spaces). Total: an entry
+    /// that isn't a `submodule.<name>.<var>` key, or names an unrecognised variable, is ignored
+    /// rather than raising. A submodule that appears with no `path`/`url` still yields a record
+    /// (empty fields) so a malformed `.gitmodules` degrades to a best-effort list.
+    let parseSubmoduleConfig (output: string) : Submodule list =
+        let prefix = "submodule."
+        let order = System.Collections.Generic.List<string>()
+        let byName = System.Collections.Generic.Dictionary<string, Submodule>()
+
+        for record in output.Split nul do
+            if record <> "" then
+                let key, value =
+                    match record.IndexOf '\n' with
+                    | -1 -> record, ""
+                    | idx -> record.Substring(0, idx), record.Substring(idx + 1)
+
+                if key.StartsWith(prefix, StringComparison.Ordinal) then
+                    let rest = key.Substring prefix.Length
+
+                    match rest.LastIndexOf '.' with
+                    | -1 -> () // no variable component — not a `submodule.<name>.<var>` key
+                    | dot ->
+                        let name = rest.Substring(0, dot)
+                        let field = rest.Substring(dot + 1)
+
+                        let existing =
+                            match byName.TryGetValue name with
+                            | true, sm -> sm
+                            | _ ->
+                                order.Add name
+
+                                { Name = name
+                                  Path = ""
+                                  Url = ""
+                                  Branch = None }
+
+                        let updated =
+                            match field with
+                            | "path" -> { existing with Path = value }
+                            | "url" -> { existing with Url = value }
+                            | "branch" -> { existing with Branch = Some value }
+                            | _ -> existing
+
+                        byName.[name] <- updated
+
+        [ for name in order -> byName.[name] ]
+
+    /// Decode a `git submodule status` line's leading marker character into a `SubmoduleState`.
+    /// Anything other than `-`/`+`/`U` (in practice a leading space) reads as `Current`.
+    let private submoduleState (marker: char) : SubmoduleState =
+        match marker with
+        | '-' -> SubmoduleState.Uninitialized
+        | '+' -> SubmoduleState.OutOfSync
+        | 'U' -> SubmoduleState.Conflict
+        | _ -> SubmoduleState.Current
+
+    /// Parse `git submodule status` into typed `SubmoduleStatus` entries. Each line is
+    /// `<marker><commit> <path>[ (<describe>)]`: the first character is the sync marker, the
+    /// object id runs to the first space, the remainder is the path plus an optional
+    /// parenthesised `git describe`. Total: a line with no space after the id is skipped.
+    let parseSubmoduleStatus (output: string) : SubmoduleStatus list =
+        TextParse.linesOf output
+        |> List.choose (fun line ->
+            if line.Length = 0 then
+                None
+            else
+                let state = submoduleState line.[0]
+                let rest = line.Substring 1
+
+                match rest.IndexOf ' ' with
+                | -1 -> None // no path field — malformed, skip
+                | sp ->
+                    let commit = rest.Substring(0, sp)
+                    let after = rest.Substring(sp + 1)
+
+                    // An optional ` (describe)` suffix follows the path; the path itself may
+                    // contain spaces, so peel the suffix from the END rather than splitting.
+                    let path, describe =
+                        if after.EndsWith(")", StringComparison.Ordinal) then
+                            match after.LastIndexOf(" (", StringComparison.Ordinal) with
+                            | -1 -> after, None
+                            | idx -> after.Substring(0, idx), Some(after.Substring(idx + 2, after.Length - idx - 3))
+                        else
+                            after, None
+
+                    Some
+                        { Path = path
+                          Commit = commit
+                          State = state
+                          Describe = describe })

@@ -165,6 +165,14 @@ for this client's place in the layering.
 | `SwitchWithStash` | composed: `stash push -u` → `checkout` → `stash pop --index` (or a bare `checkout` when nothing to save) | data-loss-safe: brackets the push with a stash-depth check so a bare pop never grabs an unrelated entry |
 | `Clean` | `clean [-d] [-x] [-X] [-n] [-f]` | via `Clean` spec; parsed `CleanEntry list`; refuses to spawn without `DryRun`/`Force` set |
 
+### Submodules
+
+| Method | Runs | Notes |
+|---|---|---|
+| `SubmoduleList` | `config --file .gitmodules --list -z` | parsed `Submodule list` (name/path/url/branch); **empty and spawn-free** when there is no `.gitmodules` (probed on disk first) — a pure read, no nested-repo execution |
+| `SubmoduleStatus` | `submodule status` | parsed `SubmoduleStatus list` with a typed `SubmoduleState` (`-`/`+`/`U`/space); a read — no nested-repo materialization |
+| `SubmoduleUpdate` | `submodule update [--init] [--recursive] [--depth <n>] [-- <paths>]` | via `SubmoduleUpdate` spec; `GIT_TERMINAL_PROMPT=0`. **Materializes and EXECUTES nested repositories** — pair with `Harden` + a `protocol.*` allow-list for an untrusted superproject; see `architecture.md` |
+
 ### Discovery & raw escape hatches
 
 | Method | Runs | Notes |
@@ -181,8 +189,10 @@ probes above), `archive`, `bundle`, `describe`, `difftool`/`mergetool`, `fsck`, 
 `ls-files`/`ls-tree`, `merge-base`, `mv`/`rm` (path staging goes through `Add`), `notes`,
 `rebase --onto` (a three-way rebase onto an explicit upstream — only the plain `rebase <onto>`
 form is typed), `reflog`, `replace`, `reset` (soft/mixed — only `--hard`/`--merge` are typed),
-`send-email`, `shortlog`, `sparse-checkout`, `submodule`, `subtree`, `verify-commit`/
-`verify-tag`. Reach any of these through `Run`/`RunRaw`.
+`send-email`, `shortlog`, `sparse-checkout`, `submodule` (only `list`/`status`/`update` are
+typed, as `SubmoduleList`/`SubmoduleStatus`/`SubmoduleUpdate` above — `add`/`deinit`/`foreach`/
+`sync`/`set-branch`/`set-url`/`absorbgitdirs` go through the escape hatch), `subtree`,
+`verify-commit`/`verify-tag`. Reach any of these through `Run`/`RunRaw`.
 
 ## jj (`VcsToolkit.Jj` — the `jj` binary)
 

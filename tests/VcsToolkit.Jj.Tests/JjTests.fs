@@ -454,6 +454,62 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.RootPreservesTrailingSpace() : Task =
+        task {
+            let jj = scripted [ "root" ] (Reply.Ok " \n")
+
+            match! jj.Root "." with
+            | Ok root -> Assert.That(root, Is.EqualTo " ")
+            | Error e -> Assert.Fail $"root failed: {e}"
+        }
+
+    [<Test>]
+    member _.WorkspaceRootPreservesTrailingTab() : Task =
+        task {
+            let jj = scripted [ "workspace"; "root" ] (Reply.Ok $"{tab}\n")
+
+            match! jj.WorkspaceRoot(".", None) with
+            | Ok root -> Assert.That(root, Is.EqualTo tab)
+            | Error e -> Assert.Fail $"workspace root failed: {e}"
+        }
+
+    [<Test>]
+    member _.WorkspaceRootsRemovesCrLfOnly() : Task =
+        task {
+            let jj = scripted [ "workspace"; "root"; "--name"; "default" ] (Reply.Ok $"{cr}\n")
+
+            match! jj.WorkspaceRoots(".", [ "default" ]) with
+            | [ Ok root ] -> Assert.That(root, Is.EqualTo "")
+            | [ Error e ] -> Assert.Fail $"workspace roots failed: {e}"
+            | roots -> Assert.Fail $"expected one workspace root, got {roots.Length}"
+        }
+
+    [<Test>]
+    member _.RootApisShareTheSameLineTerminatorParsing() : Task =
+        task {
+            let output = $" /repo {tab}{cr}\n"
+
+            let runner =
+                ScriptedRunner()
+                    .On([ "root" ], Reply.Ok output)
+                    .On([ "workspace"; "root" ], Reply.Ok output)
+                    .On([ "workspace"; "root"; "--name"; "default" ], Reply.Ok output)
+
+            let jj = Jj.WithRunner runner
+            let! root = jj.Root "."
+            let! workspaceRoot = jj.WorkspaceRoot(".", None)
+            let! workspaceRoots = jj.WorkspaceRoots(".", [ "default" ])
+            let expected = $" /repo {tab}"
+
+            match root, workspaceRoot, workspaceRoots with
+            | Ok root, Ok workspaceRoot, [ Ok workspaceRoots ] ->
+                Assert.That(root, Is.EqualTo expected)
+                Assert.That(workspaceRoot, Is.EqualTo expected)
+                Assert.That(workspaceRoots, Is.EqualTo expected)
+            | _ -> Assert.Fail "all root APIs should return the same parsed path"
+        }
+
+    [<Test>]
     member _.StatusRunsFromResolvedRootRegardlessOfCallerDir() : Task =
         task {
             // The core criterion: `diff --summary` runs FROM the resolved workspace root, not
@@ -499,8 +555,8 @@ type ClientTests() =
     member _.StatusPreservesLeadingWhitespaceInWorkspaceRoot() : Task =
         task {
             // A leading space is legal in a Unix path; `Status` must run the diff query from
-            // the root exactly as `Root` returned it (TrimEnd-only), not further `Trim()`-ed
-            // (which would silently drop the leading space and point at a nonexistent dir).
+            // the root exactly as `Root` returned it, not further `Trim()`-ed (which would
+            // silently drop the leading space and point at a nonexistent dir).
             let captured = ref (None: Command option)
 
             let recordDiffCommand (cmd: Command) =

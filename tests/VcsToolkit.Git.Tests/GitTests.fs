@@ -51,6 +51,25 @@ let private withTempDir (f: string -> unit) =
             // Best-effort cleanup; a leftover temp dir is not a test failure.
             ()
 
+/// Like `withTempDir`, but for an async (`Task`-returning) body — for on-disk marker probes
+/// inside a `task { … }` test.
+let private withTempDirAsync (f: string -> Task<unit>) : Task =
+    task {
+        let dir =
+            Path.Combine(Path.GetTempPath(), "vcs-git-test-" + Guid.NewGuid().ToString("N"))
+
+        Directory.CreateDirectory dir |> ignore
+
+        try
+            do! f dir
+        finally
+            try
+                Directory.Delete(dir, true)
+            with _ ->
+                // Best-effort cleanup; a leftover temp dir is not a test failure.
+                ()
+    }
+
 /// A fresh, non-existent temp path to use as a clone destination. The `ScriptedRunner` never
 /// actually clones, so nothing is created or removed on disk (`cloneDestCleanable` only probes
 /// existence, and cleanup runs on the error path alone).
@@ -1825,4 +1844,210 @@ type ObserverWiringTests() =
 
             Assert.That(events.Count, Is.EqualTo 1, "the observer is threaded through the Git client")
             Assert.That(events[0].Program, Is.EqualTo "git")
+        }
+
+/// T-126: typed git submodule support — the exact argv each operation builds, the `-z`
+/// `.gitmodules` config parse (including a submodule whose NAME carries a space or a dot), every
+/// `git submodule status` prefix state, and the on-disk `.gitmodules` probe that makes a
+/// submodule-less repository an empty list WITHOUT spawning git at all.
+[<TestFixture>]
+type SubmoduleTests() =
+
+    // A 40-char fake object id built from a single repeated hex digit.
+    let oid (c: char) = String(c, 40)
+
+    // The argv (program excluded) of a captured command, space-joined for a byte-exact assertion.
+    let argv (cmd: Command) = String.concat " " cmd.Arguments
+
+    [<Test>]
+    member _.SubmoduleListParsesZConfigIncludingSpacedAndDottedNames() : Task =
+        withTempDirAsync (fun dir ->
+            task {
+                // A `.gitmodules` must be present on disk so the existence probe does not
+                // short-circuit before the config read.
+                File.WriteAllText(Path.Combine(dir, ".gitmodules"), "[submodule \"x\"]\n")
+
+                // `-z` framing: each `key\nvalue` record is NUL-terminated. The submodule name is
+                // everything between `submodule.` and the LAST dot, so it may itself contain a
+                // space or a dot; `path`/`url`/`branch` are the recognised variables.
+                let out =
+                    [ "submodule.libs/foo.path\nlibs/foo"
+                      "submodule.libs/foo.url\nhttps://example.com/foo.git"
+                      "submodule.libs/foo.branch\nmain"
+                      "submodule.my sub.path\nvendor/my sub"
+                      "submodule.my sub.url\nhttps://example.com/mysub.git"
+                      "submodule.group.sub.path\nnested/gsub"
+                      "submodule.group.sub.url\nhttps://example.com/gsub.git" ]
+                    |> List.map (fun r -> r + nul)
+                    |> String.concat ""
+
+                let captured, runner = capturing (Reply.Ok out)
+                let git = Git.WithRunner runner
+
+                match! git.SubmoduleList dir with
+                | Ok subs ->
+                    Assert.That(subs.Length, Is.EqualTo 3)
+
+                    // First-seen order is preserved.
+                    Assert.That(subs.[0].Name, Is.EqualTo "libs/foo")
+                    Assert.That(subs.[0].Path, Is.EqualTo "libs/foo")
+                    Assert.That(subs.[0].Url, Is.EqualTo "https://example.com/foo.git")
+                    Assert.That(subs.[0].Branch, Is.EqualTo(Some "main"))
+
+                    // A name with an embedded SPACE, and no `branch` → Branch is None.
+                    Assert.That(subs.[1].Name, Is.EqualTo "my sub")
+                    Assert.That(subs.[1].Path, Is.EqualTo "vendor/my sub")
+                    Assert.That(subs.[1].Url, Is.EqualTo "https://example.com/mysub.git")
+                    Assert.That(subs.[1].Branch, Is.EqualTo None)
+
+                    // A name with an embedded DOT — only the FINAL dot-component is the variable.
+                    Assert.That(subs.[2].Name, Is.EqualTo "group.sub")
+                    Assert.That(subs.[2].Path, Is.EqualTo "nested/gsub")
+
+                    // The exact argv and the cwd binding.
+                    match captured.Value with
+                    | Some cmd ->
+                        Assert.That(argv cmd, Is.EqualTo "config --file .gitmodules --list -z")
+                        Assert.That(cmd.WorkingDirectory, Is.EqualTo(Some dir))
+                    | None -> Assert.Fail "SubmoduleList did not spawn git"
+                | Error e -> Assert.Fail $"SubmoduleList failed: {e}"
+            })
+
+    [<Test>]
+    member _.SubmoduleListIsEmptyAndSpawnlessWithoutGitmodules() : Task =
+        withTempDirAsync (fun dir ->
+            task {
+                // No `.gitmodules` in `dir`: the result must be an empty list AND git must never
+                // be spawned. `capturing` records any spawn, so `captured` staying `None` proves
+                // the on-disk probe short-circuits before the runner is ever reached (the loud
+                // `Reply.Fail` a spawn would trigger is never invoked).
+                let captured, runner =
+                    capturing (Reply.Fail(1, "SubmoduleList must not spawn git without a .gitmodules"))
+
+                let git = Git.WithRunner runner
+
+                match! git.SubmoduleList dir with
+                | Ok [] -> ()
+                | Ok other -> Assert.Fail $"expected an empty list, got {other}"
+                | Error e -> Assert.Fail $"SubmoduleList failed: {e}"
+
+                Assert.That(captured.Value.IsNone, "a missing `.gitmodules` must yield zero git spawns")
+            })
+
+    [<Test>]
+    member _.SubmoduleStatusParsesEveryPrefixState() : Task =
+        task {
+            // One line per marker: `-` uninitialized (git prints no describe), `+` out-of-sync
+            // (with a describe), `U` conflicted, and a leading space in-sync. The final row's path
+            // carries a SPACE plus a trailing ` (describe)` to prove the describe suffix is peeled
+            // from the END, not by splitting on the first space in the path.
+            let out =
+                [ "-" + oid 'a' + " sub/uninit"
+                  "+" + oid 'b' + " sub/out (heads/feature)"
+                  "U" + oid 'c' + " sub/conflict"
+                  " " + oid 'd' + " sub/current (v1.0)"
+                  " " + oid 'e' + " my sub (v2.0-3-gabcdef)" ]
+                |> String.concat "\n"
+
+            let git = scripted [ "submodule"; "status" ] (Reply.Ok out)
+
+            match! git.SubmoduleStatus "." with
+            | Ok entries ->
+                Assert.That(entries.Length, Is.EqualTo 5)
+
+                Assert.That(entries.[0].State = SubmoduleState.Uninitialized, "leading `-` is Uninitialized")
+                Assert.That(entries.[0].Commit, Is.EqualTo(oid 'a'))
+                Assert.That(entries.[0].Path, Is.EqualTo "sub/uninit")
+                Assert.That(entries.[0].Describe, Is.EqualTo None)
+
+                Assert.That(entries.[1].State = SubmoduleState.OutOfSync, "leading `+` is OutOfSync")
+                Assert.That(entries.[1].Path, Is.EqualTo "sub/out")
+                Assert.That(entries.[1].Describe, Is.EqualTo(Some "heads/feature"))
+
+                Assert.That(entries.[2].State = SubmoduleState.Conflict, "leading `U` is Conflict")
+                Assert.That(entries.[2].Path, Is.EqualTo "sub/conflict")
+                Assert.That(entries.[2].Describe, Is.EqualTo None)
+
+                Assert.That(entries.[3].State = SubmoduleState.Current, "a leading space is Current")
+                Assert.That(entries.[3].Path, Is.EqualTo "sub/current")
+                Assert.That(entries.[3].Describe, Is.EqualTo(Some "v1.0"))
+
+                // A path containing a space, with its describe suffix still peeled from the end.
+                Assert.That(entries.[4].State = SubmoduleState.Current)
+                Assert.That(entries.[4].Path, Is.EqualTo "my sub")
+                Assert.That(entries.[4].Describe, Is.EqualTo(Some "v2.0-3-gabcdef"))
+            | Error e -> Assert.Fail $"SubmoduleStatus failed: {e}"
+        }
+
+    [<Test>]
+    member _.SubmoduleStatusBuildsExactArgvBoundToDirViaAtView() : Task =
+        task {
+            // The `at(dir)` forwarder builds exactly `submodule status` and binds `dir` as cwd.
+            let captured, runner = capturing (Reply.Ok "")
+            let git = Git.WithRunner runner
+
+            match! git.At("/bound/dir").SubmoduleStatus() with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"SubmoduleStatus failed: {e}"
+
+            match captured.Value with
+            | Some cmd ->
+                Assert.That(argv cmd, Is.EqualTo "submodule status")
+                Assert.That(cmd.WorkingDirectory, Is.EqualTo(Some "/bound/dir"), "the view binds dir as cwd")
+            | None -> Assert.Fail "no command captured"
+        }
+
+    [<Test>]
+    member _.SubmoduleUpdateBuildsPlainArgv() : Task =
+        task {
+            let captured, runner = capturing (Reply.Ok "")
+            let git = Git.WithRunner runner
+
+            match! git.SubmoduleUpdate(".", SubmoduleUpdate.Create()) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"SubmoduleUpdate failed: {e}"
+
+            match captured.Value with
+            | Some cmd -> Assert.That(argv cmd, Is.EqualTo "submodule update")
+            | None -> Assert.Fail "no command captured"
+        }
+
+    [<Test>]
+    member _.SubmoduleUpdateEmitsPathsAfterEndOfOptionsTerminator() : Task =
+        task {
+            let captured, runner = capturing (Reply.Ok "")
+            let git = Git.WithRunner runner
+
+            let spec =
+                SubmoduleUpdate.Create().WithInit().WithRecursive().WithDepth(1).WithPaths([ "libs/a"; "libs/b" ])
+
+            match! git.SubmoduleUpdate(".", spec) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"SubmoduleUpdate failed: {e}"
+
+            match captured.Value with
+            | Some cmd ->
+                Assert.That(
+                    argv cmd,
+                    Is.EqualTo "submodule update --init --recursive --depth 1 -- libs/a libs/b",
+                    "paths must follow the end-of-options `--`, in flag order init/recursive/depth"
+                )
+            | None -> Assert.Fail "no command captured"
+        }
+
+    [<Test>]
+    member _.SubmoduleUpdateEmitsTerminatorEvenWithoutOtherOptions() : Task =
+        task {
+            // A path restriction alone still routes the paths after `--`, so a path leading with a
+            // dash can never be reinterpreted as a flag.
+            let captured, runner = capturing (Reply.Ok "")
+            let git = Git.WithRunner runner
+
+            match! git.SubmoduleUpdate(".", SubmoduleUpdate.Create().WithPaths([ "only/path" ])) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"SubmoduleUpdate failed: {e}"
+
+            match captured.Value with
+            | Some cmd -> Assert.That(argv cmd, Is.EqualTo "submodule update -- only/path")
+            | None -> Assert.Fail "no command captured"
         }
