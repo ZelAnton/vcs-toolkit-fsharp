@@ -344,6 +344,90 @@ type StashEntry =
         Message: string
     }
 
+/// The sync state of a submodule, decoded from the leading marker character of a
+/// `git submodule status` line.
+[<RequireQualifiedAccess>]
+type SubmoduleState =
+    /// Not initialized (`-`): the submodule's working tree has not been checked out.
+    | Uninitialized
+    /// Out of sync (`+`): the submodule's currently checked-out commit differs from the one
+    /// recorded in the superproject's index.
+    | OutOfSync
+    /// Conflicted (`U`): the submodule has unresolved merge conflicts.
+    | Conflict
+    /// In sync (a leading space): the checked-out commit matches the recorded one.
+    | Current
+
+/// One submodule recorded in the superproject's `.gitmodules`, parsed from
+/// `git config --file .gitmodules --list -z`.
+type Submodule =
+    {
+        /// The submodule's logical name — the `submodule.<name>.*` config subsection. This is
+        /// NOT necessarily the same as `Path`: git lets a submodule's name and working-tree path
+        /// differ, and the name may itself contain dots or spaces.
+        Name: string
+        /// The submodule's path within the superproject working tree (`submodule.<name>.path`);
+        /// empty when `.gitmodules` omits it.
+        Path: string
+        /// The submodule's upstream URL (`submodule.<name>.url`); empty when omitted.
+        Url: string
+        /// The branch this submodule tracks (`submodule.<name>.branch`); `None` when unset — the
+        /// common case, since a submodule is normally pinned to a recorded commit, not a branch.
+        Branch: string option
+    }
+
+/// One entry from `git submodule status` — a submodule's path, checked-out commit, and typed
+/// sync state.
+type SubmoduleStatus =
+    {
+        /// The submodule's path within the superproject working tree.
+        Path: string
+        /// The object id of the submodule's currently checked-out commit — or, when the
+        /// submodule is not initialized, the commit recorded in the superproject's index.
+        Commit: string
+        /// The sync state, decoded from the line's leading marker character.
+        State: SubmoduleState
+        /// The `git describe` of the checked-out commit, when git printed one in parentheses;
+        /// `None` otherwise (e.g. an uninitialized submodule, whose describe git omits).
+        Describe: string option
+    }
+
+/// Options for `submoduleUpdate` (`git submodule update`). Bare `Create()` runs a plain update
+/// of every recorded submodule; the `With…` builders opt into `--init`, `--recursive`,
+/// `--depth`, and a path restriction. Any restricting paths are emitted after an end-of-options
+/// `--` terminator (see `Git.SubmoduleUpdate`), so a path can never be reinterpreted as a flag.
+type SubmoduleUpdate =
+    {
+        /// Initialize any not-yet-initialized submodules before updating (`--init`).
+        Init: bool
+        /// Recurse into nested submodules (`--recursive`).
+        Recursive: bool
+        /// Shallow-fetch each updated submodule to this many commits (`--depth <n>`); `None`
+        /// leaves the depth unrestricted.
+        Depth: int option
+        /// Restrict the update to these submodule paths; empty updates every recorded submodule.
+        Paths: string list
+    }
+
+    /// A plain update of every recorded submodule, with no extra options.
+    static member Create() =
+        { Init = false
+          Recursive = false
+          Depth = None
+          Paths = [] }
+
+    /// Initialize not-yet-initialized submodules first (`--init`).
+    member this.WithInit() = { this with Init = true }
+
+    /// Recurse into nested submodules (`--recursive`).
+    member this.WithRecursive() = { this with Recursive = true }
+
+    /// Shallow-fetch each updated submodule to `depth` commits (`--depth`).
+    member this.WithDepth(depth: int) = { this with Depth = Some depth }
+
+    /// Restrict the update to `paths` (emitted after the end-of-options `--`).
+    member this.WithPaths(paths: string seq) = { this with Paths = List.ofSeq paths }
+
 /// What the installed `git` binary supports, probed via `capabilities`.
 type GitCapabilities =
     {

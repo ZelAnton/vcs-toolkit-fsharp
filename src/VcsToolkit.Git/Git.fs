@@ -1593,6 +1593,85 @@ type Git private (core: ManagedClient) =
                 | Ok out -> return Ok(GitParse.parseBlamePorcelain out)
         }
 
+    // --- Submodules ----------------------------------------------------------
+
+    /// The submodules recorded in the superproject's `.gitmodules`
+    /// (`git config --file .gitmodules --list -z`), as `Submodule` records (name / path / url /
+    /// branch). This is a pure config read: it parses the `.gitmodules` file and does NOT check
+    /// out, fetch, or otherwise execute any nested-repository content (contrast `SubmoduleUpdate`).
+    ///
+    /// A repository with no `.gitmodules` file yields an empty list, returned WITHOUT spawning
+    /// `git` at all — the file's presence is probed on disk (relative to `dir`, where the command
+    /// would run) before any process is started, so a submodule-less repository is not an error
+    /// and costs no subprocess.
+    member _.SubmoduleList(dir: string) =
+        task {
+            if not (File.Exists(Path.Combine(dir, ".gitmodules"))) then
+                return Ok []
+            else
+                return!
+                    core.Parse(
+                        core.CommandIn(dir, [ "config"; "--file"; ".gitmodules"; "--list"; "-z" ]),
+                        GitParse.parseSubmoduleConfig
+                    )
+        }
+
+    /// The status of each submodule (`git submodule status`), as `SubmoduleStatus` records with
+    /// a typed `SubmoduleState` decoded from each line's leading marker (`-` uninitialized, `+`
+    /// out of sync, `U` conflicted, space in sync). Like `SubmoduleList`, this is a read: it
+    /// reports each submodule's already-checked-out commit and does NOT materialize or execute
+    /// nested-repository content (no clone, checkout, filter/smudge, or hook runs).
+    member _.SubmoduleStatus(dir: string) =
+        core.Parse(core.CommandIn(dir, [ "submodule"; "status" ]), GitParse.parseSubmoduleStatus)
+
+    /// Update the superproject's submodule working trees (`git submodule update`), via a
+    /// `SubmoduleUpdate` options builder (`--init`, `--recursive`, `--depth <n>`, and a path
+    /// restriction placed after an end-of-options `--` so a path can never be read as a flag).
+    /// `GIT_TERMINAL_PROMPT=0` is pinned as on every other network-touching operation
+    /// (`CloneRepo`/`Fetch`/`Push`), so a submodule needing credentials fails fast rather than
+    /// blocking a headless caller on a prompt.
+    ///
+    /// EXECUTION WARNING — unlike the read-only `SubmoduleList`/`SubmoduleStatus`, this operation
+    /// MATERIALIZES AND EXECUTES nested repositories. `--init` clones each configured submodule
+    /// from its `.gitmodules` URL, and checking out every (with `--recursive`, transitively
+    /// nested) submodule runs that submodule's OWN repository content against this process's git
+    /// configuration:
+    ///
+    ///   * the nested repository's URL/`.gitmodules` set is attacker-controlled input when the
+    ///     superproject is untrusted — a `file://`/`ext::`/`ssh://` URL can reach local paths or
+    ///     command execution unless the transport allow-list (`protocol.*.allow`) is pinned;
+    ///   * each materialized submodule is a fresh checkout, so its `.gitattributes`
+    ///     clean/smudge/filter drivers and its `core.fsmonitor`/hooks are code-execution vectors
+    ///     evaluated once per nested repository, not just once for the superproject.
+    ///
+    /// This wrapper pins `GIT_TERMINAL_PROMPT=0` but does NOT set `protocol.*.allow` on the
+    /// caller's behalf. Drive this only through a hardened client (`Harden`, which disables
+    /// hooks/fsmonitor and scrubs the `GIT_*` code-execution vectors) when the superproject is
+    /// not fully trusted, and pin the transport allow-list yourself; see `docs/architecture.md`
+    /// (the submodule-execution section) for the full threat model.
+    member _.SubmoduleUpdate(dir: string, spec: SubmoduleUpdate) =
+        let baseCmd = core.CommandIn(dir, [ "submodule"; "update" ])
+        let withInit = if spec.Init then baseCmd.Arg "--init" else baseCmd
+
+        let withRecursive =
+            if spec.Recursive then
+                withInit.Arg "--recursive"
+            else
+                withInit
+
+        let withDepth =
+            match spec.Depth with
+            | Some d -> withRecursive.Arg("--depth").Arg(string d)
+            | None -> withRecursive
+
+        let withPaths =
+            if List.isEmpty spec.Paths then
+                withDepth
+            else
+                (withDepth.Arg "--").Args spec.Paths
+
+        core.RunUnit(withPaths.Env("GIT_TERMINAL_PROMPT", "0"))
+
     // --- Sequencer -----------------------------------------------------------
 
     /// Apply a commit onto the current branch (`cherry-pick <rev>`).
@@ -2035,6 +2114,19 @@ and [<Sealed>] GitAt internal (git: Git, dir: string) =
 
     /// Per-line authorship of `path` (`blame --line-porcelain [<rev>] -- <path>`).
     member _.Blame(path: string, rev: string option) = git.Blame(dir, path, rev)
+
+    /// The submodules recorded in `.gitmodules` (a pure config read; empty and spawn-free when
+    /// there is no `.gitmodules`). See `Git.SubmoduleList`.
+    member _.SubmoduleList() = git.SubmoduleList dir
+
+    /// The status of each submodule (`git submodule status`) with a typed `SubmoduleState`. A
+    /// read — no nested-repository content is materialized or executed. See `Git.SubmoduleStatus`.
+    member _.SubmoduleStatus() = git.SubmoduleStatus dir
+
+    /// Update the superproject's submodule working trees (`git submodule update`). MATERIALIZES
+    /// AND EXECUTES nested repositories — see `Git.SubmoduleUpdate`'s doc comment and
+    /// `docs/architecture.md` for the threat model.
+    member _.SubmoduleUpdate(spec: SubmoduleUpdate) = git.SubmoduleUpdate(dir, spec)
 
     /// Apply a commit onto the current branch (`cherry-pick <rev>`).
     member _.CherryPick(rev: string) = git.CherryPick(dir, rev)

@@ -322,6 +322,40 @@ pass the handle's `Cwd` through unchanged (it only needs to select which
 workspace the query runs against; the path itself is already root-anchored by
 the fileset syntax).
 
+**Submodule reads vs. submodule execution.** `VcsToolkit.Git`'s submodule
+surface is split deliberately by whether it can execute nested-repository
+content, because a submodule is not just data — updating one *runs code from a
+different repository*. The two listing operations are pure reads: `SubmoduleList`
+parses the superproject's `.gitmodules` (`git config --file .gitmodules --list
+-z`, checked for on disk first so a submodule-less repo returns an empty list
+without spawning git at all), and `SubmoduleStatus` reports each submodule's
+already-checked-out commit (`git submodule status`) — neither clones, checks
+out, or otherwise materializes nested content. `SubmoduleUpdate` (`git submodule
+update`) is the one that **materializes and executes nested repositories**, and
+its interaction with the `Harden` profile is part of the operation's contract,
+not an optional add-on:
+
+- `--init` clones each configured submodule from its `.gitmodules` URL, which is
+  attacker-controlled input when the superproject is untrusted. A `file://`,
+  `ext::`, or unusual `ssh://` URL can reach local paths or command execution
+  unless the transport allow-list (`protocol.*.allow`) is pinned — and this
+  wrapper does **not** set `protocol.*.allow` on the caller's behalf, so pinning
+  it is the caller's responsibility for an untrusted superproject.
+- Every submodule that gets checked out (transitively, under `--recursive`) is a
+  fresh working-tree checkout, so its own `.gitattributes` clean/smudge/filter
+  drivers and its `core.fsmonitor`/hooks are code-execution vectors evaluated
+  *once per nested repository*, not just once for the superproject. `Harden`
+  (hooks/fsmonitor off, `sshCommand` pinned, the `GIT_*` code-execution
+  redirectors scrubbed) is what neutralizes these — but only for the vectors it
+  covers, which is why an untrusted-superproject caller pairs a hardened client
+  with an explicit `protocol.*` allow-list.
+
+`SubmoduleUpdate` pins `GIT_TERMINAL_PROMPT=0` like every other network-touching
+operation so a submodule needing credentials fails fast instead of blocking a
+headless caller; the credential-helper host scoping described above still
+applies, so a submodule pointing at a different host during the update does not
+receive a token scoped to the superproject's host.
+
 ## Extension points
 
 The typed surface intentionally does not try to cover every operation git,
