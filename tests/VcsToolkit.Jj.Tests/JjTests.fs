@@ -7,6 +7,7 @@ open ProcessKit.Testing
 open VcsToolkit.CliSupport
 open VcsToolkit.Diff
 open VcsToolkit.Jj
+open VcsToolkit.TestKit
 
 // Control bytes built explicitly so no escape has to survive a round-trip.
 let private tab = string (char 9)
@@ -55,6 +56,13 @@ let private recording (reply: Reply) : ResizeArray<Command> * ScriptedRunner =
 
 /// The argv (program excluded), in order, of a captured command.
 let private argsOf (cmd: Command) = cmd.Arguments |> Seq.toList
+
+let private requireJj () =
+    try
+        Raw.jj "." [ "--version" ]
+    with _ ->
+        // jj is optional for local runs; skip the real-process fixture when it is unavailable.
+        Assert.Ignore "jj not available on PATH"
 
 // ---------------------------------------------------------------------------
 // Pure parsers
@@ -772,6 +780,139 @@ type ClientTests() =
                     Is.True
                 )
             | None -> Assert.Fail "GitRemoteList did not spawn jj"
+        }
+
+    [<Test>]
+    member _.GitRemoteMutationsBuildExpectedArgvWithoutIgnoreWorkingCopy() : Task =
+        task {
+            let addCaptured, addRunner = capturing (Reply.Ok "")
+
+            match! (Jj.WithRunner addRunner).GitRemoteAdd("/repo", "origin", "https://example.com/repo.git") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"git_remote_add failed: {e}"
+
+            let removeCaptured, removeRunner = capturing (Reply.Ok "")
+
+            match! (Jj.WithRunner removeRunner).GitRemoteRemove("/repo", "origin") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"git_remote_remove failed: {e}"
+
+            let renameCaptured, renameRunner = capturing (Reply.Ok "")
+
+            match! (Jj.WithRunner renameRunner).GitRemoteRename("/repo", "origin", "upstream") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"git_remote_rename failed: {e}"
+
+            let setUrlCaptured, setUrlRunner = capturing (Reply.Ok "")
+
+            match! (Jj.WithRunner setUrlRunner).GitRemoteSetUrl("/repo", "origin", "https://example.com/new.git") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"git_remote_set_url failed: {e}"
+
+            let assertArgs (expected: string list) (captured: Command option ref) (label: string) : unit =
+                match captured.Value with
+                | Some command -> Assert.That(argsOf command = expected, Is.True, label)
+                | None -> Assert.Fail $"{label} did not spawn jj"
+
+            assertArgs
+                [ "git"
+                  "remote"
+                  "add"
+                  "origin"
+                  "https://example.com/repo.git"
+                  "--color"
+                  "never" ]
+                addCaptured
+                "GitRemoteAdd argv"
+
+            assertArgs [ "git"; "remote"; "remove"; "origin"; "--color"; "never" ] removeCaptured "GitRemoteRemove argv"
+
+            assertArgs
+                [ "git"; "remote"; "rename"; "origin"; "upstream"; "--color"; "never" ]
+                renameCaptured
+                "GitRemoteRename argv"
+
+            assertArgs
+                [ "git"
+                  "remote"
+                  "set-url"
+                  "origin"
+                  "https://example.com/new.git"
+                  "--color"
+                  "never" ]
+                setUrlCaptured
+                "GitRemoteSetUrl argv"
+        }
+
+    [<Test>]
+    member _.GitRemoteMutationsRejectUnsafeInputsBeforeSpawning() : Task =
+        task {
+            let calls, runner = recording (Reply.Ok "")
+            let jj = Jj.WithRunner runner
+
+            let! addEmptyName = jj.GitRemoteAdd("/repo", "", "https://example.com/repo.git")
+            let! addWhitespaceUrl = jj.GitRemoteAdd("/repo", "origin", "  \t  ")
+            let! addFlagName = jj.GitRemoteAdd("/repo", "--config", "https://example.com/repo.git")
+            let! removeFlagName = jj.GitRemoteRemove("/repo", "-origin")
+            let! renameEmptyOld = jj.GitRemoteRename("/repo", "", "upstream")
+            let! renameFlagNew = jj.GitRemoteRename("/repo", "origin", "--new")
+            let! setUrlWhitespaceName = jj.GitRemoteSetUrl("/repo", " \t ", "https://example.com/repo.git")
+            let! setUrlFlagUrl = jj.GitRemoteSetUrl("/repo", "origin", "--url")
+
+            for result, name in
+                [ addEmptyName, "git_remote_add empty name"
+                  addWhitespaceUrl, "git_remote_add whitespace URL"
+                  addFlagName, "git_remote_add flag-like name"
+                  removeFlagName, "git_remote_remove flag-like name"
+                  renameEmptyOld, "git_remote_rename empty old name"
+                  renameFlagNew, "git_remote_rename flag-like new name"
+                  setUrlWhitespaceName, "git_remote_set_url whitespace name"
+                  setUrlFlagUrl, "git_remote_set_url flag-like URL" ] do
+                Assert.That(Result.isError result, Is.True, $"{name} must be refused")
+
+            Assert.That(calls.Count, Is.EqualTo 0, "invalid remote arguments must not spawn jj")
+        }
+
+    [<Test>]
+    member _.GitRemoteMutationsRoundTripOnJjSandbox() : Task =
+        task {
+            requireJj ()
+            use repo = JjSandbox.Init "git-remote-roundtrip"
+            let jj = Jj.Create()
+
+            match! jj.GitRemoteAdd(repo.Path, "origin", "https://example.com/original.git") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"git_remote_add failed: {e}"
+
+            match! jj.GitRemoteList repo.Path with
+            | Ok [ remote ] ->
+                Assert.That(remote.Name, Is.EqualTo "origin")
+                Assert.That(remote.Url, Is.EqualTo "https://example.com/original.git")
+            | Ok other -> Assert.Fail $"expected one remote after add, got {other.Length}"
+            | Error e -> Assert.Fail $"git_remote_list after add failed: {e}"
+
+            match! jj.GitRemoteSetUrl(repo.Path, "origin", "https://example.com/updated.git") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"git_remote_set_url failed: {e}"
+
+            match! jj.GitRemoteRename(repo.Path, "origin", "upstream") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"git_remote_rename failed: {e}"
+
+            match! jj.GitRemoteList repo.Path with
+            | Ok [ remote ] ->
+                Assert.That(remote.Name, Is.EqualTo "upstream")
+                Assert.That(remote.Url, Is.EqualTo "https://example.com/updated.git")
+            | Ok other -> Assert.Fail $"expected one renamed remote, got {other.Length}"
+            | Error e -> Assert.Fail $"git_remote_list after rename failed: {e}"
+
+            match! jj.GitRemoteRemove(repo.Path, "upstream") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"git_remote_remove failed: {e}"
+
+            match! jj.GitRemoteList repo.Path with
+            | Ok remotes -> Assert.That(remotes, Is.Empty, "remove must leave no remotes")
+            | Error e -> Assert.Fail $"git_remote_list after remove failed: {e}"
         }
 
     [<Test>]

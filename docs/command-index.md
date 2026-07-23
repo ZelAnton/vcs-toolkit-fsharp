@@ -279,6 +279,10 @@ caller-supplied name can't fan a mutation out across every matching ref.
 | `GitImport` | `git import` | colocated-repo sync |
 | `GitClone` | `git clone <url> <dest> --colocate\|--no-colocate` | dirless, absolute `dest` |
 | `GitRemoteList` | `git remote list --ignore-working-copy` | parsed `Remote list`; always ignores the WC, regardless of `ReadOnly` |
+| `GitRemoteAdd` | `git remote add <name> <url>` | mutates jj's remote configuration |
+| `GitRemoteRemove` | `git remote remove <name>` | mutates jj's remote configuration |
+| `GitRemoteRename` | `git remote rename <old> <new>` | mutates jj's remote configuration |
+| `GitRemoteSetUrl` | `git remote set-url <name> <url>` | mutates jj's remote configuration |
 | `OpHead` | `op log --no-graph --limit 1 -T id.short()` | capture before a risky sequence |
 | `OpLog` | `op log --no-graph --limit <n> -T <template>` | newest first |
 | `OpRestore` | `op restore <id>` | |
@@ -304,8 +308,7 @@ caller-supplied name can't fan a mutation out across every matching ref.
 ### jj — not modeled (examples) → escape hatch
 
 `config list`/`config edit`, `debug`, `file chmod`/`file track`/`file untrack`, `fix`,
-`git init`, `git remote add`/`remove`/`rename`/`set-url` (only `git remote list` is typed, as
-`GitRemoteList`), `interdiff`, `next`/`prev`, `parallelize`, `resolve` (interactive; only the
+`git init`, `interdiff`, `next`/`prev`, `parallelize`, `resolve` (interactive; only the
 non-interactive listing is typed, as `ResolveList`), `simplify-parents`, `util`. Reach any of
 these through `Run`/`RunRaw` — note the doc comment's warning that `Run`/`RunRaw` are
 **unguarded**: jj's `--config`/`--config-toml` and user-defined aliases can reach code

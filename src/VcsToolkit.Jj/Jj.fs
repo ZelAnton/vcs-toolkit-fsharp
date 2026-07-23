@@ -981,6 +981,46 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
     member _.GitRemoteList(dir: string) =
         core.Parse(cmdIn dir [ "git"; "remote"; "list"; "--ignore-working-copy" ], JjParse.parseGitRemoteList)
 
+    /// Add a git remote (`jj git remote add <name> <url>`). This mutates repository configuration,
+    /// so it deliberately does not use `--ignore-working-copy`, which is reserved for read-only
+    /// queries and must not alter the normal mutation path.
+    member _.GitRemoteAdd(dir: string, name: string, url: string) =
+        task {
+            match checkFlags BINARY [ "remote name", name; "url", url ] with
+            | Error e -> return Error e
+            | Ok() -> return! core.RunUnit(cmdIn dir [ "git"; "remote"; "add"; name; url ])
+        }
+
+    /// Remove a git remote (`jj git remote remove <name>`). This mutates repository configuration,
+    /// so it deliberately does not use `--ignore-working-copy`, which is reserved for read-only
+    /// queries and must not alter the normal mutation path.
+    member _.GitRemoteRemove(dir: string, name: string) =
+        task {
+            match checkFlags BINARY [ "remote name", name ] with
+            | Error e -> return Error e
+            | Ok() -> return! core.RunUnit(cmdIn dir [ "git"; "remote"; "remove"; name ])
+        }
+
+    /// Rename a git remote (`jj git remote rename <old> <new>`). This mutates repository
+    /// configuration, so it deliberately does not use `--ignore-working-copy`, which is reserved
+    /// for read-only queries and must not alter the normal mutation path.
+    member _.GitRemoteRename(dir: string, oldName: string, newName: string) =
+        task {
+            match checkFlags BINARY [ "remote name", oldName; "remote name", newName ] with
+            | Error e -> return Error e
+            | Ok() -> return! core.RunUnit(cmdIn dir [ "git"; "remote"; "rename"; oldName; newName ])
+        }
+
+    /// Set a git remote's URL (`jj git remote set-url <name> <url>`). This mutates repository
+    /// configuration, so it deliberately does not use `--ignore-working-copy`, which is reserved
+    /// for read-only queries and must not alter the normal mutation path.
+    member _.GitRemoteSetUrl(dir: string, name: string, url: string) =
+        task {
+            match checkFlags BINARY [ "remote name", name; "url", url ] with
+            | Error e -> return Error e
+            | Ok() -> return! core.RunUnit(cmdIn dir [ "git"; "remote"; "set-url"; name; url ])
+        }
+
     /// Clone a git repository into `dest` (`jj git clone <url> <dest>
     /// --colocate|--no-colocate`). Runs without a working directory — pass an
     /// absolute `dest`. The colocate flag is always passed explicitly: whether
@@ -1410,6 +1450,19 @@ and [<Sealed>] JjAt internal (jj: Jj, dir: string) =
 
     /// The git remotes jj knows about (`jj git remote list`), one entry (name + url) per remote.
     member _.GitRemoteList() = jj.GitRemoteList dir
+
+    /// Add a git remote (`jj git remote add <name> <url>`).
+    member _.GitRemoteAdd(name: string, url: string) = jj.GitRemoteAdd(dir, name, url)
+
+    /// Remove a git remote (`jj git remote remove <name>`).
+    member _.GitRemoteRemove(name: string) = jj.GitRemoteRemove(dir, name)
+
+    /// Rename a git remote (`jj git remote rename <old> <new>`).
+    member _.GitRemoteRename(oldName, newName) =
+        jj.GitRemoteRename(dir, oldName, newName)
+
+    /// Set a git remote's URL (`jj git remote set-url <name> <url>`).
+    member _.GitRemoteSetUrl(name: string, url: string) = jj.GitRemoteSetUrl(dir, name, url)
 
     /// The current operation id (`op log --no-graph --limit 1`).
     member _.OpHead() = jj.OpHead dir

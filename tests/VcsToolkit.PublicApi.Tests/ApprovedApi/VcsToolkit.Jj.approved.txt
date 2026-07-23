@@ -148,7 +148,11 @@ namespace VcsToolkit.Jj
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitFetchFrom(string dir, string remote) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitImport(string dir) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitPush(string dir, Microsoft.FSharp.Core.FSharpOption<string>? bookmark) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitRemoteAdd(string dir, string name, string url) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Jj.Remote>, ProcessKit.ProcessError>> GitRemoteList(string dir) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitRemoteRemove(string dir, string name) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitRemoteRename(string dir, string oldName, string newName) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitRemoteSetUrl(string dir, string name, string url) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<bool, ProcessKit.ProcessError>> HasWorkingCopyConflict(string dir) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<bool, ProcessKit.ProcessError>> IsConflicted(string dir, string revset) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Jj.Change>, ProcessKit.ProcessError>> Log(string dir, string revset, int max) { }
@@ -235,7 +239,11 @@ namespace VcsToolkit.Jj
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitFetchFrom(string remote) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitImport() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitPush(Microsoft.FSharp.Core.FSharpOption<string>? bookmark) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitRemoteAdd(string name, string url) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Jj.Remote>, ProcessKit.ProcessError>> GitRemoteList() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitRemoteRemove(string name) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitRemoteRename(string oldName, string newName) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitRemoteSetUrl(string name, string url) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<bool, ProcessKit.ProcessError>> HasWorkingCopyConflict() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<bool, ProcessKit.ProcessError>> IsConflicted(string revset) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Jj.Change>, ProcessKit.ProcessError>> Log(string revset, int max) { }

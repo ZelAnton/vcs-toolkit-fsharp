@@ -12,6 +12,7 @@
 		</Project>
 		<Project Path="tests/VcsToolkit.Jj.Tests/VcsToolkit.Jj.Tests.fsproj">
 			<BuildDependency Project="src/VcsToolkit.Jj/VcsToolkit.Jj.fsproj" />
+			<BuildDependency Project="src/VcsToolkit.TestKit/VcsToolkit.TestKit.fsproj" />
 		</Project>
 		<Project Path="tests/VcsToolkit.GitHub.Tests/VcsToolkit.GitHub.Tests.fsproj">
 			<BuildDependency Project="src/VcsToolkit.GitHub/VcsToolkit.GitHub.fsproj" />

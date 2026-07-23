@@ -3,7 +3,7 @@
 	<PropertyGroup>
 		<TargetFramework>net10.0</TargetFramework>
 		<IsPackable>false</IsPackable>
-		<AssemblySearchPaths>$(AssemblySearchPaths);$(JjDir)bin\$(Configuration)\$(TargetFramework);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework);$(DiffDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
+		<AssemblySearchPaths>$(AssemblySearchPaths);$(JjDir)bin\$(Configuration)\$(TargetFramework);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework);$(DiffDir)bin\$(Configuration)\$(TargetFramework);$(TestKitDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -26,6 +26,7 @@
 		<Reference Include="VcsToolkit.Jj" />
 		<Reference Include="VcsToolkit.CliSupport" />
 		<Reference Include="VcsToolkit.Diff" />
+		<Reference Include="VcsToolkit.TestKit" />
 	</ItemGroup>
 
 </Project>
