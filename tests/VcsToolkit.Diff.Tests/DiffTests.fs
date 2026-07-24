@@ -219,6 +219,23 @@ type DiffTests() =
         Assert.That(files.[0].Path, Is.EqualTo "plain.bin")
 
     [<Test>]
+    member _.CopyOnlyBinarySectionResolvesFromCopyTo() =
+        // A copy-only section (no +++/---/rename lines) has an asymmetric header
+        // (a-path != b-path), so the header fallback can't recover it; `copy to` must
+        // be used instead of silently dropping the file.
+        let full =
+            doc
+                [ "diff --git a/orig.bin b/copy.bin"
+                  "similarity index 100%"
+                  "copy from orig.bin"
+                  "copy to copy.bin"
+                  "Binary files a/orig.bin and b/copy.bin differ" ]
+
+        let files = parseDiff full
+        Assert.That(files.Length, Is.EqualTo 1)
+        Assert.That(files.[0].Path, Is.EqualTo "copy.bin")
+
+    [<Test>]
     member _.ParsesHunkRangesAndBody() =
         let full =
             doc

@@ -185,6 +185,7 @@ module Parse =
         let mutable minusPath: string option = None
         let mutable renameTo: string option = None
         let mutable renameFrom: string option = None
+        let mutable copyTo: string option = None
         let hunks = ResizeArray<Hunk>()
         let mutable curHeader: Hunk option = None
         let curLines = ResizeArray<DiffLine>()
@@ -223,6 +224,8 @@ module Parse =
                         renameTo <- Some(unquoteGitPath ((line.Substring 10).TrimEnd()))
                     elif line.StartsWith("rename from ", StringComparison.Ordinal) then
                         renameFrom <- Some(unquoteGitPath ((line.Substring 12).TrimEnd()))
+                    elif line.StartsWith("copy to ", StringComparison.Ordinal) then
+                        copyTo <- Some(unquoteGitPath ((line.Substring 8).TrimEnd()))
                     elif line.StartsWith("+++ ", StringComparison.Ordinal) then
                         newPath <- stripPrefix "b/" (unquoteGitPath ((line.Substring 4).TrimEnd()))
                     elif line.StartsWith("--- ", StringComparison.Ordinal) then
@@ -238,10 +241,13 @@ module Parse =
                 renameFrom
             | None -> None
 
-        // Resolve the path by priority (rename target → `+++ b/` → `--- a/` → header),
-        // skipping any present-but-empty source so a malformed line falls through.
+        // Resolve the path by priority (rename target → copy target → `+++ b/` →
+        // `--- a/` → header), skipping any present-but-empty source so a malformed
+        // line falls through. `copy to` matters for copy-only sections (e.g. binary
+        // copies) that carry no `+++`/`---` lines and would otherwise fall through to
+        // the asymmetric-header fallback, which can't recover a copy's new path.
         let path =
-            [ renameTo; newPath; minusPath ]
+            [ renameTo; copyTo; newPath; minusPath ]
             |> List.choose id
             |> List.tryFind (fun p -> p <> "")
             |> Option.orElseWith (fun () -> headerBPath section)
