@@ -144,8 +144,10 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
     /// `ui.color = "always"` from user config even when its output is piped, which
     /// would wrap templated output — and the error text the classifiers read — in
     /// ANSI escapes and break parsing; `--color never` is the only thing that
-    /// overrides that config. It is a global flag, appended here (no jj subcommand
-    /// takes a trailing `--`, so this is safe).
+    /// overrides that config. It is a global flag, appended here only for commands
+    /// without their own trailing `--`; global flags must precede a subcommand's
+    /// end-of-options separator. `ConfigSet` builds its command directly because it
+    /// needs that separator for its key and value.
     ///
     /// Used by the **mutating** commands; the read/query commands route through
     /// `cmdInRead`, which additionally honours the client's read-only mode.
@@ -754,7 +756,11 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
         task {
             match checkFlags BINARY [ "config key", key ] with
             | Error e -> return Error e
-            | Ok() -> return! core.RunUnit(cmdIn dir [ "config"; "set"; "--repo"; "--"; key; value ])
+            | Ok() ->
+                let cmd =
+                    (core.CommandIn(dir, [ "--color"; "never"; "config"; "set"; "--repo"; "--" ])).Arg(key).Arg(value)
+
+                return! core.RunUnit cmd
         }
 
     // --- Mutations -----------------------------------------------------------

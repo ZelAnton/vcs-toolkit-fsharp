@@ -218,6 +218,29 @@ type ForgeKindTests() =
             Assert.That(ForgeKind.OfRemoteUrl url, Is.EqualTo None, $"{url} must not classify as a trusted forge")
 
     [<Test>]
+    member _.RejectsScpUserinfoAtSpoofInPath() =
+        // An `@` in the scp *path* (after the first `:`/`/`) must NOT move the host boundary: the
+        // host is the authority BEFORE that delimiter, so `evil.com:x@gitlab.com` is host
+        // `evil.com` (untrusted → None), never `gitlab.com`. Dropping userinfo across the whole
+        // URL first (by the last `@`) would let the path's `@trusted` suffix masquerade as a
+        // trusted forge — the anchored-match guarantee this classifier documents.
+        let spoofs =
+            [ "evil.com:x@gitlab.com" // `:`-delimited path carrying an `@trusted` suffix
+              "evil.com/x@github.com" // `/`-delimited variant
+              "git@evil.com:x@gitlab.com" ] // genuine userinfo AND a spoof `@` in the path
+
+        for url in spoofs do
+            Assert.That(ForgeKind.OfRemoteUrl url, Is.EqualTo None, $"{url} must not classify as a trusted forge")
+
+        // An honest scp URL whose only `@` separates real userinfo from the host stays green.
+        for url, want in
+            [ "git@github.com:owner/repo", ForgeKind.GitHub
+              "git@codeberg.org:owner/repo", ForgeKind.Gitea ] do
+            match ForgeKind.OfRemoteUrl url with
+            | Some k -> Assert.That(k, Is.EqualTo want, $"{url}")
+            | None -> Assert.Fail $"{url} should classify as {want.AsString}"
+
+    [<Test>]
     member _.AsStringMapsEachKind() =
         Assert.That(ForgeKind.GitHub.AsString, Is.EqualTo "github")
         Assert.That(ForgeKind.GitLab.AsString, Is.EqualTo "gitlab")

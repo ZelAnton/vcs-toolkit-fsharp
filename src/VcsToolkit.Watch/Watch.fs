@@ -757,16 +757,38 @@ and [<Sealed>] RepoWatcher
     /// ends the stream by throwing its WatcherTerminated error. Each yielded change advances
     /// Current; Recv and ReadAll consume the same channel, so using both concurrently divides
     /// changes between them and shares the last-observed snapshot.
+    ///
+    /// Both `cancellationToken` (this argument) and the `[EnumeratorCancellation]` token a
+    /// consumer supplies via `WithCancellation(...)` on `await foreach` are honoured: when
+    /// both are cancelable they are linked (`CancellationTokenSource.CreateLinkedTokenSource`)
+    /// so cancelling *either* stops the enumeration; when only one is cancelable, it alone is
+    /// used; when neither is, enumeration is uncancelable (as before). A linked source is
+    /// disposed on every exit from the enumerator — normal completion, an early consumer
+    /// `break`, or an exception — via `DisposeAsync`.
     member _.ReadAll(?cancellationToken: CancellationToken) : IAsyncEnumerable<RepoChange> =
         let requestedCancellation = defaultArg cancellationToken CancellationToken.None
 
         { new IAsyncEnumerable<RepoChange> with
             member _.GetAsyncEnumerator(enumeratorCancellation) =
-                let effectiveCancellation =
-                    if requestedCancellation.CanBeCanceled then
-                        requestedCancellation
+                let linkedCts =
+                    if requestedCancellation.CanBeCanceled && enumeratorCancellation.CanBeCanceled then
+                        Some(
+                            CancellationTokenSource.CreateLinkedTokenSource(
+                                requestedCancellation,
+                                enumeratorCancellation
+                            )
+                        )
                     else
-                        enumeratorCancellation
+                        None
+
+                let effectiveCancellation =
+                    match linkedCts with
+                    | Some cts -> cts.Token
+                    | None ->
+                        if requestedCancellation.CanBeCanceled then
+                            requestedCancellation
+                        else
+                            enumeratorCancellation
 
                 let inner = out.Reader.ReadAllAsync(effectiveCancellation).GetAsyncEnumerator()
 
@@ -793,7 +815,24 @@ and [<Sealed>] RepoWatcher
                                 }
                             )
 
-                    member _.DisposeAsync() = inner.DisposeAsync() } }
+                    member _.DisposeAsync() =
+                        match linkedCts with
+                        | None -> inner.DisposeAsync()
+                        | Some cts ->
+                            let innerDispose = inner.DisposeAsync()
+
+                            if innerDispose.IsCompletedSuccessfully then
+                                cts.Dispose()
+                                innerDispose
+                            else
+                                ValueTask(
+                                    task {
+                                        try
+                                            do! innerDispose.AsTask()
+                                        finally
+                                            cts.Dispose()
+                                    }
+                                ) } }
 
     /// The most recent known snapshot — the baseline captured at Build, then the snapshot
     /// from each Recv or yielded ReadAll change.
