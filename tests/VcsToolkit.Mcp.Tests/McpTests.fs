@@ -1781,7 +1781,9 @@ type CatalogTests() =
             | Error e -> Assert.Fail $"repo_annotate with rev:null should behave as if rev were absent: {e.Message}"
 
             let reviewRunner =
-                ScriptedRunner().On([ "--version" ], Reply.Ok "gh version 2.40.0\n").Fallback(Reply.Ok "")
+                ScriptedRunner()
+                    .On([ "--version" ], Reply.Ok "gh version 2.40.0\n")
+                    .On([ "pr"; "review"; "4"; "--approve" ], Reply.Ok "")
 
             let reviewServer = gitServerWithForge reviewRunner WriteGate.All
 
