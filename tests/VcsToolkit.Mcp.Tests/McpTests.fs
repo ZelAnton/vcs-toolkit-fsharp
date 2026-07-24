@@ -1760,6 +1760,23 @@ type CatalogTests() =
             | Ok _ -> ()
             | Error e -> Assert.Fail $"forge_pr_list with state:null should behave as if state were absent: {e.Message}"
 
+            Assert.That(
+                prListRunner.CountReceived(fun invocation ->
+                    invocation.Program = "gh" && (invocation.Args |> Seq.contains "list")),
+                Is.EqualTo 1,
+                "state:null must dispatch exactly one pr list command"
+            )
+
+            Assert.That(
+                prListRunner.Received
+                |> Seq.exists (fun invocation ->
+                    invocation.Program = "gh"
+                    && (invocation.Args |> Seq.contains "list")
+                    && (invocation.Args |> Seq.contains "open")),
+                Is.True,
+                "state:null must retain the default open state"
+            )
+
             let tab = string (char 9)
             let sha = "0123456789abcdef0123456789abcdef01234567"
 
@@ -1771,14 +1788,34 @@ type CatalogTests() =
                   tab + "let x = 1" ]
                 |> String.concat "\n"
 
-            let annotateServer =
-                gitServer
-                    (ScriptedRunner().On([ "blame"; "--line-porcelain"; "--"; "f.txt" ], Reply.Ok out))
-                    WriteGate.None
+            let annotateRunner =
+                ScriptedRunner().On([ "blame"; "--line-porcelain"; "--"; "f.txt" ], Reply.Ok out)
+
+            let annotateServer = gitServer annotateRunner WriteGate.None
 
             match! Catalog.callTool annotateServer "repo_annotate" (argsOf """{"path":"f.txt","rev":null}""") with
             | Ok json -> Assert.That(json, Does.Contain "let x = 1")
             | Error e -> Assert.Fail $"repo_annotate with rev:null should behave as if rev were absent: {e.Message}"
+
+            let blameCalls =
+                annotateRunner.Received
+                |> Seq.filter (fun invocation ->
+                    invocation.Program = "git" && (invocation.Args |> Seq.contains "blame"))
+                |> Seq.toList
+
+            Assert.That(
+                annotateRunner.CountReceived(fun invocation ->
+                    invocation.Program = "git" && (invocation.Args |> Seq.contains "blame")),
+                Is.EqualTo 1,
+                "rev:null must dispatch exactly one blame command"
+            )
+
+            let blameArgs = blameCalls.Head.Args
+            Assert.That(blameArgs.Count, Is.EqualTo 4, "rev:null must not inject a revision into git blame")
+            Assert.That(blameArgs[0], Is.EqualTo "blame")
+            Assert.That(blameArgs[1], Is.EqualTo "--line-porcelain")
+            Assert.That(blameArgs[2], Is.EqualTo "--")
+            Assert.That(blameArgs[3], Is.EqualTo "f.txt")
 
             let reviewRunner =
                 ScriptedRunner()
@@ -1792,6 +1829,25 @@ type CatalogTests() =
             with
             | Ok _ -> ()
             | Error e -> Assert.Fail $"forge_pr_review with body:null should behave as if body were absent: {e.Message}"
+
+            Assert.That(
+                reviewRunner.CountReceived(fun invocation ->
+                    invocation.Program = "gh"
+                    && (invocation.Args |> Seq.contains "pr")
+                    && (invocation.Args |> Seq.contains "review")),
+                Is.EqualTo 1,
+                "body:null must dispatch exactly one pr review command"
+            )
+
+            Assert.That(
+                reviewRunner.Received
+                |> Seq.exists (fun invocation ->
+                    invocation.Program = "gh"
+                    && (invocation.Args |> Seq.contains "review")
+                    && (invocation.Args |> Seq.contains "--body")),
+                Is.False,
+                "body:null must not inject --body into gh pr review"
+            )
         }
 
     [<Test>]
