@@ -46,21 +46,26 @@ module internal Catalog =
             | s -> Ok s
         | _ -> Error(missing name)
 
-    /// `optStr` — a missing/absent string is optional; a present value must be a string.
+    /// `optStr` — a missing/absent string, or an explicit JSON `null`, is optional (a `null`
+    /// is how many MCP clients serialize an omitted nullable field); a present non-null value
+    /// must be a string.
     let private optStr (args: JsonElement) (name: string) : Result<string option, McpError> =
         match args.TryGetProperty name with
         | false, _ -> Ok Option.None
+        | true, v when v.ValueKind = JsonValueKind.Null -> Ok Option.None
         | true, v when v.ValueKind = JsonValueKind.String ->
             match v.GetString() with
             | null -> Error(McpError.InvalidParams(sprintf "argument %A must be a string" name))
             | s -> Ok(Some s)
         | true, _ -> Error(McpError.InvalidParams(sprintf "argument %A must be a string" name))
 
-    /// `optInt` — a missing/absent integer is optional; a present value must be a JSON
-    /// integer that fits `int32`.
+    /// `optInt` — a missing/absent integer, or an explicit JSON `null`, is optional (a `null`
+    /// is how many MCP clients serialize an omitted nullable field); a present non-null value
+    /// must be a JSON integer that fits `int32`.
     let private optInt (args: JsonElement) (name: string) : Result<int option, McpError> =
         match args.TryGetProperty name with
         | false, _ -> Ok Option.None
+        | true, v when v.ValueKind = JsonValueKind.Null -> Ok Option.None
         | true, v when v.ValueKind = JsonValueKind.Number ->
             match v.TryGetInt32() with
             | true, n -> Ok(Some n)
@@ -94,11 +99,13 @@ module internal Catalog =
                 Error(McpError.InvalidParams(sprintf "argument %A must be an array of strings" name))
         | _ -> Error(missing name)
 
-    /// `optBool` — a missing/absent boolean defaults to `false` (matches the Rust
-    /// `#[serde(default)]` on `force`/`delete_branch`); a present value must be boolean.
+    /// `optBool` — a missing/absent boolean, or an explicit JSON `null` (how many MCP clients
+    /// serialize an omitted nullable field), defaults to `false` (matches the Rust
+    /// `#[serde(default)]` on `force`/`delete_branch`); a present non-null value must be boolean.
     let private optBool (args: JsonElement) (name: string) : Result<bool, McpError> =
         match args.TryGetProperty name with
         | false, _ -> Ok false
+        | true, v when v.ValueKind = JsonValueKind.Null -> Ok false
         | true, v when v.ValueKind = JsonValueKind.True -> Ok true
         | true, v when v.ValueKind = JsonValueKind.False -> Ok false
         | true, _ -> Error(McpError.InvalidParams(sprintf "argument %A must be a boolean" name))

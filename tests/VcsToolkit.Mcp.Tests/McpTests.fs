@@ -1721,7 +1721,7 @@ type CatalogTests() =
         }
 
     [<Test>]
-    member _.CallToolOptionalStringArgumentsRejectNonStringsAndNull() : Task =
+    member _.CallToolOptionalStringArgumentsRejectNonStrings() : Task =
         task {
             let server = gitServerWithForge (ScriptedRunner()) WriteGate.All
 
@@ -1735,14 +1735,74 @@ type CatalogTests() =
                     | Ok _ -> Assert.Fail $"{tool} should reject {argument} with a non-string value"
                 }
 
+            // An explicit JSON null is NOT among the rejected shapes here — it is treated as
+            // "argument absent" (see CallToolOptionalArgumentsAcceptExplicitNullAsAbsent).
             do! assertInvalid "forge_pr_create" """{"title":"title","body":"body","source":1}""" "source"
             do! assertInvalid "forge_pr_create" """{"title":"title","body":"body","target":false}""" "target"
             do! assertInvalid "forge_pr_edit" """{"number":1,"title":[]}""" "title"
             do! assertInvalid "forge_pr_edit" """{"number":1,"body":{}}""" "body"
-            do! assertInvalid "forge_pr_create" """{"title":"title","body":"body","source":null}""" "source"
-            do! assertInvalid "forge_pr_create" """{"title":"title","body":"body","target":null}""" "target"
-            do! assertInvalid "forge_pr_edit" """{"number":1,"title":null}""" "title"
-            do! assertInvalid "forge_pr_edit" """{"number":1,"body":null}""" "body"
+        }
+
+    [<Test>]
+    member _.CallToolOptionalArgumentsAcceptExplicitNullAsAbsent() : Task =
+        task {
+            // A JSON `null` on an optional argument must behave exactly like omitting it —
+            // many MCP clients serialize an omitted nullable field as an explicit `null`.
+            let prListRunner =
+                ScriptedRunner().On([ "pr"; "list"; "--state"; "open"; "--limit"; "100"; "--json" ], Reply.Ok "[]")
+
+            match!
+                Catalog.callTool
+                    (gitServerWithForge prListRunner WriteGate.None)
+                    "forge_pr_list"
+                    (argsOf """{"state":null}""")
+            with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"forge_pr_list with state:null should behave as if state were absent: {e.Message}"
+
+            let tab = string (char 9)
+            let sha = "0123456789abcdef0123456789abcdef01234567"
+
+            let out =
+                [ sha + " 1 1 1"
+                  "author Alice Example"
+                  "author-time 1700000000"
+                  "author-tz +0000"
+                  tab + "let x = 1" ]
+                |> String.concat "\n"
+
+            let annotateServer =
+                gitServer
+                    (ScriptedRunner().On([ "blame"; "--line-porcelain"; "--"; "f.txt" ], Reply.Ok out))
+                    WriteGate.None
+
+            match! Catalog.callTool annotateServer "repo_annotate" (argsOf """{"path":"f.txt","rev":null}""") with
+            | Ok json -> Assert.That(json, Does.Contain "let x = 1")
+            | Error e -> Assert.Fail $"repo_annotate with rev:null should behave as if rev were absent: {e.Message}"
+
+            let reviewRunner =
+                ScriptedRunner().On([ "--version" ], Reply.Ok "gh version 2.40.0\n").Fallback(Reply.Ok "")
+
+            let reviewServer = gitServerWithForge reviewRunner WriteGate.All
+
+            match!
+                Catalog.callTool reviewServer "forge_pr_review" (argsOf """{"number":4,"kind":"approve","body":null}""")
+            with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"forge_pr_review with body:null should behave as if body were absent: {e.Message}"
+        }
+
+    [<Test>]
+    member _.CallToolRequiredArgumentsStillRejectExplicitNull() : Task =
+        task {
+            // Regression: `null` on a REQUIRED argument remains InvalidParams, unlike optional
+            // arguments — required/optional null-handling is deliberately asymmetric.
+            let server = gitServer (ScriptedRunner()) WriteGate.None
+
+            match! Catalog.callTool server "repo_annotate" (argsOf """{"path":null,"rev":"HEAD"}""") with
+            | Error(McpError.InvalidParams message) -> Assert.That(message, Does.Contain "path")
+            | Error e -> Assert.Fail $"expected InvalidParams for a null required argument, got: {e.Message}"
+            | Ok _ -> Assert.Fail "a null required argument must be refused"
         }
 
     [<Test>]
