@@ -1,8 +1,8 @@
 # Examples
 
-These examples use the public APIs shipped by the corresponding NuGet packages. The toolkit runs
-the installed VCS and forge CLIs, so use them with repositories and credentials you are allowed to
-modify.
+These examples use the public APIs implemented by the corresponding projects (and, after the
+first release, shipped in their NuGet packages). The toolkit runs the installed VCS and forge
+CLIs, so use it only with repositories and credentials you are allowed to modify.
 
 ## Repository state, merge probes, and worktrees
 
@@ -36,16 +36,19 @@ let inspectAndCreateWorktree repoDir =
 
 Construct the facade for the forge that hosts the repository. This GitHub example uses the
 ambient `gh` login; use `Forge.GitLab` or `Forge.Gitea` for those CLIs instead. `PrCreate`
-returns the CLI's success output — a URL on GitHub/GitLab — not the PR number, so list the
-open pull requests to get a `ForgePr.Number` to view/merge.
+returns the CLI's success output — a URL on GitHub/GitLab — not the PR number, so query by the
+exact source branch to get the `ForgePr.Number`. Do not take the first item from an unfiltered
+PR list: it may belong to somebody else's branch.
 
 ```fsharp
 open VcsToolkit.Forge
 
-let createAndMergePullRequest repoDir =
+let createAndMergePullRequest repoDir sourceBranch =
     task {
         let forge = Forge.GitHub repoDir
-        let spec = PrCreate.Create("Document examples", "Adds a public API cookbook.")
+        let spec =
+            PrCreate.Create("Document examples", "Adds a public API cookbook.").WithSource(sourceBranch)
+
         let! created = forge.PrCreate spec
 
         match created with
@@ -53,14 +56,16 @@ let createAndMergePullRequest repoDir =
         | Ok url ->
             printfn "Opened pull request: %s" url
 
-            match! forge.PrList() with
+            match! forge.PrForBranch sourceBranch with
             | Error error -> return Error error
-            | Ok [] -> return Ok()
-            | Ok(pr :: _) ->
-                let! detail = forge.PrView pr.Number
-                printfn "Pull request: %A" detail
-                let! merged = forge.PrMerge(pr.Number, PrMerge.Squash)
-                return merged |> Result.map ignore
+            | Ok prs ->
+                match prs |> List.tryFind (fun pr -> pr.State = ForgePrState.Open) with
+                | None -> return Error(ForgeError.InvalidInput "No open pull request found for the source branch")
+                | Some pr ->
+                    let! detail = forge.PrView pr.Number
+                    printfn "Pull request: %A" detail
+                    let! merged = forge.PrMerge(pr.Number, PrMerge.Squash)
+                    return merged |> Result.map ignore
     }
 ```
 

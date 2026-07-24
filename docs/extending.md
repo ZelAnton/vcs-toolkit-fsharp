@@ -415,7 +415,7 @@ ecosystems:
 - **`CHANGELOG.md` in the same change set.** Every user-visible change — new or
   changed public API, a behavioural fix, a removal — gets its `## [Unreleased]`
   bullet in the same change set, written for a consumer of the library, not the
-  implementer. See [CONTRIBUTING.md](../CONTRIBUTING.md#changelog) for the exact
+  implementer. See [CONTRIBUTING.md](https://github.com/ZelAnton/vcs-toolkit-fsharp/blob/main/CONTRIBUTING.md#changelog) for the exact
   mechanics and the pure-internal-refactor exemption.
 
 ## See also
@@ -423,7 +423,7 @@ ecosystems:
 - [docs/architecture.md](architecture.md) — the package dependency graph, what each
   layer is for, and the design principles (argv guards, total parsing, credential
   provisioning, error classification) that repeat across every wrapper client.
-- [CONTRIBUTING.md](../CONTRIBUTING.md) — build/test commands, formatting, compile
+- [CONTRIBUTING.md](https://github.com/ZelAnton/vcs-toolkit-fsharp/blob/main/CONTRIBUTING.md) — build/test commands, formatting, compile
   order, dependency management, and the changelog mechanics.
 - [docs/mcp-server.md](mcp-server.md) — the `vcs-mcp` CLI reference, write policy, and
   full tool table a new MCP tool must be added to.

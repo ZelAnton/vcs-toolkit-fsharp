@@ -2,9 +2,10 @@
 
 ## Supported versions
 
-Security fixes are applied to the latest released version of **VcsToolkit**.
-Older versions are not maintained — upgrade to the latest release to receive
-fixes.
+Before the first release, security fixes are applied to `main`; consumers of a
+source build should update to the latest commit. After releases begin, fixes
+will target the latest released version of **VcsToolkit**. Older versions will
+not be maintained — upgrade to the latest release to receive fixes.
 
 ## Reporting a vulnerability
 
@@ -20,10 +21,11 @@ Please include:
 
 - a description of the vulnerability and its impact;
 - steps to reproduce (a minimal proof of concept is ideal);
-- affected version(s).
+- the affected version, tag, or source commit.
 
 You can expect an initial acknowledgement within a few days. Once a fix is
-ready, a patched release is published to NuGet.org and the advisory is disclosed.
+ready, it is applied to `main`; after public releases begin, a patched version
+is also published to NuGet.org before the advisory is disclosed.
 
 ## Automated scanning
 

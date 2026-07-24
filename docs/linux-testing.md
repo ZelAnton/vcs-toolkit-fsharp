@@ -4,9 +4,6 @@ The Linux/Unix code path is exercised in CI on `ubuntu-latest`, but you can
 also run the suite locally against a Linux container — useful when changing
 platform-specific code.
 
-> Optional helper. Delete this file and `scripts/test-linux.ps1` if your
-> project does not need Linux testing from Windows.
-
 ## Requirements
 
 - [Rancher Desktop](https://rancherdesktop.io/) (or Docker Desktop) with the

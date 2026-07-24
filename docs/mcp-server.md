@@ -12,7 +12,15 @@ library, which the binary wires to the official `ModelContextProtocol` SDK.
 
 ## Installation
 
-`vcs-mcp` ships as a **.NET global tool**:
+`vcs-mcp` is packaged as a **.NET global tool**, but the first package has not been published to
+NuGet.org yet. To evaluate the current source, build a local package and install from it:
+
+```sh
+dotnet pack VcsToolkit.slnx --configuration Release --output ./artifacts
+dotnet tool install --global vcs-mcp --version 0.1.0 --add-source ./artifacts
+```
+
+After the first public release, the normal install command will be:
 
 ```sh
 dotnet tool install --global vcs-mcp
@@ -50,7 +58,7 @@ MCP client, not run interactively. `vcs-mcp --help` prints the same reference be
 | `--allow-write` | (flag, no argument) | off | Enable **every** mutating tool. Takes precedence over `--allow-tools` when both are given. |
 | `--allow-tools <name,...>` | a comma-separated list of tool names (repeatable — later occurrences add to the allowed set) | empty (no mutating tool allowed) | Enable only the named mutating tools. Read tools are unaffected — they are always available regardless of this flag. Names are validated up front, at parse time, against the fixed list of mutating tool names (`WriteTools.all`, the same names used for `Destructive`/`ReadOnly` hints below); an unrecognized name is a fatal startup error rather than a silently-inert entry — **this validation runs regardless of `--allow-write`**, so an invalid name in `--allow-tools` still fails startup even when `--allow-write` is also given. Only the *effective write policy* ignores a syntactically-valid `--allow-tools` list once `--allow-write` is present (which grants every mutating tool outright). |
 | `--timeout <seconds>` | a whole, non-negative number of seconds | `120` | Per-command deadline applied to every git/jj/forge-CLI subprocess the server spawns. `--timeout 0` disables the deadline entirely (no per-command timeout). An absurdly large value is clamped to `Int32.MaxValue` seconds rather than overflowing — for all practical purposes equivalent to "no timeout". A non-numeric or negative value is a fatal startup error. |
-| `--output-budget <bytes>` | a whole, non-negative number of bytes | `200000` | Truncates the large-content read tools (`repo_show_file`, `repo_annotate`) past this many UTF-8 bytes, snapping to a full character boundary and appending a trailing `[truncated: showing N of M bytes]` marker. Content within the budget passes through byte-for-byte unchanged. `--output-budget 0` disables the cap entirely. Clamped the same way `--timeout` is for an absurdly large value. A non-numeric or negative value is a fatal startup error. |
+| `--output-budget <bytes>` | a whole, non-negative number of bytes | `200000` | Truncates the large-content read tools (`repo_show_file`, `repo_annotate`, `forge_pr_diff`) past this many UTF-8 bytes, snapping to a full character boundary and appending a trailing `[truncated: showing N of M bytes]` marker. Content within the budget passes through byte-for-byte unchanged. `--output-budget 0` disables the cap entirely. Clamped the same way `--timeout` is for an absurdly large value. A non-numeric or negative value is a fatal startup error. |
 | `-h`, `--help` | (flag, no argument) | — | Print the usage text and exit `0` without opening a repository or starting the server. |
 
 An unrecognized flag, or a flag missing its required value, is a fatal startup error (the
@@ -135,7 +143,8 @@ rolling itself back, so it needs the same isolation). An MCP host can dispatch t
 concurrently; without this lock, two working-copy mutations could interleave (e.g. a
 `repo_try_merge` probe's materialize-then-rollback racing a `repo_commit`).
 **Remote-only forge writes** (`forge_issue_create`, `forge_issue_close`, `forge_issue_reopen`, `forge_issue_comment`,
-`forge_pr_create`, `forge_pr_comment`, `forge_pr_edit`, `forge_pr_mark_ready`, `forge_pr_review`)
+`forge_pr_create`, `forge_pr_comment`, `forge_pr_edit`, `forge_pr_mark_ready`, `forge_pr_review`,
+`forge_release_create`)
 do **not** take this local lock — they only touch the remote forge, and the forge's own server
 serializes concurrent requests on its side. `forge_pr_merge`/`forge_pr_close` are **not** in this
 remote-only group, even when called without `delete_branch`: both always take the local lock (see
@@ -172,6 +181,7 @@ tool additionally requires `--allow-write`, or `--allow-tools` naming it.
 | `repo_current_branch` | The current branch/bookmark (null when detached/unset). | — |
 | `repo_conflicts` | Paths with unresolved merge conflicts (repo-relative, `/`-separated). | — |
 | `repo_worktrees` | Attached worktrees (git) / workspaces (jj). | — |
+| `repo_remotes` | Configured remotes (name and URL): git remotes are deduplicated to one entry carrying the fetch URL; jj uses `jj git remote list`. | — |
 | `repo_show_file` | The content of a file at a revision, subject to `--output-budget` (default 200000 bytes; a truncated read appends `[truncated: showing N of M bytes]`). UTF-8-decoded text only — a non-UTF-8 byte is replaced with U+FFFD and does not round-trip, so this is for text files, not byte-exact binary reads. `rev` is passed through as-is to the backend (git commit-ish or jj revset — not cross-backend portable). | `rev` (string, required), `path` (string, required) |
 | `repo_log` | Up to `max` commits reachable from `revspec_or_revset` (git revspec, e.g. `"HEAD"`, or jj revset, e.g. `"@"`), most-recent-first. `author`/`date` are null on jj (its typed log doesn't surface authorship/timestamp). | `revspec_or_revset` (string, required), `max` (integer, required) |
 | `repo_annotate` | Per-line authorship of a file at a revision (git blame / jj file annotate), as a JSON array of lines, subject to the same `--output-budget` truncation as `repo_show_file`. **A truncated result is not guaranteed to be valid JSON** — see "Output-size budget" below. `rev` is passed through as-is (git commit-ish or jj revset). | `path` (string, required), `rev` (string, optional — omit to annotate the working copy / `@`) |
@@ -227,6 +237,7 @@ that forge, rather than silently degrading.
 | `forge_pr_view` | A single pull/merge request by number. | `number` (integer, required — GitLab uses the project-scoped iid) |
 | `forge_pr_for_branch` | Pull/merge requests whose source branch is `source_branch`, in any state, regardless of target branch — the "after pushing, find my PR" query. Returns a list; an empty list means none currently match. **Unsupported on Gitea** (`tea pr list --output json` does not work against the real CLI). | `source_branch` (string, required) |
 | `forge_pr_checks` | The PR/MR's coarse CI status. **Unsupported on Gitea.** | `number` (integer, required) |
+| `forge_pr_diff` | The PR/MR's unified diff, serialized per file as JSON and subject to `--output-budget`. A truncated result is not guaranteed to be valid JSON. **Unsupported on Gitea.** | `number` (integer, required) |
 | `forge_issue_list` | Issues on the configured forge, open by default and capped at 100 by default. **Unsupported on Gitea for every state** (`tea issues list --output json` does not work against the real CLI). | `state` (string, optional — `open`/`closed`/`all`, default `open`), `limit` (integer, optional, default 100) |
 | `forge_issue_view` | A single issue by number, with body and URL filled. | `number` (integer, required — GitLab uses the project-scoped iid) |
 | `forge_release_list` | Releases on the configured forge, newest first (up to 100). | — |
@@ -245,27 +256,28 @@ that forge, rather than silently degrading.
 | `forge_pr_close` | Close a pull/merge request without merging. `delete_branch` is GitHub-only (refused as Unsupported on GitLab/Gitea) and also deletes the source branch. | `number` (integer, required), `delete_branch` (boolean, optional) | **yes** | yes |
 | `forge_pr_mark_ready` | Mark a draft pull/merge request as ready for review. **Unsupported on Gitea.** | `number` (integer, required) | no | yes |
 | `forge_pr_comment` | Post a comment to an existing pull/merge request, returning the CLI's output. | `number` (integer, required), `body` (string, required) | no | no |
-| `forge_pr_edit` | Edit a pull/merge request's title and/or body (at least one required). | `number` (integer, required), `title` (string, optional), `body` (string, optional) | no | yes |
+| `forge_pr_edit` | Edit a pull/merge request's title and/or body (at least one required). **Unsupported on Gitea** (`tea` 0.9.2 has no `pr edit` command). | `number` (integer, required), `title` (string, optional), `body` (string, optional) | no | yes |
 | `forge_pr_checkout` | Check out a pull/merge request's branch into the local working copy (`gh pr checkout` / `glab mr checkout` / `tea pr checkout`). Holds the per-repo write lock — it mutates the local working tree. | `number` (integer, required) | no | yes |
 | `forge_pr_review` | Submit a review on a pull/merge request: `approve`, `request_changes`, or `comment`. `body` is required for `request_changes`/`comment`, optional for `approve`. `request_changes` is Unsupported on GitLab; `comment` is Unsupported on GitLab and Gitea (use `forge_pr_comment` there instead). | `number` (integer, required), `kind` (string, required), `body` (string, optional) | no | no |
+| `forge_release_create` | Create a release for a Git tag. `draft`/`prerelease` are supported on GitHub/Gitea and refused as Unsupported on GitLab. | `tag` (string, required), `title` (string, optional), `notes` (string, optional), `draft` (boolean, optional), `prerelease` (boolean, optional) | no | no |
 | `forge_release_delete` | Delete a release by tag. **Unsupported on Gitea** (`tea` 0.9.2 has no `release delete` command). | `tag` (string, required) | **yes** | no |
 
 ## Output-size budget
 
-`repo_show_file` and `repo_annotate` are the two tools whose output can be arbitrarily large
-(a full file's content, or a full per-line annotation of one). Both are subject to
+`repo_show_file`, `repo_annotate`, and `forge_pr_diff` can return arbitrarily large output
+(a full file, a full per-line annotation, or a full pull-request diff). All three are subject to
 `--output-budget` (default 200000 bytes; `0` disables it): content is measured in UTF-8 bytes,
 truncated at a full character boundary if it exceeds the budget, and a trailing
 `[truncated: showing N of M bytes]` marker is appended so a truncated read is never mistaken for
 the complete file. Content within the budget passes through byte-for-byte unchanged — the budget
 never rewrites or re-encodes a read that already fits.
 
-**`repo_annotate` and JSON validity.** The budget is applied uniformly to the *raw serialized
-text* the tool would otherwise return — for `repo_show_file` that text is the plain file content,
-so truncating it is harmless, but for `repo_annotate` that text is already a serialized JSON
-array. Truncation is character-boundary-safe, not JSON-structure-aware: it can cut the array in
+**Structured JSON and validity.** The budget is applied uniformly to the *raw serialized text*
+the tool would otherwise return — for `repo_show_file` that text is the plain file content, so
+truncating it is harmless, but `repo_annotate` and `forge_pr_diff` are already serialized JSON
+arrays. Truncation is character-boundary-safe, not JSON-structure-aware: it can cut an array in
 the middle of an element, and the trailing `[truncated: showing N of M bytes]` marker is plain
-text appended after that cut, not part of any JSON value. A truncated `repo_annotate` result is
+text appended after that cut, not part of any JSON value. A truncated structured result is
 therefore **not guaranteed to be valid JSON**, even though an untruncated one always is — a
 caller that needs to parse the result should either raise `--output-budget` (or disable it with
 `--output-budget 0`) for that call's repository, or detect the trailing marker and treat a

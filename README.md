@@ -12,6 +12,11 @@ whatever the installed CLIs actually do. Process execution is handled by
 full API reference (generated from the XML doc comments of every package below) plus the
 architecture and examples guides.
 
+> **Pre-release status:** the APIs and `vcs-mcp` tool are implemented in this repository, but
+> the first `VcsToolkit.*` / `vcs-mcp` packages have not been published to NuGet.org yet. Clone
+> and build the repository to evaluate them today; the NuGet.org install command below becomes
+> available after the first release.
+
 ## Requirements
 
 - .NET 10.0 or later
@@ -21,31 +26,39 @@ architecture and examples guides.
 
 The toolkit is split into one package per concern, mirroring the Rust workspace.
 
-| Package | Status | Purpose |
+| Package | Source status | Purpose |
 |---|---|---|
-| `VcsToolkit.CliSupport` | ✅ available | Shared plumbing: argv injection guard, error classifiers, lock-contention retry, credential provisioning, the `ManagedClient` runner wrapper. |
-| `VcsToolkit.Diff` | ✅ available | The git-format unified-diff model and parser, plus a tolerant `<tool> --version` parser. Pure, no subprocess. |
-| `VcsToolkit.Git` | ✅ available | The `git` CLI client: status, branches, commit, checkout, diff/log, merge/rebase/reset, fetch/push/clone, worktrees, tags, blame, config — plus a `.At(dir)` cwd-bound view and a pure conflict-marker model (`Conflict`: `parseConflicts`/`render`/`resolve`, no subprocess). |
-| `VcsToolkit.Jj` | ✅ available | The Jujutsu (`jj`) CLI client: changes/log, bookmarks, the operation log with rollback transactions, workspaces, squash/split/absorb, diff queries, and git sync — plus a `.At(dir)` cwd-bound view and the native materialized conflict model (`Conflict`). |
-| `VcsToolkit.GitHub` | ✅ available | The GitHub (`gh`) CLI client: pull requests (list/view/create/merge/edit/review/checks/feedback), issues, Actions runs (list/view/watch), releases, repo view, and the REST/GraphQL escape hatch — plus a `.At(dir)` cwd-bound view. Tokens are injected as `GH_TOKEN`, never in argv. |
-| `VcsToolkit.GitLab` | ✅ available | The GitLab (`glab`) CLI client: the lean merge-request lifecycle (list/view/create/merge/ready/close/comment/edit), CI/pipeline status, issues, releases, project view, and the REST/GraphQL escape hatch — plus a `.At(dir)` cwd-bound view. Tokens are injected as `GITLAB_TOKEN`, never in argv. |
-| `VcsToolkit.Gitea` | ✅ available | The Gitea/Forgejo (`tea`) CLI client: the lean pull-request lifecycle (list/view/create/merge/close/comment/edit), issues (list/view/create), and release listing — plus a `.At(dir)` cwd-bound view. Authentication is ambient (`tea`'s stored logins). |
-| `VcsToolkit.Core` | ✅ available | The backend-agnostic `Repo` facade over Git / Jujutsu: `Open` auto-detects git vs jj, then one handle runs whatever both tools support — branch/snapshot reads, changed files & diff stat, partial commits, fetch/push/checkout/rebase, a trace-free merge-conflict probe (`TryMerge`), in-progress merge/rebase state, and worktree management — returning plain result types. Escape hatches `.Git`/`.Jj` (raw client) and `.GitAt`/`.JjAt` (dir-bound views) reach the raw surface; only the synchronous `cleanupWorktreeBlocking` Drop-guard is intentionally not ported (`IAsyncDisposable` awaits `RemoveWorktree`). |
-| `VcsToolkit.Forge` | ✅ available | The unified forge facade over GitHub / GitLab / Gitea: one `Forge` handle runs the PR/MR lifecycle all three share — auth, repo view, PR/MR list/view/create/comment/edit/merge/ready/close/checks, the flat capability map, issues, and releases — returning plain result types that don't mention which forge produced them. `ForgeKind.OfRemoteUrl` classifies the public-SaaS hosts (anti-spoofing); a few ops are `Unsupported` on Gitea (`tea` lacks the command). The gh/glab/tea analogue of `Core`'s `Repo` over git/jj. |
-| `VcsToolkit.TestKit` | ✅ available | Throwaway git/jj sandboxes (and a seeded bare remote) for integration tests: a self-cleaning `TempDir`, `GitSandbox` / `JjSandbox` scenario builders, and `BareRemote` — dependency-free (no wrapper libraries, so it can be a test dependency of any without a cycle), hermetic (no host VCS config leaks in), and raising on failure. |
-| `VcsToolkit.Watch` | ✅ available | Filesystem-watch a git/jj repository and emit typed state-change events. A `RepoWatcher` watches the `.git`/`.jj` state dir (and, optionally, the working tree), debounces the write burst a VCS operation makes, re-queries `Repo.Snapshot`, and diffs it against the previous state to yield typed `RepoEvent`s (`HeadMoved`, `BranchSwitched`, `BranchCreated`/`Deleted`, `WorkingCopyChanged`, upstream/ahead-behind/operation/conflict). Re-query-and-diff (not raw FS events) makes it robust to ref temp-file renames and `index.lock` churn. The foundation for prompts, status bars, and TUIs. |
-| `VcsToolkit.Mcp` | ✅ available | A Model Context Protocol server exposing the toolkit's typed git/jj + forge operations as agent-callable tools. The `VcsToolkit.Mcp` library is the hermetically-testable core — `VcsMcpServer` with the `repo_*` / `forge_*` tools over `Core`/`Forge`, the `WriteGate` write policy (read tools always available, mutations gated by `--allow-write`/`--allow-tools`), the tool catalogue and dispatcher, and the CLI parser. The thin `vcs-mcp` binary (`VcsToolkit.Mcp.Server`) wires it to the `ModelContextProtocol` SDK over stdio, with a hardened git client (repo hooks/config disabled) and a per-command timeout. |
+| `VcsToolkit.CliSupport` | Implemented | Shared plumbing: argv injection guard, error classifiers, lock-contention retry, credential provisioning, the `ManagedClient` runner wrapper. |
+| `VcsToolkit.Diff` | Implemented | The git-format unified-diff model and parser, plus a tolerant `<tool> --version` parser. Pure, no subprocess. |
+| `VcsToolkit.Git` | Implemented | The `git` CLI client: status, branches, commit, checkout, diff/log, merge/rebase/reset, fetch/push/clone, worktrees, tags, blame, config — plus a `.At(dir)` cwd-bound view and a pure conflict-marker model (`Conflict`: `parseConflicts`/`render`/`resolve`, no subprocess). |
+| `VcsToolkit.Jj` | Implemented | The Jujutsu (`jj`) CLI client: changes/log, bookmarks, the operation log with rollback transactions, workspaces, squash/split/absorb, diff queries, and git sync — plus a `.At(dir)` cwd-bound view and the native materialized conflict model (`Conflict`). |
+| `VcsToolkit.GitHub` | Implemented | The GitHub (`gh`) CLI client: pull requests, issues, Actions runs (list/view/watch/dispatch/rerun/cancel), releases, repo view, and the REST/GraphQL escape hatch — plus a `.At(dir)` cwd-bound view. Tokens are injected as `GH_TOKEN`, never in argv. |
+| `VcsToolkit.GitLab` | Implemented | The GitLab (`glab`) CLI client: the lean merge-request lifecycle (list/view/create/merge/ready/close/comment/edit), CI/pipeline status, issues, releases, project view, and the REST/GraphQL escape hatch — plus a `.At(dir)` cwd-bound view. Tokens are injected as `GITLAB_TOKEN`, never in argv. |
+| `VcsToolkit.Gitea` | Implemented | The Gitea/Forgejo (`tea`) CLI client: pull requests (list/view/create/merge/close/checkout/review/comment), issues (list/view/create/close/comment), and releases (list/create) — plus a `.At(dir)` cwd-bound view. Unsupported `tea` operations such as PR edit and release delete fail before spawning. Authentication is ambient (`tea`'s stored logins). |
+| `VcsToolkit.Core` | Implemented | The backend-agnostic `Repo` facade over Git / Jujutsu: `Open` auto-detects git vs jj, then one handle runs whatever both tools support — branch/snapshot reads, changed files & diff stat, partial commits, fetch/push/checkout/rebase, a trace-free merge-conflict probe (`TryMerge`), in-progress merge/rebase state, and worktree management — returning plain result types. Escape hatches `.Git`/`.Jj` (raw client) and `.GitAt`/`.JjAt` (dir-bound views) reach the raw surface; only the synchronous `cleanupWorktreeBlocking` Drop-guard is intentionally not ported (`IAsyncDisposable` awaits `RemoveWorktree`). |
+| `VcsToolkit.Forge` | Implemented | The unified forge facade over GitHub / GitLab / Gitea: one `Forge` handle exposes a common PR/MR, issue, and release surface and returns plain result types that don't mention which forge produced them. Backend gaps are explicit `Unsupported` results rather than silently dropped options; `ForgeKind.OfRemoteUrl` classifies the public-SaaS hosts with anti-spoofing checks. The gh/glab/tea analogue of `Core`'s `Repo` over git/jj. |
+| `VcsToolkit.TestKit` | Implemented | Throwaway git/jj sandboxes (and a seeded bare remote) for integration tests: a self-cleaning `TempDir`, `GitSandbox` / `JjSandbox` scenario builders, and `BareRemote` — dependency-free (no wrapper libraries, so it can be a test dependency of any without a cycle), hermetic (no host VCS config leaks in), and raising on failure. |
+| `VcsToolkit.Watch` | Implemented | Filesystem-watch a git/jj repository and emit typed state-change events. A `RepoWatcher` watches the `.git`/`.jj` state dir (and, optionally, the working tree), debounces the write burst a VCS operation makes, re-queries `Repo.Snapshot`, and diffs it against the previous state to yield typed `RepoEvent`s (`HeadMoved`, `BranchSwitched`, `BranchCreated`/`Deleted`, `WorkingCopyChanged`, upstream/ahead-behind/operation/conflict). Re-query-and-diff (not raw FS events) makes it robust to ref temp-file renames and `index.lock` churn. The foundation for prompts, status bars, and TUIs. |
+| `VcsToolkit.Mcp` | Implemented | A Model Context Protocol server exposing the toolkit's typed git/jj + forge operations as agent-callable tools. The `VcsToolkit.Mcp` library is the hermetically-testable core — `VcsMcpServer` with the `repo_*` / `forge_*` tools over `Core`/`Forge`, the `WriteGate` write policy (read tools always available, mutations gated by `--allow-write`/`--allow-tools`), the tool catalogue and dispatcher, and the CLI parser. The thin `vcs-mcp` binary (`VcsToolkit.Mcp.Server`) wires it to the `ModelContextProtocol` SDK over stdio, with a hardened git client (repo hooks/config disabled) and a per-command timeout. |
 
 ## The `vcs-mcp` MCP server
 
-The `vcs-mcp` binary (`VcsToolkit.Mcp.Server`) ships as a **.NET global tool**, so the Model
-Context Protocol server installs with a single command:
+The `vcs-mcp` binary (`VcsToolkit.Mcp.Server`) is packaged as a **.NET global tool**. After the
+first NuGet release, the Model Context Protocol server will install with a single command:
 
 ```sh
 dotnet tool install --global vcs-mcp
-# update it later with:   dotnet tool update    --global vcs-mcp
-# remove it with:         dotnet tool uninstall --global vcs-mcp
 ```
+
+Today, build the repository and create a local tool package instead:
+
+```sh
+dotnet pack VcsToolkit.slnx --configuration Release --output ./artifacts
+dotnet tool install --global vcs-mcp --version 0.1.0 --add-source ./artifacts
+```
+
+Use `dotnet tool update --global vcs-mcp` or `dotnet tool uninstall --global vcs-mcp` for an
+installed copy.
 
 It speaks MCP over stdio — an agent harness launches it via an `mcpServers` config entry. Read
 tools (`repo_*` / `forge_*` queries) are always available; the mutating tools stay disabled until
@@ -119,11 +132,15 @@ dotnet build VcsToolkit.slnx
 dotnet test  VcsToolkit.slnx
 ```
 
-Two quality gates run in CI and can be run locally with a single command each:
+The source, API-index, and documentation consistency gates used by CI can also be run locally:
 
 ```sh
 dotnet fantomas --check src tests   # F# formatting gate (CI's `format` job)
 pwsh scripts/run-analyzers.ps1      # F# static-analysis gate (CI's `analyzers` job)
+pwsh scripts/check-command-index.ps1
+pwsh scripts/check-docs.ps1
+pwsh scripts/build-docs.ps1         # Generate the Pages artifact
+pwsh scripts/check-docs-output.ps1  # Validate rendered links, assets, and fragments
 ```
 
 `scripts/run-analyzers.ps1` runs the [Ionide.Analyzers](https://github.com/ionide/ionide-analyzers)
@@ -131,6 +148,11 @@ rule set (via the pinned `fsharp-analyzers` tool) over every `src/` project and 
 Warning/Error finding — the only F#-class static analysis available, since CodeQL has no F# support.
 
 ## Publishing status
+
+**No public `VcsToolkit.*` or `vcs-mcp` release exists yet.** The repository is currently at the
+`0.1.0` seed version; the release workflow will publish all library packages and the global tool
+together on the first release. Until then, use a source build or the local packages produced by
+`dotnet pack`.
 
 **Inter-package dependencies are now declared.** Because cross-project references use
 `Reference` + `AssemblySearchPaths` (per the repo conventions) rather than

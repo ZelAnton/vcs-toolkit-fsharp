@@ -3,7 +3,7 @@
 This document is a map of how VcsToolkit is put together: the dependency graph
 between its packages, why each layer exists, the design principles that repeat
 across every wrapper client, and the seams a consumer can hook into. It
-complements the [package table in the README](../README.md#packages), which
+complements the [package table on the documentation home page](./#Packages), which
 answers "what's in each package"; this document answers "why is it shaped this
 way" and "how do the pieces fit together". Adding a new capability to one of
 these layers? See [docs/extending.md](extending.md) for the step-by-step
@@ -13,7 +13,7 @@ contributor workflow built on top of the map below.
 
 VcsToolkit ships thirteen packages under `src/`. Their build order — and their
 allowed dependency direction — comes straight from the `BuildDependency`
-entries in [`VcsToolkit.slnx`](../VcsToolkit.slnx); nothing here is aspirational,
+entries in [`VcsToolkit.slnx`](https://github.com/ZelAnton/vcs-toolkit-fsharp/blob/main/VcsToolkit.slnx); nothing here is aspirational,
 it is what the solution file enforces. Laid out by layer, lowest first:
 
 ```
@@ -140,19 +140,20 @@ git pretend to have concepts it doesn't.
 
 ### `VcsToolkit.Forge` — the forge-agnostic facade
 
-The forge counterpart of `Core`: one `Forge` handle runs the PR/MR lifecycle
-that GitHub, GitLab, and Gitea all share — auth, repo view, list/view/create/
-comment/edit/merge/ready/close, checks, issues, releases — returning plain
-result types that never mention which forge produced them. It depends on all
+The forge counterpart of `Core`: one `Forge` handle exposes a common PR/MR,
+issue, and release surface across GitHub, GitLab, and Gitea, returning plain
+result types that never mention which forge produced them. A backend gap is an
+explicit `Unsupported` result rather than a silently ignored option. It depends on all
 three forge clients (the point where those families converge), and it carries
 the one piece of security-relevant classification logic that belongs at this
 layer rather than lower: `ForgeKind.OfRemoteUrl`, which maps a git remote's
 host to a forge kind for the handful of recognized public SaaS hosts
 (`github.com`, `gitlab.com`, `gitea.com`, `codeberg.org`) using an anchored
 match (exact host or a genuine `*.domain` subdomain) so a lookalike host like
-`gitlab.com.attacker.net` cannot masquerade as GitLab. Some operations
-(`repoView`, `prMarkReady`, `prChecks`, `releaseView`, …) are `Unsupported` on
-Gitea because `tea` simply has no equivalent command; `Forge.Supports` lets a
+`gitlab.com.attacker.net` cannot masquerade as GitLab. Several operations
+(`repoView`, `prList`, `prForBranch`, `prEdit`, `prMarkReady`, `prChecks`,
+`prDiff`, `issueList`, `issueReopen`, `releaseView`, `releaseDelete`) are
+`Unsupported` on Gitea because `tea` lacks a usable equivalent; `Forge.Supports` lets a
 caller branch on that before calling rather than discovering it via a runtime
 error.
 
