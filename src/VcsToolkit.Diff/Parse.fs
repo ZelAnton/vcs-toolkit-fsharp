@@ -1,7 +1,6 @@
 namespace VcsToolkit.Diff
 
 open System
-open System.Text
 
 /// The git-format unified-diff parser and the `<tool> --version` banner parser.
 /// Pure and total: arbitrary CLI text in, never an exception. Auto-opened so
@@ -30,63 +29,6 @@ module Parse =
               let s = bounds.[k]
               let e = if k + 1 < bounds.Count then bounds.[k + 1] else full.Length
               full.Substring(s, e - s) ]
-
-    /// Decode a git C-quoted path. git wraps a path in double quotes and C-escapes it
-    /// when it has a control byte, a `"`, a `\`, or (default `core.quotePath`) a
-    /// non-ASCII byte. An unquoted path is returned unchanged. Octal escapes decode to
-    /// raw bytes, so a multi-byte UTF-8 filename round-trips; invalid UTF-8 falls back
-    /// to the replacement char. Decoding stops at the first unescaped closing quote.
-    let private unquoteGitPath (s: string) : string =
-        let bytes = Encoding.UTF8.GetBytes s
-
-        if bytes.Length = 0 || bytes.[0] <> byte '"' then
-            s
-        else
-            let out = ResizeArray<byte>(bytes.Length)
-            let mutable i = 1
-            let mutable stop = false
-
-            while not stop && i < bytes.Length do
-                let b = bytes.[i]
-
-                if b = byte '"' then
-                    stop <- true
-                elif b = byte '\\' && i + 1 < bytes.Length then
-                    i <- i + 1
-                    let e = bytes.[i]
-
-                    match char e with
-                    | 'a' -> out.Add 0x07uy
-                    | 'b' -> out.Add 0x08uy
-                    | 't' -> out.Add(byte '\t')
-                    | 'n' -> out.Add(byte '\n')
-                    | 'v' -> out.Add 0x0Buy
-                    | 'f' -> out.Add 0x0Cuy
-                    | 'r' -> out.Add(byte '\r')
-                    | '"' -> out.Add(byte '"')
-                    | '\\' -> out.Add(byte '\\')
-                    | c when c >= '0' && c <= '7' ->
-                        // Up to 3 octal digits → one byte (`\NNN`, NNN ≤ 0o377).
-                        let mutable v = uint32 (e - byte '0')
-                        let mutable taken = 0
-
-                        while taken < 2
-                              && i + 1 < bytes.Length
-                              && bytes.[i + 1] >= byte '0'
-                              && bytes.[i + 1] <= byte '7' do
-                            i <- i + 1
-                            v <- v * 8u + uint32 (bytes.[i] - byte '0')
-                            taken <- taken + 1
-
-                        out.Add(byte v)
-                    | _ -> out.Add e // unknown escape: keep the byte
-
-                    i <- i + 1
-                else
-                    out.Add b
-                    i <- i + 1
-
-            Encoding.UTF8.GetString(out.ToArray())
 
     /// Parse a `<start>[,<count>]` hunk range; an omitted count means 1 line.
     let private parseHunkRange (range: string) : uint64 * uint64 =
@@ -173,7 +115,7 @@ module Parse =
 
                 let path =
                     match s.LastIndexOf("\"b/", StringComparison.Ordinal) with
-                    | q when q >= 0 -> defaultArg (stripPrefix "b/" (unquoteGitPath (s.Substring q))) ""
+                    | q when q >= 0 -> defaultArg (stripPrefix "b/" (TextParse.unquoteGitPath (s.Substring q))) ""
                     | _ -> defaultArg (findSymmetricBPath s) ""
 
                 if path <> "" then Some path else None
@@ -221,15 +163,15 @@ module Parse =
                     elif line.StartsWith("deleted file", StringComparison.Ordinal) then
                         kind <- ChangeKind.Deleted
                     elif line.StartsWith("rename to ", StringComparison.Ordinal) then
-                        renameTo <- Some(unquoteGitPath ((line.Substring 10).TrimEnd()))
+                        renameTo <- Some(TextParse.unquoteGitPath ((line.Substring 10).TrimEnd()))
                     elif line.StartsWith("rename from ", StringComparison.Ordinal) then
-                        renameFrom <- Some(unquoteGitPath ((line.Substring 12).TrimEnd()))
+                        renameFrom <- Some(TextParse.unquoteGitPath ((line.Substring 12).TrimEnd()))
                     elif line.StartsWith("copy to ", StringComparison.Ordinal) then
-                        copyTo <- Some(unquoteGitPath ((line.Substring 8).TrimEnd()))
+                        copyTo <- Some(TextParse.unquoteGitPath ((line.Substring 8).TrimEnd()))
                     elif line.StartsWith("+++ ", StringComparison.Ordinal) then
-                        newPath <- stripPrefix "b/" (unquoteGitPath ((line.Substring 4).TrimEnd()))
+                        newPath <- stripPrefix "b/" (TextParse.unquoteGitPath ((line.Substring 4).TrimEnd()))
                     elif line.StartsWith("--- ", StringComparison.Ordinal) then
-                        minusPath <- stripPrefix "a/" (unquoteGitPath ((line.Substring 4).TrimEnd()))
+                        minusPath <- stripPrefix "a/" (TextParse.unquoteGitPath ((line.Substring 4).TrimEnd()))
 
         closeCurrent ()
 

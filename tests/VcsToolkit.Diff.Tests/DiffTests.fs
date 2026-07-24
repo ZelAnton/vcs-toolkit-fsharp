@@ -39,6 +39,23 @@ let private gitQuote (path: string) : string =
 type DiffTests() =
 
     [<Test>]
+    member _.DecodesGitQuotedPaths() =
+        let decode = TextParse.unquoteGitPath
+        let smile = Encoding.UTF8.GetString([| 0xF0uy; 0x9Fuy; 0x98uy; 0x80uy |])
+
+        Assert.That(decode "", Is.EqualTo "")
+        Assert.That(decode "abc/def", Is.EqualTo "abc/def")
+        Assert.That(decode "\"\"", Is.EqualTo "")
+        Assert.That(decode "\"hello\\nworld\"", Is.EqualTo "hello\nworld")
+        Assert.That(decode "\"a\\tb\"", Is.EqualTo "a\tb")
+        Assert.That(decode "\"path\\\\to\\\\file\"", Is.EqualTo "path\\to\\file")
+        Assert.That(decode "\"say \\\"hi\\\"\"", Is.EqualTo "say \"hi\"")
+        Assert.That(decode "\"\\101\"", Is.EqualTo "A")
+        Assert.That(decode "\"\\360\\237\\230\\200\"", Is.EqualTo smile)
+        Assert.That(decode "\"\\x\"", Is.EqualTo "\\x")
+        Assert.That(decode "\"unterminated", Is.EqualTo "unterminated")
+
+    [<Test>]
     member _.CoversAddModifyDeleteRename() =
         let full =
             doc

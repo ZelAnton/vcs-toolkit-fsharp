@@ -1,7 +1,6 @@
 namespace VcsToolkit.Git
 
 open System
-open System.Text
 open VcsToolkit.Diff
 
 /// One entry from `git status --porcelain=v1 -z` (`XY <path>`, NUL-delimited).
@@ -138,65 +137,6 @@ module internal GitParse =
     let private nul = char 0
     let private unitSep = char 0x1f
     let private tab = char 9
-
-    /// Decode a git C-quoted path. Mirrors `VcsToolkit.Diff.Parse.unquoteGitPath` exactly (that
-    /// helper is `private` to its own module and this project can't reach across the assembly
-    /// boundary to it) — git wraps a path in double quotes and C-escapes it when it has a
-    /// control byte, a `"`, a `\`, or (default `core.quotePath`) a non-ASCII byte. An unquoted
-    /// path is returned unchanged. Octal escapes decode to raw bytes, so a multi-byte UTF-8
-    /// filename round-trips; invalid UTF-8 falls back to the replacement char. Decoding stops at
-    /// the first unescaped closing quote.
-    let private unquoteGitPath (s: string) : string =
-        let bytes = Encoding.UTF8.GetBytes s
-
-        if bytes.Length = 0 || bytes.[0] <> byte '"' then
-            s
-        else
-            let out = ResizeArray<byte>(bytes.Length)
-            let mutable i = 1
-            let mutable stop = false
-
-            while not stop && i < bytes.Length do
-                let b = bytes.[i]
-
-                if b = byte '"' then
-                    stop <- true
-                elif b = byte '\\' && i + 1 < bytes.Length then
-                    i <- i + 1
-                    let e = bytes.[i]
-
-                    match char e with
-                    | 'a' -> out.Add 0x07uy
-                    | 'b' -> out.Add 0x08uy
-                    | 't' -> out.Add(byte '\t')
-                    | 'n' -> out.Add(byte '\n')
-                    | 'v' -> out.Add 0x0Buy
-                    | 'f' -> out.Add 0x0Cuy
-                    | 'r' -> out.Add(byte '\r')
-                    | '"' -> out.Add(byte '"')
-                    | '\\' -> out.Add(byte '\\')
-                    | c when c >= '0' && c <= '7' ->
-                        // Up to 3 octal digits → one byte (`\NNN`, NNN ≤ 0o377).
-                        let mutable v = uint32 (e - byte '0')
-                        let mutable taken = 0
-
-                        while taken < 2
-                              && i + 1 < bytes.Length
-                              && bytes.[i + 1] >= byte '0'
-                              && bytes.[i + 1] <= byte '7' do
-                            i <- i + 1
-                            v <- v * 8u + uint32 (bytes.[i] - byte '0')
-                            taken <- taken + 1
-
-                        out.Add(byte v)
-                    | _ -> out.Add e // unknown escape: keep the byte
-
-                    i <- i + 1
-                else
-                    out.Add b
-                    i <- i + 1
-
-            Encoding.UTF8.GetString(out.ToArray())
 
     // Digit-only, invariant-culture parse matching Rust's integer `from_str` (rejects
     // signs/whitespace), so a malformed numeric field reads as 0 rather than a sign-led value.
@@ -633,11 +573,11 @@ module internal GitParse =
         |> List.choose (fun line ->
             if line.StartsWith(wouldRemove, StringComparison.Ordinal) then
                 Some
-                    { Path = unquoteGitPath (line.Substring wouldRemove.Length)
+                    { Path = TextParse.unquoteGitPath (line.Substring wouldRemove.Length)
                       DryRun = true }
             elif line.StartsWith(removing, StringComparison.Ordinal) then
                 Some
-                    { Path = unquoteGitPath (line.Substring removing.Length)
+                    { Path = TextParse.unquoteGitPath (line.Substring removing.Length)
                       DryRun = false }
             else
                 None)

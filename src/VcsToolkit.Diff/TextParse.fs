@@ -10,6 +10,63 @@ open System
 [<RequireQualifiedAccess>]
 module TextParse =
 
+    /// Decode a git C-quoted path. Unquoted paths pass through unchanged; octal escapes decode
+    /// to raw UTF-8 bytes so multi-byte filenames round-trip. An unknown escape is preserved
+    /// verbatim, and decoding stops at the first unescaped closing quote.
+    let internal unquoteGitPath (s: string) : string =
+        let bytes = Text.Encoding.UTF8.GetBytes s
+
+        if bytes.Length = 0 || bytes.[0] <> byte '"' then
+            s
+        else
+            let output = ResizeArray<byte>(bytes.Length)
+            let mutable i = 1
+            let mutable stop = false
+
+            while not stop && i < bytes.Length do
+                let b = bytes.[i]
+
+                if b = byte '"' then
+                    stop <- true
+                elif b = byte '\\' && i + 1 < bytes.Length then
+                    i <- i + 1
+                    let escaped = bytes.[i]
+
+                    match char escaped with
+                    | 'a' -> output.Add 0x07uy
+                    | 'b' -> output.Add 0x08uy
+                    | 't' -> output.Add(byte '\t')
+                    | 'n' -> output.Add(byte '\n')
+                    | 'v' -> output.Add 0x0Buy
+                    | 'f' -> output.Add 0x0Cuy
+                    | 'r' -> output.Add(byte '\r')
+                    | '"' -> output.Add(byte '"')
+                    | '\\' -> output.Add(byte '\\')
+                    | c when c >= '0' && c <= '7' ->
+                        // Up to 3 octal digits form one byte (`\NNN`, NNN <= 0o377).
+                        let mutable value = uint32 (escaped - byte '0')
+                        let mutable taken = 0
+
+                        while taken < 2
+                              && i + 1 < bytes.Length
+                              && bytes.[i + 1] >= byte '0'
+                              && bytes.[i + 1] <= byte '7' do
+                            i <- i + 1
+                            value <- value * 8u + uint32 (bytes.[i] - byte '0')
+                            taken <- taken + 1
+
+                        output.Add(byte value)
+                    | _ ->
+                        output.Add(byte '\\')
+                        output.Add escaped
+
+                    i <- i + 1
+                else
+                    output.Add b
+                    i <- i + 1
+
+            Text.Encoding.UTF8.GetString(output.ToArray())
+
     /// Digit-only, invariant-culture parse of a `usize`-width field, matching Rust's
     /// `usize::from_str` (which rejects signs and whitespace), so a malformed token like `-5`
     /// reads as 0 rather than a sign-led or thrown value. The single `uint64` parser shared by
