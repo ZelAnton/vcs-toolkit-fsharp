@@ -52,7 +52,7 @@ type DiffTests() =
         Assert.That(decode "\"say \\\"hi\\\"\"", Is.EqualTo "say \"hi\"")
         Assert.That(decode "\"\\101\"", Is.EqualTo "A")
         Assert.That(decode "\"\\360\\237\\230\\200\"", Is.EqualTo smile)
-        Assert.That(decode "\"\\x\"", Is.EqualTo "\\x")
+        Assert.That(decode "\"\\x\"", Is.EqualTo "x")
         Assert.That(decode "\"unterminated", Is.EqualTo "unterminated")
 
     [<Test>]

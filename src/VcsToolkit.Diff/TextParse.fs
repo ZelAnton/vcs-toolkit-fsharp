@@ -11,8 +11,9 @@ open System
 module TextParse =
 
     /// Decode a git C-quoted path. Unquoted paths pass through unchanged; octal escapes decode
-    /// to raw UTF-8 bytes so multi-byte filenames round-trip. An unknown escape is preserved
-    /// verbatim, and decoding stops at the first unescaped closing quote.
+    /// to raw UTF-8 bytes so multi-byte filenames round-trip. An unknown escape discards the
+    /// backslash and preserves the following byte, and decoding stops at the first unescaped
+    /// closing quote.
     let internal unquoteGitPath (s: string) : string =
         let bytes = Text.Encoding.UTF8.GetBytes s
 
@@ -56,9 +57,7 @@ module TextParse =
                             taken <- taken + 1
 
                         output.Add(byte value)
-                    | _ ->
-                        output.Add(byte '\\')
-                        output.Add escaped
+                    | _ -> output.Add escaped
 
                     i <- i + 1
                 else
