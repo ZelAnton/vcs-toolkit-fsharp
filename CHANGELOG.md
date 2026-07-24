@@ -97,6 +97,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - `Forge.ForgeKind.OfRemoteUrl` now derives the host of a scp-form remote URL (`user@host:path`) from the authority before the first `:`/`/` and drops userinfo only within it, so an `@` in the URL path can no longer shift the classified host onto another domain.
+- `Jj.ConfigSet` now correctly writes repository-scoped configuration with current jj versions.
 - Documentation now states that the first `VcsToolkit.*` / `vcs-mcp` NuGet release is still pending and gives a working local-package installation path.
 - The MCP server guide now covers every catalogued tool, including remotes, PR diffs, and release creation, and documents all output-budget and forge-support constraints.
 - Published documentation links and image assets now stay inside the Pages artifact, and the PR lifecycle example finds the created PR by source branch instead of selecting an unrelated open PR.
