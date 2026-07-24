@@ -146,13 +146,35 @@ module Parse =
             else
                 let s = first.Substring 11
 
+                // For the unquoted `a/<p> b/<p>` form, git does not escape spaces, so a
+                // path that itself contains the substring " b/" (e.g. a directory named
+                // "a b") makes the naive first-match split land inside the a-path. The
+                // header is symmetric (a-path == b-path) except for rename/copy, which is
+                // handled separately above via `rename to`/`rename from`; validate each
+                // candidate " b/" split by checking that the text between "a/" and the
+                // split equals the text after the split to the end of the line.
+                let findSymmetricBPath (s: string) : string option =
+                    let rec search (fromIdx: int) : string option =
+                        match s.IndexOf(" b/", fromIdx, StringComparison.Ordinal) with
+                        | -1 -> None
+                        | idx ->
+                            let aCandidate = s.Substring(2, idx - 2)
+                            let bCandidate = s.Substring(idx + 3)
+
+                            if aCandidate = bCandidate then
+                                Some bCandidate
+                            else
+                                search (idx + 1)
+
+                    if s.StartsWith("a/", StringComparison.Ordinal) then
+                        search 2
+                    else
+                        None
+
                 let path =
                     match s.LastIndexOf("\"b/", StringComparison.Ordinal) with
                     | q when q >= 0 -> defaultArg (stripPrefix "b/" (unquoteGitPath (s.Substring q))) ""
-                    | _ ->
-                        match s.IndexOf(" b/", StringComparison.Ordinal) with
-                        | -1 -> ""
-                        | idx -> defaultArg (stripPrefix "b/" (s.Substring(idx + 1))) ""
+                    | _ -> defaultArg (findSymmetricBPath s) ""
 
                 if path <> "" then Some path else None
 

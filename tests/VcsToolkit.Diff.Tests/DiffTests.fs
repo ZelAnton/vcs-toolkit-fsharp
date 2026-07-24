@@ -198,6 +198,27 @@ type DiffTests() =
         Assert.That(files.[0].Path, Is.EqualTo "f.sh")
 
     [<Test>]
+    member _.HeaderFallbackHandlesSubstringBSlashInPath() =
+        // The unquoted header form is symmetric (`a/<p> b/<p>`); a path whose directory
+        // name itself contains " b/" (e.g. "a b/file.bin") must not make the naive
+        // first-match split pick the b-marker inside the a-path.
+        let full = doc [ "diff --git a/a b/file.bin b/a b/file.bin"; "binary files differ" ]
+
+        let files = parseDiff full
+        Assert.That(files.Length, Is.EqualTo 1)
+        Assert.That(files.[0].Path, Is.EqualTo "a b/file.bin")
+
+    [<Test>]
+    member _.HeaderFallbackStillResolvesOrdinaryUnquotedPath() =
+        // Regression guard: an ordinary path with no " b/" substring inside it must keep
+        // resolving via the header fallback.
+        let full = doc [ "diff --git a/plain.bin b/plain.bin"; "binary files differ" ]
+
+        let files = parseDiff full
+        Assert.That(files.Length, Is.EqualTo 1)
+        Assert.That(files.[0].Path, Is.EqualTo "plain.bin")
+
+    [<Test>]
     member _.ParsesHunkRangesAndBody() =
         let full =
             doc
