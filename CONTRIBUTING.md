@@ -63,8 +63,9 @@ guards and option types live, the `Unsupported`/`Supports` facade contract, and
   items carry no `Version`.
 - **Cross-project references** use `Reference` + `AssemblySearchPaths`, never
   `ProjectReference`. Build order comes from `BuildDependency` in the `.slnx`.
-- See [`AGENTS.md`](AGENTS.md) for the full, authoritative set of conventions
-  (exception-handling style, comments, architecture).
+- Follow the [architecture](docs/architecture.md) and
+  [extension workflow](docs/extending.md) for the package boundaries, public API rules,
+  exception-handling style, and cross-layer conventions.
 
 ## Changelog
 
