@@ -7,9 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-- JSON `null` at an optional MCP argument is now treated as the argument being absent, instead of raising InvalidParams.
-
 ### Added
 - Git remote management on `VcsToolkit.Jj`: add, remove, rename, and set-url operations with guarded positional arguments, plus matching `JjAt` forwarders.
 - Jj wrapper support for repository config get/set, local bookmark forget/untrack, and jj revert operations, including guarded arguments and the jj-specific revert semantics.
