@@ -854,6 +854,132 @@ type PipelineTests() =
         }
 
     [<Test>]
+    member _.ReadAllEnumeratorCancellationStopsEnumerationEvenWhenTheArgumentTokenIsCancelable() : Task =
+        task {
+            // T-139 regression: previously `effectiveCancellation` picked the `ReadAll`
+            // argument token whenever it was cancelable, entirely discarding the
+            // `[EnumeratorCancellation]` token a consumer supplies via
+            // `GetAsyncEnumerator`/`WithCancellation`. When both are cancelable, cancelling
+            // *either* must stop the enumeration — here specifically the enumerator token,
+            // while the argument token stays cancelable but is never triggered.
+            let _, out = channels ()
+            let stats = StatsInner()
+            use loopCts = new CancellationTokenSource()
+
+            let baselineSnapshot: RepoSnapshot =
+                { Head = Some "aaaa"
+                  Branch = Some "main"
+                  Tracking = None
+                  Dirty = false
+                  ChangeCount = 0UL
+                  Conflicted = false
+                  Operation = OperationState.Clear }
+
+            use watcher =
+                new RepoWatcher(
+                    out,
+                    baselineSnapshot,
+                    stats,
+                    ResizeArray<FileSystemWatcher>(),
+                    loopCts,
+                    Task.CompletedTask
+                )
+
+            use requestedCts = new CancellationTokenSource()
+            use enumeratorCts = new CancellationTokenSource()
+
+            let stream = watcher.ReadAll(requestedCts.Token)
+            let enumerator = stream.GetAsyncEnumerator(enumeratorCts.Token)
+
+            // Nothing is ever written to `out`, so this stays pending until a token fires.
+            let moveNext = enumerator.MoveNextAsync().AsTask()
+            enumeratorCts.Cancel()
+
+            let! winner = Task.WhenAny(moveNext :> Task, Task.Delay(TimeSpan.FromSeconds 5.0))
+
+            Assert.That(
+                Object.ReferenceEquals(winner, moveNext),
+                Is.True,
+                "cancelling the enumerator token must stop MoveNextAsync promptly"
+            )
+
+            try
+                let! _ = moveNext
+                Assert.Fail "expected MoveNextAsync to be cancelled"
+            with :? OperationCanceledException ->
+                // expected: the linked token source propagates the enumerator token's
+                // cancellation into the pending channel read.
+                ()
+
+            Assert.That(
+                requestedCts.IsCancellationRequested,
+                Is.False,
+                "cancelling the enumerator token must not affect the ReadAll-argument token"
+            )
+
+            // Every enumeration exit path must dispose the linked CancellationTokenSource —
+            // exercise it here via the normal (post-cancellation) DisposeAsync path.
+            do! enumerator.DisposeAsync().AsTask()
+        }
+
+    [<Test>]
+    member _.ReadAllArgumentCancellationStillStopsEnumerationWhenTheEnumeratorTokenIsCancelable() : Task =
+        task {
+            // No-regression companion to the test above: with both tokens cancelable,
+            // cancelling the `ReadAll` argument token (rather than the enumerator token) must
+            // still stop the enumeration, exactly as before this fix.
+            let _, out = channels ()
+            let stats = StatsInner()
+            use loopCts = new CancellationTokenSource()
+
+            let baselineSnapshot: RepoSnapshot =
+                { Head = Some "aaaa"
+                  Branch = Some "main"
+                  Tracking = None
+                  Dirty = false
+                  ChangeCount = 0UL
+                  Conflicted = false
+                  Operation = OperationState.Clear }
+
+            use watcher =
+                new RepoWatcher(
+                    out,
+                    baselineSnapshot,
+                    stats,
+                    ResizeArray<FileSystemWatcher>(),
+                    loopCts,
+                    Task.CompletedTask
+                )
+
+            use requestedCts = new CancellationTokenSource()
+            use enumeratorCts = new CancellationTokenSource()
+
+            let stream = watcher.ReadAll(requestedCts.Token)
+            let enumerator = stream.GetAsyncEnumerator(enumeratorCts.Token)
+
+            let moveNext = enumerator.MoveNextAsync().AsTask()
+            requestedCts.Cancel()
+
+            let! winner = Task.WhenAny(moveNext :> Task, Task.Delay(TimeSpan.FromSeconds 5.0))
+
+            Assert.That(
+                Object.ReferenceEquals(winner, moveNext),
+                Is.True,
+                "cancelling the ReadAll-argument token must stop MoveNextAsync promptly"
+            )
+
+            try
+                let! _ = moveNext
+                Assert.Fail "expected MoveNextAsync to be cancelled"
+            with :? OperationCanceledException ->
+                // expected: the linked token source propagates the argument token's
+                // cancellation into the pending channel read.
+                ()
+
+            do! enumerator.DisposeAsync().AsTask()
+        }
+
+    [<Test>]
     member _.CancellingTheLoopCompletesTheOutputChannel() : Task =
         task {
             let raw, out = channels ()
