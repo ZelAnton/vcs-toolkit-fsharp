@@ -40,6 +40,17 @@ module RemoteUrl =
     let authority (afterSchemeText: string) : string =
         afterSchemeText.Split([| '/'; '?'; '#' |]).[0] |> dropUserinfo
 
+    /// The `[user@]host` authority of a **scheme-less** scp-like URL (`git@host:path`,
+    /// `host:path`, or `host/path`): everything up to the first `:` or `/`, with `user[:pass]@`
+    /// userinfo dropped *within that authority*. Slicing the authority off **before** dropping
+    /// userinfo is what keeps an `@` in the path — after the first `:`/`/` — from moving the
+    /// host boundary: dropping userinfo across the whole URL first (by the LAST `@`, as
+    /// `dropUserinfo` does) would let a crafted `evil.example:x@trusted.example` masquerade as
+    /// `trusted.example`. The port strip and any scp-host policy (dottedness, IPv6) stay with
+    /// each consumer, exactly as `authority` leaves them for the scheme-URL case.
+    let scpAuthority (url: string) : string =
+        url.Split([| ':'; '/' |]).[0] |> dropUserinfo
+
     /// Strip an optional trailing `:port` from a (non-bracketed) `host[:port]`, returning
     /// the first colon-delimited field. A leading-colon or empty input yields `""`, left for
     /// the caller to reject.
