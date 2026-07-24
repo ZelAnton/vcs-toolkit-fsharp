@@ -921,6 +921,23 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.ConfigSetRoundTripsOnJjSandbox() : Task =
+        task {
+            requireJj ()
+            use repo = JjSandbox.Init "config-set-roundtrip"
+            let jj = Jj.Create()
+
+            match! jj.ConfigSet(repo.Path, "test.config-set", "configured") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"config_set failed: {e}"
+
+            match! jj.ConfigGet(repo.Path, "test.config-set") with
+            | Ok(Some value) -> Assert.That(value, Is.EqualTo "configured")
+            | Ok None -> Assert.Fail "config_set did not persist the value"
+            | Error e -> Assert.Fail $"config_get after config_set failed: {e}"
+        }
+
+    [<Test>]
     member _.NewChildStartsUndescribedChildOfParent() : Task =
         task {
             // Unlike `NewMerge`/`NewChange`, `NewChild` carries no `-m`: the resulting
@@ -1267,12 +1284,20 @@ type ClientTests() =
             | Error _ -> ()
             | Ok result -> Assert.Fail $"config_get with non-zero exit code should fail, got: {result}"
 
-            let set =
-                scripted [ "config"; "set"; "--repo"; "--"; "user.name"; "-1" ] (Reply.Ok "")
+            let calls, runner = recording (Reply.Ok "")
+            let set = Jj.WithRunner runner
 
             match! set.ConfigSet(".", "user.name", "-1") with
             | Ok() -> ()
             | Error e -> Assert.Fail $"config_set failed: {e}"
+
+            Assert.That(calls.Count, Is.EqualTo 1, "config_set must invoke jj exactly once")
+
+            Assert.That(
+                (argsOf calls.[0]) = [ "--color"; "never"; "config"; "set"; "--repo"; "--"; "user.name"; "-1" ],
+                Is.True,
+                "global flags must precede config and its end-of-options separator"
+            )
 
             let forget = scripted [ "bookmark"; "forget"; "exact:gone" ] (Reply.Ok "")
 

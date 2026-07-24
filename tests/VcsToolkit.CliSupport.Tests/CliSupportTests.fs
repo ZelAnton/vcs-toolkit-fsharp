@@ -863,3 +863,22 @@ type CloneDestCleanableTests() =
             fun (_: string) -> raise (DirectoryNotFoundException "gone"): string seq
 
         Assert.That(cloneDestCleanableCore throwing "irrelevant")
+
+[<TestFixture>]
+type RemoteUrlTests() =
+
+    [<Test>]
+    member _.ScpAuthorityTakesHostBeforeFirstDelimiterThenDropsUserinfo() =
+        // Honest scp forms: the host is the authority before the first `:`/`/`, with any
+        // `user@` userinfo dropped within it.
+        Assert.That(RemoteUrl.scpAuthority "git@github.com:owner/repo", Is.EqualTo "github.com")
+        Assert.That(RemoteUrl.scpAuthority "github.com:owner/repo", Is.EqualTo "github.com")
+        Assert.That(RemoteUrl.scpAuthority "github.com/owner/repo", Is.EqualTo "github.com")
+
+        // Security: an `@` in the PATH (after the first `:`/`/`) must NOT move the host boundary.
+        // The authority is sliced off first, so the path's `@trusted` suffix can never
+        // masquerade as the host — unlike dropping userinfo across the whole URL by the last `@`,
+        // which is exactly the scp spoof this primitive exists to prevent.
+        Assert.That(RemoteUrl.scpAuthority "evil.com:x@gitlab.com", Is.EqualTo "evil.com")
+        Assert.That(RemoteUrl.scpAuthority "evil.com/x@github.com", Is.EqualTo "evil.com")
+        Assert.That(RemoteUrl.scpAuthority "git@evil.com:x@gitlab.com", Is.EqualTo "evil.com")
