@@ -224,6 +224,7 @@ namespace VcsToolkit.CliSupport
         public static Microsoft.FSharp.Core.FSharpOption<string>? afterScheme(string url) { }
         public static string authority(string afterSchemeText) { }
         public static string dropUserinfo(string s) { }
+        public static string scpAuthority(string url) { }
         public static string stripPort(string hostPort) { }
     }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Module)]

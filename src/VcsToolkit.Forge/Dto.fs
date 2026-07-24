@@ -62,10 +62,13 @@ module private HostClassify =
                 | h when h.Length = 0 -> None
                 | h -> Some h
         | None ->
-            // No scheme: scp-like `user@host:path` or bare `host:path` / `host/path`.
-            let afterUser = RemoteUrl.dropUserinfo url
-
-            match afterUser.Split([| ':'; '/' |]).[0] with
+            // No scheme: scp-like `user@host:path` or bare `host:path` / `host/path`. Take the
+            // authority up to the first `:`/`/` FIRST, then drop userinfo *within it* (the shared
+            // `RemoteUrl.scpAuthority` mechanic, the scheme-less counterpart of `authority`).
+            // Dropping userinfo across the whole URL first would let an `@` in the path after the
+            // `:` (`evil.example:x@gitlab.com`) shift the host boundary onto a trusted-looking
+            // suffix — the same slice-before-drop order `hostFromRemoteUrl` uses in GitHub.
+            match RemoteUrl.scpAuthority url with
             | h when h.Length = 0 -> None
             | h -> Some h
 
