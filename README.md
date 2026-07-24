@@ -165,33 +165,26 @@ the facades declare their backends (`Core` → `Git`/`Jj` (+ `CliSupport`/`Diff`
 → `GitHub`/`GitLab`/`Gitea`, `Watch` → `Core`, `Mcp` → `Core`/`Forge`).
 `VcsToolkit.TestKit` is self-contained (no sibling references).
 
-**ProcessKit and `ProcessKit.Testing` are both on nuget.org** (pinned at 2.6.0), so a consumer of
-any `VcsToolkit.*` package restores its `ProcessKit (>= 2.6.0)` runtime dependency cleanly — the
+**ProcessKit and `ProcessKit.Testing` are both on nuget.org** (pinned at 2.7.0), so a consumer of
+any `VcsToolkit.*` package restores its `ProcessKit (>= 2.7.0)` runtime dependency cleanly — the
 packages are ready to publish. The split-out `ScriptedRunner` / `Reply` test doubles now restore
 from the published **`ProcessKit.Testing`** package too — a **test-only** dependency that never
 reaches the published `VcsToolkit.*` packages, so it does not affect consumers. Nothing is
 vendored and there is no local NuGet feed.
 
-### ProcessKit 2.6.0 compatibility
+### ProcessKit 2.7.0 compatibility
 
-The [upstream 2.6.0 changelog](https://github.com/ZelAnton/ProcessKit-fSharp/blob/v2.6.0/CHANGELOG.md)
-was reviewed. `ManagedClient` only constructs `Command` values and invokes the `JobRunner` through
-the `IProcessRunner` capture/parse verbs; it does not use `RunningProcess`, `ProcessGroup`, hosted
-processes, supplementary groups, inherited stdin, profiling, or readiness probes, and none of the
-new 2.6.0 surface (`ProcessGroup.Adopt`, `Command.KillOnParentDeath`/`KillOnParentDeathScope`,
-`ProcessGroup.MembersInfo`, `Command.ResolveProgram`/`CliClient.ResolveProgram`,
-`Command.PreferLocal`) is used anywhere in the toolkit. As distributed today, every bundled CLI
-client (`git`, `jj`, `gh`, `glab`, `tea`) is a native binary — never a `.cmd`/`.bat` shim — a fact
-about those external tools' current distribution formats, not an invariant `VcsToolkit` enforces
-in code or re-verifies at runtime (the wrappers pass the bare program name to
-`ManagedClient.Create` without programmatic validation of the resolved executable's type), so the
-Windows fix that routes a bare-name program whose only `PATH` match is a `.cmd`/`.bat` shim
-through `cmd.exe /d /c` does not change any bundled client's observed behaviour today; see the
-CHANGELOG entry below for what it does mean for a consumer who builds their own
-`ManagedClient.Create(program)` around such a shim. Its only stdin sources (`Stdin.Empty` and `Stdin.FromBytes`) are repeatable, so the
-retry/supervision guard is also inapplicable. Tests use `ScriptedRunner`/`Reply` only: there are
-no record/replay cassettes or cwd-sensitive matches, and no `WaitForAsync`/`WaitForPortAsync`
-calls. Thus the 2.6.0 additions do not require source or test changes here.
+The [upstream 2.7.0 changelog](https://github.com/ZelAnton/ProcessKit-fSharp/blob/v2.7.0/CHANGELOG.md)
+was reviewed. `ManagedClient` constructs `Command` values and invokes the `JobRunner` through the
+`IProcessRunner` capture/parse verbs; it does not use `CliClient.WithDefaults`, `RunningProcess`,
+`Pipeline`, `ProcessGroup`, hosted processes, PTYs, or readiness probes. Its only stdin sources
+(`Stdin.Empty` and `Stdin.FromBytes`) are repeatable, and its own retry loop already observes
+cancellation during backoff, so 2.7.0's rejection of one-shot default stdin and retry-cancellation
+changes require no source changes here. Tests pass valid values to `ScriptedRunner`/`Reply` and do
+not use `FakeProcess`, `RecordReplayRunner`, `KeepStdinOpen`, or `MergeStderr`; the stricter testing
+guards and new cassette formats therefore require no test changes. Consumers still receive the
+2.7.0 process-lifecycle, capture, cancellation, POSIX identity, and Windows spawn-safety fixes
+transitively.
 
 ## Changelog
 
