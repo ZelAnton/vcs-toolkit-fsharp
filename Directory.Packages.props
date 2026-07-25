@@ -39,7 +39,7 @@
 		     assemblies from each src project's restore graph. Built against
 		     FSharp.Analyzers.SDK 0.36.0, compatible with the 0.37.2 tool. -->
 		<PackageVersion Include="Ionide.Analyzers" Version="0.15.0" />
-		<PackageVersion Include="BenchmarkDotNet" Version="0.15.0" />
+		<PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
 	</ItemGroup>
 
 	<!-- Production dependency: the process-execution layer every CLI wrapper drives
@@ -47,8 +47,8 @@
 	     (ScriptedRunner/Reply) — a TEST-only dependency, now also published on nuget.org
 	     (no local feed / vendoring). -->
 	<ItemGroup>
-		<PackageVersion Include="ProcessKit" Version="2.7.0" />
-		<PackageVersion Include="ProcessKit.Testing" Version="2.7.0" />
+		<PackageVersion Include="ProcessKit" Version="2.8.0" />
+		<PackageVersion Include="ProcessKit.Testing" Version="2.8.0" />
 	</ItemGroup>
 
 	<!-- VcsToolkit.Mcp dependencies: clean F#→JSON for tool results, and the Model Context
