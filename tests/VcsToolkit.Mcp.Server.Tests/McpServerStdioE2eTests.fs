@@ -130,6 +130,28 @@ let private gitAvailable () : bool =
 let private isError (result: CallToolResult) : bool =
     result.IsError.HasValue && result.IsError.Value
 
+/// Transport disposal closes stdin and starts child shutdown, but on Windows the child can need
+/// a short tail to unwind the host and dispose its command-log writer. Wait for that ownership to
+/// end before using File.ReadAllText, whose default sharing mode deliberately refuses an active
+/// writer. The final unguarded read preserves the useful IOException if the child never releases it.
+let private readAllTextAfterWriterExit (path: string) : Task<string> =
+    task {
+        let deadline = Stopwatch.StartNew()
+        let mutable text = None
+
+        while text.IsNone && deadline.Elapsed < TimeSpan.FromSeconds 5.0 do
+            try
+                text <- Some(File.ReadAllText path)
+            with :? IOException ->
+                // The MCP transport has been disposed, so the server is already shutting down;
+                // allow its async host teardown to reach Program.main's log-sink finally block.
+                do! Task.Delay 50
+
+        match text with
+        | Some value -> return value
+        | None -> return File.ReadAllText path
+    }
+
 /// The single text content block the server returns (its JSON body).
 let private textOf (result: CallToolResult) : string =
     let block =
@@ -367,7 +389,7 @@ type McpServerStdioE2eTests() =
                         Assert.That(isError result, Is.False, "repo_snapshot must succeed against a real sandbox")
                     })
 
-            let logText = File.ReadAllText logPath
+            let! logText = readAllTextAfterWriterExit logPath
             Assert.That(logText, Does.Contain "vcs-mcp: start program=git", "a start line for the git client")
             Assert.That(logText, Does.Contain "vcs-mcp: done  program=git", "a finish line for the git client")
             Assert.That(logText, Does.Contain "outcome=ok(", "the observed command succeeded")
