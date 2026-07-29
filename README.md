@@ -165,26 +165,26 @@ the facades declare their backends (`Core` → `Git`/`Jj` (+ `CliSupport`/`Diff`
 → `GitHub`/`GitLab`/`Gitea`, `Watch` → `Core`, `Mcp` → `Core`/`Forge`).
 `VcsToolkit.TestKit` is self-contained (no sibling references).
 
-**ProcessKit and `ProcessKit.Testing` are both on nuget.org** (pinned at 2.9.1), so a consumer of
-any `VcsToolkit.*` package restores its `ProcessKit (>= 2.9.1)` runtime dependency cleanly — the
+**ProcessKit and `ProcessKit.Testing` are both on nuget.org** (pinned at 2.10.0), so a consumer of
+any `VcsToolkit.*` package restores its `ProcessKit (>= 2.10.0)` runtime dependency cleanly — the
 packages are ready to publish. The split-out `ScriptedRunner` / `Reply` test doubles now restore
 from the published **`ProcessKit.Testing`** package too — a **test-only** dependency that never
 reaches the published `VcsToolkit.*` packages, so it does not affect consumers. Nothing is
 vendored and there is no local NuGet feed.
 
-### ProcessKit 2.9.1 compatibility
+### ProcessKit 2.10.0 compatibility
 
-The upstream [2.9.0](https://github.com/ZelAnton/ProcessKit-fSharp/blob/v2.9.0/CHANGELOG.md)
-and [2.9.1](https://github.com/ZelAnton/ProcessKit-fSharp/blob/v2.9.1/CHANGELOG.md) changelogs
-were reviewed. The new stdin-encoding, `TimeProvider`, streamed-line metadata, PTY-filtering, and
-process-group statistics APIs are additive and are not used by VcsToolkit. `ManagedClient` still
-constructs ordinary `Command` values and invokes the `JobRunner` through `IProcessRunner`'s
-capture verbs; its explicit stdin payloads remain byte-based, and it does not use idle timeouts,
-PTY sessions, readiness probes, streamed output, supervisors, or process-group profiles.
+The upstream [2.10.0](https://github.com/ZelAnton/ProcessKit-fSharp/blob/v2.10.0/CHANGELOG.md)
+changelog was reviewed. Its retry-backoff, extra-file-descriptor, per-run signal, configurable
+soft-stop signal, CPU-time limit, and HTTP-client readiness APIs are additive and are not used by
+VcsToolkit. `ManagedClient` still constructs ordinary `Command` values and invokes the `JobRunner`
+through `IProcessRunner`'s capture verbs; its explicit stdin payloads remain byte-based, and it
+does not use idle timeouts, PTY sessions, readiness probes, streamed output, supervisors, or
+process-group profiles.
 
-The 2.9.1 fixes therefore require no source changes here. Consumers still receive the corrected
-idle-timeout validation, deterministic PTY expectation deadlines, and stricter supervisor fallback
-transitively, while VcsToolkit's UTF-8 output and byte-exact stdin contracts remain unchanged.
+The 2.10.0 fixes therefore require no source changes here. Consumers receive the corrected retry
+and readiness validation plus ProcessKit's platform runtime improvements transitively, while
+VcsToolkit's UTF-8 output and byte-exact stdin contracts remain unchanged.
 
 ## Changelog
 
