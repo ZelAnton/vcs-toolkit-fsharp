@@ -339,8 +339,14 @@ type Forge private (cwd: string, backend: Backend) =
     member this.PrList() = this.PrList(PrListOptions.Default)
 
     /// Pull/merge requests for the bound directory, filtered and capped by `options`.
-    /// **`Unsupported` on Gitea for every state** (`tea pr list --output json` does not work
-    /// against the real CLI at all — K-049; see `PrListState`).
+    /// - **GitHub/GitLab** — every state maps onto the CLI's own state flag(s) directly
+    ///   (`gh pr list --state` / `glab mr list [--closed|--merged|--all]`).
+    /// - **Gitea** — `tea`'s `--state` has only `open`/`closed`/`all` (Gitea has no merged
+    ///   state: a merged PR is a *closed* one carrying a merged flag), so the adapter fetches
+    ///   the narrowest `--state` bucket that is a superset of the requested state and narrows
+    ///   the rows itself. `Closed` ("closed without merging") and `Merged` are therefore
+    ///   filtered over the fetched window, and can report fewer than `Limit` matches while
+    ///   older ones exist beyond it — see `PrListState`.
     member _.PrList(options: PrListOptions) =
         match backend with
         | Backend.GitHub(c, _) -> GitHubForge.prList c cwd options
@@ -357,8 +363,10 @@ type Forge private (cwd: string, backend: Backend) =
     /// - **GitHub** — `gh pr list --head <sourceBranch> --state all` (any base branch;
     ///   the caller does not supply a target here).
     /// - **GitLab** — `glab mr list --source-branch <sourceBranch> --all`.
-    /// - **`Unsupported` on Gitea** (`tea pr list --output json` does not work against the
-    ///   real CLI for any state — K-049; same root cause as `PrList`).
+    /// - **Gitea** — `tea pr list` has no head-branch filter, so the adapter lists `--state
+    ///   all` (the same csv listing `PrList` uses) and matches the source branch itself, over
+    ///   the fetched window. The name never reaches tea's argv there, so — unlike the two
+    ///   guarded backends — a flag-like name is not refused, it simply matches nothing.
     member _.PrForBranch(sourceBranch: string) =
         match backend with
         | Backend.GitHub(c, _) -> GitHubForge.prForBranch c cwd sourceBranch
@@ -560,9 +568,10 @@ type Forge private (cwd: string, backend: Backend) =
     member this.IssueList() =
         this.IssueList(IssueListOptions.Default)
 
-    /// Issues for the bound directory, filtered and capped by `options`.
-    /// **`Unsupported` on Gitea for every state** (`tea issues list --output json` does not
-    /// work against the real CLI at all — K-049; see `IssueListState`).
+    /// Issues for the bound directory, filtered and capped by `options`. Every state maps onto
+    /// the CLI's own filter directly on all three backends (`tea issues list --state
+    /// open|closed|all` included) — issues have no merged state, so Gitea needs none of the
+    /// bucket-narrowing `PrList` does. See `IssueListState`.
     member _.IssueList(options: IssueListOptions) =
         match backend with
         | Backend.GitHub(c, _) -> GitHubForge.issueList c cwd options

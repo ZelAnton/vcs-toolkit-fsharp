@@ -493,8 +493,8 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
     /// PR/MRs whose source branch is `sourceBranch`, in any state, regardless of target
     /// branch — the "after pushing, find my PR" query. Returns a list, not a single value
     /// (a branch can have more than one PR/MR over its lifetime); an empty list means none
-    /// currently match. Unsupported on Gitea (`tea pr list --output json` does not work
-    /// against the real CLI — K-049).
+    /// currently match. On Gitea `tea pr list` has no head-branch filter, so the facade lists
+    /// all states and matches the source branch itself, over the fetched window.
     member this.ForgePrForBranch(sourceBranch: string) =
         this.ReadForge(fun f -> f.PrForBranch sourceBranch)
 

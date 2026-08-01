@@ -171,10 +171,18 @@ type ForgePrState =
 
 /// Which PR/MR states `prList` returns — the unified filter, mapped to each CLI's own state
 /// flag(s) in the corresponding backend adapter: `gh pr list --state` and `glab mr list
-/// [--closed|--merged|--all]` both support every value directly. **On Gitea every state is
-/// `Unsupported`**: `tea`'s `pr list --output json` does not work against the real CLI at
-/// all (K-049 — the `--output json` flag itself is rejected, regardless of `--state`), so
-/// there is no working listing path to filter in the first place (see `GiteaForge.prList`).
+/// [--closed|--merged|--all]` both support every value directly.
+///
+/// **On Gitea only `Open`/`All` are plain `--state` values.** Gitea has no merged state at
+/// all — merging a PR *closes* it and sets a separate merged flag (which `tea` folds into its
+/// `state` column) — so `tea`'s `open`/`closed`/`all` cannot express unified `Merged`, and its
+/// `closed` bucket carries merged PRs rather than matching unified `Closed` ("closed without
+/// merging"). The Gitea adapter therefore fetches the narrowest bucket that is a superset of
+/// the requested state (`closed` for `Closed`, `all` for `Merged`) and narrows the rows on our
+/// side. That narrowing runs over the *fetched window*, so a `Closed`/`Merged` listing can
+/// report fewer than `Limit` matches while older ones exist further back — raise `Limit` (up
+/// to the Gitea server's ~50-row page cap), or use `PrView`, which pages. See
+/// `GiteaForge.prList`.
 [<RequireQualifiedAccess>]
 type PrListState =
     /// Open / awaiting review (the default).
@@ -305,8 +313,9 @@ type ForgeIssueState =
     | Closed
 
 /// Which issue states `issueList` returns — the unified filter (see `PrListState`, the
-/// PR/MR counterpart). Issues have no "merged" state, so only three values. **On Gitea every
-/// state is `Unsupported`**, for the identical K-049 reason as `PrListState` (see
+/// PR/MR counterpart). Issues have no "merged" state, so only three values — and therefore,
+/// unlike `PrListState`, every value maps one-to-one onto each CLI's own filter on all three
+/// backends, Gitea's `tea issues list --state open|closed|all` included (see
 /// `GiteaForge.issueList`).
 [<RequireQualifiedAccess>]
 type IssueListState =
