@@ -536,8 +536,7 @@ module internal GitParse =
     /// Parse `git remote -v` into one `Remote` per configured remote. git prints two lines per
     /// remote — `<name>\t<url> (fetch)` and `<name>\t<url> (push)` — so this deduplicates to a
     /// single entry per name, keeping the first URL seen (the fetch line, which git emits before
-    /// the push one). The trailing ` (fetch)`/` (push)` marker drops off: a URL never contains
-    /// whitespace, so the URL is the first whitespace-delimited token of the tab-separated value.
+    /// the push one). The known trailing ` (fetch)`/` (push)` marker is removed from the URL.
     let parseRemotes (output: string) : Remote list =
         let seen = System.Collections.Generic.HashSet<string>()
         let remotes = ResizeArray<Remote>()
@@ -549,12 +548,15 @@ module internal GitParse =
                 let name = line.Substring(0, idx)
 
                 if name <> "" && seen.Add name then
+                    let value = line.Substring(idx + 1)
+
                     let url =
-                        match
-                            (line.Substring(idx + 1)).Split([| ' '; tab |], StringSplitOptions.RemoveEmptyEntries)
-                        with
-                        | [||] -> ""
-                        | parts -> parts.[0]
+                        if value.EndsWith(" (fetch)", StringComparison.Ordinal) then
+                            value.Substring(0, value.Length - 8)
+                        elif value.EndsWith(" (push)", StringComparison.Ordinal) then
+                            value.Substring(0, value.Length - 7)
+                        else
+                            value
 
                     remotes.Add { Name = name; Url = url }
 

@@ -225,7 +225,7 @@ module internal Catalog =
                   Required = true } ]
           read
               "repo_annotate"
-              "Per-line authorship of a file at a revision — who last touched each line, and when (git blame --line-porcelain / jj file annotate). `path` is anchored at the repository root on both backends, not relative to the server's working directory. The result is a JSON array of lines, truncated to the server's output budget the same way repo_show_file is (--output-budget; default 200000 bytes, 0 disables), with a trailing '[truncated: showing N of M bytes]' marker when it is. `rev` is passed through as-is to the backend — a git commit-ish or a jj revset; the two syntaxes are NOT cross-backend portable."
+              "Per-line authorship of a file at a revision — who last touched each line, and when (git blame --line-porcelain / jj file annotate). `path` is anchored at the repository root on both backends, not relative to the server's working directory. Normally returns the original JSON array. If the server's output budget truncates it (--output-budget; default 200000 bytes, 0 disables), whole trailing entries are dropped and the result is a valid JSON envelope with `items`, `truncated: true`, `shown`, and `total`. `rev` is passed through as-is to the backend — a git commit-ish or a jj revset; the two syntaxes are NOT cross-backend portable."
               [ { Name = "path"
                   JsonType = "string"
                   Description = "Repo-relative path of the file to annotate."
@@ -389,21 +389,21 @@ module internal Catalog =
           read "forge_info" "The forge's identity and flat capability map." []
           read
               "forge_pr_list"
-              "Pull/merge requests on the configured forge, open by default and capped at 100 by default. Optional state/limit filter and cap the results. Unsupported on Gitea for every state (tea's `pr list --output json` does not work against the real CLI)."
+              "Pull/merge requests on the configured forge, open by default and capped at 100 by default. Optional state/limit filter and cap the results. On Gitea, `merged` and `closed` (closed without merging) are not tea `--state` values — Gitea has no merged state, only a merged flag on a closed PR — so they are filtered out of a wider listing over the fetched window and can report fewer than `limit` matches while older ones exist beyond it."
               [ pPrListState; pListLimit ]
           read "forge_pr_view" "A single pull/merge request by number." [ pNumber ]
           read
               "forge_pr_for_branch"
-              "Pull/merge requests whose source branch is source_branch, in any state, regardless of target branch — the 'after pushing, find my PR' query. Returns a list (a branch can have more than one PR/MR over its lifetime); an empty list means none currently match. Unsupported on Gitea (tea's `pr list --output json` does not work against the real CLI)."
+              "Pull/merge requests whose source branch is source_branch, in any state, regardless of target branch — the 'after pushing, find my PR' query. Returns a list (a branch can have more than one PR/MR over its lifetime); an empty list means none currently match. On Gitea, tea has no head-branch filter, so the match is made against a listing of all states over the fetched window."
               [ pSourceBranch ]
           read "forge_pr_checks" "The PR/MR's coarse CI status (Unsupported on Gitea)." [ pNumber ]
           read
               "forge_pr_diff"
-              "The PR/MR's unified diff, per file, serialized as JSON and truncated to the server's output budget the same way repo_show_file/repo_annotate are (--output-budget; default 200000 bytes, 0 disables), with a trailing '[truncated: showing N of M bytes]' marker when it is. Unsupported on Gitea (tea has no diff command)."
+              "The PR/MR's unified diff, per file. Normally returns the original JSON array. If the server's output budget truncates it (--output-budget; default 200000 bytes, 0 disables), whole trailing entries are dropped and the result is a valid JSON envelope with `items`, `truncated: true`, `shown`, and `total`. Unsupported on Gitea (tea has no diff command)."
               [ pNumber ]
           read
               "forge_issue_list"
-              "Issues on the configured forge, open by default and capped at 100 by default. Optional state/limit filter and cap the results. Unsupported on Gitea for every state (tea's `issues list --output json` does not work against the real CLI)."
+              "Issues on the configured forge, open by default and capped at 100 by default. Optional state/limit filter and cap the results. Every state maps onto the CLI's own filter on all three forges (issues have no merged state, so Gitea needs none of forge_pr_list's filtering)."
               [ pIssueListState; pListLimit ]
           read "forge_issue_view" "A single issue by number, with body and URL filled." [ pIssueNumber ]
           read "forge_release_list" "Releases on the configured forge, newest first (up to 100)." []

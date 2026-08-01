@@ -15,6 +15,7 @@
 		<Compile Include="PathTransportIntegrationTests.fs" />
 		<Compile Include="StashIntegrationTests.fs" />
 		<Compile Include="CleanIntegrationTests.fs" />
+		<Compile Include="DiffRelativeIntegrationTests.fs" />
 	</ItemGroup>
 
 	<ItemGroup>

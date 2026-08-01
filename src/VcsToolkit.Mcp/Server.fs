@@ -104,6 +104,46 @@ module internal ServerHelpers =
                 let keptBytes = Encoding.UTF8.GetByteCount kept
                 kept + sprintf "\n[truncated: showing %d of %d bytes]" keptBytes totalBytes
 
+    /// Serialize a list unchanged when it fits the output budget. When it does not, keep the
+    /// largest prefix of whole items whose structured truncation envelope fits. The minimum
+    /// empty envelope is returned intact even when the budget is too small to contain it, since
+    /// valid JSON and explicit truncation metadata take precedence over an impossible byte cap.
+    let applyJsonArrayOutputBudget (budgetBytes: int option) (items: 'T list) : string =
+        let full = Json.ok items
+
+        match budgetBytes with
+        | None -> full
+        | Some b when b <= 0 -> full
+        | Some b when Encoding.UTF8.GetByteCount full <= b -> full
+        | Some b ->
+            let total = List.length items
+
+            let envelope shown =
+                Json.ok
+                    {| Items = List.truncate shown items
+                       Truncated = true
+                       Shown = shown
+                       Total = total |}
+
+            let rec largestFitting low high best =
+                if low > high then
+                    best
+                else
+                    let middle = low + (high - low) / 2
+                    let candidate = envelope middle
+
+                    if Encoding.UTF8.GetByteCount candidate <= b then
+                        largestFitting (middle + 1) high candidate
+                    else
+                        largestFitting low (middle - 1) best
+
+            let minimum = envelope 0
+
+            if Encoding.UTF8.GetByteCount minimum > b then
+                minimum
+            else
+                largestFitting 1 (total - 1) minimum
+
 /// An MCP server over a single repository (and, optionally, its forge). Call its tool
 /// methods — each returns the tool's JSON result string, or an `McpError`. Read tools are
 /// always available; mutating tools are gated by the `writes` policy (and repo mutations
@@ -297,17 +337,16 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
         this.ReadRepo(fun () -> repo.Log(revspecOrRevset, capped))
 
     /// Per-line authorship of `path` at `rev` (git `blame --line-porcelain` / jj `file
-    /// annotate`) — "who last touched this line, and when". Serialized as a JSON array and
-    /// truncated to the server's output budget the same way `repo_show_file` truncates file
-    /// content (a trailing `[truncated: showing N of M bytes]` marker when it is) — an
-    /// annotated file's rendered text easily blows past a reasonable context budget. `rev` is
-    /// passed through as-is (git commit-ish / jj revset, not cross-backend-portable); `None`
-    /// annotates the working copy / `@`.
+    /// annotate`) — "who last touched this line, and when". Normally serialized as the original
+    /// JSON array. When the server's output budget truncates it, whole trailing entries are
+    /// dropped and a valid JSON envelope reports `items`, `truncated`, `shown`, and `total`.
+    /// `rev` is passed through as-is (git commit-ish / jj revset, not cross-backend-portable);
+    /// `None` annotates the working copy / `@`.
     member this.RepoAnnotate(path: string, rev: string option) : Task<Result<string, McpError>> =
         task {
             match! repo.Annotate(path, rev) with
             | Error e -> return Error(coreErr e)
-            | Ok lines -> return Ok(applyOutputBudget outputBudget (Json.ok lines))
+            | Ok lines -> return Ok(applyJsonArrayOutputBudget outputBudget lines)
         }
 
     // --- repo: mutations (gated) -------------------------------------------
@@ -493,8 +532,8 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
     /// PR/MRs whose source branch is `sourceBranch`, in any state, regardless of target
     /// branch — the "after pushing, find my PR" query. Returns a list, not a single value
     /// (a branch can have more than one PR/MR over its lifetime); an empty list means none
-    /// currently match. Unsupported on Gitea (`tea pr list --output json` does not work
-    /// against the real CLI — K-049).
+    /// currently match. On Gitea `tea pr list` has no head-branch filter, so the facade lists
+    /// all states and matches the source branch itself, over the fetched window.
     member this.ForgePrForBranch(sourceBranch: string) =
         this.ReadForge(fun f -> f.PrForBranch sourceBranch)
 
@@ -502,10 +541,10 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
     member this.ForgePrChecks(number: uint64) =
         this.ReadForge(fun f -> f.PrChecks number)
 
-    /// The PR/MR's unified diff, per-file, serialized as JSON and truncated to the server's
-    /// output budget the same way `repo_show_file`/`repo_annotate` truncate their content (a
-    /// trailing `[truncated: showing N of M bytes]` marker when it is) — a PR diff easily blows
-    /// past a reasonable context budget. Unsupported on Gitea (`tea` has no diff command).
+    /// The PR/MR's unified diff, per file. Normally serialized as the original JSON array. When
+    /// the server's output budget truncates it, whole trailing entries are dropped and a valid
+    /// JSON envelope reports `items`, `truncated`, `shown`, and `total`. Unsupported on Gitea
+    /// (`tea` has no diff command).
     member this.ForgePrDiff(number: uint64) : Task<Result<string, McpError>> =
         task {
             match this.Forge() with
@@ -513,7 +552,7 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
             | Ok f ->
                 match! f.PrDiff number with
                 | Error e -> return Error(forgeErr e)
-                | Ok files -> return Ok(applyOutputBudget outputBudget (Json.ok files))
+                | Ok files -> return Ok(applyJsonArrayOutputBudget outputBudget files)
         }
 
     /// Open issues on the configured forge — the previous, options-less behaviour (open, up
