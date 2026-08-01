@@ -69,9 +69,13 @@ type FileDiff =
     {
         /// How the file changed.
         Change: ChangeKind
-        /// The file's path — the *new* path for a rename — forward-slash normalised.
+        /// The file's path — the *new* path for a rename — exactly as provided by the
+        /// git-format diff. Git uses `/` separators; the parser performs no normalisation
+        /// or rewriting, so a literal backslash in a Unix filename is preserved.
         Path: string
-        /// For a rename, the original path (forward-slash normalised); `None` otherwise.
+        /// For a rename, the original path exactly as provided by the git-format diff;
+        /// `None` otherwise. Git uses `/` separators, while the parser preserves literal
+        /// backslashes in Unix filenames without normalisation or rewriting.
         OldPath: string option
         /// The `@@` hunks; empty for a binary file or a pure rename with no edits.
         Hunks: Hunk list
