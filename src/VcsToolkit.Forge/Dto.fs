@@ -147,6 +147,10 @@ type ForgeOp =
     /// `releaseDelete` — delete a release by tag. **`Unsupported` on Gitea** (`tea` 0.9.2 has
     /// no release delete command).
     | ReleaseDelete
+    /// `prEdit` — edit a PR/MR's title and/or body. **`Unsupported` on Gitea** (`tea` 0.9.2
+    /// has no `pr edit` command at all — an unrecognised `pr edit` silently falls through to
+    /// `pr list`; K-063).
+    | PrEdit
 
     /// Every capability-varying operation — iterate it to build a full support matrix.
     static member All =
@@ -156,7 +160,8 @@ type ForgeOp =
           ForgeOp.ReleaseView
           ForgeOp.PrDiff
           ForgeOp.IssueReopen
-          ForgeOp.ReleaseDelete ]
+          ForgeOp.ReleaseDelete
+          ForgeOp.PrEdit ]
 
 /// The normalised state of a `ForgePr`, unifying GitHub's `OPEN`/`CLOSED`/`MERGED`,
 /// GitLab's `opened`/`closed`/`locked`/`merged`, and Gitea's `open`/`closed`.
@@ -641,8 +646,9 @@ type ReviewAction private (kind: ReviewKind, body: string option) =
 /// Deliberately not a 1:1 mirror of `ForgeOp`: this map predates `RepoView`/`PrMarkReady`/
 /// `ReleaseView`/`PrDiff` joining `ForgeOp`, and those (all read-only, capability-varying
 /// only on Gitea) are queried through `Forge.Supports` instead — adding a flag here for
-/// each would duplicate that support matrix without a behavioural difference. `PrChecks`
-/// keeps its flag here for backward compatibility with existing consumers.
+/// each would duplicate that support matrix without a behavioural difference. `PrChecks`/
+/// `PrEdit` keep their flags here for backward compatibility with existing consumers, even
+/// though both also have a `ForgeOp` case.
 type ForgeCapabilities =
     {
         /// The CLI can open a PR/MR.

@@ -241,7 +241,7 @@ type Forge private (cwd: string, backend: Backend) =
         match this.Kind, op with
         | ForgeKind.Unknown, _ -> false
         | ForgeKind.Gitea,
-          (ForgeOp.RepoView | ForgeOp.PrMarkReady | ForgeOp.PrChecks | ForgeOp.ReleaseView | ForgeOp.PrDiff | ForgeOp.IssueReopen | ForgeOp.ReleaseDelete) ->
+          (ForgeOp.RepoView | ForgeOp.PrMarkReady | ForgeOp.PrChecks | ForgeOp.ReleaseView | ForgeOp.PrDiff | ForgeOp.IssueReopen | ForgeOp.ReleaseDelete | ForgeOp.PrEdit) ->
             false
         | _ -> true
 
