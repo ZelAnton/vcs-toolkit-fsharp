@@ -175,10 +175,11 @@ type ForgePrState =
 ///
 /// **On Gitea only `Open`/`All` are plain `--state` values.** Gitea has no merged state at
 /// all — merging a PR *closes* it and sets a separate merged flag (which `tea` folds into its
-/// `state` column) — so `tea`'s `open`/`closed`/`all` cannot express unified `Merged`, and its
-/// `closed` bucket carries merged PRs rather than matching unified `Closed` ("closed without
-/// merging"). The Gitea adapter therefore fetches the narrowest bucket that is a superset of
-/// the requested state (`closed` for `Closed`, `all` for `Merged`) and narrows the rows on our
+/// `state` column) — so `tea`'s `open`/`closed`/`all` cannot express unified `Merged`; nor can
+/// its `closed` bucket be taken to mean unified `Closed` ("closed without merging"), since
+/// whether that bucket carries the merged PRs too is unconfirmed against the real CLI. The
+/// Gitea adapter therefore fetches the narrowest bucket that is a *confirmed* superset of the
+/// requested state (`closed` for `Closed`, `all` for `Merged`) and narrows the rows on our
 /// side. That narrowing runs over the *fetched window*, so a `Closed`/`Merged` listing can
 /// report fewer than `Limit` matches while older ones exist further back — raise `Limit` (up
 /// to the Gitea server's ~50-row page cap), or use `PrView`, which pages. See

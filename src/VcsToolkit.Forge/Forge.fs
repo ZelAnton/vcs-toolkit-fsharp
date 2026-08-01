@@ -415,7 +415,7 @@ type Forge private (cwd: string, backend: Backend) =
     /// **`Unsupported` on Gitea** (`tea` 0.9.2 has no `pr edit` command — an unrecognised
     /// `pr edit` silently falls through to `pr list`; K-063): refused structurally before any
     /// spawn — including the version probe and the both-`None` input check, neither of which is
-    /// meaningful when the command can never run — like `PrChecks`/`PrDiff`/`PrList` on Gitea.
+    /// meaningful when the command can never run — like `PrChecks`/`PrDiff` on Gitea.
     member _.PrEdit(number: uint64, edit: PrEdit) =
         task {
             match backend with

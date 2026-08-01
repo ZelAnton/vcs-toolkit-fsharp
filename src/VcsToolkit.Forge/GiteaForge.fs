@@ -128,19 +128,22 @@ module internal GiteaForge =
     /// all: merging a PR *closes* it and sets a separate merged flag, which `tea` folds into
     /// its `state` column (a merged PR's cell reads `"merged"` — the flag `mapPr` keys off).
     /// So neither unified `Merged` nor unified `Closed` ("closed **without** merging") is a
-    /// `--state` value: Gitea's closed bucket carries the merged PRs too.
+    /// `--state` value we can trust: there is no merged bucket at all, and whether Gitea's
+    /// closed bucket carries the merged PRs too is unconfirmed against the real CLI (the wrapper
+    /// says the same — see `VcsToolkit.Gitea.PrListState` — and its `PrView` walks `--state all`
+    /// rather than rely on it).
     ///
     /// Each case therefore fetches the narrowest bucket that is a *confirmed superset* of the
     /// requested state, and the rows are narrowed on our side afterwards (`prMatchesState`) —
     /// rather than trusting `--state` to mean what the unified filter means:
     /// - `Open` → `--state open`; a closed or merged PR is never in it, so the local pass is
     ///   a no-op kept only for uniformity.
-    /// - `Closed` → `--state closed`, minus the merged rows.
+    /// - `Closed` → `--state closed`, minus any merged rows — which costs nothing if that bucket
+    ///   turns out not to carry them.
     /// - `Merged` → `--state all`, keeping only the merged rows. Deliberately **not**
-    ///   `--state closed`: that Gitea's closed bucket really carries merged PRs is unconfirmed
-    ///   against the real CLI (see `VcsToolkit.Gitea.PrListState`, and `PrView`, which walks
-    ///   `--state all` for the same reason), and betting on it would turn a wrong guess into a
-    ///   silent, permanent "no merged PRs" — while `--state all` is a superset by construction.
+    ///   `--state closed`: betting on the unconfirmed assumption above would turn a wrong guess
+    ///   into a silent, permanent "no merged PRs" — while `--state all` is a superset by
+    ///   construction.
     /// - `All` → `--state all`, with nothing to narrow.
     let private teaPrState (state: PrListState) : VcsToolkit.Gitea.PrListState =
         match state with
@@ -235,8 +238,10 @@ module internal GiteaForge =
     /// `tea` 0.9.2 has no `pr edit` command at all — an unrecognised `pr edit` silently falls
     /// through to a plain `pr list` instead of editing (K-063; confirmed against the real tea
     /// 0.9.2 binary and its Go source). There is no working edit path to reach, so refuse
-    /// structurally, before any spawn, exactly like `prList`/`prForBranch` — turning what would
-    /// otherwise be a silent no-op into an honest `Unsupported` signal.
+    /// structurally, before any spawn — the same shape of refusal the facade gives the other
+    /// verbs `tea` lacks (`prChecks`/`prDiff`/`repoView`, which have no function here at all and
+    /// are refused in `Forge.fs` dispatch) — turning what would otherwise be a silent no-op into
+    /// an honest `Unsupported` signal.
     let prEdit (_tea: VcsToolkit.Gitea.Gitea) (_dir: string) (number: uint64) (_edit: PrEdit) =
         task {
             return

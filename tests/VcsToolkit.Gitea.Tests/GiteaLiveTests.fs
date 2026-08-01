@@ -745,8 +745,8 @@ type GiteaLiveTests() =
             // The unified `Merged`/`Closed` filters against the real CLI — the part `tea`'s own
             // `--state` cannot express (Gitea has no merged state; merging closes the PR and
             // sets a flag). `Merged` walks `--state all` and keeps the merged rows; `Closed`
-            // means "closed WITHOUT merging", so this merged PR must not appear there even
-            // though Gitea's closed bucket is where it lives.
+            // means "closed WITHOUT merging", so this merged PR must not appear there even if
+            // Gitea's closed bucket is where it lives.
             let! mergedList = forge.PrList PrListOptions.Merged
             let mergedPrs = expectOk "PrList Merged (forge)" mergedList
 
