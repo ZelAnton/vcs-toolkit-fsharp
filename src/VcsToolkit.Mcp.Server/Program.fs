@@ -271,13 +271,17 @@ let private runServer (server: VcsMcpServer) : Task =
 /// it is a no-op, since the console owns that stream. The file writer is opened in append mode
 /// and auto-flushing (matched by `CommandLog.Writer`'s own explicit `Flush()` per line, so the
 /// log survives an abrupt process exit rather than losing a buffered tail).
-let private openLogSink (sink: LogSink) : TextWriter * (unit -> unit) =
+let private openLogSink (sink: LogSink) : Result<TextWriter * (unit -> unit), string> =
     match sink with
-    | LogSink.Stderr -> Console.Error, ignore
+    | LogSink.Stderr -> Ok(Console.Error, ignore)
     | LogSink.File path ->
-        let stream = new StreamWriter(path, append = true)
-        stream.AutoFlush <- true
-        stream :> TextWriter, (fun () -> stream.Dispose())
+        try
+            let stream = new StreamWriter(path, append = true)
+            stream.AutoFlush <- true
+            Ok(stream :> TextWriter, (fun () -> stream.Dispose()))
+        with
+        | :? UnauthorizedAccessException as ex -> Error $"could not open command log '{path}': {ex.Message}"
+        | :? IOException as ex -> Error $"could not open command log '{path}': {ex.Message}"
 
 [<EntryPoint>]
 let main argv =
@@ -289,24 +293,29 @@ let main argv =
         printfn "%s" Args.usage
         0
     | Ok(Some args) ->
-        let observer, cleanupLog =
+        let observerAndCleanup =
             match args.LogCommands with
-            | Option.None -> Option.None, ignore
+            | Option.None -> Ok(Option.None, ignore)
             | Some sink ->
-                let writer, cleanup = openLogSink sink
-                Some(CommandLog.Writer(writer) :> ICommandObserver), cleanup
+                openLogSink sink
+                |> Result.map (fun (writer, cleanup) -> Some(CommandLog.Writer(writer) :> ICommandObserver), cleanup)
 
-        try
-            match openRepo args.Repo args.Timeout observer with
-            | Error msg ->
-                eprintfn "vcs-mcp: %s" msg
-                1
-            | Ok repo ->
-                let forge =
-                    (resolveForge repo args.Forge args.Timeout observer).GetAwaiter().GetResult()
+        match observerAndCleanup with
+        | Error msg ->
+            eprintfn "vcs-mcp: %s" msg
+            1
+        | Ok(observer, cleanupLog) ->
+            try
+                match openRepo args.Repo args.Timeout observer with
+                | Error msg ->
+                    eprintfn "vcs-mcp: %s" msg
+                    1
+                | Ok repo ->
+                    let forge =
+                        (resolveForge repo args.Forge args.Timeout observer).GetAwaiter().GetResult()
 
-                use server = new VcsMcpServer(repo, forge, args.Writes, args.OutputBudget)
-                (runServer server).GetAwaiter().GetResult()
-                0
-        finally
-            cleanupLog ()
+                    use server = new VcsMcpServer(repo, forge, args.Writes, args.OutputBudget)
+                    (runServer server).GetAwaiter().GetResult()
+                    0
+            finally
+                cleanupLog ()

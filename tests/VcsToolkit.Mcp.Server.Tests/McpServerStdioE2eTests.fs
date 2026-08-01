@@ -394,3 +394,50 @@ type McpServerStdioE2eTests() =
             Assert.That(logText, Does.Contain "vcs-mcp: done  program=git", "a finish line for the git client")
             Assert.That(logText, Does.Contain "outcome=ok(", "the observed command succeeded")
         }
+
+    /// A file sink whose parent directory does not exist is a normal startup failure: the
+    /// executable reports it on stderr and exits without exposing an exception stack trace.
+    [<Test>]
+    member _.UnavailableLogCommandsPathReportsStartupError() =
+        match resolveBinary () with
+        | None -> Assert.Ignore "vcs-mcp build output not found next to the test assembly (server project not built)"
+        | Some launch ->
+            use workingDir = new TempDir("mcp-log-open-failure")
+
+            let logPath = Path.Combine(workingDir.Path, "missing-parent", "commands.log")
+
+            let startInfo = ProcessStartInfo()
+            startInfo.FileName <- launch.Command
+            startInfo.WorkingDirectory <- workingDir.Path
+            startInfo.UseShellExecute <- false
+            startInfo.RedirectStandardInput <- true
+            startInfo.RedirectStandardOutput <- true
+            startInfo.RedirectStandardError <- true
+
+            for arg in launch.PrefixArgs @ [ "--repo"; workingDir.Path; "--log-commands"; logPath ] do
+                startInfo.ArgumentList.Add arg
+
+            use proc = new Process()
+            proc.StartInfo <- startInfo
+            Assert.That(proc.Start(), Is.True, "vcs-mcp process must start")
+            proc.StandardInput.Close()
+
+            let stdoutTask = proc.StandardOutput.ReadToEndAsync()
+            let stderrTask = proc.StandardError.ReadToEndAsync()
+
+            if not (proc.WaitForExit(10_000)) then
+                proc.Kill(entireProcessTree = true)
+                Assert.Fail "vcs-mcp did not exit after the command-log file failed to open"
+
+            let stdout = stdoutTask.GetAwaiter().GetResult()
+            let stderr = stderrTask.GetAwaiter().GetResult()
+
+            let stderrLines =
+                stderr.Split([| '\r'; '\n' |], StringSplitOptions.RemoveEmptyEntries)
+
+            Assert.That(proc.ExitCode, Is.EqualTo 1)
+            Assert.That(stdout, Is.Empty)
+            Assert.That(stderrLines.Length, Is.EqualTo 1, stderr)
+            Assert.That(stderrLines[0], Does.StartWith "vcs-mcp: ")
+            Assert.That(stderrLines[0], Does.Contain logPath)
+            Assert.That(stderr, Does.Not.Contain "Unhandled exception")

@@ -397,12 +397,20 @@ and holds the same lock without resolving a forge.
 
 ### Bound content output
 
-A tool returning potentially large content (`repo_show_file`, `repo_annotate`,
-`forge_pr_diff`) must apply the server's configured output budget
-(`outputBudget`/`applyOutputBudget` in `Server.fs`) rather than returning an unbounded
-or silently truncated response — content within budget passes through byte-for-byte;
-content over budget is truncated at a character boundary with a trailing
-`[truncated: showing N of M bytes]` marker, never silently.
+A tool returning potentially large content must apply the server's configured
+`outputBudget` using the policy that matches its result type:
+
+- For plain-text content such as `repo_show_file`, use `applyOutputBudget` in
+  `Server.fs`. It truncates the raw text before serialization at a full UTF-8
+  character boundary and appends `[truncated: showing N of M bytes]`.
+- For a tool that returns a JSON array, use `applyJsonArrayOutputBudget` in
+  `Server.fs`, as `repo_annotate` and `forge_pr_diff` do. It retains a prefix of
+  whole items and returns a valid structured envelope with `items`, `truncated`,
+  `shown`, and `total` when the budget is exceeded.
+
+Use `applyJsonArrayOutputBudget` as the pattern for future large JSON-array read
+tools so truncated responses remain parseable and carry explicit completeness
+metadata.
 
 ### Finish the MCP layer
 

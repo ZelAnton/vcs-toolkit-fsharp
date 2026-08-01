@@ -1323,11 +1323,49 @@ type RepoOperationStateIntegrationTests() =
         }
 
 // ---------------------------------------------------------------------------
-// repo_show_file output-budget truncation
+// Large-content output-budget truncation
 // ---------------------------------------------------------------------------
 
 [<TestFixture>]
 type OutputBudgetTests() =
+
+    let firstSha = String.replicate 40 "a"
+    let secondSha = String.replicate 40 "b"
+
+    let annotateRaw =
+        let tab = string (char 9)
+
+        [ firstSha + " 1 1 1"
+          "author Alice"
+          "author-time 1700000000"
+          "author-tz +0000"
+          tab + "first line"
+          secondSha + " 2 2 1"
+          "author Bob"
+          "author-time 1700000060"
+          "author-tz +0000"
+          tab + "second line" ]
+        |> String.concat "\n"
+
+    let annotateLines: AnnotateLine list =
+        [ { Line = 1
+            Content = "first line"
+            Id = firstSha
+            Author = Some "Alice"
+            Date = Some "2023-11-14T22:13:20+00:00" }
+          { Line = 2
+            Content = "second line"
+            Id = secondSha
+            Author = Some "Bob"
+            Date = Some "2023-11-14T22:14:20+00:00" } ]
+
+    let prDiffRaw =
+        "diff --git a/foo.txt b/foo.txt\n"
+        + "index e69de29..4b825dc 100644\n"
+        + "--- a/foo.txt\n"
+        + "+++ b/foo.txt\n"
+        + "@@ -0,0 +1 @@\n"
+        + "+new line\n"
 
     [<Test>]
     member _.ContentWithinBudgetIsUntouched() : Task =
@@ -1391,55 +1429,105 @@ type OutputBudgetTests() =
         }
 
     [<Test>]
-    member _.RepoAnnotateOverBudgetIsTruncatedWithMarker() : Task =
+    member _.RepoAnnotateTruncatesAtAnItemBoundaryWithAValidJsonEnvelope() : Task =
         task {
-            // repo_annotate applies the SAME budget mechanism as repo_show_file, but to the
-            // serialized JSON array (there is no single "content" string for a list of lines).
-            let tab = string (char 9)
-            let sha = "0123456789abcdef0123456789abcdef01234567"
+            let expected =
+                Json.ok
+                    {| Items = List.take 1 annotateLines
+                       Truncated = true
+                       Shown = 1
+                       Total = 2 |}
 
-            let out =
-                [ sha + " 1 1 1"
-                  "author Alice Example"
-                  "author-time 1700000000"
-                  "author-tz +0000"
-                  tab + "let x = 1" ]
-                |> String.concat "\n"
+            let budget = System.Text.Encoding.UTF8.GetByteCount expected
 
             let server =
                 gitServerWithBudget
-                    (ScriptedRunner().On([ "blame"; "--line-porcelain"; "--"; "f.txt" ], Reply.Ok out))
+                    (ScriptedRunner().On([ "blame"; "--line-porcelain"; "--"; "f.txt" ], Reply.Ok annotateRaw))
                     WriteGate.None
-                    (Some 10)
+                    (Some budget)
 
             match! server.RepoAnnotate("f.txt", Option.None) with
-            | Ok json -> Assert.That(json, Does.Contain "[truncated: showing 10 of")
+            | Ok json ->
+                use parsed = System.Text.Json.JsonDocument.Parse json
+                let root = parsed.RootElement
+                Assert.That(json, Is.EqualTo expected)
+                Assert.That(root.GetProperty("truncated").GetBoolean(), Is.True)
+                Assert.That(root.GetProperty("shown").GetInt32(), Is.EqualTo 1)
+                Assert.That(root.GetProperty("total").GetInt32(), Is.EqualTo 2)
+                Assert.That(root.GetProperty("items").GetArrayLength(), Is.EqualTo 1)
+                let firstItem = root.GetProperty("items").EnumerateArray() |> Seq.head
+                Assert.That(firstItem.GetProperty("content").GetString(), Is.EqualTo "first line")
+                Assert.That(System.Text.Encoding.UTF8.GetByteCount json, Is.LessThanOrEqualTo budget)
             | Error e -> Assert.Fail $"repo_annotate failed: {e.Message}"
         }
 
     [<Test>]
-    member _.ForgePrDiffOverBudgetIsTruncatedWithMarker() : Task =
+    member _.RepoAnnotateBudgetTooSmallForOneItemReturnsTheMinimumValidEnvelope() : Task =
         task {
-            // forge_pr_diff applies the SAME budget mechanism as repo_show_file/repo_annotate,
-            // to the serialized per-file JSON array — a PR diff easily blows past a reasonable
-            // context budget.
-            let raw =
-                "diff --git a/foo.txt b/foo.txt\n"
-                + "index e69de29..4b825dc 100644\n"
-                + "--- a/foo.txt\n"
-                + "+++ b/foo.txt\n"
-                + "@@ -0,0 +1 @@\n"
-                + "+new line\n"
+            let server =
+                gitServerWithBudget
+                    (ScriptedRunner().On([ "blame"; "--line-porcelain"; "--"; "f.txt" ], Reply.Ok annotateRaw))
+                    WriteGate.None
+                    (Some 1)
+
+            match! server.RepoAnnotate("f.txt", Option.None) with
+            | Ok json ->
+                use parsed = System.Text.Json.JsonDocument.Parse json
+                let root = parsed.RootElement
+                Assert.That(root.GetProperty("truncated").GetBoolean(), Is.True)
+                Assert.That(root.GetProperty("shown").GetInt32(), Is.Zero)
+                Assert.That(root.GetProperty("total").GetInt32(), Is.EqualTo 2)
+                Assert.That(root.GetProperty("items").GetArrayLength(), Is.Zero)
+                Assert.That(json, Does.Not.Contain "[truncated:")
+            | Error e -> Assert.Fail $"repo_annotate failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.ForgePrDiffOverBudgetReturnsTheSameValidJsonEnvelopeShape() : Task =
+        task {
 
             let server =
                 gitServerWithForgeAndBudget
-                    (ScriptedRunner().On([ "pr"; "diff"; "42" ], Reply.Ok raw))
+                    (ScriptedRunner().On([ "pr"; "diff"; "42" ], Reply.Ok prDiffRaw))
                     WriteGate.None
-                    (Some 10)
+                    (Some 1)
 
             match! server.ForgePrDiff 42UL with
-            | Ok json -> Assert.That(json, Does.Contain "[truncated: showing 10 of")
+            | Ok json ->
+                use parsed = System.Text.Json.JsonDocument.Parse json
+                let root = parsed.RootElement
+                Assert.That(root.GetProperty("truncated").GetBoolean(), Is.True)
+                Assert.That(root.GetProperty("shown").GetInt32(), Is.Zero)
+                Assert.That(root.GetProperty("total").GetInt32(), Is.EqualTo 1)
+                Assert.That(root.GetProperty("items").GetArrayLength(), Is.Zero)
+                Assert.That(json, Does.Not.Contain "[truncated:")
             | Error e -> Assert.Fail $"forge_pr_diff failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.RepoAnnotateNoOrZeroBudgetPreservesTheOriginalJsonArrayByteForByte() : Task =
+        task {
+            let expected = Json.ok annotateLines
+
+            let unbounded =
+                gitServerWithBudget
+                    (ScriptedRunner().On([ "blame"; "--line-porcelain"; "--"; "f.txt" ], Reply.Ok annotateRaw))
+                    WriteGate.None
+                    Option.None
+
+            match! unbounded.RepoAnnotate("f.txt", Option.None) with
+            | Ok json -> Assert.That(json, Is.EqualTo expected)
+            | Error e -> Assert.Fail $"unbounded repo_annotate failed: {e.Message}"
+
+            let zero =
+                gitServerWithBudget
+                    (ScriptedRunner().On([ "blame"; "--line-porcelain"; "--"; "f.txt" ], Reply.Ok annotateRaw))
+                    WriteGate.None
+                    (Some 0)
+
+            match! zero.RepoAnnotate("f.txt", Option.None) with
+            | Ok json -> Assert.That(json, Is.EqualTo expected)
+            | Error e -> Assert.Fail $"zero-budget repo_annotate failed: {e.Message}"
         }
 
 // ---------------------------------------------------------------------------
