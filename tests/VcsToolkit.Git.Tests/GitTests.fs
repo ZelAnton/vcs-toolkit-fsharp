@@ -472,6 +472,37 @@ type QueryTests() =
         }
 
     [<Test>]
+    member _.RemotesPreservesWhitespaceInFileSystemUrls() : Task =
+        task {
+            let git =
+                scripted
+                    [ "remote"; "-v" ]
+                    (Reply.Ok(
+                        "windows"
+                        + tab
+                        + "C:/Users/John Doe/repo (fetch)\n"
+                        + "windows"
+                        + tab
+                        + "C:/Users/John Doe/repo (push)\n"
+                        + "unix"
+                        + tab
+                        + "/home/user/my projects/repo.git (fetch)\n"
+                        + "unix"
+                        + tab
+                        + "/home/user/my projects/repo.git (push)\n"
+                    ))
+
+            match! git.Remotes "." with
+            | Ok [ windows; unix ] ->
+                Assert.That(windows.Name, Is.EqualTo "windows")
+                Assert.That(windows.Url, Is.EqualTo "C:/Users/John Doe/repo")
+                Assert.That(unix.Name, Is.EqualTo "unix")
+                Assert.That(unix.Url, Is.EqualTo "/home/user/my projects/repo.git")
+            | Ok other -> Assert.Fail $"expected two deduplicated remotes, got {other.Length}"
+            | Error e -> Assert.Fail $"remotes failed: {e}"
+        }
+
+    [<Test>]
     member _.RemoteBranchExistsInheritsTheCallerTimeout() : Task =
         task {
             // This must match RemoteBranches rather than restoring a hidden 10-second cap.
