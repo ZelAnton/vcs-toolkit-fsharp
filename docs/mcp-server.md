@@ -58,7 +58,7 @@ MCP client, not run interactively. `vcs-mcp --help` prints the same reference be
 | `--allow-write` | (flag, no argument) | off | Enable **every** mutating tool. Takes precedence over `--allow-tools` when both are given. |
 | `--allow-tools <name,...>` | a comma-separated list of tool names (repeatable — later occurrences add to the allowed set) | empty (no mutating tool allowed) | Enable only the named mutating tools. Read tools are unaffected — they are always available regardless of this flag. Names are validated up front, at parse time, against the fixed list of mutating tool names (`WriteTools.all`, the same names used for `Destructive`/`ReadOnly` hints below); an unrecognized name is a fatal startup error rather than a silently-inert entry — **this validation runs regardless of `--allow-write`**, so an invalid name in `--allow-tools` still fails startup even when `--allow-write` is also given. Only the *effective write policy* ignores a syntactically-valid `--allow-tools` list once `--allow-write` is present (which grants every mutating tool outright). |
 | `--timeout <seconds>` | a whole, non-negative number of seconds | `120` | Per-command deadline applied to every git/jj/forge-CLI subprocess the server spawns. `--timeout 0` disables the deadline entirely (no per-command timeout). An absurdly large value is clamped to `Int32.MaxValue` seconds rather than overflowing — for all practical purposes equivalent to "no timeout". A non-numeric or negative value is a fatal startup error. |
-| `--output-budget <bytes>` | a whole, non-negative number of bytes | `200000` | Truncates the large-content read tools (`repo_show_file`, `repo_annotate`, `forge_pr_diff`) past this many UTF-8 bytes, snapping to a full character boundary and appending a trailing `[truncated: showing N of M bytes]` marker. Content within the budget passes through byte-for-byte unchanged. `--output-budget 0` disables the cap entirely. Clamped the same way `--timeout` is for an absurdly large value. A non-numeric or negative value is a fatal startup error. |
+| `--output-budget <bytes>` | a whole, non-negative number of bytes | `200000` | Truncates the large-content read tools (`repo_show_file`, `repo_annotate`, `forge_pr_diff`) past this many UTF-8 bytes. `repo_show_file` snaps plain text to a full character boundary and appends `[truncated: showing N of M bytes]`; the JSON-array tools drop whole trailing items and return a valid JSON envelope with truncation metadata. Content within the budget passes through unchanged. `--output-budget 0` disables the cap entirely. Clamped the same way `--timeout` is for an absurdly large value. A non-numeric or negative value is a fatal startup error. |
 | `-h`, `--help` | (flag, no argument) | — | Print the usage text and exit `0` without opening a repository or starting the server. |
 
 An unrecognized flag, or a flag missing its required value, is a fatal startup error (the
@@ -184,7 +184,7 @@ tool additionally requires `--allow-write`, or `--allow-tools` naming it.
 | `repo_remotes` | Configured remotes (name and URL): git remotes are deduplicated to one entry carrying the fetch URL; jj uses `jj git remote list`. | — |
 | `repo_show_file` | The content of a file at a revision, subject to `--output-budget` (default 200000 bytes; a truncated read appends `[truncated: showing N of M bytes]`). UTF-8-decoded text only — a non-UTF-8 byte is replaced with U+FFFD and does not round-trip, so this is for text files, not byte-exact binary reads. `rev` is passed through as-is to the backend (git commit-ish or jj revset — not cross-backend portable). | `rev` (string, required), `path` (string, required) |
 | `repo_log` | Up to `max` commits reachable from `revspec_or_revset` (git revspec, e.g. `"HEAD"`, or jj revset, e.g. `"@"`), most-recent-first. `author`/`date` are null on jj (its typed log doesn't surface authorship/timestamp). | `revspec_or_revset` (string, required), `max` (integer, required) |
-| `repo_annotate` | Per-line authorship of a file at a revision (git blame / jj file annotate), as a JSON array of lines, subject to the same `--output-budget` truncation as `repo_show_file`. **A truncated result is not guaranteed to be valid JSON** — see "Output-size budget" below. `rev` is passed through as-is (git commit-ish or jj revset). | `path` (string, required), `rev` (string, optional — omit to annotate the working copy / `@`) |
+| `repo_annotate` | Per-line authorship of a file at a revision (git blame / jj file annotate), as a JSON array of lines. When truncated by `--output-budget`, returns a valid JSON envelope with `items`, `truncated: true`, `shown`, and `total`. `rev` is passed through as-is (git commit-ish or jj revset). | `path` (string, required), `rev` (string, optional — omit to annotate the working copy / `@`) |
 
 #### Writes (gated)
 
@@ -237,7 +237,7 @@ that forge, rather than silently degrading.
 | `forge_pr_view` | A single pull/merge request by number. | `number` (integer, required — GitLab uses the project-scoped iid) |
 | `forge_pr_for_branch` | Pull/merge requests whose source branch is `source_branch`, in any state, regardless of target branch — the "after pushing, find my PR" query. Returns a list; an empty list means none currently match. **Unsupported on Gitea** (`tea pr list --output json` does not work against the real CLI). | `source_branch` (string, required) |
 | `forge_pr_checks` | The PR/MR's coarse CI status. **Unsupported on Gitea.** | `number` (integer, required) |
-| `forge_pr_diff` | The PR/MR's unified diff, serialized per file as JSON and subject to `--output-budget`. A truncated result is not guaranteed to be valid JSON. **Unsupported on Gitea.** | `number` (integer, required) |
+| `forge_pr_diff` | The PR/MR's unified diff, serialized per file as JSON. When truncated by `--output-budget`, returns a valid JSON envelope with `items`, `truncated: true`, `shown`, and `total`. **Unsupported on Gitea.** | `number` (integer, required) |
 | `forge_issue_list` | Issues on the configured forge, open by default and capped at 100 by default. **Unsupported on Gitea for every state** (`tea issues list --output json` does not work against the real CLI). | `state` (string, optional — `open`/`closed`/`all`, default `open`), `limit` (integer, optional, default 100) |
 | `forge_issue_view` | A single issue by number, with body and URL filled. | `number` (integer, required — GitLab uses the project-scoped iid) |
 | `forge_release_list` | Releases on the configured forge, newest first (up to 100). | — |
@@ -266,22 +266,19 @@ that forge, rather than silently degrading.
 
 `repo_show_file`, `repo_annotate`, and `forge_pr_diff` can return arbitrarily large output
 (a full file, a full per-line annotation, or a full pull-request diff). All three are subject to
-`--output-budget` (default 200000 bytes; `0` disables it): content is measured in UTF-8 bytes,
-truncated at a full character boundary if it exceeds the budget, and a trailing
-`[truncated: showing N of M bytes]` marker is appended so a truncated read is never mistaken for
-the complete file. Content within the budget passes through byte-for-byte unchanged — the budget
-never rewrites or re-encodes a read that already fits.
+`--output-budget` (default 200000 bytes; `0` disables it), but plain text and JSON arrays use
+different truncation policies. Content within the budget passes through unchanged.
 
-**Structured JSON and validity.** The budget is applied uniformly to the *raw serialized text*
-the tool would otherwise return — for `repo_show_file` that text is the plain file content, so
-truncating it is harmless, but `repo_annotate` and `forge_pr_diff` are already serialized JSON
-arrays. Truncation is character-boundary-safe, not JSON-structure-aware: it can cut an array in
-the middle of an element, and the trailing `[truncated: showing N of M bytes]` marker is plain
-text appended after that cut, not part of any JSON value. A truncated structured result is
-therefore **not guaranteed to be valid JSON**, even though an untruncated one always is — a
-caller that needs to parse the result should either raise `--output-budget` (or disable it with
-`--output-budget 0`) for that call's repository, or detect the trailing marker and treat a
-truncated response as pre-formatted text rather than feeding it to a JSON parser.
+**Structured JSON and validity.** `repo_show_file` returns plain text, so it continues to
+truncate the raw file content at a full UTF-8 character boundary and append a
+`[truncated: showing N of M bytes]` marker. `repo_annotate` and `forge_pr_diff` instead truncate
+at an array-item boundary. When truncation is necessary, they return a structured JSON envelope
+whose `items` field contains the retained prefix, `truncated` is `true`, `shown` is the number of
+retained items, and `total` is the original item count. The envelope is always valid JSON. If the
+budget cannot fit even the minimum envelope with zero items, the complete empty envelope is still
+returned: valid JSON and explicit truncation metadata take precedence over exact adherence to an
+impossibly small budget. Consumers of either JSON-array tool can therefore safely parse both the
+full array and the truncated envelope as JSON.
 
 ## Errors
 
