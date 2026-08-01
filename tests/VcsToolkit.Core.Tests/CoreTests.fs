@@ -1480,7 +1480,7 @@ type GitSequencerStateTests() =
             let gitDir, repo =
                 repoWithGitDir
                     dir
-                    [ [ "diff"; "--name-only"; "--diff-filter=U"; "-z" ], Reply.Ok "" // no unresolved paths
+                    [ [ "diff"; "--no-relative"; "--name-only"; "--diff-filter=U"; "-z" ], Reply.Ok "" // no unresolved paths
                       [ "revert"; "--continue" ], Reply.Ok "" ]
 
             File.WriteAllText(Path.Combine(gitDir, "REVERT_HEAD"), "x\n")
@@ -1497,7 +1497,7 @@ type GitSequencerStateTests() =
         // Fallback fails any other command, so a stray mutation would surface as an error too.
         withTempDir (fun dir ->
             let gitDir, repo =
-                repoWithGitDir dir [ [ "diff"; "--name-only"; "--diff-filter=U"; "-z" ], Reply.Ok "" ]
+                repoWithGitDir dir [ [ "diff"; "--no-relative"; "--name-only"; "--diff-filter=U"; "-z" ], Reply.Ok "" ]
 
             File.WriteAllText(Path.Combine(gitDir, "BISECT_LOG"), "x\n")
 
