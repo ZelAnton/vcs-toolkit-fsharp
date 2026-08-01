@@ -151,11 +151,14 @@ host to a forge kind for the handful of recognized public SaaS hosts
 (`github.com`, `gitlab.com`, `gitea.com`, `codeberg.org`) using an anchored
 match (exact host or a genuine `*.domain` subdomain) so a lookalike host like
 `gitlab.com.attacker.net` cannot masquerade as GitLab. Several operations
-(`repoView`, `prList`, `prForBranch`, `prEdit`, `prMarkReady`, `prChecks`,
-`prDiff`, `issueList`, `issueReopen`, `releaseView`, `releaseDelete`) are
-`Unsupported` on Gitea because `tea` lacks a usable equivalent; `Forge.Supports` lets a
-caller branch on that before calling rather than discovering it via a runtime
-error.
+(`repoView`, `prEdit`, `prMarkReady`, `prChecks`, `prDiff`, `issueReopen`,
+`releaseView`, `releaseDelete`) are `Unsupported` on Gitea because `tea` lacks a
+usable equivalent; `Forge.Supports` lets a caller branch on that before calling
+rather than discovering it via a runtime error. The listing operations
+(`prList`, `prForBranch`, `issueList`) *are* supported there, over `tea`'s
+`--output csv` listing — but `tea`'s `--state` has no merged value and no
+head-branch filter, so `prList`'s `Closed`/`Merged` and `prForBranch` are
+narrowed on our side, over the window the CLI fetched, rather than by the CLI.
 
 ### `VcsToolkit.TestKit` — throwaway sandboxes, intentionally dependency-free
 

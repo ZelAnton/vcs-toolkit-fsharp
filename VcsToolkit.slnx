@@ -30,6 +30,14 @@
 			<BuildDependency Project="src/VcsToolkit.Core/VcsToolkit.Core.fsproj" />
 			<BuildDependency Project="src/VcsToolkit.TestKit/VcsToolkit.TestKit.fsproj" />
 		</Project>
+		<!-- The git/jj parity matrix for the `Repo` facade: every read method exercised through
+		     `Repo.Open` over a real GitSandbox and a real JjSandbox, compared element by element.
+		     Its own project (not a file in VcsToolkit.Core.Tests) so the suite owns its conflict
+		     domain and can be run on its own. -->
+		<Project Path="tests/VcsToolkit.Core.ParityTests/VcsToolkit.Core.ParityTests.fsproj">
+			<BuildDependency Project="src/VcsToolkit.Core/VcsToolkit.Core.fsproj" />
+			<BuildDependency Project="src/VcsToolkit.TestKit/VcsToolkit.TestKit.fsproj" />
+		</Project>
 		<Project Path="tests/VcsToolkit.Forge.Tests/VcsToolkit.Forge.Tests.fsproj">
 			<BuildDependency Project="src/VcsToolkit.Forge/VcsToolkit.Forge.fsproj" />
 		</Project>

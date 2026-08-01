@@ -688,20 +688,31 @@ type GiteaLiveTests() =
             let! created = forge.PrCreate spec
             expectOk "PrCreate" created |> ignore
 
-            // The Gitea forge facade deliberately keeps `PrList` structurally Unsupported
-            // (the K-049 mitigation is retained at the facade); the low-level client's
-            // now-fixed `--output csv` listing is what finds the freshly-created PR by its
-            // head branch (T-115).
-            let! listed = client.At(clonePath).PrList()
-            let prs = expectOk "PrList (client)" listed
+            // The freshly-created PR is found through the FACADE's own listing: `tea` has no
+            // head-branch filter, so `PrForBranch` lists `--state all` over the client's
+            // `--output csv` path (T-115) and matches the source branch on our side — the query
+            // a caller actually runs after pushing.
+            let! forBranch = forge.PrForBranch branch
+            let matching = expectOk "PrForBranch (forge)" forBranch
 
             let number =
-                match
-                    prs
-                    |> List.tryFind (fun (pr: VcsToolkit.Gitea.PullRequest) -> pr.HeadBranch = branch)
-                with
-                | Some pr -> pr.Number
-                | None -> failTest (sprintf "the created PR for %s was not found among %d listed PRs" branch prs.Length)
+                match matching with
+                | [ pr ] ->
+                    Assert.That(pr.SourceBranch, Is.EqualTo branch, "PrForBranch must only match that source branch")
+                    pr.Number
+                | [] -> failTest (sprintf "the created PR for %s was not found by PrForBranch" branch)
+                | many -> failTest (sprintf "expected exactly one PR for %s, got %d" branch many.Length)
+
+            // …and it is in the facade's `Open` listing, which is a plain `tea --state open`.
+            let! openList = forge.PrList PrListOptions.Open
+            let openPrs = expectOk "PrList Open (forge)" openList
+
+            Assert.That(
+                openPrs
+                |> List.exists (fun pr -> pr.Number = number && pr.State = ForgePrState.Open),
+                Is.True,
+                sprintf "the facade's open listing should carry PR #%d as Open" number
+            )
 
             let! opened = forge.PrView number
             let openedPr = expectOk "PrView" opened
@@ -729,6 +740,41 @@ type GiteaLiveTests() =
                 mergedPr.State = ForgePrState.Merged,
                 Is.True,
                 sprintf "expected a merged PR, got %A" mergedPr.State
+            )
+
+            // The unified `Merged`/`Closed` filters against the real CLI — the part `tea`'s own
+            // `--state` cannot express (Gitea has no merged state; merging closes the PR and
+            // sets a flag). `Merged` walks `--state all` and keeps the merged rows; `Closed`
+            // means "closed WITHOUT merging", so this merged PR must not appear there even if
+            // Gitea's closed bucket is where it lives.
+            let! mergedList = forge.PrList PrListOptions.Merged
+            let mergedPrs = expectOk "PrList Merged (forge)" mergedList
+
+            Assert.That(
+                mergedPrs |> List.exists (fun pr -> pr.Number = number),
+                Is.True,
+                sprintf "the facade's Merged listing should carry PR #%d" number
+            )
+
+            Assert.That(
+                mergedPrs |> List.forall (fun pr -> pr.State = ForgePrState.Merged),
+                Is.True,
+                "a Merged listing must contain merged PRs only"
+            )
+
+            let! closedList = forge.PrList PrListOptions.Closed
+            let closedPrs = expectOk "PrList Closed (forge)" closedList
+
+            Assert.That(
+                closedPrs |> List.exists (fun pr -> pr.Number = number),
+                Is.False,
+                sprintf "the merged PR #%d must not leak into a Closed (not merged) listing" number
+            )
+
+            Assert.That(
+                closedPrs |> List.forall (fun pr -> pr.State = ForgePrState.Closed),
+                Is.True,
+                "a Closed listing must contain closed-not-merged PRs only"
             )
         }
 
@@ -774,6 +820,30 @@ type GiteaLiveTests() =
                 closedIssue.State.Equals("closed", StringComparison.OrdinalIgnoreCase),
                 Is.True,
                 sprintf "expected a closed issue, got '%s'" closedIssue.State
+            )
+
+            // The same listing through the FACADE: an issue's states map one-to-one onto tea's
+            // own `--state open|closed|all` (there is no merged state to work around), so the
+            // closed issue must be in the `Closed` listing and out of the `Open` one.
+            let forge = Forge.FromGitea(clonePath, makeClient ())
+
+            let! closedList = forge.IssueList IssueListOptions.Closed
+            let closedIssues = expectOk "IssueList Closed (forge)" closedList
+
+            Assert.That(
+                closedIssues
+                |> List.exists (fun issue -> issue.Number = number && issue.State = ForgeIssueState.Closed),
+                Is.True,
+                sprintf "the facade's Closed listing should carry issue #%d" number
+            )
+
+            let! openList = forge.IssueList IssueListOptions.Open
+            let openIssues = expectOk "IssueList Open (forge)" openList
+
+            Assert.That(
+                openIssues |> List.exists (fun issue -> issue.Number = number),
+                Is.False,
+                sprintf "the closed issue #%d must not appear in an Open listing" number
             )
         }
 

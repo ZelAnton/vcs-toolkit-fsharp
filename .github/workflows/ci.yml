@@ -208,6 +208,12 @@ jobs:
           & $binary --version
           $installDir | Add-Content -LiteralPath $env:GITHUB_PATH
 
+      # Runs every test project in VcsToolkit.slnx on all three OSes — including
+      # tests/VcsToolkit.Core.ParityTests, the git-vs-jj matrix for the Repo facade,
+      # which needs the jj installed above. Keep this a whole-solution run: with an
+      # explicit project list the parity matrix would silently stop running.
+      # REQUIRE_JJ=1 turns "jj is missing" from a skip into a failure, so a broken jj
+      # install cannot quietly reduce the matrix to its git half.
       - name: Test
         env:
           REQUIRE_JJ: '1'
