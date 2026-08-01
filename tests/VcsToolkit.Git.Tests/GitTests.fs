@@ -1820,6 +1820,32 @@ type PositionalArgvGuardTests() =
             Assert.That(captured.Value.IsNone, "the key guard must refuse before any spawn")
         }
 
+    [<Test>]
+    member _.ConfigGetPreservesLeadingAndTrailingSpaces() : Task =
+        task {
+            // ConfigGet strips only the trailing line terminator (`TrimEnd`), not significant
+            // leading/trailing whitespace in the value itself — a value round-tripped through
+            // ConfigSet (which passes it verbatim past the `--` separator) must come back exact.
+            try
+                Raw.git "." [ "--version" ]
+            with _ ->
+                // git isn't on PATH (or failed to spawn) — a hermetic CI without it must skip,
+                // not fail, this fixture.
+                Assert.Ignore "git not available on PATH"
+
+            use repo = GitSandbox.Init "config-get-padded-roundtrip"
+            let git = Git.Create()
+
+            match! git.ConfigSet(repo.Path, "test.config-padded", " padded ") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"config set failed: {e}"
+
+            match! git.ConfigGet(repo.Path, "test.config-padded") with
+            | Ok(Some value) -> Assert.That(value, Is.EqualTo " padded ")
+            | Ok None -> Assert.Fail "config_set did not persist the value"
+            | Error e -> Assert.Fail $"config_get after config_set failed: {e}"
+        }
+
 [<TestFixture>]
 type ObserverWiringTests() =
 
