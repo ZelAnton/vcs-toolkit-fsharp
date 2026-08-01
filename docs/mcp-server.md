@@ -58,7 +58,7 @@ MCP client, not run interactively. `vcs-mcp --help` prints the same reference be
 | `--allow-write` | (flag, no argument) | off | Enable **every** mutating tool. Takes precedence over `--allow-tools` when both are given. |
 | `--allow-tools <name,...>` | a comma-separated list of tool names (repeatable — later occurrences add to the allowed set) | empty (no mutating tool allowed) | Enable only the named mutating tools. Read tools are unaffected — they are always available regardless of this flag. Names are validated up front, at parse time, against the fixed list of mutating tool names (`WriteTools.all`, the same names used for `Destructive`/`ReadOnly` hints below); an unrecognized name is a fatal startup error rather than a silently-inert entry — **this validation runs regardless of `--allow-write`**, so an invalid name in `--allow-tools` still fails startup even when `--allow-write` is also given. Only the *effective write policy* ignores a syntactically-valid `--allow-tools` list once `--allow-write` is present (which grants every mutating tool outright). |
 | `--timeout <seconds>` | a whole, non-negative number of seconds | `120` | Per-command deadline applied to every git/jj/forge-CLI subprocess the server spawns. `--timeout 0` disables the deadline entirely (no per-command timeout). An absurdly large value is clamped to `Int32.MaxValue` seconds rather than overflowing — for all practical purposes equivalent to "no timeout". A non-numeric or negative value is a fatal startup error. |
-| `--output-budget <bytes>` | a whole, non-negative number of bytes | `200000` | Truncates the large-content read tools (`repo_show_file`, `repo_annotate`, `forge_pr_diff`) past this many UTF-8 bytes. `repo_show_file` snaps plain text to a full character boundary and appends `[truncated: showing N of M bytes]`; the JSON-array tools drop whole trailing items and return a valid JSON envelope with truncation metadata. Content within the budget passes through unchanged. `--output-budget 0` disables the cap entirely. Clamped the same way `--timeout` is for an absurdly large value. A non-numeric or negative value is a fatal startup error. |
+| `--output-budget <bytes>` | a whole, non-negative number of bytes | `200000` | Truncates the large-content read tools (`repo_show_file`, `repo_annotate`, `repo_diff`, `forge_pr_diff`) past this many UTF-8 bytes. `repo_show_file` snaps plain text to a full character boundary and appends `[truncated: showing N of M bytes]`; the JSON-array tools drop whole trailing items and return a valid JSON envelope with truncation metadata. Content within the budget passes through unchanged. `--output-budget 0` disables the cap entirely. Clamped the same way `--timeout` is for an absurdly large value. A non-numeric or negative value is a fatal startup error. |
 | `-h`, `--help` | (flag, no argument) | — | Print the usage text and exit `0` without opening a repository or starting the server. |
 
 An unrecognized flag, or a flag missing its required value, is a fatal startup error (the
@@ -177,6 +177,7 @@ tool additionally requires `--allow-write`, or `--allow-tools` naming it.
 | `repo_info` | Which backend (git/jj), the repository root, the working directory, and the configured forge (if any). | — |
 | `repo_status` | The working-copy changes (added/modified/deleted/renamed paths). | — |
 | `repo_diff_stat` | Aggregate insertion/deletion/file counts for the working copy. | — |
+| `repo_diff` | The working copy's unified diff, serialized per file as JSON. When truncated by `--output-budget`, returns a valid JSON envelope with `items`, `truncated: true`, `shown`, and `total`. | — |
 | `repo_branches` | Local branch (git) / bookmark (jj) names. | — |
 | `repo_current_branch` | The current branch/bookmark (null when detached/unset). | — |
 | `repo_conflicts` | Paths with unresolved merge conflicts (repo-relative, `/`-separated). | — |
@@ -264,20 +265,21 @@ that forge, rather than silently degrading.
 
 ## Output-size budget
 
-`repo_show_file`, `repo_annotate`, and `forge_pr_diff` can return arbitrarily large output
-(a full file, a full per-line annotation, or a full pull-request diff). All three are subject to
+`repo_show_file`, `repo_annotate`, `repo_diff`, and `forge_pr_diff` can return arbitrarily large
+output (a full file, a full per-line annotation, a full working-copy diff, or a full pull-request
+diff). All four are subject to
 `--output-budget` (default 200000 bytes; `0` disables it), but plain text and JSON arrays use
 different truncation policies. Content within the budget passes through unchanged.
 
 **Structured JSON and validity.** `repo_show_file` returns plain text, so it continues to
 truncate the raw file content at a full UTF-8 character boundary and append a
-`[truncated: showing N of M bytes]` marker. `repo_annotate` and `forge_pr_diff` instead truncate
-at an array-item boundary. When truncation is necessary, they return a structured JSON envelope
+`[truncated: showing N of M bytes]` marker. `repo_annotate`, `repo_diff`, and `forge_pr_diff`
+instead truncate at an array-item boundary. When truncation is necessary, they return a structured JSON envelope
 whose `items` field contains the retained prefix, `truncated` is `true`, `shown` is the number of
 retained items, and `total` is the original item count. The envelope is always valid JSON. If the
 budget cannot fit even the minimum envelope with zero items, the complete empty envelope is still
 returned: valid JSON and explicit truncation metadata take precedence over exact adherence to an
-impossibly small budget. Consumers of either JSON-array tool can therefore safely parse both the
+impossibly small budget. Consumers of any JSON-array tool can therefore safely parse both the
 full array and the truncated envelope as JSON.
 
 ## Errors

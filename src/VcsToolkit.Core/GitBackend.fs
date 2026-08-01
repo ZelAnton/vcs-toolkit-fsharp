@@ -112,6 +112,18 @@ module internal GitBackend =
             | Ok entries -> return Ok(entries |> List.map fileChangeFromStatus)
         }
 
+    let diffText (git: Git) (dir: string) =
+        task {
+            let! r = git.DiffText(dir, DiffSpec.WorkingTree)
+            return ofVcs r
+        }
+
+    let diff (git: Git) (dir: string) =
+        task {
+            let! r = git.Diff(dir, DiffSpec.WorkingTree)
+            return ofVcs r
+        }
+
     let diffStat (git: Git) (dir: string) =
         task {
             // Working tree vs the last commit. On an unborn repo `HEAD` doesn't resolve,

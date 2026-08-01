@@ -125,7 +125,7 @@ login, since `tea` has no environment-token override.
 `Core` is where "write code against *a* repository" becomes possible without
 the caller ever branching on git-vs-jj. `Repo.Open` auto-detects which backend
 is present at (or above) a directory, and from then on one handle answers
-snapshot/branch reads, changed files and diff stats, partial commits,
+snapshot/branch reads, changed files, unified working-copy diffs and diff stats, partial commits,
 fetch/push/checkout/rebase, a trace-free merge-conflict probe (`TryMerge`),
 in-progress merge/rebase state, and worktree management, returning plain
 backend-agnostic result types (`RepoSnapshot`, `FileChange`, `MergeProbe`, …).

@@ -192,6 +192,10 @@ module internal Catalog =
               []
           read "repo_status" "The working-copy changes (added/modified/deleted/renamed paths)." []
           read "repo_diff_stat" "Aggregate insertion/deletion/file counts for the working copy." []
+          read
+              "repo_diff"
+              "The working copy's unified diff, per file. Normally returns the original JSON array. If the server's output budget truncates it (--output-budget; default 200000 bytes, 0 disables), whole trailing entries are dropped and the result is a valid JSON envelope with `items`, `truncated: true`, `shown`, and `total`."
+              []
           read "repo_branches" "Local branch (git) / bookmark (jj) names." []
           read "repo_current_branch" "The current branch/bookmark (null when detached/unset)." []
           read "repo_conflicts" "Paths with unresolved merge conflicts (repo-relative, '/'-separated)." []
@@ -644,6 +648,7 @@ module internal Catalog =
         | "repo_info" -> server.RepoInfo()
         | "repo_status" -> server.RepoStatus()
         | "repo_diff_stat" -> server.RepoDiffStat()
+        | "repo_diff" -> server.RepoDiff()
         | "repo_branches" -> server.RepoBranches()
         | "repo_current_branch" -> server.RepoCurrentBranch()
         | "repo_conflicts" -> server.RepoConflicts()

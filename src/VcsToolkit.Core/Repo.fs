@@ -281,6 +281,22 @@ type Repo private (root: string, cwd: string, backend: Backend) =
         | Backend.Git g -> GitBackend.changedFiles g cwd
         | Backend.Jj j -> JjBackend.changedFiles j cwd
 
+    /// Raw git-format unified diff text for the working copy, untrimmed. Backend nuance:
+    /// git compares tracked changes against `HEAD` (or the empty tree on an unborn repo),
+    /// while jj compares the `@` change against its parent.
+    member _.DiffText() =
+        match backend with
+        | Backend.Git g -> GitBackend.diffText g cwd
+        | Backend.Jj j -> JjBackend.diffText j cwd
+
+    /// Parsed per-file unified diff for the working copy. Backend nuance: git compares tracked
+    /// changes against `HEAD` (or the empty tree on an unborn repo), while jj compares the `@`
+    /// change against its parent.
+    member _.Diff() =
+        match backend with
+        | Backend.Git g -> GitBackend.diff g cwd
+        | Backend.Jj j -> JjBackend.diff j cwd
+
     /// Aggregate insertion/deletion counts for the working copy. Backend nuance: git
     /// counts the working tree against `HEAD` (excludes untracked files; against the empty
     /// tree on an unborn repo), while jj counts the `@` change against its parent
