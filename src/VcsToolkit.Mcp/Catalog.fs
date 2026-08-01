@@ -389,12 +389,12 @@ module internal Catalog =
           read "forge_info" "The forge's identity and flat capability map." []
           read
               "forge_pr_list"
-              "Pull/merge requests on the configured forge, open by default and capped at 100 by default. Optional state/limit filter and cap the results. Unsupported on Gitea for every state (tea's `pr list --output json` does not work against the real CLI)."
+              "Pull/merge requests on the configured forge, open by default and capped at 100 by default. Optional state/limit filter and cap the results. On Gitea, `merged` and `closed` (closed without merging) are not tea `--state` values — Gitea has no merged state, only a merged flag on a closed PR — so they are filtered out of a wider listing over the fetched window and can report fewer than `limit` matches while older ones exist beyond it."
               [ pPrListState; pListLimit ]
           read "forge_pr_view" "A single pull/merge request by number." [ pNumber ]
           read
               "forge_pr_for_branch"
-              "Pull/merge requests whose source branch is source_branch, in any state, regardless of target branch — the 'after pushing, find my PR' query. Returns a list (a branch can have more than one PR/MR over its lifetime); an empty list means none currently match. Unsupported on Gitea (tea's `pr list --output json` does not work against the real CLI)."
+              "Pull/merge requests whose source branch is source_branch, in any state, regardless of target branch — the 'after pushing, find my PR' query. Returns a list (a branch can have more than one PR/MR over its lifetime); an empty list means none currently match. On Gitea, tea has no head-branch filter, so the match is made against a listing of all states over the fetched window."
               [ pSourceBranch ]
           read "forge_pr_checks" "The PR/MR's coarse CI status (Unsupported on Gitea)." [ pNumber ]
           read
@@ -403,7 +403,7 @@ module internal Catalog =
               [ pNumber ]
           read
               "forge_issue_list"
-              "Issues on the configured forge, open by default and capped at 100 by default. Optional state/limit filter and cap the results. Unsupported on Gitea for every state (tea's `issues list --output json` does not work against the real CLI)."
+              "Issues on the configured forge, open by default and capped at 100 by default. Optional state/limit filter and cap the results. Every state maps onto the CLI's own filter on all three forges (issues have no merged state, so Gitea needs none of forge_pr_list's filtering)."
               [ pIssueListState; pListLimit ]
           read "forge_issue_view" "A single issue by number, with body and URL filled." [ pIssueNumber ]
           read "forge_release_list" "Releases on the configured forge, newest first (up to 100)." []

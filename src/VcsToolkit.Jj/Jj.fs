@@ -741,7 +741,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
                 | Error e -> return Error e
                 | Ok res ->
                     match res.Code with
-                    | Some 0 -> return Ok(Some(res.Stdout.Trim()))
+                    | Some 0 -> return Ok(Some(res.Stdout.TrimEnd(char 13, char 10)))
                     | Some 1 -> return Ok None
                     | _ ->
                         match ProcessResult.ensureSuccess res with

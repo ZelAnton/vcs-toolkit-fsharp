@@ -938,6 +938,25 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.ConfigGetPreservesLeadingAndTrailingSpaces() : Task =
+        task {
+            // Aligns with Git.ConfigGet: only the trailing line terminator is stripped, not
+            // significant leading/trailing whitespace in the value itself.
+            requireJj ()
+            use repo = JjSandbox.Init "config-get-padded-roundtrip"
+            let jj = Jj.Create()
+
+            match! jj.ConfigSet(repo.Path, "test.config-padded", " padded ") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"config_set failed: {e}"
+
+            match! jj.ConfigGet(repo.Path, "test.config-padded") with
+            | Ok(Some value) -> Assert.That(value, Is.EqualTo " padded ")
+            | Ok None -> Assert.Fail "config_set did not persist the value"
+            | Error e -> Assert.Fail $"config_get after config_set failed: {e}"
+        }
+
+    [<Test>]
     member _.NewChildStartsUndescribedChildOfParent() : Task =
         task {
             // Unlike `NewMerge`/`NewChange`, `NewChild` carries no `-m`: the resulting
@@ -1265,10 +1284,12 @@ type ClientTests() =
     [<Test>]
     member _.ConfigAndBookmarkMutationsBuildExactArgs() : Task =
         task {
+            // Only the trailing line terminator is stripped; significant leading/trailing
+            // spaces in the value itself are preserved (aligned with Git.ConfigGet).
             let getSet = scripted [ "config"; "get"; "user.name" ] (Reply.Ok " Ada \n")
 
             match! getSet.ConfigGet(".", "user.name") with
-            | Ok(Some value) -> Assert.That(value, Is.EqualTo "Ada")
+            | Ok(Some value) -> Assert.That(value, Is.EqualTo " Ada ")
             | other -> Assert.Fail $"config_get failed: {other}"
 
             let missing = scripted [ "config"; "get"; "missing.key" ] (Reply.Fail(1, ""))
