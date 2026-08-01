@@ -28,6 +28,7 @@
 		<PackageReference Include="Microsoft.NET.Test.Sdk" />
 		<PackageReference Include="NUnit" />
 		<PackageReference Include="NUnit3TestAdapter" />
+		<PackageReference Include="coverlet.collector" />
 		<PackageReference Include="PublicApiGenerator" />
 		<!-- The libraries surface ProcessKit types (CliSupport) and FSharp.SystemTextJson
 		     types (Mcp) in their public signatures; those assemblies must sit in the output

@@ -36,6 +36,28 @@ and case-sensitive fragments after fsdocs renders the site. Run a single test wi
 dotnet test VcsToolkit.slnx --filter "FullyQualifiedName~TestMethodName"
 ```
 
+## Code coverage (report-only)
+
+CI's `coverage` job (ubuntu only, see [.github/workflows/ci.yml](.github/workflows/ci.yml))
+collects line/branch coverage via `coverlet.collector` — already wired into every
+`tests/*/*.fsproj` through `Directory.Packages.props`, no extra setup needed — and
+aggregates it with [ReportGenerator](https://reportgenerator.io/) (pinned in
+[`.config/dotnet-tools.json`](.config/dotnet-tools.json)) into a job-summary table and an
+HTML build artifact. There is **no** coverage-percentage gate: a coverage regression
+cannot fail the build, only the job summary/artifact surface it for review.
+
+Reproduce it locally:
+
+```sh
+dotnet tool restore
+dotnet build VcsToolkit.slnx --configuration Release
+dotnet test  VcsToolkit.slnx --no-build --configuration Release --collect:"XPlat Code Coverage" --results-directory ./TestResults
+dotnet reportgenerator "-reports:TestResults/**/coverage.cobertura.xml" "-targetdir:CoverageReport" "-reporttypes:Html"
+```
+
+Open `CoverageReport/index.html` for the browsable report. `./TestResults` and
+`./CoverageReport` are both git-ignored scratch output.
+
 ## Adding a new capability
 
 Adding a new git/jj/forge operation touches up to three layers — a CLI wrapper, a

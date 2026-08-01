@@ -229,6 +229,98 @@ jobs:
           path: ./TestResults/*.trx
           if-no-files-found: ignore
 
+  # Report-only code-coverage collection: coverlet.collector (Directory.Packages.props +
+  # every tests/*/*.fsproj) instruments the VcsToolkit.* assemblies during `dotnet test`.
+  # This repo's cross-project convention is <Reference>+AssemblySearchPaths, not
+  # <ProjectReference> (see CLAUDE.md/AGENTS.md, "Dependencies and project references");
+  # verified locally that this does not confuse coverlet's default module discovery: the
+  # collector needs a companion .pdb next to an assembly in the test output directory to
+  # instrument it, and only the VcsToolkit.* libraries carry one there — third-party and
+  # test-framework assemblies (FSharp.Core, ProcessKit, NUnit, ...) have none, so they are
+  # skipped automatically without an explicit include/exclude filter. ReportGenerator
+  # (pinned in .config/dotnet-tools.json) merges the per-project Cobertura files into a
+  # markdown job summary and an HTML artifact. There is deliberately no coverage-percentage
+  # gate here — see CONTRIBUTING.md for the local recipe and docs/mutation-testing.md for
+  # the sibling report-only investigation this mirrors.
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-v2-${{ hashFiles('Directory.Packages.props', 'nuget.config', 'global.json') }}
+          restore-keys: ${{ runner.os }}-nuget-v2-
+
+      # Restores dotnet-reportgenerator-globaltool (.config/dotnet-tools.json), used below
+      # to aggregate the per-project coverage files.
+      - name: Restore tools
+        run: dotnet tool restore
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      # Same install recipe as the `test` job's Unix branch (ubuntu-only here, so no OS
+      # switch needed) — VcsToolkit.Core.ParityTests and the Jj/Watch suites need a real
+      # jj binary.
+      - name: Install jj
+        shell: bash
+        env:
+          JJ_VERSION: '0.42.0'
+        run: |
+          install_dir="$RUNNER_TEMP/jj"
+          target="x86_64-unknown-linux-musl"
+          archive="jj-v${JJ_VERSION}-${target}.tar.gz"
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/$archive" "https://github.com/jj-vcs/jj/releases/download/v${JJ_VERSION}/$archive"
+          mkdir -p "$install_dir"
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$install_dir"
+          test -x "$install_dir/jj"
+          "$install_dir/jj" --version
+          echo "$install_dir" >> "$GITHUB_PATH"
+
+      # Whole-solution run (not an explicit project list), same rationale as the `test`
+      # job: an explicit list would let a project silently drop out of coverage. REQUIRE_JJ=1
+      # matches `test` so a broken jj install fails loudly instead of quietly skipping tests.
+      - name: Test with coverage
+        env:
+          REQUIRE_JJ: '1'
+        run: >-
+          dotnet test --no-build --configuration Release
+          --collect:"XPlat Code Coverage"
+          --results-directory ./TestResults
+
+      # Runs even if a test failed, so a red coverage job still surfaces a partial report
+      # instead of nothing (same "!cancelled()" convention as the `test` job's upload step).
+      - name: Generate coverage report
+        if: ${{ !cancelled() }}
+        run: >-
+          dotnet reportgenerator
+          "-reports:TestResults/**/coverage.cobertura.xml"
+          "-targetdir:CoverageReport"
+          "-reporttypes:Html;MarkdownSummaryGithub"
+
+      - name: Publish coverage summary
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: cat CoverageReport/SummaryGithub.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload HTML coverage report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-report
+          path: ./CoverageReport
+          if-no-files-found: ignore
+
   # Optional live-integration job: stands up a real Gitea container and drives the
   # VcsToolkit.Gitea + Forge surface against it (see GiteaLiveTests.fs) so print-table
   # parsing is validated end-to-end and format drift on a tea/Gitea upgrade is caught.

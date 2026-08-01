@@ -42,6 +42,10 @@ TestResults/
 *.coverage
 *.coveragexml
 
+# Local coverlet + ReportGenerator output (see CONTRIBUTING.md); CI's `coverage` job
+# uploads the same tree as a build artifact instead of committing it.
+CoverageReport/
+
 ## -------
 ## fsdocs (scripts/build-docs.ps1 / .github/workflows/docs.yml)
 ## -------

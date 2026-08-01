@@ -17,6 +17,7 @@
 		<PackageReference Include="Microsoft.NET.Test.Sdk" />
 		<PackageReference Include="NUnit" />
 		<PackageReference Include="NUnit3TestAdapter" />
+		<PackageReference Include="coverlet.collector" />
 		<!-- `VcsToolkit.Core`/`Git`/`Jj`'s method signatures carry `ProcessError` (via
 		     ProcessKit's `Result<_, ProcessError>`); a transitive package dep isn't pulled
 		     through a bare `Reference`, so it's declared explicitly (same reasoning as
