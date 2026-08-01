@@ -1082,13 +1082,18 @@ type Git private (core: ManagedClient) =
                 // M16: `checkFlags` catches a leading `-`/empty/NUL, but not the refspec
                 // metacharacters that silently change what a push DOES — a leading `+`
                 // (force-push, overwriting the remote non-fast-forward), an extra `:` (push to
-                // an unexpected remote ref), or an empty side (`:branch` deletes the remote
+                // an unexpected remote ref), an empty side (`:branch` deletes the remote
                 // branch, `:` pushes all matching branches, `local:` pushes to an empty remote
-                // ref — all destructive fan-out/deletion the typed API claims impossible). A
-                // valid refspec is `branch` or `local:remote` (a single, API-constructed `:`
-                // with both sides non-empty), so allow at most one `:`, no leading `+`, and no
-                // empty side; a genuine force-push/delete must go through
-                // `Run [ "push"; "--force"; … ]`.
+                // ref), or a glob metacharacter (`*`/`?`/`[`) on either side turning the refspec
+                // into a wildcard that fans out to every matching ref (`refs/heads/*:refs/heads/*`
+                // pushes ALL branches despite passing the single-`:`/non-empty-side checks) — all
+                // destructive fan-out/deletion the typed API claims impossible. A valid refspec is
+                // `branch` or `local:remote` (a single, API-constructed `:` with both sides
+                // non-empty and glob-free), so allow at most one `:`, no leading `+`, no empty
+                // side, and no glob/control metacharacter on either side (reusing
+                // `checkRefspecName`, the same guard `FetchBranch`/`RemoteBranchExists` already
+                // apply to a single refspec name); a genuine force-push/delete/wildcard-push must
+                // go through `Run [ "push"; "--force"; … ]`.
                 let sides = spec.Refspec.Split(':')
 
                 if
@@ -1106,17 +1111,29 @@ type Git private (core: ManagedClient) =
                         )
                 else
 
-                    match! this.RemoteCredentials None with
-                    | Error e -> return Error e
-                    | Ok(pre, envs) ->
-                        let upstream = if spec.SetUpstream then [ "-u" ] else []
-                        let args = pre @ [ "push" ] @ upstream @ [ spec.Remote; spec.Refspec ]
+                    match
+                        sides
+                        |> Array.tryPick (fun s ->
+                            match checkRefspecName "push refspec side" s with
+                            | Error e -> Some e
+                            | Ok() -> None)
+                    with
+                    | Some e -> return Error e
+                    | None ->
 
-                        let cmd =
-                            (core.CommandIn(dir, args)).Env("GIT_TERMINAL_PROMPT", "0").TimeoutGrace(FetchTimeoutGrace)
-                            |> applySecretEnv envs
+                        match! this.RemoteCredentials None with
+                        | Error e -> return Error e
+                        | Ok(pre, envs) ->
+                            let upstream = if spec.SetUpstream then [ "-u" ] else []
+                            let args = pre @ [ "push" ] @ upstream @ [ spec.Remote; spec.Refspec ]
 
-                        return! core.RunUnit cmd
+                            let cmd =
+                                (core.CommandIn(dir, args))
+                                    .Env("GIT_TERMINAL_PROMPT", "0")
+                                    .TimeoutGrace(FetchTimeoutGrace)
+                                |> applySecretEnv envs
+
+                            return! core.RunUnit cmd
         }
 
     /// Clone `url` into `dest` (pass an absolute `dest`). Both `url` and `dest` are bare

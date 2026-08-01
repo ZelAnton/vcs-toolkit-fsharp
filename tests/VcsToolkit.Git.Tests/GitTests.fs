@@ -472,6 +472,37 @@ type QueryTests() =
         }
 
     [<Test>]
+    member _.RemotesPreservesWhitespaceInFileSystemUrls() : Task =
+        task {
+            let git =
+                scripted
+                    [ "remote"; "-v" ]
+                    (Reply.Ok(
+                        "windows"
+                        + tab
+                        + "C:/Users/John Doe/repo (fetch)\n"
+                        + "windows"
+                        + tab
+                        + "C:/Users/John Doe/repo (push)\n"
+                        + "unix"
+                        + tab
+                        + "/home/user/my projects/repo.git (fetch)\n"
+                        + "unix"
+                        + tab
+                        + "/home/user/my projects/repo.git (push)\n"
+                    ))
+
+            match! git.Remotes "." with
+            | Ok [ windows; unix ] ->
+                Assert.That(windows.Name, Is.EqualTo "windows")
+                Assert.That(windows.Url, Is.EqualTo "C:/Users/John Doe/repo")
+                Assert.That(unix.Name, Is.EqualTo "unix")
+                Assert.That(unix.Url, Is.EqualTo "/home/user/my projects/repo.git")
+            | Ok other -> Assert.Fail $"expected two deduplicated remotes, got {other.Length}"
+            | Error e -> Assert.Fail $"remotes failed: {e}"
+        }
+
+    [<Test>]
     member _.RemoteBranchExistsInheritsTheCallerTimeout() : Task =
         task {
             // This must match RemoteBranches rather than restoring a hidden 10-second cap.
@@ -597,6 +628,59 @@ type MutationTests() =
 
             match!
                 localRemote.Push(
+                    ".",
+                    { Remote = "origin"
+                      Refspec = "local:remote"
+                      SetUpstream = false }
+                )
+            with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"a local:remote refspec must pass: {e}"
+        }
+
+    [<Test>]
+    member _.PushRejectsGlobRefspecs() : Task =
+        task {
+            // M16: a glob metacharacter (`*`, `?`, `[`) on either side must be refused BEFORE
+            // spawning — `refs/heads/*:refs/heads/*` has exactly one `:` and both sides non-empty,
+            // so it passes the force/multi-ref/empty-side checks, yet it is the exact multi-ref
+            // fan-out (push ALL matching branches) M16 claims to close. `Fallback(Reply.Ok "")`
+            // means an unrefused refspec would spawn and return `Ok` — so `Assert.Fail` on `Ok()`
+            // below doubles as proof no actual `push` was spawned for a refused refspec.
+            let git = Git.WithRunner(ScriptedRunner().Fallback(Reply.Ok ""))
+
+            let rejected =
+                [ "refs/heads/*:refs/heads/*" // glob fan-out on both sides
+                  "feature/*" // glob on a bare (single-side) refspec
+                  "feature/?" // `?` glob, single side
+                  "feature/[ab]" // `[` glob, single side
+                  "feature*:remote" // glob on the local side only
+                  "local:feature*" ] // glob on the remote side only
+
+            for refspec in rejected do
+                match!
+                    git.Push(
+                        ".",
+                        { Remote = "origin"
+                          Refspec = refspec
+                          SetUpstream = false }
+                    )
+                with
+                | Error(ProcessError.Spawn(program, _)) -> Assert.That(program, Is.EqualTo "git")
+                | Error e -> Assert.Fail $"expected a Spawn refusal for \"{refspec}\", got {e}"
+                | Ok() -> Assert.Fail $"a glob refspec \"{refspec}\" must be refused"
+
+            // The valid forms still pass the guard.
+            let plain = scripted [ "push"; "origin"; "branch" ] (Reply.Ok "")
+
+            match! plain.Push(".", GitPush.Branch "branch") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"a plain branch refspec must pass: {e}"
+
+            let localRemote2 = scripted [ "push"; "origin"; "local:remote" ] (Reply.Ok "")
+
+            match!
+                localRemote2.Push(
                     ".",
                     { Remote = "origin"
                       Refspec = "local:remote"
