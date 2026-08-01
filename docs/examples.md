@@ -71,6 +71,23 @@ let createAndMergePullRequest repoDir sourceBranch =
 
 ## Watching repository changes
 
+`VcsToolkit.Watch` ships two monitors over the same event model. Pick by **how the repository
+is reached**, not by preference:
+
+| | `RepoWatcher` | `RepoPoller` |
+|---|---|---|
+| Driven by | `FileSystemWatcher` on the `.git`/`.jj` state dir (optionally the working tree) | a plain interval timer |
+| Latency | sub-second (`Debounce`, default 250 ms) | bounded below by `Interval` (default 2 s) |
+| Cost while idle | none — no query until the filesystem moves | one `git`/`jj` re-query per tick, change or not |
+| Where it works | local disks with a working OS watch | anywhere a subprocess runs |
+| Known-bad ground | network shares (SMB/NFS), docker/podman volume mounts, across the WSL/host boundary — the OS watch is unreliable or silently absent; a removed-and-recreated state dir invalidates the watch and is only *reported* (`WatcherStats.WatchErrors`), never recovered from | — no OS-watch failure mode at all |
+
+Prefer `RepoWatcher` for a prompt, status bar, or TUI on a local checkout; reach for
+`RepoPoller` when the repository lives on a network share or inside a container/VM mount, or
+when you would otherwise have to hand-roll a timer around `RepoDiff.diff`. Both emit the same
+`RepoEvent`s for the same series of repository mutations, and both are consumed identically —
+`Recv()` / `ReadAll()` / `Dispose`.
+
 Build a watcher before entering the receive loop. `Recv` returns `None` after normal disposal;
 a terminal re-query failure is surfaced as a `ChannelClosedException` whose inner exception is
 `WatcherTerminated`.
@@ -104,6 +121,41 @@ let watch repoDir =
                     | _ -> return raise closed
     }
 ```
+
+Swapping in the poller is a one-line change at the build site — the receive loop is unchanged,
+including the terminal-failure handling (`RepoPoller` closes its channel with the same
+`WatcherTerminated`), and `ReadAll` is available on both. Only the knobs differ: an `Interval`
+instead of `Debounce`/`MaxWait`, and no working-tree switch, since a poller re-queries the whole
+state either way.
+
+```fsharp
+open VcsToolkit.Watch
+
+let poll repoDir =
+    task {
+        match Repo.Open repoDir with
+        | Error error -> eprintfn "Cannot open repository: %A" error
+        | Ok repo ->
+            // On a network share or a container volume mount, where an OS filesystem watch is
+            // unreliable: re-query every second instead of waiting for a notification.
+            match! RepoPoller.Builder(repo).Interval(TimeSpan.FromSeconds 1.0).Build() with
+            | Error error -> eprintfn "Cannot start poller: %A" error
+            | Ok poller ->
+                use poller = poller
+                let mutable running = true
+
+                while running do
+                    match! poller.Recv() with
+                    | Some change -> printfn "Events: %A" change.Events
+                    | None -> running <- false
+    }
+```
+
+`ReadAll(?cancellationToken)` is the `IAsyncEnumerable` form of the same stream on both
+monitors — natural from C# (`await foreach`, honouring both the argument token and
+`WithCancellation`). From F#, note that FSharp.Core's `task { }` cannot `for … in` an
+`IAsyncEnumerable` (that needs `TaskSeq`), so a `Recv` loop like the one above is usually the
+simpler F# consumer.
 
 ## Resolving Git conflict markers
 

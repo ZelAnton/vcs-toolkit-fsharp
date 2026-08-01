@@ -1177,3 +1177,712 @@ type PipelineTests() =
                     // jj or the watcher can still hold a file handle while Windows tears down.
                     ()
         }
+
+// ---------------------------------------------------------------------------
+// The polling monitor (RepoPoller): the tick → re-query → diff pipeline, the consumption
+// surface (Recv/ReadAll/Dispose), and the degradation policy it shares with watchLoop.
+// ---------------------------------------------------------------------------
+
+/// A poll period well above `PollConstants.minPollInterval` (so it is not clamped) yet short
+/// enough to keep a test in the sub-second range.
+let private fastPollInterval = TimeSpan.FromMilliseconds 20.0
+
+[<TestFixture>]
+type RepoPollerTests() =
+
+    [<Test>]
+    member _.ClampIntervalKeepsThePollPeriodInRange() =
+        Assert.That(
+            PollLoop.clampInterval TimeSpan.Zero,
+            Is.EqualTo PollConstants.minPollInterval,
+            "a zero interval must not turn the loop into a subprocess busy-loop"
+        )
+
+        Assert.That(
+            PollLoop.clampInterval (TimeSpan.FromMilliseconds -5.0),
+            Is.EqualTo PollConstants.minPollInterval,
+            "a negative interval is clamped to the floor, not passed to Task.Delay"
+        )
+
+        Assert.That(
+            PollLoop.clampInterval (TimeSpan.FromDays 400.0),
+            Is.EqualTo Constants.maxTimerDelay,
+            "an interval past the timer ceiling is clamped, not thrown on"
+        )
+
+        Assert.That(
+            PollLoop.clampInterval (TimeSpan.FromSeconds 1.0),
+            Is.EqualTo(TimeSpan.FromSeconds 1.0),
+            "an in-range interval is passed through untouched"
+        )
+
+    [<Test>]
+    member _.PollTickRequeriesAndEmitsChange() : Task =
+        task {
+            let _, out = channels ()
+            let stats = StatsInner()
+            use cts = new CancellationTokenSource()
+
+            let _loop =
+                PollLoop.pollLoop
+                    (scriptedJj "bbbb")
+                    out
+                    (baseSnapshot, baseBranches)
+                    fastPollInterval
+                    fastConfig
+                    stats
+                    cts.Token
+
+            use readCts = new CancellationTokenSource(TimeSpan.FromSeconds 5.0)
+            let! change = out.Reader.ReadAsync readCts.Token
+
+            Assert.That(
+                (change.Events = [ RepoEvent.HeadMoved(From = Some "aaaa", To = Some "bbbb") ]),
+                Is.True,
+                "a poll tick re-queries and emits the head move — the same event the watcher derives"
+            )
+
+            Assert.That(change.Snapshot.Head, Is.EqualTo(Some "bbbb"), "the change carries the fresh snapshot")
+            cts.Cancel()
+        }
+
+    [<Test>]
+    member _.UnchangedStateEmitsNothingOnEveryTick() : Task =
+        task {
+            let _, out = channels ()
+            let stats = StatsInner()
+            use cts = new CancellationTokenSource()
+            // Same head as the baseline → every tick diffs to nothing.
+            let _loop =
+                PollLoop.pollLoop
+                    (scriptedJj "aaaa")
+                    out
+                    (baseSnapshot, baseBranches)
+                    fastPollInterval
+                    fastConfig
+                    stats
+                    cts.Token
+
+            do! Task.Delay 250
+
+            let snap = stats.Snapshot()
+            Assert.That(snap.Requeries >= 1UL, Is.True, "the timer drove at least one re-query")
+            Assert.That(snap.Changes, Is.EqualTo 0UL, "an unchanged state emits no RepoChange")
+            Assert.That(out.Reader.TryRead() |> fst, Is.False, "nothing was queued on the output")
+            cts.Cancel()
+        }
+
+    [<Test>]
+    member _.TransientPollFailureRetriesWithBackoffAndRecovers() : Task =
+        task {
+            // The snapshot command fails transiently twice, then succeeds — the poll loop must
+            // ride that out with the same bounded backoff the watcher uses, not treat it as
+            // terminal and not silently stop ticking.
+            let _, out = channels ()
+            let stats = StatsInner()
+            use cts = new CancellationTokenSource()
+            let repo = Repo.FromJj("/r", "/r", Jj.WithRunner(transientThenOkRunner "bbbb" 2))
+
+            let _loop =
+                PollLoop.pollLoop repo out (baseSnapshot, baseBranches) fastPollInterval fastConfig stats cts.Token
+
+            // Generous bound: two retry backoffs (≈200ms + 400ms) plus the tick interval.
+            use readCts = new CancellationTokenSource(TimeSpan.FromSeconds 10.0)
+            let! change = out.Reader.ReadAsync readCts.Token
+
+            Assert.That(
+                (change.Events = [ RepoEvent.HeadMoved(From = Some "aaaa", To = Some "bbbb") ]),
+                Is.True,
+                "the loop retried past the transient failures and eventually emitted the change"
+            )
+
+            let snap = stats.Snapshot()
+            Assert.That(snap.Skipped >= 2UL, Is.True, "each transient attempt was counted as a skip")
+            Assert.That(snap.LastError, Is.EqualTo(Some WatcherErrorKind.Snapshot))
+            Assert.That(snap.Changes, Is.EqualTo 1UL)
+
+            Assert.That(
+                out.Reader.Completion.IsCompleted,
+                Is.False,
+                "the output channel stays open — a transient failure never terminates the poll loop"
+            )
+
+            cts.Cancel()
+        }
+
+    [<Test>]
+    member _.TerminalPollFailureSurfacesThroughRecv() : Task =
+        task {
+            // A non-transient re-query failure must reach the consumer as WatcherTerminated
+            // (never a silent stop), through the same channel-close mechanism the watcher uses.
+            let _, out = channels ()
+            let stats = StatsInner()
+            use cts = new CancellationTokenSource()
+            let repo = Repo.FromJj("/r", "/r", Jj.WithRunner(terminalFailureRunner ()))
+
+            let loopTask =
+                PollLoop.pollLoop repo out (baseSnapshot, baseBranches) fastPollInterval fastConfig stats cts.Token
+
+            use poller = new RepoPoller(out, baseSnapshot, stats, cts, loopTask)
+
+            let recvTask = poller.Recv()
+            let! winner = Task.WhenAny(recvTask :> Task, Task.Delay(TimeSpan.FromSeconds 5.0))
+
+            Assert.That(
+                Object.ReferenceEquals(winner, recvTask),
+                Is.True,
+                "Recv should surface the terminal failure promptly"
+            )
+
+            try
+                let! _ = recvTask
+                Assert.Fail "expected Recv to throw once the poll loop signals a terminal failure"
+            with :? ChannelClosedException as e ->
+                match e.InnerException with
+                | :? WatcherTerminated as terminal ->
+                    match terminal :> exn with
+                    | WatcherTerminated err ->
+                        Assert.That(err.IsTransient, Is.False, "a plain exit failure is not transient")
+                    | _ -> Assert.Fail "unreachable"
+                | other -> Assert.Fail $"expected the ChannelClosedException to wrap WatcherTerminated, got {other}"
+
+            let snap = stats.Snapshot()
+            Assert.That(snap.Skipped >= 1UL, Is.True, "the failed re-query was counted before the terminal signal")
+            Assert.That(snap.LastError, Is.EqualTo(Some WatcherErrorKind.Snapshot))
+
+            // The loop stops after signalling — it never keeps ticking on a terminal failure.
+            do! Task.Delay 100
+            Assert.That(loopTask.IsCompleted, Is.True, "the poll loop must not keep running after a terminal signal")
+        }
+
+    [<Test>]
+    member _.ReadAllRethrowsTheTerminalPollFailure() : Task =
+        task {
+            let _, out = channels ()
+            let stats = StatsInner()
+            use cts = new CancellationTokenSource()
+            let repo = Repo.FromJj("/r", "/r", Jj.WithRunner(terminalFailureRunner ()))
+
+            let loopTask =
+                PollLoop.pollLoop repo out (baseSnapshot, baseBranches) fastPollInterval fastConfig stats cts.Token
+
+            use poller = new RepoPoller(out, baseSnapshot, stats, cts, loopTask)
+
+            let moveNext = poller.ReadAll().GetAsyncEnumerator().MoveNextAsync().AsTask()
+            let! winner = Task.WhenAny(moveNext :> Task, Task.Delay(TimeSpan.FromSeconds 5.0))
+
+            Assert.That(
+                Object.ReferenceEquals(winner, moveNext),
+                Is.True,
+                "ReadAll should surface the terminal failure promptly"
+            )
+
+            try
+                let! _ = moveNext
+                Assert.Fail "expected ReadAll to throw once the poll loop signals a terminal failure"
+            with :? WatcherTerminated as terminal ->
+                match terminal :> exn with
+                | WatcherTerminated err ->
+                    Assert.That(err.IsTransient, Is.False, "a plain exit failure is not transient")
+                | _ -> Assert.Fail "unreachable"
+
+            Assert.That(loopTask.IsCompleted, Is.True, "the poll loop must stop after the terminal stream failure")
+        }
+
+    [<Test>]
+    member _.DisposeEndsReadAllAndRecvWithoutHangingOrThrowing() : Task =
+        task {
+            let _, out = channels ()
+            let stats = StatsInner()
+            let cts = new CancellationTokenSource()
+
+            let loopTask =
+                PollLoop.pollLoop
+                    (scriptedJj "aaaa")
+                    out
+                    (baseSnapshot, baseBranches)
+                    fastPollInterval
+                    fastConfig
+                    stats
+                    cts.Token
+
+            let poller = new RepoPoller(out, baseSnapshot, stats, cts, loopTask)
+            (poller :> IDisposable).Dispose()
+
+            let enumerator = poller.ReadAll().GetAsyncEnumerator()
+            let moveNext = enumerator.MoveNextAsync().AsTask()
+            let! winner = Task.WhenAny(moveNext :> Task, Task.Delay(TimeSpan.FromSeconds 5.0))
+
+            Assert.That(Object.ReferenceEquals(winner, moveNext), Is.True, "dispose completes the stream promptly")
+
+            let! hasChange = moveNext
+            Assert.That(hasChange, Is.False, "dispose ends the stream without an exception")
+            do! enumerator.DisposeAsync().AsTask()
+
+            let! change = poller.Recv()
+            Assert.That(change, Is.EqualTo None, "after dispose Recv yields None rather than throwing")
+        }
+
+    [<Test>]
+    member _.ConcurrentDisposeDuringAPendingRecvIsRaceFree() : Task =
+        task {
+            // A pending Recv parked on an empty channel while several threads race to dispose:
+            // the teardown must run exactly once and the pending Recv must end with None — no
+            // ObjectDisposedException escaping, no hang.
+            let _, out = channels ()
+            let stats = StatsInner()
+            let cts = new CancellationTokenSource()
+
+            let loopTask =
+                PollLoop.pollLoop
+                    (scriptedJj "aaaa")
+                    out
+                    (baseSnapshot, baseBranches)
+                    fastPollInterval
+                    fastConfig
+                    stats
+                    cts.Token
+
+            let poller = new RepoPoller(out, baseSnapshot, stats, cts, loopTask)
+            let recvTask = poller.Recv()
+
+            let disposals =
+                [| for _ in 1..4 -> Task.Run(Action(fun () -> (poller :> IDisposable).Dispose())) |]
+
+            do! Task.WhenAll disposals
+
+            let! winner = Task.WhenAny(recvTask :> Task, Task.Delay(TimeSpan.FromSeconds 5.0))
+
+            Assert.That(
+                Object.ReferenceEquals(winner, recvTask),
+                Is.True,
+                "a concurrent dispose must release the pending Recv promptly"
+            )
+
+            let! change = recvTask
+            Assert.That(change, Is.EqualTo None, "a concurrent dispose ends a pending Recv with None, not an exception")
+        }
+
+    [<Test>]
+    member _.ReadAllEnumeratorCancellationStopsEnumerationEvenWhenTheArgumentTokenIsCancelable() : Task =
+        task {
+            // Same contract RepoWatcher.ReadAll carries (see the T-139 regression above): with
+            // both tokens cancelable, cancelling *either* must stop the enumeration — here the
+            // [EnumeratorCancellation] token, while the argument token stays untouched.
+            let _, out = channels ()
+            let stats = StatsInner()
+            let cts = new CancellationTokenSource()
+            use poller = new RepoPoller(out, baseSnapshot, stats, cts, Task.CompletedTask)
+
+            use requestedCts = new CancellationTokenSource()
+            use enumeratorCts = new CancellationTokenSource()
+
+            let stream = poller.ReadAll(requestedCts.Token)
+            let enumerator = stream.GetAsyncEnumerator(enumeratorCts.Token)
+
+            // Nothing is ever written to `out`, so this stays pending until a token fires.
+            let moveNext = enumerator.MoveNextAsync().AsTask()
+            enumeratorCts.Cancel()
+
+            let! winner = Task.WhenAny(moveNext :> Task, Task.Delay(TimeSpan.FromSeconds 5.0))
+
+            Assert.That(
+                Object.ReferenceEquals(winner, moveNext),
+                Is.True,
+                "cancelling the enumerator token must stop MoveNextAsync promptly"
+            )
+
+            try
+                let! _ = moveNext
+                Assert.Fail "expected MoveNextAsync to be cancelled"
+            with :? OperationCanceledException ->
+                // expected: the linked token source propagates the enumerator token's
+                // cancellation into the pending channel read.
+                ()
+
+            Assert.That(
+                requestedCts.IsCancellationRequested,
+                Is.False,
+                "cancelling the enumerator token must not affect the ReadAll-argument token"
+            )
+
+            do! enumerator.DisposeAsync().AsTask()
+        }
+
+    [<Test>]
+    member _.ReadAllArgumentCancellationStillStopsEnumerationWhenTheEnumeratorTokenIsCancelable() : Task =
+        task {
+            let _, out = channels ()
+            let stats = StatsInner()
+            let cts = new CancellationTokenSource()
+            use poller = new RepoPoller(out, baseSnapshot, stats, cts, Task.CompletedTask)
+
+            use requestedCts = new CancellationTokenSource()
+            use enumeratorCts = new CancellationTokenSource()
+
+            let stream = poller.ReadAll(requestedCts.Token)
+            let enumerator = stream.GetAsyncEnumerator(enumeratorCts.Token)
+
+            let moveNext = enumerator.MoveNextAsync().AsTask()
+            requestedCts.Cancel()
+
+            let! winner = Task.WhenAny(moveNext :> Task, Task.Delay(TimeSpan.FromSeconds 5.0))
+
+            Assert.That(
+                Object.ReferenceEquals(winner, moveNext),
+                Is.True,
+                "cancelling the ReadAll-argument token must stop MoveNextAsync promptly"
+            )
+
+            try
+                let! _ = moveNext
+                Assert.Fail "expected MoveNextAsync to be cancelled"
+            with :? OperationCanceledException ->
+                // expected: the linked token source propagates the argument token's
+                // cancellation into the pending channel read.
+                ()
+
+            do! enumerator.DisposeAsync().AsTask()
+        }
+
+    [<Test>]
+    member _.ReadAllYieldsEveryQueuedChangeAndAdvancesCurrent() : Task =
+        task {
+            let _, out = channels ()
+            let stats = StatsInner()
+            let cts = new CancellationTokenSource()
+
+            let first =
+                { Snapshot = { baseSnapshot with Head = Some "bbbb" }
+                  Events = [ RepoEvent.HeadMoved(From = Some "aaaa", To = Some "bbbb") ] }
+
+            let second =
+                { Snapshot = { baseSnapshot with Head = Some "cccc" }
+                  Events = [ RepoEvent.HeadMoved(From = Some "bbbb", To = Some "cccc") ] }
+
+            use poller = new RepoPoller(out, baseSnapshot, stats, cts, Task.CompletedTask)
+
+            out.Writer.TryWrite first |> ignore
+            out.Writer.TryWrite second |> ignore
+            out.Writer.TryComplete() |> ignore
+
+            let enumerator = poller.ReadAll().GetAsyncEnumerator()
+            let received = ResizeArray<RepoChange>()
+            let mutable hasChange = true
+
+            while hasChange do
+                let! available = enumerator.MoveNextAsync().AsTask()
+                hasChange <- available
+
+                if available then
+                    received.Add enumerator.Current
+
+            Assert.That(received.Count, Is.EqualTo 2, "the stream yields every queued change")
+            Assert.That(received[0].Snapshot.Head, Is.EqualTo(Some "bbbb"))
+            Assert.That(received[1].Snapshot.Head, Is.EqualTo(Some "cccc"))
+            Assert.That(poller.Current.Head, Is.EqualTo(Some "cccc"), "the final yielded change updates Current")
+            do! enumerator.DisposeAsync().AsTask()
+        }
+
+    [<Test>]
+    member _.PollCapturesTheBaselineAndObservesTheJjRepoReadOnly() : Task =
+        task {
+            // A poller re-queries unconditionally on every tick, so observing jj read-only
+            // matters even more than for the watcher: an ordinary jj query snapshots the working
+            // copy and records a new operation, which would append to the op log forever purely
+            // by being observed. Every command it issues must lead with --ignore-working-copy.
+            let calls = ResizeArray<Command>()
+
+            let runner =
+                ScriptedRunner()
+                    .When(
+                        (fun (cmd: Command) ->
+                            calls.Add cmd
+                            false),
+                        Reply.Ok ""
+                    )
+                    .On([ "log"; "-r"; "@"; "--limit"; "1" ], Reply.Ok "aaaa\t1\t0\n")
+                    .On([ "log"; "heads(::@ & bookmarks())" ], Reply.Ok "main\txyz\n")
+                    .On([ "bookmark"; "list" ], Reply.Ok "main\tabc\n")
+                    .Fallback(Reply.Ok "")
+
+            // No state directory is needed: unlike the watcher, a poller registers no OS watch.
+            let repo = Repo.FromJj("/r", "/r", Jj.WithRunner runner)
+
+            match! RepoPoller.Poll repo with
+            | Error e -> Assert.Fail $"poll build failed: {e.Message}"
+            | Ok poller ->
+                (poller :> IDisposable).Dispose()
+
+                Assert.That(poller.Current.Head, Is.EqualTo(Some "aaaa"), "the baseline snapshot was captured")
+                Assert.That(calls.Count > 0, Is.True, "the baseline re-query issued jj commands")
+
+                for cmd in calls do
+                    let args = cmd.Arguments |> Seq.toList
+                    let joined = String.concat " " args
+
+                    Assert.That(
+                        List.head args,
+                        Is.EqualTo "--ignore-working-copy",
+                        $"a poll re-query command must be read-only (flag before the subcommand): {joined}"
+                    )
+        }
+
+    [<Test>]
+    member _.BuildSurfacesTheBaselineQueryFailure() : Task =
+        task {
+            // The poller has no filesystem-watch registration to fail on, so a failed baseline
+            // query is its one Build-time error path — it must be reported, not swallowed into a
+            // live poller with an invented baseline.
+            let repo = Repo.FromJj("/r", "/r", Jj.WithRunner(terminalFailureRunner ()))
+
+            match! RepoPoller.Poll repo with
+            | Ok poller ->
+                (poller :> IDisposable).Dispose()
+                Assert.Fail "expected the failing baseline query to fail Build"
+            | Error e ->
+                Assert.That(e.IsTransient, Is.False, "a plain exit failure is not transient")
+                Assert.That(String.IsNullOrWhiteSpace e.Message, Is.False, "the error carries a diagnostic message")
+        }
+
+// ---------------------------------------------------------------------------
+// RepoWatcher vs RepoPoller over a real git repository: the same mutation series must
+// produce the same events through either monitor.
+//
+// This fixture keeps its own minimal git fixture rather than depending on
+// VcsToolkit.TestKit's GitSandbox: this test project references only the libraries it
+// exercises, and pulling in another one would mean new solution-level build ordering for a
+// four-command scratch repository.
+// ---------------------------------------------------------------------------
+
+/// Whether an actual git process can run.
+let private gitAvailable () =
+    try
+        use proc = new Process()
+        proc.StartInfo <- ProcessStartInfo(FileName = "git", UseShellExecute = false)
+        proc.StartInfo.ArgumentList.Add "--version"
+        proc.Start() && proc.WaitForExit(5000) && proc.ExitCode = 0
+    with _ ->
+        false
+
+let private requireGit () =
+    if not (gitAvailable ()) then
+        Assert.Ignore "git not available on PATH"
+
+/// Run a real git command with a hermetic configuration for the integration fixture: no
+/// system/global config (a host-set `init.templateDir`/`core.hooksPath` must not leak in), no
+/// credential prompt, and no inherited `GIT_DIR`-style redirection.
+let private runGit (dir: string) (args: string list) =
+    use proc = new Process()
+
+    let psi =
+        ProcessStartInfo(FileName = "git", WorkingDirectory = dir, UseShellExecute = false)
+
+    psi.RedirectStandardOutput <- true
+    psi.RedirectStandardError <- true
+    let nonexistent = Path.Combine(dir, "vcs-watch-no-such-git-config")
+    psi.Environment.["GIT_CONFIG_NOSYSTEM"] <- "1"
+    psi.Environment.["GIT_CONFIG_GLOBAL"] <- nonexistent
+    psi.Environment.["GIT_CONFIG_SYSTEM"] <- nonexistent
+    psi.Environment.["GIT_TERMINAL_PROMPT"] <- "0"
+
+    for key in
+        [ "GIT_CONFIG_PARAMETERS"
+          "GIT_CONFIG"
+          "GIT_DIR"
+          "GIT_COMMON_DIR"
+          "GIT_WORK_TREE"
+          "GIT_INDEX_FILE"
+          "GIT_OBJECT_DIRECTORY"
+          "GIT_NAMESPACE" ] do
+        psi.Environment.Remove key |> ignore
+
+    for arg in args do
+        psi.ArgumentList.Add arg
+
+    proc.StartInfo <- psi
+
+    if not (proc.Start()) then
+        failwithf "failed to start `git %s`" (String.concat " " args)
+
+    let stdout = proc.StandardOutput.ReadToEndAsync()
+    let stderr = proc.StandardError.ReadToEndAsync()
+    proc.WaitForExit()
+
+    if proc.ExitCode <> 0 then
+        failwithf "`git %s` exited with %d: %s%s" (String.concat " " args) proc.ExitCode stderr.Result stdout.Result
+
+/// Drain a monitor's `Recv` into `sink` until it ends. Returns the pump task so a test can
+/// surface a terminal failure (a faulted pump) instead of silently losing it.
+let private pumpEvents (recv: unit -> Task<RepoChange option>) (sink: ResizeArray<RepoEvent>) : Task =
+    task {
+        let mutable running = true
+
+        while running do
+            let! change = recv ()
+
+            match change with
+            | Some change -> lock sink (fun () -> sink.AddRange change.Events)
+            | None -> running <- false
+    }
+
+/// Let a mutation settle before the next one is applied: wait until **both** counts have moved
+/// past `before` and then stayed unchanged for `quiet`, bounded by `budget`.
+///
+/// Requiring progress from both monitors (rather than only quiescence) is what makes the
+/// comparison meaningful: if one monitor were allowed to lag into the next mutation, it would
+/// re-query a *combined* state and legitimately derive a different event set — a property of the
+/// test's pacing, not a disagreement between the monitors. Deliberately does not assert: a
+/// monitor that never reports shows up as a mismatch in the comparison, which says far more than
+/// a timeout here would.
+let private settle (budget: TimeSpan) (quiet: TimeSpan) (before: int * int) (counts: unit -> int * int) : Task =
+    task {
+        let sw = Stopwatch.StartNew()
+        let mutable last = before
+        let mutable lastChange = sw.Elapsed
+        let mutable settled = false
+
+        while not settled && sw.Elapsed < budget do
+            do! Task.Delay 100
+            let now = counts ()
+
+            if now <> last then
+                last <- now
+                lastChange <- sw.Elapsed
+            elif fst now > fst before && snd now > snd before && sw.Elapsed - lastChange >= quiet then
+                settled <- true
+    }
+
+[<TestFixture>]
+type MonitorEquivalenceTests() =
+
+    [<Test>]
+    member _.WatcherAndPollerReportTheSameEventsForTheSameMutationSeries() : Task =
+        task {
+            requireGit ()
+
+            let dir = Path.Combine(Path.GetTempPath(), $"vcs-watch-parity-{Guid.NewGuid():N}")
+
+            Directory.CreateDirectory dir |> ignore
+
+            try
+                runGit dir [ "init"; "-q"; "-b"; "main" ]
+                runGit dir [ "config"; "user.name"; "test" ]
+                runGit dir [ "config"; "user.email"; "test@example.com" ]
+                File.WriteAllText(Path.Combine(dir, "seed.txt"), "seed\n")
+                runGit dir [ "add"; "-A" ]
+                runGit dir [ "commit"; "-qm"; "seed" ]
+
+                match Repo.Open dir with
+                | Error e -> Assert.Fail $"cannot open the scratch repository: {e.Message}"
+                | Ok repo ->
+                    // Both monitors capture their baseline BEFORE the first mutation, so they
+                    // start from the identical observation. The watcher also watches the working
+                    // tree, since the series below edits a file the .git state dir never sees.
+                    match!
+                        RepoWatcher
+                            .Builder(repo)
+                            .WorkingTree(true)
+                            .Debounce(TimeSpan.FromMilliseconds 100.0)
+                            .MaxWait(TimeSpan.FromMilliseconds 400.0)
+                            .Build()
+                    with
+                    | Error e -> Assert.Fail $"watcher build failed: {e.Message}"
+                    | Ok watcher ->
+                        use watcher = watcher
+
+                        match! RepoPoller.Builder(repo).Interval(TimeSpan.FromMilliseconds 150.0).Build() with
+                        | Error e -> Assert.Fail $"poller build failed: {e.Message}"
+                        | Ok poller ->
+                            use poller = poller
+
+                            Assert.That(
+                                (watcher.Current.Head = poller.Current.Head),
+                                Is.True,
+                                "both monitors start from the same baseline snapshot"
+                            )
+
+                            let watched = ResizeArray<RepoEvent>()
+                            let polled = ResizeArray<RepoEvent>()
+                            let watcherPump = pumpEvents watcher.Recv watched
+                            let pollerPump = pumpEvents poller.Recv polled
+
+                            let counts () =
+                                lock watched (fun () -> watched.Count), lock polled (fun () -> polled.Count)
+
+                            let budget = TimeSpan.FromSeconds 25.0
+                            let quiet = TimeSpan.FromMilliseconds 1500.0
+
+                            // One mutation per step, each settled before the next, so both
+                            // monitors observe the same intermediate states rather than racing
+                            // to coalesce a different subset of them.
+                            let step (mutate: unit -> unit) =
+                                task {
+                                    let before = counts ()
+                                    mutate ()
+                                    do! settle budget quiet before counts
+                                }
+
+                            do! step (fun () -> File.WriteAllText(Path.Combine(dir, "seed.txt"), "seed\nedited\n"))
+
+                            do!
+                                step (fun () ->
+                                    // `add` alone leaves the observable state (dirty, one change)
+                                    // untouched, so this whole step is one observable transition:
+                                    // the commit.
+                                    runGit dir [ "add"; "-A" ]
+                                    runGit dir [ "commit"; "-qm"; "second" ])
+
+                            do! step (fun () -> runGit dir [ "branch"; "feature" ])
+                            do! step (fun () -> runGit dir [ "branch"; "-D"; "feature" ])
+
+                            (watcher :> IDisposable).Dispose()
+                            (poller :> IDisposable).Dispose()
+
+                            let bothPumps = Task.WhenAll [| watcherPump; pollerPump |]
+
+                            let! pumps = Task.WhenAny(bothPumps, Task.Delay(TimeSpan.FromSeconds 5.0))
+
+                            Assert.That(
+                                pumps.IsFaulted,
+                                Is.False,
+                                $"a monitor ended with a terminal failure: {pumps.Exception}"
+                            )
+
+                            let watchedEvents = lock watched (fun () -> List.ofSeq watched)
+                            let polledEvents = lock polled (fun () -> List.ofSeq polled)
+
+                            Assert.That(
+                                List.contains (RepoEvent.BranchCreated "feature") watchedEvents,
+                                Is.True,
+                                $"the watcher observed the whole series, got {watchedEvents}"
+                            )
+
+                            Assert.That(
+                                List.contains (RepoEvent.BranchDeleted "feature") watchedEvents,
+                                Is.True,
+                                $"the watcher observed the whole series, got {watchedEvents}"
+                            )
+
+                            Assert.That(
+                                watchedEvents
+                                |> List.exists (fun e ->
+                                    match e with
+                                    | RepoEvent.HeadMoved _ -> true
+                                    | _ -> false),
+                                Is.True,
+                                $"the watcher observed the commit, got {watchedEvents}"
+                            )
+
+                            Assert.That(
+                                (watchedEvents = polledEvents),
+                                Is.True,
+                                $"the two monitors must agree on the same mutation series — watcher {watchedEvents} vs poller {polledEvents}"
+                            )
+            finally
+                try
+                    Directory.Delete(dir, true)
+                with _ ->
+                    // git or a monitor can still hold a file handle while Windows tears down.
+                    ()
+        }

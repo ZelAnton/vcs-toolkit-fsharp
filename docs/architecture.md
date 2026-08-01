@@ -170,7 +170,7 @@ can be a test-time dependency of the test project for **any** other package
 without ever creating a build cycle (a test project for `Git` needs `TestKit`;
 `TestKit` must therefore not need `Git`).
 
-### `VcsToolkit.Watch` — filesystem-watch a repository into typed events
+### `VcsToolkit.Watch` — watch a repository into typed events
 
 `Watch` builds on `Core` to turn raw filesystem churn into typed
 domain events. `RepoWatcher` watches the `.git`/`.jj` state directory (and
@@ -185,6 +185,37 @@ implementation details of how git/jj actually write refs (temp-file renames,
 `index.lock` churn) — those look like arbitrary bursts of file activity at the
 FS layer, but resolve to a small, meaningful diff once re-queried through
 `Core`. This is the layer a prompt, a status bar, or a TUI would build on.
+
+That design has a second consequence, and it is why this package ships **two**
+monitors rather than one. Since the filesystem events are only ever a *trigger*
+— every event the consumer sees is derived by `RepoDiff.diff`, a pure function
+of two `Repo.Snapshot` + `Repo.LocalBranches` observations — the trigger is
+replaceable without touching the event semantics. `RepoPoller` replaces it with
+a plain interval timer: same re-query, same `RepoDiff.diff`, same `RepoChange`
+down the same bounded channel, same `Recv`/`ReadAll`/`Dispose` surface, same
+degradation policy (transient re-query failures retried with a bounded backoff,
+a terminal one closing the channel with `WatcherTerminated`). A given series of
+repository mutations therefore produces the same events through either monitor,
+which is asserted directly by an integration test running both over one real
+repository.
+
+The two exist because the OS watch is not universally available, not because
+polling is a fallback for a bug: `FileSystemWatcher` is unreliable or silently
+absent on network shares (SMB/NFS), on docker/podman volume mounts, and across
+the WSL/host boundary, and an OS-level watch failure (classically, the state
+directory being removed and re-created) can only be *reported* through
+`WatcherStats.WatchErrors`, never recovered from — the watcher deliberately does
+not re-register itself. `RepoPoller` has none of those failure modes and needs
+nothing from the platform beyond the ability to spawn `git`/`jj`; the price is
+that detection latency is bounded below by the poll interval, and that it
+re-queries on every tick whether or not anything changed. Choose by where the
+repository lives: `RepoWatcher` for a local checkout (sub-second, free while
+idle), `RepoPoller` for anything reached over a network or a container mount.
+Because polling re-queries unconditionally, both monitors observe a jj
+repository through `Jj.ReadOnly()` (`--ignore-working-copy`) — an ordinary jj
+query snapshots the working copy and records an operation, so an observer that
+did not would perturb the very state it reports, and a *polling* observer would
+do so forever, on a timer.
 
 ### `VcsToolkit.Mcp` / `VcsToolkit.Mcp.Server` — the agent-facing tool surface
 

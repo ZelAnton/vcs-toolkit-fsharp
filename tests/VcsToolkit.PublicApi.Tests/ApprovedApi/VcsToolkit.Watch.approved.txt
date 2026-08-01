@@ -11,6 +11,15 @@ namespace VcsToolkit.Watch
         public VcsToolkit.Watch.Builder RequeryTimeout(Microsoft.FSharp.Core.FSharpOption<System.TimeSpan>? timeout) { }
         public VcsToolkit.Watch.Builder WorkingTree(bool yes) { }
     }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.ObjectType)]
+    [Microsoft.FSharp.Core.Sealed]
+    [System.Serializable]
+    public sealed class PollerBuilder
+    {
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Watch.RepoPoller, VcsToolkit.Watch.WatchError>> Build() { }
+        public VcsToolkit.Watch.PollerBuilder Interval(System.TimeSpan period) { }
+        public VcsToolkit.Watch.PollerBuilder RequeryTimeout(Microsoft.FSharp.Core.FSharpOption<System.TimeSpan>? timeout) { }
+    }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
     [System.Serializable]
     public sealed class RepoChange : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Watch.RepoChange>, System.IEquatable<VcsToolkit.Watch.RepoChange>
@@ -84,6 +93,20 @@ namespace VcsToolkit.Watch
         [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.Watch.RepoEvent.WorkingCopyChanged@DebugTypeProxy))]
         [System.Serializable]
         public class WorkingCopyChanged : VcsToolkit.Watch.RepoEvent { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.ObjectType)]
+    [Microsoft.FSharp.Core.Sealed]
+    [System.Serializable]
+    public sealed class RepoPoller : System.IDisposable
+    {
+        public VcsToolkit.Core.RepoSnapshot Current { get; }
+        public VcsToolkit.Watch.WatcherStats Stats { get; }
+        public static System.TimeSpan DefaultInterval { get; }
+        public static System.TimeSpan DefaultRequeryTimeout { get; }
+        public System.Collections.Generic.IAsyncEnumerable<VcsToolkit.Watch.RepoChange> ReadAll([Microsoft.FSharp.Core.OptionalArgument] Microsoft.FSharp.Core.FSharpOption<System.Threading.CancellationToken>? cancellationToken) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Watch.RepoChange>?> Recv() { }
+        public static VcsToolkit.Watch.PollerBuilder Builder(VcsToolkit.Core.Repo repo) { }
+        public static System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Watch.RepoPoller, VcsToolkit.Watch.WatchError>> Poll(VcsToolkit.Core.Repo repo) { }
     }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.ObjectType)]
     [Microsoft.FSharp.Core.Sealed]

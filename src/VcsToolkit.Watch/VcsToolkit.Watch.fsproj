@@ -4,8 +4,8 @@
 		<TargetFramework>net10.0</TargetFramework>
 		<AssemblyName>VcsToolkit.Watch</AssemblyName>
 		<PackageId>VcsToolkit.Watch</PackageId>
-		<Description>Filesystem-watch a git/jj repository and emit typed state-change events. A RepoWatcher watches the repo's .git/.jj state dir (and, optionally, the working tree), debounces the write burst a VCS operation makes, re-queries the repo state through VcsToolkit.Core's batched snapshot, and diffs it against the previous state to yield typed RepoEvents. Re-query-and-diff (rather than interpreting raw filesystem events) makes it robust to ref temp-file renames, index.lock churn, and reflog noise. The foundation for prompts, status bars, TUIs, and repo daemons.</Description>
-		<PackageTags>fsharp;vcs;git;jujutsu;jj;watch;filesystem;events;prompt;status</PackageTags>
+		<Description>Watch a git/jj repository and emit typed state-change events. A RepoWatcher watches the repo's .git/.jj state dir (and, optionally, the working tree), debounces the write burst a VCS operation makes, re-queries the repo state through VcsToolkit.Core's batched snapshot, and diffs it against the previous state to yield typed RepoEvents. Re-query-and-diff (rather than interpreting raw filesystem events) makes it robust to ref temp-file renames, index.lock churn, and reflog noise. Where an OS filesystem watch is unreliable or unavailable — network shares, container volume mounts, across the WSL boundary — a RepoPoller yields the same events off a plain interval instead. The foundation for prompts, status bars, TUIs, and repo daemons.</Description>
+		<PackageTags>fsharp;vcs;git;jujutsu;jj;watch;poll;filesystem;events;prompt;status</PackageTags>
 		<!-- Cross-project references resolve through assembly search paths (no ProjectReference). -->
 		<AssemblySearchPaths>$(AssemblySearchPaths);$(CoreDir)bin\$(Configuration)\$(TargetFramework);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework);$(DiffDir)bin\$(Configuration)\$(TargetFramework);$(GitDir)bin\$(Configuration)\$(TargetFramework);$(JjDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
 	</PropertyGroup>
@@ -15,6 +15,7 @@
 		<Compile Include="Event.fs" />
 		<Compile Include="Error.fs" />
 		<Compile Include="Watch.fs" />
+		<Compile Include="Poll.fs" />
 	</ItemGroup>
 
 	<!-- The pure diff, the debounce loop, and the path helpers are internal; the test
