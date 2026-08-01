@@ -305,6 +305,35 @@ re-testing the wrapper's own argv/parsing a second time. The facade-level test a
 that dispatch reaches the right backend and that `Unsupported`/`Supports` behave as
 documented; the wrapper-level tests (part 1) already own argv and parsing correctness.
 
+### A new `Repo` read method ships with a parity scenario
+
+**Rule: every read method added to `Repo` that has an implementation on *both* backends
+also gets a scenario in `tests/VcsToolkit.Core.ParityTests`** — the git-vs-jj matrix that
+drives each read method through `Repo.Open` over a real `GitSandbox` and a real
+`JjSandbox` and compares the two facade results *with each other*, element by element.
+Scripted-runner tests (above) prove dispatch; only this matrix proves the two backends
+actually answer the same question the same way, which is the whole promise of the facade.
+
+This is enforced, not just documented: `EveryFacadeReadMethodHasAParityScenario`
+(`RepoParityTests.fs`) reflects over `Repo`'s public instance methods and fails on any
+member that is neither covered by a scenario nor listed as a non-read operation. So the
+work when adding a member is:
+
+- **A read method with both backends implemented** — add a `[<Test>]` comparing the two
+  backends' results and add its name to `coveredReadMethods`. Where the backends
+  genuinely diverge (git-only fields, `OperationState`'s merge/conflict asymmetry, …),
+  assert the divergence explicitly rather than skipping the field — an unasserted
+  divergence is one nobody notices changing.
+- **A mutation, or the `TryMerge` probe** — add its name to `nonReadMembers`; its
+  behaviour belongs in `tests/VcsToolkit.Core.Tests`.
+
+Scenario steps go through the harness (`Harness.fs`): write the scenario once against
+`ScenarioRepo`'s uniform vocabulary (`CommitAll`, `Rename`, `AddRemote`,
+`CreateConflict`, …) and it is replayed on both backends. Anything backend-specific — a
+revision expression (`CommittedRev`/`HistoryRev`), how a conflict is produced — belongs
+in that harness, not in the test body. The suite runs in the ordinary CI `test` job on
+all three OSes, where `REQUIRE_JJ=1` makes a missing jj a failure instead of a skip.
+
 ## 3. Exposing an operation in MCP
 
 An MCP tool in `VcsToolkit.Mcp` (`src/VcsToolkit.Mcp/`) is a thin, policy-enforcing

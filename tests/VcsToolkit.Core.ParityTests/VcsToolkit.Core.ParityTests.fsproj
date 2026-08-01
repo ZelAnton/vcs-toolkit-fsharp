@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<IsPackable>false</IsPackable>
+		<AssemblySearchPaths>$(AssemblySearchPaths);$(CoreDir)bin\$(Configuration)\$(TargetFramework);$(GitDir)bin\$(Configuration)\$(TargetFramework);$(JjDir)bin\$(Configuration)\$(TargetFramework);$(DiffDir)bin\$(Configuration)\$(TargetFramework);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework);$(TestKitDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<Compile Include="Harness.fs" />
+		<Compile Include="RepoParityTests.fs" />
+		<Compile Include="EdgeCaseParityTests.fs" />
+		<Compile Include="BackendContractTests.fs" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="FSharp.Core" />
+		<PackageReference Include="Microsoft.NET.Test.Sdk" />
+		<PackageReference Include="NUnit" />
+		<PackageReference Include="NUnit3TestAdapter" />
+		<PackageReference Include="ProcessKit" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Reference Include="VcsToolkit.Core" />
+		<Reference Include="VcsToolkit.Git" />
+		<Reference Include="VcsToolkit.Jj" />
+		<Reference Include="VcsToolkit.Diff" />
+		<Reference Include="VcsToolkit.CliSupport" />
+		<Reference Include="VcsToolkit.TestKit" />
+	</ItemGroup>
+
+</Project>
