@@ -342,9 +342,14 @@ type Git private (core: ManagedClient) =
             GitParse.parsePorcelainV2
         )
 
-    /// Paths with unresolved merge conflicts (`git diff --name-only --diff-filter=U -z`).
+    /// Paths with unresolved merge conflicts (`git diff --no-relative --name-only --diff-filter=U
+    /// -z`). `--no-relative` pins repo-relative paths against a `diff.relative=true` config that
+    /// would otherwise both rewrite paths cwd-relative and drop conflicts outside cwd.
     member _.ConflictedFiles(dir: string) =
-        core.Parse(core.CommandIn(dir, [ "diff"; "--name-only"; "--diff-filter=U"; "-z" ]), GitParse.parseNulPaths)
+        core.Parse(
+            core.CommandIn(dir, [ "diff"; "--no-relative"; "--name-only"; "--diff-filter=U"; "-z" ]),
+            GitParse.parseNulPaths
+        )
 
     /// Current branch name, or `None` on a detached HEAD.
     member _.CurrentBranch(dir: string) =
@@ -635,9 +640,11 @@ type Git private (core: ManagedClient) =
     member _.EmptyTreeOid(dir: string) =
         core.Run((core.CommandIn(dir, [ "hash-object"; "-t"; "tree"; "--stdin" ])).Stdin(Stdin.Empty))
 
-    /// Whether the working tree has no unstaged modifications to tracked files.
+    /// Whether the working tree has no unstaged modifications to tracked files (`diff --no-relative
+    /// --quiet`). `--no-relative` pins this against a `diff.relative=true` config that would
+    /// otherwise exclude changes outside cwd from consideration, falsely reporting "empty".
     member _.DiffIsEmpty(dir: string) =
-        core.Probe(core.CommandIn(dir, [ "diff"; "--quiet" ]))
+        core.Probe(core.CommandIn(dir, [ "diff"; "--no-relative"; "--quiet" ]))
 
     /// The repository's common git directory (stable across linked worktrees).
     member _.CommonDir(dir: string) =
@@ -869,24 +876,31 @@ type Git private (core: ManagedClient) =
                     )
         }
 
-    /// Whether a diff range is empty (`diff --quiet <range>`).
+    /// Whether a diff range is empty (`diff --no-relative --quiet <range>`). `--no-relative` pins
+    /// this against a `diff.relative=true` config that would otherwise exclude changes outside cwd
+    /// from consideration, falsely reporting "empty".
     member _.DiffRangeIsEmpty(dir: string, range: string) =
         task {
             match checkFlags BINARY [ "range", range ] with
             | Error e -> return Error e
-            | Ok() -> return! core.Probe(core.CommandIn(dir, [ "diff"; "--quiet"; range ]))
+            | Ok() -> return! core.Probe(core.CommandIn(dir, [ "diff"; "--no-relative"; "--quiet"; range ]))
         }
 
-    /// Aggregate change stats for a range (`diff --shortstat <range>`). C-locale so
+    /// Aggregate change stats for a range (`diff --no-relative --shortstat <range>`). C-locale so
     /// `parseShortstat`'s English "file"/"insertion"/"deletion" keying survives a non-English
-    /// git (otherwise the counts read as all-zero).
+    /// git (otherwise the counts read as all-zero). `--no-relative` pins this against a
+    /// `diff.relative=true` config that would otherwise both rewrite paths cwd-relative and drop
+    /// changes outside cwd from the count.
     member _.DiffStat(dir: string, range: string) =
         task {
             match checkFlags BINARY [ "range", range ] with
             | Error e -> return Error e
             | Ok() ->
                 return!
-                    core.Parse(cLocale (core.CommandIn(dir, [ "diff"; "--shortstat"; range ])), GitParse.parseShortstat)
+                    core.Parse(
+                        cLocale (core.CommandIn(dir, [ "diff"; "--no-relative"; "--shortstat"; range ])),
+                        GitParse.parseShortstat
+                    )
         }
 
     /// Raw git-format unified diff text for `spec`, untrimmed and UTF-8-decoded — the trailing
@@ -895,8 +909,12 @@ type Git private (core: ManagedClient) =
     /// escapes such content in its own diff format, so this is not a byte-exactness concern here).
     member this.DiffText(dir: string, spec: DiffSpec) =
         task {
+            // `--no-relative` pins repo-relative paths (and the a/b prefixes above) against a
+            // `diff.relative=true` config that would otherwise rewrite them cwd-relative and drop
+            // changes outside cwd, breaking the `FileDiff.Path` contract.
             let args target =
                 [ "diff"
+                  "--no-relative"
                   target
                   "--no-color"
                   "--no-ext-diff"
@@ -929,9 +947,11 @@ type Git private (core: ManagedClient) =
 
     // --- In-progress state ---------------------------------------------------
 
-    /// Whether the index has no staged changes (`diff --cached --quiet`).
+    /// Whether the index has no staged changes (`diff --no-relative --cached --quiet`).
+    /// `--no-relative` pins this against a `diff.relative=true` config that would otherwise
+    /// exclude staged changes outside cwd from consideration, falsely reporting "empty".
     member _.StagedIsEmpty(dir: string) =
-        core.Probe(core.CommandIn(dir, [ "diff"; "--cached"; "--quiet" ]))
+        core.Probe(core.CommandIn(dir, [ "diff"; "--no-relative"; "--cached"; "--quiet" ]))
 
     /// `git_dir` resolved to an absolute path.
     member _.ResolvedGitDir(dir: string) = resolvedGitDirVia core dir
@@ -1062,13 +1082,18 @@ type Git private (core: ManagedClient) =
                 // M16: `checkFlags` catches a leading `-`/empty/NUL, but not the refspec
                 // metacharacters that silently change what a push DOES — a leading `+`
                 // (force-push, overwriting the remote non-fast-forward), an extra `:` (push to
-                // an unexpected remote ref), or an empty side (`:branch` deletes the remote
+                // an unexpected remote ref), an empty side (`:branch` deletes the remote
                 // branch, `:` pushes all matching branches, `local:` pushes to an empty remote
-                // ref — all destructive fan-out/deletion the typed API claims impossible). A
-                // valid refspec is `branch` or `local:remote` (a single, API-constructed `:`
-                // with both sides non-empty), so allow at most one `:`, no leading `+`, and no
-                // empty side; a genuine force-push/delete must go through
-                // `Run [ "push"; "--force"; … ]`.
+                // ref), or a glob metacharacter (`*`/`?`/`[`) on either side turning the refspec
+                // into a wildcard that fans out to every matching ref (`refs/heads/*:refs/heads/*`
+                // pushes ALL branches despite passing the single-`:`/non-empty-side checks) — all
+                // destructive fan-out/deletion the typed API claims impossible. A valid refspec is
+                // `branch` or `local:remote` (a single, API-constructed `:` with both sides
+                // non-empty and glob-free), so allow at most one `:`, no leading `+`, no empty
+                // side, and no glob/control metacharacter on either side (reusing
+                // `checkRefspecName`, the same guard `FetchBranch`/`RemoteBranchExists` already
+                // apply to a single refspec name); a genuine force-push/delete/wildcard-push must
+                // go through `Run [ "push"; "--force"; … ]`.
                 let sides = spec.Refspec.Split(':')
 
                 if
@@ -1086,17 +1111,29 @@ type Git private (core: ManagedClient) =
                         )
                 else
 
-                    match! this.RemoteCredentials None with
-                    | Error e -> return Error e
-                    | Ok(pre, envs) ->
-                        let upstream = if spec.SetUpstream then [ "-u" ] else []
-                        let args = pre @ [ "push" ] @ upstream @ [ spec.Remote; spec.Refspec ]
+                    match
+                        sides
+                        |> Array.tryPick (fun s ->
+                            match checkRefspecName "push refspec side" s with
+                            | Error e -> Some e
+                            | Ok() -> None)
+                    with
+                    | Some e -> return Error e
+                    | None ->
 
-                        let cmd =
-                            (core.CommandIn(dir, args)).Env("GIT_TERMINAL_PROMPT", "0").TimeoutGrace(FetchTimeoutGrace)
-                            |> applySecretEnv envs
+                        match! this.RemoteCredentials None with
+                        | Error e -> return Error e
+                        | Ok(pre, envs) ->
+                            let upstream = if spec.SetUpstream then [ "-u" ] else []
+                            let args = pre @ [ "push" ] @ upstream @ [ spec.Remote; spec.Refspec ]
 
-                        return! core.RunUnit cmd
+                            let cmd =
+                                (core.CommandIn(dir, args))
+                                    .Env("GIT_TERMINAL_PROMPT", "0")
+                                    .TimeoutGrace(FetchTimeoutGrace)
+                                |> applySecretEnv envs
+
+                            return! core.RunUnit cmd
         }
 
     /// Clone `url` into `dest` (pass an absolute `dest`). Both `url` and `dest` are bare

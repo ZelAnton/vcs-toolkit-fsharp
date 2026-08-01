@@ -458,10 +458,10 @@ type DispatchTests() =
     [<Test>]
     member _.GiteaPrViewDerivesMergedFromFlag() : Task =
         task {
-            // `PrList` is structurally Unsupported on Gitea for every state (the facade retains
-            // that refusal — see PrListOptionsTests below), so `mapPr`'s field-mapping behaviour
-            // is exercised through `PrView` instead, which drives `tea pr list --state all …
-            // --output csv` (tea 0.9.2 has no `--output json`; K-049 / T-115).
+            // `PrView` synthesizes a single-PR read by paging `tea pr list --state all …
+            // --output csv` (tea 0.9.2 has no single-PR view, and no `--output json`; T-115),
+            // so it reaches the same `mapPr` mapper as `PrList` — including the `Merged`
+            // derivation from tea's folded `state` column that `PrList(Merged)` filters on.
             let csv = teaCsv [ prHeader; [ "9"; "done"; "merged"; "f"; "main"; "u" ] ]
 
             let forge =
@@ -793,18 +793,17 @@ type OptionalFieldTests() =
     [<Test>]
     member _.GiteaPrDraftIsNoneWhenUnreported() : Task =
         task {
-            // tea's lean PR surface has no draft column → None. `PrList` is structurally
-            // Unsupported on Gitea for every state (the facade retains that refusal), so this
-            // goes through `PrView` instead, which reaches the same `mapPr` mapper via the
-            // `tea pr list --state all … --output csv` path (K-049 / T-115).
+            // tea's lean PR surface has no draft column → None, through the facade's own
+            // `tea pr list --state open … --output csv` listing (T-115).
             let csv = teaCsv [ prHeader; [ "1"; "t"; "open"; "f"; "main"; "u" ] ]
 
             let forge =
-                teaForge [ "pr"; "list"; "--state"; "all"; "--page"; "1"; "--fields" ] (Reply.Ok csv)
+                teaForge [ "pr"; "list"; "--state"; "open"; "--limit"; "100"; "--fields" ] (Reply.Ok csv)
 
-            match! forge.PrView 1UL with
-            | Ok pr -> Assert.That(pr.Draft, Is.EqualTo None, "Gitea PR draft is unreported → None")
-            | Error e -> Assert.Fail $"pr view failed: {e.Message}"
+            match! forge.PrList() with
+            | Ok [ pr ] -> Assert.That(pr.Draft, Is.EqualTo None, "Gitea PR draft is unreported → None")
+            | Ok other -> Assert.Fail $"expected one PR, got {other.Length}"
+            | Error e -> Assert.Fail $"pr list failed: {e.Message}"
         }
 
     // --- ForgeRepo.Private — Some when visibility known, None when absent ---
@@ -1004,20 +1003,19 @@ type OptionalFieldTests() =
     [<Test>]
     member _.GiteaPrLabelsAndAssigneesAreNone() : Task =
         task {
-            // tea's PR table has no labels/assignees columns → honest None (unknown), not [].
-            // `PrList` is structurally Unsupported on Gitea for every state (the facade retains
-            // that refusal), so this goes through `PrView` instead, which reaches the same
-            // `mapPr` mapper via the `tea pr list --state all … --output csv` path (K-049 / T-115).
+            // tea's PR table has no labels/assignees columns → honest None (unknown), not [],
+            // through the facade's own `tea pr list --state open … --output csv` listing.
             let csv = teaCsv [ prHeader; [ "1"; "t"; "open"; "f"; "main"; "u" ] ]
 
             let forge =
-                teaForge [ "pr"; "list"; "--state"; "all"; "--page"; "1"; "--fields" ] (Reply.Ok csv)
+                teaForge [ "pr"; "list"; "--state"; "open"; "--limit"; "100"; "--fields" ] (Reply.Ok csv)
 
-            match! forge.PrView 1UL with
-            | Ok pr ->
+            match! forge.PrList() with
+            | Ok [ pr ] ->
                 Assert.That(pr.Labels, Is.EqualTo None, "Gitea PR labels unreported → None")
                 Assert.That(pr.Assignees, Is.EqualTo None, "Gitea PR assignees unreported → None")
-            | Error e -> Assert.Fail $"pr view failed: {e.Message}"
+            | Ok other -> Assert.Fail $"expected one PR, got {other.Length}"
+            | Error e -> Assert.Fail $"pr list failed: {e.Message}"
         }
 
     [<Test>]
@@ -1084,21 +1082,19 @@ type OptionalFieldTests() =
     [<Test>]
     member _.GiteaIssueLabelsAndAssigneesAreNone() : Task =
         task {
-            // tea's issue table has no labels/assignees columns → honest None (unknown).
-            // `IssueList` is structurally Unsupported on Gitea for every state (the facade
-            // retains that refusal), so this goes through `IssueView` instead, which reaches
-            // the same `mapIssue` mapper by paging `tea issues list --state all … --output csv`
-            // (tea 0.9.2's bare-index view renders Markdown; K-049 / T-115).
+            // tea's issue table has no labels/assignees columns → honest None (unknown),
+            // through the facade's own `tea issues list --state open … --output csv` listing.
             let csv = teaCsv [ issueHeader; [ "1"; "t"; "open"; "b"; "u" ] ]
 
             let forge =
-                teaForge [ "issues"; "list"; "--state"; "all"; "--page"; "1"; "--fields" ] (Reply.Ok csv)
+                teaForge [ "issues"; "list"; "--state"; "open"; "--limit"; "100"; "--fields" ] (Reply.Ok csv)
 
-            match! forge.IssueView 1UL with
-            | Ok issue ->
+            match! forge.IssueList() with
+            | Ok [ issue ] ->
                 Assert.That(issue.Labels, Is.EqualTo None, "Gitea issue labels unreported → None")
                 Assert.That(issue.Assignees, Is.EqualTo None, "Gitea issue assignees unreported → None")
-            | Error e -> Assert.Fail $"issue view failed: {e.Message}"
+            | Ok other -> Assert.Fail $"expected one issue, got {other.Length}"
+            | Error e -> Assert.Fail $"issue list failed: {e.Message}"
         }
 
     // --- ForgePr/ForgeIssue Author/CreatedAt/UpdatedAt/Milestone — Some on GitHub/GitLab
@@ -1171,21 +1167,21 @@ type OptionalFieldTests() =
     [<Test>]
     member _.GiteaPrMetadataIsNone() : Task =
         task {
-            // tea's csv PR surface has no author/timestamp/milestone columns → honest None.
-            // `PrList` is structurally Unsupported on Gitea for every state (the facade retains
-            // that refusal), so this goes through `PrView` (K-049 / T-115).
+            // tea's csv PR surface has no author/timestamp/milestone columns → honest None,
+            // through the facade's own `tea pr list --state open … --output csv` listing.
             let csv = teaCsv [ prHeader; [ "1"; "t"; "open"; "f"; "main"; "u" ] ]
 
             let forge =
-                teaForge [ "pr"; "list"; "--state"; "all"; "--page"; "1"; "--fields" ] (Reply.Ok csv)
+                teaForge [ "pr"; "list"; "--state"; "open"; "--limit"; "100"; "--fields" ] (Reply.Ok csv)
 
-            match! forge.PrView 1UL with
-            | Ok pr ->
+            match! forge.PrList() with
+            | Ok [ pr ] ->
                 Assert.That(pr.Author, Is.EqualTo None, "Gitea PR author unreported → None")
                 Assert.That(pr.CreatedAt, Is.EqualTo None, "Gitea PR createdAt unreported → None")
                 Assert.That(pr.UpdatedAt, Is.EqualTo None, "Gitea PR updatedAt unreported → None")
                 Assert.That(pr.Milestone, Is.EqualTo None, "Gitea PR milestone unreported → None")
-            | Error e -> Assert.Fail $"pr view failed: {e.Message}"
+            | Ok other -> Assert.Fail $"expected one PR, got {other.Length}"
+            | Error e -> Assert.Fail $"pr list failed: {e.Message}"
         }
 
     [<Test>]
@@ -1344,45 +1340,152 @@ type PrListOptionsTests() =
         }
 
     [<Test>]
-    member _.GiteaPrListIsStructurallyUnsupportedForEveryStateWithoutSpawning() : Task =
+    member _.GiteaPrListOpenSendsStateOpenAndLimit() : Task =
         task {
-            // `tea pr list --output json` does not work against the real CLI for ANY state
-            // value (K-049): the `--output json` flag itself is rejected regardless of
-            // `--state`, so `prList` refuses structurally, before any spawn, for
-            // Open/Closed/Merged/All alike — not just Closed/Merged (which additionally have
-            // their own documented local-filtering data-loss risk on top of that, now
-            // subsumed by this more fundamental reason). An empty `ScriptedRunner` (no
-            // fallback) proves none of these ever reaches a spawn.
-            let forge =
-                Forge.FromGitea(".", VcsToolkit.Gitea.Gitea.WithRunner(ScriptedRunner()))
+            // Unified `Open` is a plain tea `--state` value — sent through verbatim, over the
+            // wrapper's `--output csv` listing (T-115).
+            let csv = teaCsv [ prHeader; [ "3"; "t"; "open"; "feat"; "main"; "u" ] ]
 
-            for options, name in
-                [ PrListOptions.Open, "Open"
-                  PrListOptions.Closed, "Closed"
-                  PrListOptions.Merged, "Merged"
-                  PrListOptions.All, "All" ] do
-                match! forge.PrList options with
-                | Error e -> Assert.That(e.IsUnsupported, Is.True, $"Gitea prList({name}) must be Unsupported")
-                | Ok prs -> Assert.Fail $"Gitea prList({name}) expected Unsupported, got Ok with {prs.Length} PR(s)"
+            let forge =
+                teaForge [ "pr"; "list"; "--state"; "open"; "--limit"; "25"; "--fields" ] (Reply.Ok csv)
+
+            match! forge.PrList(PrListOptions.Open.WithLimit 25) with
+            | Ok [ pr ] ->
+                Assert.That(pr.Number, Is.EqualTo 3UL)
+                Assert.That(pr.State, Is.EqualTo ForgePrState.Open)
+            | Ok other -> Assert.Fail $"expected one PR, got {other.Length}"
+            | Error e -> Assert.Fail $"pr list failed: {e.Message}"
         }
 
     [<Test>]
-    member _.GiteaIssueListIsStructurallyUnsupportedForEveryStateWithoutSpawning() : Task =
+    member _.GiteaPrListAllReturnsEveryStateUnfiltered() : Task =
         task {
-            // Same K-049 root cause as `prList` above: `tea issues list --output json` never
-            // worked against the real CLI, for any state — refused structurally before any
-            // spawn, for Open/Closed/All alike.
-            let forge =
-                Forge.FromGitea(".", VcsToolkit.Gitea.Gitea.WithRunner(ScriptedRunner()))
+            // Unified `All` is tea's own `--state all`, with nothing narrowed on our side: the
+            // open, the closed and the merged row all come back.
+            let csv =
+                teaCsv
+                    [ prHeader
+                      [ "1"; "open one"; "open"; "f1"; "main"; "u1" ]
+                      [ "2"; "closed one"; "closed"; "f2"; "main"; "u2" ]
+                      [ "3"; "merged one"; "merged"; "f3"; "main"; "u3" ] ]
 
-            for options, name in
-                [ IssueListOptions.Open, "Open"
-                  IssueListOptions.Closed, "Closed"
-                  IssueListOptions.All, "All" ] do
-                match! forge.IssueList options with
-                | Error e -> Assert.That(e.IsUnsupported, Is.True, $"Gitea issueList({name}) must be Unsupported")
-                | Ok issues ->
-                    Assert.Fail $"Gitea issueList({name}) expected Unsupported, got Ok with {issues.Length} issue(s)"
+            let forge =
+                teaForge [ "pr"; "list"; "--state"; "all"; "--limit"; "100"; "--fields" ] (Reply.Ok csv)
+
+            match! forge.PrList PrListOptions.All with
+            | Ok [ opened; closed; merged ] ->
+                Assert.That(opened.Number, Is.EqualTo 1UL)
+                Assert.That(opened.State, Is.EqualTo ForgePrState.Open)
+                Assert.That(closed.Number, Is.EqualTo 2UL)
+                Assert.That(closed.State, Is.EqualTo ForgePrState.Closed)
+                Assert.That(merged.Number, Is.EqualTo 3UL)
+                Assert.That(merged.State, Is.EqualTo ForgePrState.Merged, "All narrows nothing away")
+            | Ok other -> Assert.Fail $"expected all three PRs, got {other.Length}"
+            | Error e -> Assert.Fail $"pr list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaPrListClosedFetchesClosedBucketAndDropsMergedRows() : Task =
+        task {
+            // Gitea has no merged state — merging *closes* a PR and sets a merged flag that tea
+            // folds into its `state` column — so tea's `closed` bucket is a superset of the
+            // unified `Closed` ("closed WITHOUT merging"). The adapter fetches `--state closed`
+            // and drops the merged rows itself; without that narrowing a `Closed` listing would
+            // hand back PRs whose own `State` reads `Merged`.
+            let csv =
+                teaCsv
+                    [ prHeader
+                      [ "4"; "abandoned"; "closed"; "f4"; "main"; "u4" ]
+                      [ "5"; "shipped"; "merged"; "f5"; "main"; "u5" ] ]
+
+            let forge =
+                teaForge [ "pr"; "list"; "--state"; "closed"; "--limit"; "100"; "--fields" ] (Reply.Ok csv)
+
+            match! forge.PrList PrListOptions.Closed with
+            | Ok [ pr ] ->
+                Assert.That(pr.Number, Is.EqualTo 4UL, "only the genuinely closed PR belongs in a Closed listing")
+                Assert.That(pr.State, Is.EqualTo ForgePrState.Closed)
+            | Ok other ->
+                Assert.Fail $"expected only the closed-not-merged PR, got {other |> List.map (fun pr -> pr.Number)}"
+            | Error e -> Assert.Fail $"pr list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaPrListMergedFetchesAllAndKeepsOnlyMergedRows() : Task =
+        task {
+            // `Merged` has no tea `--state` value at all, and that tea's `closed` bucket really
+            // carries merged PRs is unconfirmed against the real CLI — so the adapter walks the
+            // `--state all` superset (as `PrView` does) and keeps the merged rows. Scripting
+            // ONLY `--state all` proves it never bets on `--state closed`/`--state merged`.
+            let csv =
+                teaCsv
+                    [ prHeader
+                      [ "1"; "open one"; "open"; "f1"; "main"; "u1" ]
+                      [ "2"; "closed one"; "closed"; "f2"; "main"; "u2" ]
+                      [ "3"; "merged one"; "merged"; "f3"; "main"; "u3" ] ]
+
+            let forge =
+                teaForge [ "pr"; "list"; "--state"; "all"; "--limit"; "100"; "--fields" ] (Reply.Ok csv)
+
+            match! forge.PrList PrListOptions.Merged with
+            | Ok [ pr ] ->
+                Assert.That(pr.Number, Is.EqualTo 3UL)
+                Assert.That(pr.State, Is.EqualTo ForgePrState.Merged, "tea's folded merged flag → Merged")
+            | Ok other -> Assert.Fail $"expected only the merged PR, got {other |> List.map (fun pr -> pr.Number)}"
+            | Error e -> Assert.Fail $"pr list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaPrListEmptyListingIsAnEmptyResultNotAnError() : Task =
+        task {
+            // A header-only csv table is a genuine "no PRs" answer on every state, narrowing
+            // included — never an error, and never a fabricated row.
+            let forge = teaForge [ "pr"; "list"; "--fields" ] (Reply.Ok(teaCsv [ prHeader ]))
+
+            match! forge.PrList PrListOptions.Merged with
+            | Ok [] -> ()
+            | Ok other -> Assert.Fail $"expected an empty list, got {other.Length}"
+            | Error e -> Assert.Fail $"pr list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaIssueListStatesMapOneToOneOntoTeaStateFlag() : Task =
+        task {
+            // Issues have no merged state, so every unified value is a tea `--state` value and
+            // nothing is narrowed on our side: the closed row comes back as-is.
+            let csv = teaCsv [ issueHeader; [ "8"; "t"; "closed"; "b"; "u" ] ]
+
+            let forge =
+                teaForge [ "issues"; "list"; "--state"; "closed"; "--limit"; "100"; "--fields" ] (Reply.Ok csv)
+
+            match! forge.IssueList IssueListOptions.Closed with
+            | Ok [ issue ] ->
+                Assert.That(issue.Number, Is.EqualTo 8UL)
+                Assert.That(issue.State, Is.EqualTo ForgeIssueState.Closed)
+            | Ok other -> Assert.Fail $"expected one issue, got {other.Length}"
+            | Error e -> Assert.Fail $"issue list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaIssueListAllSendsStateAllAndLimit() : Task =
+        task {
+            let csv =
+                teaCsv
+                    [ issueHeader
+                      [ "1"; "open one"; "open"; "b"; "u1" ]
+                      [ "2"; "closed one"; "closed"; "b"; "u2" ] ]
+
+            let forge =
+                teaForge [ "issues"; "list"; "--state"; "all"; "--limit"; "10"; "--fields" ] (Reply.Ok csv)
+
+            match! forge.IssueList(IssueListOptions.All.WithLimit 10) with
+            | Ok [ opened; closed ] ->
+                Assert.That(opened.Number, Is.EqualTo 1UL)
+                Assert.That(opened.State, Is.EqualTo ForgeIssueState.Open)
+                Assert.That(closed.Number, Is.EqualTo 2UL)
+                Assert.That(closed.State, Is.EqualTo ForgeIssueState.Closed)
+            | Ok other -> Assert.Fail $"expected both issues, got {other.Length}"
+            | Error e -> Assert.Fail $"issue list failed: {e.Message}"
         }
 
 // ---------------------------------------------------------------------------
@@ -1454,18 +1557,60 @@ type PrForBranchTests() =
         }
 
     [<Test>]
-    member _.GiteaPrForBranchIsStructurallyUnsupportedWithoutSpawning() : Task =
+    member _.GiteaPrForBranchFiltersTheAllStatesListingBySourceBranch() : Task =
         task {
-            // Same K-049 root cause as `GiteaPrList`: `tea pr list --output json` never worked
-            // against the real CLI, so there is no listing path to filter by source branch on
-            // our side either. An empty `ScriptedRunner` (no fallback) proves this refuses
-            // structurally, before any spawn.
+            // `tea pr list` has no head-branch filter, so the adapter lists `--state all` (any
+            // state, like gh/glab) and matches `HeadBranch` itself — including a merged PR,
+            // which is exactly what the "after pushing, find my PR" query is usually after.
+            let csv =
+                teaCsv
+                    [ prHeader
+                      [ "1"; "other"; "open"; "other-branch"; "main"; "u1" ]
+                      [ "2"; "mine"; "merged"; "feat"; "main"; "u2" ]
+                      [ "3"; "mine again"; "open"; "feat"; "release"; "u3" ] ]
+
             let forge =
-                Forge.FromGitea(".", VcsToolkit.Gitea.Gitea.WithRunner(ScriptedRunner()))
+                teaForge [ "pr"; "list"; "--state"; "all"; "--limit"; "100"; "--fields" ] (Reply.Ok csv)
 
             match! forge.PrForBranch "feat" with
-            | Error e -> Assert.That(e.IsUnsupported, Is.True, "Gitea prForBranch must be Unsupported")
-            | Ok prs -> Assert.Fail $"Gitea prForBranch expected Unsupported, got Ok with {prs.Length} PR(s)"
+            | Ok [ merged; reopened ] ->
+                Assert.That(merged.Number, Is.EqualTo 2UL)
+                Assert.That(merged.State, Is.EqualTo ForgePrState.Merged, "any state, not just open")
+                Assert.That(reopened.Number, Is.EqualTo 3UL, "a second PR on the same branch is kept")
+                Assert.That(reopened.TargetBranch, Is.EqualTo "release", "regardless of target branch")
+            | Ok other -> Assert.Fail $"expected both PRs on 'feat', got {other |> List.map (fun pr -> pr.Number)}"
+            | Error e -> Assert.Fail $"pr for branch failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaPrForBranchNoMatchIsEmptyListNotError() : Task =
+        task {
+            let csv =
+                teaCsv [ prHeader; [ "1"; "other"; "open"; "other-branch"; "main"; "u1" ] ]
+
+            let forge =
+                teaForge [ "pr"; "list"; "--state"; "all"; "--limit"; "100"; "--fields" ] (Reply.Ok csv)
+
+            match! forge.PrForBranch "no-such-branch" with
+            | Ok [] -> ()
+            | Ok other -> Assert.Fail $"expected an empty list, got {other.Length}"
+            | Error e -> Assert.Fail $"pr for branch failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaPrForBranchMatchesTheBranchNameCaseSensitively() : Task =
+        task {
+            // Git branch names are case-sensitive, so the our-side match is ordinal: `Feat` is
+            // a different branch from `feat`, never a fuzzy hit.
+            let csv = teaCsv [ prHeader; [ "1"; "t"; "open"; "Feat"; "main"; "u" ] ]
+
+            let forge =
+                teaForge [ "pr"; "list"; "--state"; "all"; "--limit"; "100"; "--fields" ] (Reply.Ok csv)
+
+            match! forge.PrForBranch "feat" with
+            | Ok [] -> ()
+            | Ok other -> Assert.Fail $"'Feat' must not match 'feat', got {other.Length} PR(s)"
+            | Error e -> Assert.Fail $"pr for branch failed: {e.Message}"
         }
 
     [<Test>]
@@ -1492,6 +1637,25 @@ type PrForBranchTests() =
             match! forge.PrForBranch "--evil-branch" with
             | Error e -> Assert.That(e.Message, Does.Contain "flag", "expected an argv-guard refusal")
             | Ok prs -> Assert.Fail $"flag-like source branch must be refused, got Ok with {prs.Length} PR(s)"
+        }
+
+    [<Test>]
+    member _.GiteaPrForBranchTreatsAFlagLikeNameAsAPlainNonMatch() : Task =
+        task {
+            // The Gitea path deliberately does NOT mirror the gh/glab argv-guard refusal above:
+            // there the branch lands in argv (`--head`/`--source-branch`), here it never leaves
+            // our process — `tea pr list --state all` is spawned with a fixed argv and the name
+            // is only ever compared against the parsed rows. So a flag-like name is not an
+            // injection vector to refuse; it is simply a branch no PR has.
+            let csv = teaCsv [ prHeader; [ "1"; "t"; "open"; "feat"; "main"; "u" ] ]
+
+            let forge =
+                teaForge [ "pr"; "list"; "--state"; "all"; "--limit"; "100"; "--fields" ] (Reply.Ok csv)
+
+            match! forge.PrForBranch "--evil-branch" with
+            | Ok [] -> ()
+            | Ok other -> Assert.Fail $"a flag-like name must match nothing, got {other.Length} PR(s)"
+            | Error e -> Assert.Fail $"pr for branch failed: {e.Message}"
         }
 
     [<Test>]
