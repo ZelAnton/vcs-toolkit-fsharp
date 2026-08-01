@@ -225,7 +225,7 @@ module internal Catalog =
                   Required = true } ]
           read
               "repo_annotate"
-              "Per-line authorship of a file at a revision — who last touched each line, and when (git blame --line-porcelain / jj file annotate). `path` is anchored at the repository root on both backends, not relative to the server's working directory. The result is a JSON array of lines, truncated to the server's output budget the same way repo_show_file is (--output-budget; default 200000 bytes, 0 disables), with a trailing '[truncated: showing N of M bytes]' marker when it is. `rev` is passed through as-is to the backend — a git commit-ish or a jj revset; the two syntaxes are NOT cross-backend portable."
+              "Per-line authorship of a file at a revision — who last touched each line, and when (git blame --line-porcelain / jj file annotate). `path` is anchored at the repository root on both backends, not relative to the server's working directory. Normally returns the original JSON array. If the server's output budget truncates it (--output-budget; default 200000 bytes, 0 disables), whole trailing entries are dropped and the result is a valid JSON envelope with `items`, `truncated: true`, `shown`, and `total`. `rev` is passed through as-is to the backend — a git commit-ish or a jj revset; the two syntaxes are NOT cross-backend portable."
               [ { Name = "path"
                   JsonType = "string"
                   Description = "Repo-relative path of the file to annotate."
@@ -399,7 +399,7 @@ module internal Catalog =
           read "forge_pr_checks" "The PR/MR's coarse CI status (Unsupported on Gitea)." [ pNumber ]
           read
               "forge_pr_diff"
-              "The PR/MR's unified diff, per file, serialized as JSON and truncated to the server's output budget the same way repo_show_file/repo_annotate are (--output-budget; default 200000 bytes, 0 disables), with a trailing '[truncated: showing N of M bytes]' marker when it is. Unsupported on Gitea (tea has no diff command)."
+              "The PR/MR's unified diff, per file. Normally returns the original JSON array. If the server's output budget truncates it (--output-budget; default 200000 bytes, 0 disables), whole trailing entries are dropped and the result is a valid JSON envelope with `items`, `truncated: true`, `shown`, and `total`. Unsupported on Gitea (tea has no diff command)."
               [ pNumber ]
           read
               "forge_issue_list"
