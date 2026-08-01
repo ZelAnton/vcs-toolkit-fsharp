@@ -157,7 +157,7 @@ type StatusTests() =
         task {
             let git =
                 scripted
-                    [ "diff"; "--name-only"; "--diff-filter=U"; "-z" ]
+                    [ "diff"; "--no-relative"; "--name-only"; "--diff-filter=U"; "-z" ]
                     (Reply.Ok($"a.rs{nul}sub/spaced name.rs{nul}"))
 
             match! git.ConflictedFiles "." with
@@ -396,7 +396,7 @@ type QueryTests() =
         task {
             let git =
                 scripted
-                    [ "diff"; "--shortstat"; "HEAD~1..HEAD" ]
+                    [ "diff"; "--no-relative"; "--shortstat"; "HEAD~1..HEAD" ]
                     (Reply.Ok " 3 files changed, 12 insertions(+), 4 deletions(-)\n")
 
             match! git.DiffStat(".", "HEAD~1..HEAD") with

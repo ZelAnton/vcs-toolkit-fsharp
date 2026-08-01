@@ -342,9 +342,14 @@ type Git private (core: ManagedClient) =
             GitParse.parsePorcelainV2
         )
 
-    /// Paths with unresolved merge conflicts (`git diff --name-only --diff-filter=U -z`).
+    /// Paths with unresolved merge conflicts (`git diff --no-relative --name-only --diff-filter=U
+    /// -z`). `--no-relative` pins repo-relative paths against a `diff.relative=true` config that
+    /// would otherwise both rewrite paths cwd-relative and drop conflicts outside cwd.
     member _.ConflictedFiles(dir: string) =
-        core.Parse(core.CommandIn(dir, [ "diff"; "--name-only"; "--diff-filter=U"; "-z" ]), GitParse.parseNulPaths)
+        core.Parse(
+            core.CommandIn(dir, [ "diff"; "--no-relative"; "--name-only"; "--diff-filter=U"; "-z" ]),
+            GitParse.parseNulPaths
+        )
 
     /// Current branch name, or `None` on a detached HEAD.
     member _.CurrentBranch(dir: string) =
@@ -635,9 +640,11 @@ type Git private (core: ManagedClient) =
     member _.EmptyTreeOid(dir: string) =
         core.Run((core.CommandIn(dir, [ "hash-object"; "-t"; "tree"; "--stdin" ])).Stdin(Stdin.Empty))
 
-    /// Whether the working tree has no unstaged modifications to tracked files.
+    /// Whether the working tree has no unstaged modifications to tracked files (`diff --no-relative
+    /// --quiet`). `--no-relative` pins this against a `diff.relative=true` config that would
+    /// otherwise exclude changes outside cwd from consideration, falsely reporting "empty".
     member _.DiffIsEmpty(dir: string) =
-        core.Probe(core.CommandIn(dir, [ "diff"; "--quiet" ]))
+        core.Probe(core.CommandIn(dir, [ "diff"; "--no-relative"; "--quiet" ]))
 
     /// The repository's common git directory (stable across linked worktrees).
     member _.CommonDir(dir: string) =
@@ -869,24 +876,31 @@ type Git private (core: ManagedClient) =
                     )
         }
 
-    /// Whether a diff range is empty (`diff --quiet <range>`).
+    /// Whether a diff range is empty (`diff --no-relative --quiet <range>`). `--no-relative` pins
+    /// this against a `diff.relative=true` config that would otherwise exclude changes outside cwd
+    /// from consideration, falsely reporting "empty".
     member _.DiffRangeIsEmpty(dir: string, range: string) =
         task {
             match checkFlags BINARY [ "range", range ] with
             | Error e -> return Error e
-            | Ok() -> return! core.Probe(core.CommandIn(dir, [ "diff"; "--quiet"; range ]))
+            | Ok() -> return! core.Probe(core.CommandIn(dir, [ "diff"; "--no-relative"; "--quiet"; range ]))
         }
 
-    /// Aggregate change stats for a range (`diff --shortstat <range>`). C-locale so
+    /// Aggregate change stats for a range (`diff --no-relative --shortstat <range>`). C-locale so
     /// `parseShortstat`'s English "file"/"insertion"/"deletion" keying survives a non-English
-    /// git (otherwise the counts read as all-zero).
+    /// git (otherwise the counts read as all-zero). `--no-relative` pins this against a
+    /// `diff.relative=true` config that would otherwise both rewrite paths cwd-relative and drop
+    /// changes outside cwd from the count.
     member _.DiffStat(dir: string, range: string) =
         task {
             match checkFlags BINARY [ "range", range ] with
             | Error e -> return Error e
             | Ok() ->
                 return!
-                    core.Parse(cLocale (core.CommandIn(dir, [ "diff"; "--shortstat"; range ])), GitParse.parseShortstat)
+                    core.Parse(
+                        cLocale (core.CommandIn(dir, [ "diff"; "--no-relative"; "--shortstat"; range ])),
+                        GitParse.parseShortstat
+                    )
         }
 
     /// Raw git-format unified diff text for `spec`, untrimmed and UTF-8-decoded — the trailing
@@ -895,8 +909,12 @@ type Git private (core: ManagedClient) =
     /// escapes such content in its own diff format, so this is not a byte-exactness concern here).
     member this.DiffText(dir: string, spec: DiffSpec) =
         task {
+            // `--no-relative` pins repo-relative paths (and the a/b prefixes above) against a
+            // `diff.relative=true` config that would otherwise rewrite them cwd-relative and drop
+            // changes outside cwd, breaking the `FileDiff.Path` contract.
             let args target =
                 [ "diff"
+                  "--no-relative"
                   target
                   "--no-color"
                   "--no-ext-diff"
@@ -929,9 +947,11 @@ type Git private (core: ManagedClient) =
 
     // --- In-progress state ---------------------------------------------------
 
-    /// Whether the index has no staged changes (`diff --cached --quiet`).
+    /// Whether the index has no staged changes (`diff --no-relative --cached --quiet`).
+    /// `--no-relative` pins this against a `diff.relative=true` config that would otherwise
+    /// exclude staged changes outside cwd from consideration, falsely reporting "empty".
     member _.StagedIsEmpty(dir: string) =
-        core.Probe(core.CommandIn(dir, [ "diff"; "--cached"; "--quiet" ]))
+        core.Probe(core.CommandIn(dir, [ "diff"; "--no-relative"; "--cached"; "--quiet" ]))
 
     /// `git_dir` resolved to an absolute path.
     member _.ResolvedGitDir(dir: string) = resolvedGitDirVia core dir
