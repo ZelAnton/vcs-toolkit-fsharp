@@ -514,6 +514,9 @@ type Forge private (cwd: string, backend: Backend) =
     /// unsupported combination is refused structurally with `Unsupported` **before any spawn**
     /// (including the version probe), the same way `PrMerge`'s auto/delete-branch is:
     /// - `Approve` — all three (`gh pr review --approve` / `glab mr approve` / `tea pr approve`).
+    ///   An optional body is submitted with the approval on GitHub/Gitea. GitLab composes
+    ///   `glab mr approve` followed by `glab mr note`; if the note fails, `PrReview` returns that
+    ///   error, but the already-applied approval is not revoked.
     /// - `RequestChanges` — GitHub (`--request-changes`) and Gitea (`tea pr reject`); on GitLab
     ///   `glab` has no equivalent, so it is `Unsupported` (no unsafe note+revoke composition).
     /// - `Comment`-review — GitHub only (`--comment`); on GitLab and Gitea it is `Unsupported`

@@ -2579,6 +2579,33 @@ type PrReviewTests() =
             )
         )
 
+    let glReviewForgeWithBody (approveReply: Reply) (noteReply: Reply) =
+        let calls = ResizeArray<string>()
+
+        let runner =
+            ScriptedRunner()
+                .On([ "--version" ], Reply.Ok "glab 1.36.0\n")
+                .When(
+                    (fun (cmd: Command) ->
+                        if cmd.Arguments |> Seq.toList = [ "mr"; "approve"; "1" ] then
+                            calls.Add "approve"
+                            true
+                        else
+                            false),
+                    approveReply
+                )
+                .When(
+                    (fun (cmd: Command) ->
+                        if cmd.Arguments |> Seq.toList = [ "mr"; "note"; "1"; "-m"; "LGTM" ] then
+                            calls.Add "note"
+                            true
+                        else
+                            false),
+                    noteReply
+                )
+
+        Forge.FromGitLab(".", VcsToolkit.GitLab.GitLab.WithRunner runner), calls
+
     let teaReviewForge (opTokens: string list) (opReply: Reply) =
         Forge.FromGitea(
             ".",
@@ -2614,6 +2641,17 @@ type PrReviewTests() =
         }
 
     [<Test>]
+    member _.GitHubApproveWithBodyDispatchesReviewApproveAndBody() : Task =
+        task {
+            let forge =
+                ghReviewForge [ "pr"; "review"; "1"; "--approve"; "--body"; "LGTM" ] (Reply.Exit 0)
+
+            match! forge.PrReview(1UL, ReviewAction.Approve.WithBody "LGTM") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"gh approve with body must dispatch: {e.Message}"
+        }
+
+    [<Test>]
     member _.GitLabApproveDispatchesMrApprove() : Task =
         task {
             let forge = glReviewForge [ "mr"; "approve"; "1" ] (Reply.Exit 0)
@@ -2625,6 +2663,31 @@ type PrReviewTests() =
         }
 
     [<Test>]
+    member _.GitLabApproveWithBodyDispatchesApproveThenNote() : Task =
+        task {
+            let forge, calls =
+                glReviewForgeWithBody (Reply.Exit 0) (Reply.Ok "https://gl/note/1\n")
+
+            match! forge.PrReview(1UL, ReviewAction.Approve.WithBody "LGTM") with
+            | Ok() -> Assert.That((Seq.toList calls = [ "approve"; "note" ]), Is.True)
+            | Error e -> Assert.Fail $"glab approve with body must dispatch approve then note: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabApproveWithBodyReturnsNoteErrorWithoutRevokingApproval() : Task =
+        task {
+            let forge, calls =
+                glReviewForgeWithBody (Reply.Exit 0) (Reply.Fail(1, "note failed"))
+
+            match! forge.PrReview(1UL, ReviewAction.Approve.WithBody "LGTM") with
+            | Error(ForgeError.Forge e) ->
+                Assert.That(e.Message, Does.Contain "note failed")
+                Assert.That((Seq.toList calls = [ "approve"; "note" ]), Is.True)
+            | Error e -> Assert.Fail $"expected the note's forge error, got: {e.Message}"
+            | Ok() -> Assert.Fail "a failed note after approval must be reported to the caller"
+        }
+
+    [<Test>]
     member _.GiteaApproveDispatchesPrApprove() : Task =
         task {
             let forge = teaReviewForge [ "pr"; "approve"; "1" ] (Reply.Exit 0)
@@ -2633,6 +2696,16 @@ type PrReviewTests() =
             match! forge.PrReview(1UL, ReviewAction.Approve) with
             | Ok() -> ()
             | Error e -> Assert.Fail $"tea pr approve must dispatch: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaApproveWithBodyDispatchesPrApproveComment() : Task =
+        task {
+            let forge = teaReviewForge [ "pr"; "approve"; "1"; "LGTM" ] (Reply.Exit 0)
+
+            match! forge.PrReview(1UL, ReviewAction.Approve.WithBody "LGTM") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"tea approve with body must dispatch: {e.Message}"
         }
 
     // --- Request-changes: GitHub (--request-changes) + Gitea (pr reject); Unsupported on GitLab ---

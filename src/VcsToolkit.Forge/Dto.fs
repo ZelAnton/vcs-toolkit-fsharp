@@ -630,7 +630,10 @@ type ReviewAction private (kind: ReviewKind, body: string option) =
     static member Comment(body: string) =
         ReviewAction(ReviewKind.Comment, Some body)
 
-    /// Attach or replace the body — mainly to give an `Approve` a message.
+    /// Attach or replace the body — mainly to give an `Approve` a message. GitHub and Gitea
+    /// submit it with the approval; GitLab submits the approval first and then adds the body as
+    /// a note. If that note fails, `Forge.PrReview` returns the note error while leaving the
+    /// approval applied.
     member _.WithBody(body: string) = ReviewAction(kind, Some body)
 
 /// The flat capability map for a configured forge — what its CLI is honest about doing,

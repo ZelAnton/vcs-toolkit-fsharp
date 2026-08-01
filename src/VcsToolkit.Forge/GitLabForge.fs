@@ -272,12 +272,20 @@ module internal GitLabForge =
         task {
             // Only `Approve` reaches here — `RequestChanges`/`Comment` are refused structurally by
             // the facade's shared `ForgeSupport.unsupportedReview` gate before dispatch (glab has
-            // no equivalent verb). `glab mr approve` carries no comment, so an approve body has no
-            // CLI home and is intentionally not threaded through.
+            // no equivalent verb). `glab mr approve` carries no comment, so an approve body is
+            // delivered by a subsequent additive note. If that note fails, the approval remains
+            // applied and the note's error is returned to the caller.
             match action.Kind with
             | ReviewKind.Approve ->
-                let! r = glab.MrApprove(dir, number)
-                return ofForge r
+                match! glab.MrApprove(dir, number) with
+                | Error e -> return Error(ForgeError.Forge e)
+                | Ok() ->
+                    match action.Body with
+                    | None -> return Ok()
+                    | Some body ->
+                        match! glab.MrComment(dir, number, body) with
+                        | Ok _ -> return Ok()
+                        | Error e -> return Error(ForgeError.Forge e)
             | ReviewKind.RequestChanges
             | ReviewKind.Comment ->
                 // Unreachable: refused by `ForgeSupport.unsupportedReview` before dispatch.
