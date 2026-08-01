@@ -109,6 +109,10 @@ credential-provider examples.
 
 ## Architecture
 
+For the end-to-end trust model, typed-surface guarantees, raw-command escape hatches,
+credential handling, Git/submodule hardening, and a deployment checklist for libraries and
+`vcs-mcp`, see [docs/security.md](docs/security.md).
+
 For the package dependency graph, what each layer is responsible for, the
 design principles that repeat across the wrapper clients (CLI subprocess
 driving, total/tolerant parsing, argv guards, credential provisioning, error
