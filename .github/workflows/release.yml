@@ -18,7 +18,93 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The version this release is cut at, resolved ONCE here and consumed by every job below
+  # through `needs.version.outputs.*`.
+  #
+  # It is its own job rather than a step inside `release` because two independent
+  # publications need the SAME number: the NuGet packages + GitHub Release (`release`) and
+  # the container image (`image`). Neither may block the other (see the `image` job), so
+  # they cannot be chained; a shared upstream job is what keeps one authority for the
+  # version while leaving the two consumers independent. Recomputing it separately in each
+  # job would work only for as long as nobody edits one copy of the logic.
+  version:
+    runs-on: ubuntu-latest
+    permissions:
+      # Reads the repository (tags + src/Directory.Build.props) and writes nothing.
+      contents: read
+    outputs:
+      current: ${{ steps.version.outputs.current }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      # We always release from main. workflow_dispatch still shows GitHub's
+      # "Use workflow from" ref picker (it cannot be hidden), so reject any
+      # dispatch from a non-main ref up front: otherwise that branch's copy of
+      # this workflow file would run — against main, which every checkout below
+      # hard-pins — producing a confusing mismatch. Fail fast before any work.
+      # It lives in this job because every other job needs this one, so the guard
+      # gates the whole workflow from a single place.
+      - name: Guard — release only from main
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.ref }}" != "refs/heads/main" ]]; then
+            echo "::error::Release must be dispatched from main (got: ${{ github.ref }}). Re-run with 'Use workflow from: main'."
+            exit 1
+          fi
+          echo "Dispatched from main."
+
+      # Actions are pinned to a full commit SHA (supply-chain hardening); the
+      # trailing comment records the human-readable version. Dependabot bumps the
+      # SHA and updates the comment on its weekly run.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Determine next version
+        id: version
+        run: |
+          set -euo pipefail
+          LATEST_TAG=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
+          if [[ -n "$LATEST_TAG" ]]; then
+            CURRENT="${LATEST_TAG#v}"
+            if [[ ! "$CURRENT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Could not parse current version from tag (got: '$CURRENT')"
+              exit 1
+            fi
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+            case "${{ inputs.bump }}" in
+              major) NEW="$((MAJOR+1)).0.0" ;;
+              minor) NEW="${MAJOR}.$((MINOR+1)).0" ;;
+              patch) NEW="${MAJOR}.${MINOR}.$((PATCH+1))" ;;
+            esac
+            echo "Latest release tag: $LATEST_TAG (current=$CURRENT); ${{ inputs.bump }} bump -> $NEW"
+          else
+            # First release: take the seed version straight from the shared <Version>
+            # in src/Directory.Build.props so the published version matches what the repo
+            # declares, instead of an implicit 0.0.1 from bumping a synthetic 0.0.0. The
+            # bump input is ignored.
+            CURRENT="0.0.0"
+            NEW=$(grep -oP '(?<=<Version>)[^<]+' src/Directory.Build.props | head -n1)
+            echo "No release tags found; seeding first release from src/Directory.Build.props <Version>=$NEW (bump input ignored)."
+          fi
+          if [[ ! "$NEW" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Computed version '$NEW' is not a valid MAJOR.MINOR.PATCH semver."
+            exit 1
+          fi
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "version=$NEW" >> "$GITHUB_OUTPUT"
+          echo "tag=v$NEW" >> "$GITHUB_OUTPUT"
+
+      - name: Verify tag does not exist
+        run: |
+          if git rev-parse "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            echo "::error::Tag ${{ steps.version.outputs.tag }} already exists"
+            exit 1
+          fi
+
   release:
+    needs: version
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -43,20 +129,10 @@ jobs:
       # Actions are pinned to a full commit SHA (supply-chain hardening); the
       # trailing comment records the human-readable version. Dependabot bumps the
       # SHA and updates the comment on its weekly run.
-
-      # We always release from main. workflow_dispatch still shows GitHub's
-      # "Use workflow from" ref picker (it cannot be hidden), so reject any
-      # dispatch from a non-main ref up front: otherwise that branch's copy of
-      # this workflow file would run — against main, which the checkout below
-      # hard-pins — producing a confusing mismatch. Fail fast before any work.
-      - name: Guard — release only from main
-        run: |
-          set -euo pipefail
-          if [[ "${{ github.ref }}" != "refs/heads/main" ]]; then
-            echo "::error::Release must be dispatched from main (got: ${{ github.ref }}). Re-run with 'Use workflow from: main'."
-            exit 1
-          fi
-          echo "Dispatched from main."
+      #
+      # The release-from-main guard and the version this release is cut at both live in
+      # the `version` job above, which this one depends on: they are decided once for the
+      # whole workflow and consumed here as `needs.version.outputs.*`.
 
       - name: Preflight — required secrets present before any external action
         env:
@@ -104,48 +180,6 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Determine next version
-        id: version
-        run: |
-          set -euo pipefail
-          LATEST_TAG=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
-          if [[ -n "$LATEST_TAG" ]]; then
-            CURRENT="${LATEST_TAG#v}"
-            if [[ ! "$CURRENT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "::error::Could not parse current version from tag (got: '$CURRENT')"
-              exit 1
-            fi
-            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
-            case "${{ inputs.bump }}" in
-              major) NEW="$((MAJOR+1)).0.0" ;;
-              minor) NEW="${MAJOR}.$((MINOR+1)).0" ;;
-              patch) NEW="${MAJOR}.${MINOR}.$((PATCH+1))" ;;
-            esac
-            echo "Latest release tag: $LATEST_TAG (current=$CURRENT); ${{ inputs.bump }} bump -> $NEW"
-          else
-            # First release: take the seed version straight from the shared <Version>
-            # in src/Directory.Build.props so the published version matches what the repo
-            # declares, instead of an implicit 0.0.1 from bumping a synthetic 0.0.0. The
-            # bump input is ignored.
-            CURRENT="0.0.0"
-            NEW=$(grep -oP '(?<=<Version>)[^<]+' src/Directory.Build.props | head -n1)
-            echo "No release tags found; seeding first release from src/Directory.Build.props <Version>=$NEW (bump input ignored)."
-          fi
-          if [[ ! "$NEW" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Computed version '$NEW' is not a valid MAJOR.MINOR.PATCH semver."
-            exit 1
-          fi
-          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
-          echo "version=$NEW" >> "$GITHUB_OUTPUT"
-          echo "tag=v$NEW" >> "$GITHUB_OUTPUT"
-
-      - name: Verify tag does not exist
-        run: |
-          if git rev-parse "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
-            echo "::error::Tag ${{ steps.version.outputs.tag }} already exists"
-            exit 1
-          fi
-
       # Only git-cliff (next step) needs the previous tag, and only LOCALLY, to bound
       # its commit range. So when the previous tag is missing (the synthetic v0.0.0 of
       # a first release) create it locally and DO NOT push it to origin. Pushing it
@@ -158,7 +192,7 @@ jobs:
       # is not on origin — harmless, as nothing precedes the first release.)
       - name: Ensure previous tag exists (local only)
         env:
-          PREV_TAG: v${{ steps.version.outputs.current }}
+          PREV_TAG: v${{ needs.version.outputs.current }}
         run: |
           set -euo pipefail
           if git rev-parse "$PREV_TAG" >/dev/null 2>&1; then
@@ -176,7 +210,7 @@ jobs:
 
       - name: Auto-fill [Unreleased] from git log if empty
         env:
-          PREV_TAG: v${{ steps.version.outputs.current }}
+          PREV_TAG: v${{ needs.version.outputs.current }}
         run: |
           set -euo pipefail
           python3 <<'PY'
@@ -270,7 +304,7 @@ jobs:
         run: dotnet restore
 
       - name: Build
-        run: dotnet build --no-restore --configuration Release /p:Version=${{ steps.version.outputs.version }}
+        run: dotnet build --no-restore --configuration Release /p:Version=${{ needs.version.outputs.version }}
 
       - name: Test
         run: dotnet test --no-build --configuration Release
@@ -283,7 +317,7 @@ jobs:
         # assemblies (the VcsToolkit.* siblings included) under tools/<tfm>/, so it needs no
         # sibling NuGet dependencies. The downstream push/checksum/release steps glob *.nupkg /
         # *.snupkg, so they pick up the tool alongside the libraries with no per-package wiring.
-        run: dotnet pack VcsToolkit.slnx --no-build --configuration Release --output ./artifacts /p:Version=${{ steps.version.outputs.version }}
+        run: dotnet pack VcsToolkit.slnx --no-build --configuration Release --output ./artifacts /p:Version=${{ needs.version.outputs.version }}
 
       - name: Generate SHA256SUMS
         run: |
@@ -299,13 +333,13 @@ jobs:
           cat SHA256SUMS
 
       - name: Bump version in Directory.Build.props
-        run: sed -i -E "s|<Version>[^<]+</Version>|<Version>${{ steps.version.outputs.version }}</Version>|" src/Directory.Build.props
+        run: sed -i -E "s|<Version>[^<]+</Version>|<Version>${{ needs.version.outputs.version }}</Version>|" src/Directory.Build.props
 
       - name: Promote Unreleased section in CHANGELOG.md
         env:
-          VERSION: ${{ steps.version.outputs.version }}
-          TAG: ${{ steps.version.outputs.tag }}
-          PREV_TAG: v${{ steps.version.outputs.current }}
+          VERSION: ${{ needs.version.outputs.version }}
+          TAG: ${{ needs.version.outputs.tag }}
+          PREV_TAG: v${{ needs.version.outputs.current }}
         run: |
           set -euo pipefail
           python3 <<'PY'
@@ -358,8 +392,8 @@ jobs:
           git config user.name "Anton Zhelezniakou"
           git config user.email "github@zelanton.net"
           git add src/Directory.Build.props CHANGELOG.md
-          git commit -m "Release ${{ steps.version.outputs.tag }}"
-          git tag "${{ steps.version.outputs.tag }}"
+          git commit -m "Release ${{ needs.version.outputs.tag }}"
+          git tag "${{ needs.version.outputs.tag }}"
 
       # === PIVOT: the single irreversible step ===
       # NuGet publishing cannot be undone (a pushed version can only be unlisted,
@@ -405,7 +439,7 @@ jobs:
       # version (the tag is not yet on the remote) and --skip-duplicate makes the
       # republish a no-op, so the re-run completes the release.
       - name: Push the release commit + tag (atomic)
-        run: git push --atomic origin HEAD:refs/heads/main "${{ steps.version.outputs.tag }}"
+        run: git push --atomic origin HEAD:refs/heads/main "${{ needs.version.outputs.tag }}"
 
       # Final, recreatable step, made idempotent (edit the Release if it already
       # exists, else create it) and retried. By now the package is published AND the
@@ -419,7 +453,7 @@ jobs:
           # GITHUB_TOKEN otherwise. Creating a Release needs only contents: write,
           # which both identities have.
           GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.version.outputs.tag }}
+          TAG: ${{ needs.version.outputs.tag }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -442,3 +476,99 @@ jobs:
           done
           echo "::error::Failed to create/update the GitHub Release after 3 attempts. The package is ALREADY on nuget.org and the tag is ALREADY on main. Do NOT re-run this workflow (a re-run computes the NEXT version and orphans this release). Finish by hand: if the Release does not exist yet, 'gh release create $TAG --title $TAG --notes-file release-notes.md ./artifacts/*.nupkg ./artifacts/*.snupkg ./artifacts/SHA256SUMS'; if it already exists (likely, since a partial attempt may have created it), 'gh release edit $TAG --notes-file release-notes.md && gh release upload $TAG ./artifacts/*.nupkg ./artifacts/*.snupkg ./artifacts/SHA256SUMS --clobber'."
           exit 1
+
+  # The container image (Dockerfile at the repository root): `vcs-mcp` plus every VCS/forge
+  # CLI it drives — git, jj, gh, glab, tea — published to ghcr.io under the release version
+  # AND `latest`. docs/mcp-server.md, "Docker", is the consumer-facing documentation.
+  #
+  # INDEPENDENCE — deliberate, and the reason this is a job and not more steps in `release`:
+  # it depends on `version` ONLY, never on `release`, and `release` never depends on it.
+  # Neither publication can block or fail the other: a broken image build must not stop a
+  # NuGet release, and a NuGet or registry problem must not stop the image. The price is
+  # that the two can disagree for one run — if `release` fails before its NuGet pivot while
+  # this job succeeds, ghcr.io carries an image for a version that was never released. That
+  # state is self-healing: the release tag never reached main, so a re-run of the workflow
+  # recomputes the SAME version and overwrites both image tags. Since both jobs read the
+  # version from the shared `version` job, the image can never carry a DIFFERENT number
+  # from the release it belongs to.
+  #
+  # No third-party actions are used here on purpose: docker is preinstalled on the runner,
+  # so plain `docker build`/`login`/`push` keeps this job's supply-chain surface down to
+  # the automatic GITHUB_TOKEN — nothing extra to SHA-pin, nothing extra to trust.
+  image:
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      # ghcr.io publication authenticates with the automatic GITHUB_TOKEN — there is no
+      # registry secret to configure. The checkout needs no more than read.
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: main
+
+      # Container repository names must be lowercase, and `github.repository` preserves the
+      # owner's casing — interpolating it straight into the reference would produce an
+      # invalid one for any owner whose name has a capital letter.
+      - name: Resolve the image reference
+        run: |
+          set -euo pipefail
+          image="ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')/vcs-mcp"
+          {
+            echo "IMAGE=$image"
+            echo "IMAGE_REF=$image:$VERSION"
+          } >> "$GITHUB_ENV"
+          echo "Publishing $image:$VERSION (and :latest)"
+
+      # --build-arg VERSION stamps the release version into the assemblies: the release
+      # commit that bumps src/Directory.Build.props is made by the `release` job and is not
+      # on main yet, so this checkout still carries the previous version. --pull refuses a
+      # stale cached base image. The smoke test below asserts the stamp actually landed,
+      # which is what makes the image version the release version rather than just a tag
+      # spelled the same way.
+      - name: Build the image
+        run: |
+          set -euo pipefail
+          docker build \
+            --pull \
+            --build-arg VERSION="$VERSION" \
+            --tag "$IMAGE:$VERSION" \
+            --tag "$IMAGE:latest" \
+            .
+
+      # THE PUBLISH GATE — nothing is pushed unless this passes. It drives the image over
+      # MCP stdio exactly as a client would (initialize -> tools/list -> a `repo_snapshot`
+      # read against a repository seeded inside a throwaway volume) and checks that every
+      # bundled CLI runs, so a broken entrypoint, a missing binary or an unstamped version
+      # fails the job here rather than reaching users. The scenario mirrors
+      # tests/VcsToolkit.Mcp.Server.Tests/McpServerStdioE2eTests.fs.
+      - name: Smoke-test the image over stdio (publish gate)
+        shell: pwsh
+        run: ./scripts/smoke-mcp-image.ps1 -Image $env:IMAGE_REF -ExpectedVersion $env:VERSION
+
+      - name: Log in to ghcr.io
+        env:
+          # Read through the environment rather than interpolated into the script body, so
+          # the token never appears in the command line the runner logs.
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      # Versioned tag first: if pushing `latest` fails, the immutable version tag is
+      # already published and a re-run only has to move `latest`.
+      - name: Publish to ghcr.io
+        run: |
+          set -euo pipefail
+          docker push "$IMAGE:$VERSION"
+          docker push "$IMAGE:latest"
+          echo "Published $IMAGE:$VERSION and $IMAGE:latest"
+
+      # Drop the registry credential from the runner's docker config even when a step
+      # above failed.
+      - name: Log out of ghcr.io
+        if: ${{ always() }}
+        run: docker logout ghcr.io

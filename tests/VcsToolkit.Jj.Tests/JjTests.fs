@@ -498,6 +498,54 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.MergeBaseUsesGuardedCombinedRevsetAndReturnsFullCommitId() : Task =
+        task {
+            let full = "0123456789abcdef0123456789abcdef01234567"
+
+            let jj =
+                scripted
+                    [ "log"
+                      "-r"
+                      "heads(::(left) & ::(right))"
+                      "--limit"
+                      "1"
+                      "-T"
+                      "commit_id" ]
+                    (Reply.Ok(full + "\n"))
+
+            match! jj.MergeBase(".", "left", "right") with
+            | Ok(Some commitId) -> Assert.That(commitId, Is.EqualTo full)
+            | Ok None -> Assert.Fail "expected a common ancestor"
+            | Error e -> Assert.Fail $"merge-base failed: {e}"
+        }
+
+    [<Test>]
+    member _.MergeBaseReturnsNoneForEmptyOrVirtualRootAndGuardsInputs() : Task =
+        task {
+            let empty = scripted [ "heads(::(left) & ::(right))" ] (Reply.Ok "")
+
+            match! empty.MergeBase(".", "left", "right") with
+            | Ok None -> ()
+            | Ok(Some commitId) -> Assert.Fail $"expected None, got {commitId}"
+            | Error e -> Assert.Fail $"empty result failed: {e}"
+
+            let virtualRoot =
+                scripted [ "heads(::(left) & ::(right))" ] (Reply.Ok(String.replicate 40 "0"))
+
+            match! virtualRoot.MergeBase(".", "left", "right") with
+            | Ok None -> ()
+            | Ok(Some commitId) -> Assert.Fail $"the virtual root is not a real merge base: {commitId}"
+            | Error e -> Assert.Fail $"virtual-root result failed: {e}"
+
+            let calls, runner = recording (Reply.Ok "leaked")
+            let guarded = Jj.WithRunner runner
+
+            match! guarded.MergeBase(".", "--all", "right") with
+            | Error _ -> Assert.That(calls, Is.Empty, "a rejected revset must not spawn jj")
+            | Ok value -> Assert.Fail $"a flag-like revset must be rejected, got {value}"
+        }
+
+    [<Test>]
     member _.RootApisShareTheSameLineTerminatorParsing() : Task =
         task {
             let output = $" /repo {tab}{cr}\n"
@@ -1206,6 +1254,44 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.FileListDefaultsToWorkingCopyRevset() : Task =
+        task {
+            let jj =
+                scripted [ "file"; "list"; "-r"; "@" ] (Reply.Ok "\"a.rs\"\n\"sub/b.rs\"\n")
+
+            match! jj.FileList(".", None) with
+            | Ok paths ->
+                Assert.That(paths.Length, Is.EqualTo 2)
+                Assert.That(paths.[0], Is.EqualTo "a.rs")
+                Assert.That(paths.[1], Is.EqualTo "sub/b.rs")
+            | Error e -> Assert.Fail $"file_list failed: {e}"
+        }
+
+    [<Test>]
+    member _.FileListUsesTheGivenRevset() : Task =
+        task {
+            let jj = scripted [ "file"; "list"; "-r"; "@-" ] (Reply.Ok "\"a.rs\"\n")
+
+            match! jj.FileList(".", Some "@-") with
+            | Ok paths ->
+                Assert.That(paths.Length, Is.EqualTo 1)
+                Assert.That(paths.[0], Is.EqualTo "a.rs")
+            | Error e -> Assert.Fail $"file_list at revset failed: {e}"
+        }
+
+    [<Test>]
+    member _.FileListEmptyRevsetIsEmptyListNotError() : Task =
+        task {
+            // Mirrors ResolveList: `file list` on an empty tree is a normal, empty-output
+            // success — never an error just because nothing matched.
+            let jj = scripted [ "file"; "list"; "-r"; "@" ] (Reply.Ok "")
+
+            match! jj.FileList(".", None) with
+            | Ok paths -> Assert.That(paths, Is.Empty)
+            | Error e -> Assert.Fail $"file_list (empty) failed: {e}"
+        }
+
+    [<Test>]
     member _.FileAnnotatePreservesCrThroughByteCapture() : Task =
         task {
             // A CRLF-terminated source line: the `\r` in each annotate row's content must survive
@@ -1822,6 +1908,40 @@ type SemanticsTests() =
 type AtViewTests() =
 
     [<Test>]
+    member _.JjAtFileListRunsFromRootAndMatchesTheUnboundRootListing() : Task =
+        task {
+            let captured = ref (None: Command option)
+
+            let recordFileListCommand (cmd: Command) =
+                let args = cmd.Arguments |> Seq.toList
+
+                if List.truncate 4 args = [ "file"; "list"; "-r"; "@" ] then
+                    captured.Value <- Some cmd
+
+                true
+
+            let runner =
+                ScriptedRunner()
+                    .On([ "root" ], Reply.Ok "/repo\n")
+                    .When(recordFileListCommand, Reply.Ok "\"sub/a.txt\"\n\"top.txt\"\n")
+
+            let jj = Jj.WithRunner runner
+            let! rootResult = jj.FileList("/repo", None)
+            let! boundResult = jj.At("/repo/sub").FileList None
+
+            match rootResult, boundResult, captured.Value with
+            | Ok rootPaths, Ok boundPaths, Some cmd ->
+                Assert.That((boundPaths = rootPaths), Is.True)
+                Assert.That(boundPaths, Does.Contain "sub/a.txt")
+                Assert.That(boundPaths, Does.Contain "top.txt")
+                Assert.That(boundPaths, Does.Not.Contain "a.txt")
+                Assert.That(cmd.WorkingDirectory, Is.EqualTo(Some "/repo"))
+            | Error e, _, _ -> Assert.Fail $"root FileList failed: {e}"
+            | _, Error e, _ -> Assert.Fail $"bound FileList failed: {e}"
+            | _, _, None -> Assert.Fail "no file-list command captured"
+        }
+
+    [<Test>]
     member _.JjAtBindsDirWithByteIdenticalArgv() : Task =
         task {
             // A modelled method through the `at(dir)` view resolves the workspace root for the
@@ -1953,6 +2073,7 @@ type ReadOnlyModeTests() =
             let! _ = jj.IsConflicted(".", "@")
             let! _ = jj.ResolveList(".", "@")
             let! _ = jj.TemplateQuery(".", "@", "commit_id", Some 1)
+            let! _ = jj.MergeBase(".", "@", "@-")
             let! _ = jj.Evolog(".", "@", 3)
             let! _ = jj.FileShow(".", "@", "a.fs")
             let! _ = jj.OpHead "."
@@ -1961,7 +2082,7 @@ type ReadOnlyModeTests() =
             let! _ = jj.WorkspaceRoot(".", None)
             let! _ = jj.WorkspaceRoots(".", [ "default" ])
 
-            Assert.That(calls.Count, Is.EqualTo 21, "one command per read (WorkspaceRoots fans out one per name)")
+            Assert.That(calls.Count, Is.EqualTo 22, "one command per read (WorkspaceRoots fans out one per name)")
 
             for cmd in calls do
                 let args = argsOf cmd
@@ -1987,7 +2108,7 @@ type ReadOnlyModeTests() =
             )
 
             Assert.That(
-                ((argsOf calls.[17]) |> List.take 3) = [ "--ignore-working-copy"; "op"; "log" ],
+                ((argsOf calls.[18]) |> List.take 3) = [ "--ignore-working-copy"; "op"; "log" ],
                 Is.True,
                 "op log leads with the flag then the two-word subcommand"
             )

@@ -369,6 +369,35 @@ type GitLab private (core: ManagedClient) =
             | Ok() -> return! core.Run(core.CommandIn(dir, [ "issue"; "note"; string number; "-m"; body ]))
         }
 
+    /// Edit an issue's title and/or description (`glab issue update <id> [--title …]
+    /// [--description …]`). At least one field must be supplied. A body equal to `-` is
+    /// refused before spawning because glab treats it as an stdin/editor sentinel.
+    member _.IssueEdit(dir: string, number: uint64, title: string option, body: string option) =
+        task {
+            match title, body with
+            | None, None ->
+                return Error(ProcessError.Spawn(BINARY, "issue update requires at least a title or a body to change"))
+            | _ ->
+                let dashCheck =
+                    match body with
+                    | Some b -> rejectDashSentinel "body" b
+                    | None -> Ok()
+
+                match dashCheck with
+                | Error e -> return Error e
+                | Ok() ->
+                    let args =
+                        [ "issue"; "update"; string number ]
+                        @ (match title with
+                           | Some t -> [ "--title"; t ]
+                           | None -> [])
+                        @ (match body with
+                           | Some b -> [ "--description"; b ]
+                           | None -> [])
+
+                    return! core.RunUnit(core.CommandIn(dir, args))
+        }
+
     /// Releases for `dir` (`glab release list --per-page 100 --output json`).
     /// Up to 100 (the GitLab API per-page max).
     member _.ReleaseList(dir: string) =
@@ -538,6 +567,10 @@ and [<Sealed>] GitLabAt internal (gitlab: GitLab, dir: string) =
 
     /// Add a comment (note) to an issue (`glab issue note <id> -m …`).
     member _.IssueComment(number: uint64, body: string) = gitlab.IssueComment(dir, number, body)
+
+    /// Edit an issue's title and/or description (`glab issue update <id> …`).
+    member _.IssueEdit(number: uint64, title: string option, body: string option) =
+        gitlab.IssueEdit(dir, number, title, body)
 
     /// Releases for the bound `dir` (`glab release list …`).
     member _.ReleaseList() = gitlab.ReleaseList dir

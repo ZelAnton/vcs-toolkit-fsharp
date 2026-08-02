@@ -13,6 +13,7 @@
 		<Compile Include="UpstreamIntegrationTests.fs" />
 		<Compile Include="EmptyTreeOidIntegrationTests.fs" />
 		<Compile Include="PathTransportIntegrationTests.fs" />
+		<Compile Include="ListFilesIntegrationTests.fs" />
 		<Compile Include="StashIntegrationTests.fs" />
 		<Compile Include="CleanIntegrationTests.fs" />
 		<Compile Include="DiffRelativeIntegrationTests.fs" />

@@ -67,7 +67,7 @@ type WriteGateTests() =
 
     [<Test>]
     member _.WriteToolsCoversTheGatedTools() =
-        Assert.That(List.length WriteTools.all, Is.EqualTo 29)
+        Assert.That(List.length WriteTools.all, Is.EqualTo 30)
         Assert.That(WriteTools.asSet.Contains "repo_commit", Is.True)
         Assert.That(WriteTools.asSet.Contains "repo_rebase", Is.True, "the new rebase tool is write-gated")
         Assert.That(WriteTools.asSet.Contains "forge_pr_checkout", Is.True, "the local-checkout tool is write-gated")
@@ -82,6 +82,8 @@ type WriteGateTests() =
             Is.True,
             "the new issue-comment tool is write-gated"
         )
+
+        Assert.That(WriteTools.asSet.Contains "forge_issue_edit", Is.True, "the issue-edit tool is write-gated")
 
         Assert.That(WriteTools.asSet.Contains "repo_status", Is.False, "a read tool is not a write tool")
 
@@ -426,6 +428,26 @@ type ToolTests() =
         }
 
     [<Test>]
+    member _.RepoMergeBaseReturnsOptionalCommitIdJsonAsARead() : Task =
+        task {
+            let full = "0123456789abcdef0123456789abcdef01234567"
+
+            let found =
+                gitServer (ScriptedRunner().On([ "merge-base"; "left"; "right" ], Reply.Ok(full + "\n"))) WriteGate.None
+
+            match! found.RepoMergeBase("left", "right") with
+            | Ok json -> Assert.That(json, Does.Contain full)
+            | Error e -> Assert.Fail $"repo_merge_base failed: {e.Message}"
+
+            let missing =
+                gitServer (ScriptedRunner().On([ "merge-base"; "left"; "right" ], Reply.Exit 1)) WriteGate.None
+
+            match! missing.RepoMergeBase("left", "right") with
+            | Ok json -> Assert.That(json.Trim(), Is.EqualTo "null")
+            | Error e -> Assert.Fail $"repo_merge_base None failed: {e.Message}"
+        }
+
+    [<Test>]
     member _.RepoAnnotateReturnsAnnotateLineJson() : Task =
         task {
             // repo_annotate is a read tool (no write gate) that surfaces the facade's unified
@@ -455,6 +477,40 @@ type ToolTests() =
                 // match the date only up to the offset sign, not the raw "+00:00" suffix.
                 Assert.That(json, Does.Contain "2023-11-14T22:13:20")
             | Error e -> Assert.Fail $"repo_annotate failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.RepoListFilesReturnsPathsJson() : Task =
+        task {
+            // repo_list_files is a read tool (no write gate) over the facade's repo-relative
+            // path list, anchored at the repo root on both backends.
+            let nul = string (char 0)
+
+            let server =
+                gitServer
+                    (ScriptedRunner().On([ "ls-files"; "-z" ], Reply.Ok($"a.rs{nul}sub/b.rs{nul}")))
+                    WriteGate.None
+
+            match! server.RepoListFiles Option.None with
+            | Ok json ->
+                Assert.That(json, Does.Contain "a.rs")
+                Assert.That(json, Does.Contain "sub/b.rs")
+            | Error e -> Assert.Fail $"repo_list_files failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.RepoListFilesAtARevisionUsesLsTree() : Task =
+        task {
+            let nul = string (char 0)
+
+            let server =
+                gitServer
+                    (ScriptedRunner().On([ "ls-tree"; "-r"; "--name-only"; "-z"; "HEAD~1" ], Reply.Ok($"a.rs{nul}")))
+                    WriteGate.None
+
+            match! server.RepoListFiles(Some "HEAD~1") with
+            | Ok json -> Assert.That(json, Does.Contain "a.rs")
+            | Error e -> Assert.Fail $"repo_list_files at rev failed: {e.Message}"
         }
 
     [<Test>]
@@ -838,6 +894,45 @@ type ToolTests() =
             match! server.ForgeIssueComment(1UL, "hi") with
             | Error e -> Assert.That(e.Message, Does.Contain "allow-write")
             | Ok _ -> Assert.Fail "forge_issue_comment must be gated in read-only mode"
+        }
+
+    [<Test>]
+    member _.ForgeIssueEditIsWriteGated() : Task =
+        task {
+            let server = gitServer (ScriptedRunner()) WriteGate.None
+
+            match! server.ForgeIssueEdit(1UL, Some "New", Option.None) with
+            | Error e -> Assert.That(e.Message, Does.Contain "allow-write")
+            | Ok _ -> Assert.Fail "forge_issue_edit must be gated in read-only mode"
+        }
+
+    [<Test>]
+    member _.ForgeIssueEditRejectsNoFieldsWithoutSpawning() : Task =
+        task {
+            let runner =
+                ScriptedRunner().Fallback(Reply.Fail(1, "must not spawn — refusal must precede it"))
+
+            let server = gitServerWithForge runner WriteGate.All
+
+            match! server.ForgeIssueEdit(1UL, Option.None, Option.None) with
+            | Error(McpError.InvalidParams message) -> Assert.That(message, Does.Contain "at least one")
+            | Error e -> Assert.Fail $"expected invalid params, got: {e.Message}"
+            | Ok _ -> Assert.Fail "forge_issue_edit must require a title or body"
+        }
+
+    [<Test>]
+    member _.ForgeIssueEditAcceptsOptionalTitleAndBody() : Task =
+        task {
+            let server =
+                gitServerWithForge
+                    (ScriptedRunner()
+                        .On([ "--version" ], Reply.Ok "gh version 2.40.0\n")
+                        .On([ "issue"; "edit"; "9"; "--title"; "New" ], Reply.Ok ""))
+                    WriteGate.All
+
+            match! server.ForgeIssueEdit(9UL, Some "New", Option.None) with
+            | Ok json -> Assert.That(json, Does.Contain "edited")
+            | Error e -> Assert.Fail $"forge_issue_edit failed: {e.Message}"
         }
 
     [<Test>]
@@ -1613,6 +1708,72 @@ type OutputBudgetTests() =
             | Error e -> Assert.Fail $"zero-budget repo_annotate failed: {e.Message}"
         }
 
+    [<Test>]
+    member _.RepoListFilesTruncatesAtAnItemBoundaryWithAValidJsonEnvelope() : Task =
+        task {
+            let nul = string (char 0)
+            // Long enough that the full two-item array outgrows the envelope overhead of a
+            // single-item truncation (short paths like "a.rs"/"b.rs" would make the envelope
+            // itself bigger than the untruncated array, so nothing would need truncating).
+            let pathA = "src/" + String.replicate 80 "a" + ".rs"
+            let pathB = "src/" + String.replicate 80 "b" + ".rs"
+            let paths = [ pathA; pathB ]
+
+            let expected =
+                Json.ok
+                    {| Items = List.take 1 paths
+                       Truncated = true
+                       Shown = 1
+                       Total = 2 |}
+
+            let budget = System.Text.Encoding.UTF8.GetByteCount expected
+
+            let server =
+                gitServerWithBudget
+                    (ScriptedRunner().On([ "ls-files"; "-z" ], Reply.Ok($"{pathA}{nul}{pathB}{nul}")))
+                    WriteGate.None
+                    (Some budget)
+
+            match! server.RepoListFiles Option.None with
+            | Ok json ->
+                use parsed = System.Text.Json.JsonDocument.Parse json
+                let root = parsed.RootElement
+                Assert.That(json, Is.EqualTo expected)
+                Assert.That(root.GetProperty("truncated").GetBoolean(), Is.True)
+                Assert.That(root.GetProperty("shown").GetInt32(), Is.EqualTo 1)
+                Assert.That(root.GetProperty("total").GetInt32(), Is.EqualTo 2)
+                Assert.That(root.GetProperty("items").GetArrayLength(), Is.EqualTo 1)
+                Assert.That(System.Text.Encoding.UTF8.GetByteCount json, Is.LessThanOrEqualTo budget)
+            | Error e -> Assert.Fail $"repo_list_files failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.RepoListFilesNoOrZeroBudgetPreservesTheOriginalJsonArrayByteForByte() : Task =
+        task {
+            let nul = string (char 0)
+            let expected = Json.ok [ "a.rs"; "b.rs" ]
+
+            let unbounded =
+                gitServerWithBudget
+                    (ScriptedRunner().On([ "ls-files"; "-z" ], Reply.Ok($"a.rs{nul}b.rs{nul}")))
+                    WriteGate.None
+                    Option.None
+
+            match! unbounded.RepoListFiles Option.None with
+            | Ok json -> Assert.That(json, Is.EqualTo expected)
+            | Error e -> Assert.Fail $"unbounded repo_list_files failed: {e.Message}"
+
+            let zero =
+                gitServerWithBudget
+                    (ScriptedRunner().On([ "ls-files"; "-z" ], Reply.Ok($"a.rs{nul}b.rs{nul}")))
+                    WriteGate.None
+                    (Some 0)
+
+            match! zero.RepoListFiles Option.None with
+            | Ok json -> Assert.That(json, Is.EqualTo expected)
+            | Error e -> Assert.Fail $"zero-budget repo_list_files failed: {e.Message}"
+        }
+
 // ---------------------------------------------------------------------------
 // JSON serialization (clean F# → JSON)
 // ---------------------------------------------------------------------------
@@ -1648,8 +1809,8 @@ type CatalogTests() =
 
     [<Test>]
     member _.CatalogCoversEveryTool() =
-        // 14 repo-read + repo_try_merge + 14 repo-write + 12 forge-read + 14 forge-write = 55.
-        Assert.That(List.length Catalog.all, Is.EqualTo 55)
+        // 16 repo-read + repo_try_merge + 14 repo-write + 12 forge-read + 15 forge-write = 58.
+        Assert.That(List.length Catalog.all, Is.EqualTo 58)
         // Every write-gated tool name appears in the catalogue.
         let names = Catalog.all |> List.map (fun t -> t.Name) |> Set.ofList
         Assert.That(WriteTools.all |> List.forall names.Contains, Is.True, "every write tool is catalogued")
@@ -1681,6 +1842,7 @@ type CatalogTests() =
               "forge_issue_close", false, true
               "forge_issue_reopen", false, true
               "forge_issue_comment", false, false
+              "forge_issue_edit", false, true
               "forge_pr_create", false, false
               "forge_pr_merge", true, false
               "forge_pr_close", true, true
@@ -1771,6 +1933,19 @@ type CatalogTests() =
         }
 
     [<Test>]
+    member _.CallToolDispatchesRepoMergeBase() : Task =
+        task {
+            let full = "0123456789abcdef0123456789abcdef01234567"
+
+            let server =
+                gitServer (ScriptedRunner().On([ "merge-base"; "left"; "right" ], Reply.Ok(full + "\n"))) WriteGate.None
+
+            match! Catalog.callTool server "repo_merge_base" (argsOf """{"a":"left","b":"right"}""") with
+            | Ok json -> Assert.That(json, Does.Contain full)
+            | Error e -> Assert.Fail $"repo_merge_base dispatch failed: {e.Message}"
+        }
+
+    [<Test>]
     member _.CallToolDispatchesRepoDiff() : Task =
         task {
             let raw =
@@ -1807,7 +1982,7 @@ type CatalogTests() =
         }
 
     [<Test>]
-    member _.CallToolDispatchesForgeIssueCloseAndComment() : Task =
+    member _.CallToolDispatchesForgeIssueLifecycleWrites() : Task =
         task {
             let runner =
                 ScriptedRunner()
@@ -1815,6 +1990,7 @@ type CatalogTests() =
                     .On([ "issue"; "close" ], Reply.Ok "")
                     .On([ "issue"; "reopen" ], Reply.Ok "")
                     .On([ "issue"; "comment" ], Reply.Ok "https://c/1\n")
+                    .On([ "issue"; "edit" ], Reply.Ok "")
 
             let server = gitServerWithForge runner WriteGate.All
 
@@ -1830,10 +2006,18 @@ type CatalogTests() =
             | Ok json -> Assert.That(json, Does.Contain "output")
             | Error e -> Assert.Fail $"forge_issue_comment dispatch failed: {e.Message}"
 
+            match! Catalog.callTool server "forge_issue_edit" (argsOf """{"number":3,"title":"New"}""") with
+            | Ok json -> Assert.That(json, Does.Contain "edited")
+            | Error e -> Assert.Fail $"forge_issue_edit dispatch failed: {e.Message}"
+
             // A missing required arg is refused as invalid-params before the tool runs.
             match! Catalog.callTool server "forge_issue_comment" (argsOf """{"number":3}""") with
             | Error e -> Assert.That(e.Message, Does.Contain "body")
             | Ok _ -> Assert.Fail "forge_issue_comment must require a body"
+
+            match! Catalog.callTool server "forge_issue_edit" (argsOf """{"number":3}""") with
+            | Error e -> Assert.That(e.Message, Does.Contain "at least one")
+            | Ok _ -> Assert.Fail "forge_issue_edit must require a title or body"
         }
 
     [<Test>]
@@ -2080,6 +2264,7 @@ type CatalogTests() =
                     .On([ "--version" ], Reply.Ok "gh version 2.40.0\n")
                     .On([ "pr"; "create" ], Reply.Ok "https://x/2\n")
                     .On([ "pr"; "edit" ], Reply.Ok "")
+                    .On([ "issue"; "edit" ], Reply.Ok "")
 
             let server = gitServerWithForge runner WriteGate.All
 
@@ -2104,6 +2289,15 @@ type CatalogTests() =
             with
             | Ok _ -> ()
             | Error e -> Assert.Fail $"forge_pr_edit should accept string title/body: {e.Message}"
+
+            match!
+                Catalog.callTool
+                    server
+                    "forge_issue_edit"
+                    (argsOf """{"number":1,"title":"new title","body":"new body"}""")
+            with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"forge_issue_edit should accept string title/body: {e.Message}"
         }
 
     [<Test>]
@@ -2262,6 +2456,17 @@ type CatalogTests() =
             | Error(McpError.InvalidParams _) -> ()
             | Error e -> Assert.Fail $"expected InvalidParams for an Unsupported forge op, got: {e.Message}"
             | Ok _ -> Assert.Fail "forge_pr_edit must be Unsupported on Gitea"
+        }
+
+    [<Test>]
+    member _.CallToolForgeIssueEditIsUnsupportedOnGitea() : Task =
+        task {
+            let server = gitServerWithGiteaForge (ScriptedRunner()) WriteGate.All
+
+            match! Catalog.callTool server "forge_issue_edit" (argsOf """{"number":1,"title":"x"}""") with
+            | Error(McpError.InvalidParams _) -> ()
+            | Error e -> Assert.Fail $"expected InvalidParams for an Unsupported forge op, got: {e.Message}"
+            | Ok _ -> Assert.Fail "forge_issue_edit must be Unsupported on Gitea"
         }
 
     [<Test>]
@@ -2442,6 +2647,34 @@ type CatalogTests() =
             match! Catalog.callTool server "repo_annotate" (argsOf "{}") with
             | Error e -> Assert.That(e.Message, Does.Contain "path")
             | Ok _ -> Assert.Fail "a missing required argument must be refused"
+        }
+
+    [<Test>]
+    member _.CallToolDispatchesRepoListFiles() : Task =
+        task {
+            let nul = string (char 0)
+
+            let server =
+                gitServer
+                    (ScriptedRunner().On([ "ls-tree"; "-r"; "--name-only"; "-z"; "HEAD" ], Reply.Ok($"a.rs{nul}")))
+                    WriteGate.None
+
+            match! Catalog.callTool server "repo_list_files" (argsOf """{"rev":"HEAD"}""") with
+            | Ok json -> Assert.That(json, Does.Contain "a.rs")
+            | Error e -> Assert.Fail $"dispatch failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.CallToolRepoListFilesAcceptsAnOmittedRev() : Task =
+        task {
+            let nul = string (char 0)
+
+            let server =
+                gitServer (ScriptedRunner().On([ "ls-files"; "-z" ], Reply.Ok($"a.rs{nul}"))) WriteGate.None
+
+            match! Catalog.callTool server "repo_list_files" (argsOf "{}") with
+            | Ok json -> Assert.That(json, Does.Contain "a.rs")
+            | Error e -> Assert.Fail $"dispatch failed: {e.Message}"
         }
 
     [<Test>]

@@ -31,10 +31,12 @@ let private coveredReadMethods =
           "HasTrackedChanges"
           "HasUncommittedChanges"
           "InProgressState"
+          "ListFiles"
           "ListWorktrees"
           "LocalBranches"
           "Log"
           "LogPaths"
+          "MergeBase"
           "Remotes"
           "ShowFile"
           "ShowFileBytes"
@@ -215,6 +217,30 @@ type RepoFacadeParityTests() =
 
             assertSameList "ConflictedFiles" id git jj
             Assert.That(List.isEmpty git, Is.True, "a clean working copy has no conflicted paths")
+        }
+
+    [<Test>]
+    member _.ListFilesMatchAcrossBackends() : Task =
+        task {
+            // The working-copy listing (the seed scenario's uncommitted edit is to an
+            // already-tracked file, so it changes no backend's file SET) and a specific
+            // revision must both agree, repo-relative, on the paths carrying spaces and
+            // non-ASCII characters.
+            let pair = fixture.Pair
+            let! gitResult = pair.Git.ListFiles None
+            let! jjResult = pair.Jj.ListFiles None
+            let git = expectOk "git" "ListFiles" gitResult |> List.sort
+            let jj = expectOk "jj" "ListFiles" jjResult |> List.sort
+
+            assertSameList "ListFiles" id git jj
+            assertListEquals "ListFiles" (List.sort [ "a.txt"; NestedPath; SpacedPath; UnicodePath ]) git
+
+            let! gitRevResult = pair.Git.ListFiles(Some pair.GitSandbox.CommittedRev)
+            let! jjRevResult = pair.Jj.ListFiles(Some pair.JjSandbox.CommittedRev)
+            let gitRev = expectOk "git" "ListFiles" gitRevResult |> List.sort
+            let jjRev = expectOk "jj" "ListFiles" jjRevResult |> List.sort
+
+            assertSameList "ListFiles at a revision" id gitRev jjRev
         }
 
     [<Test>]
@@ -407,6 +433,28 @@ type RepoFacadeParityTests() =
             let! jjEmpty = pair.Jj.LogPaths(pair.JjSandbox.HistoryRev, 10, [])
             assertSame "LogPaths []" (Result.isError gitEmpty) (Result.isError jjEmpty)
             Assert.That(Result.isError gitEmpty, Is.True, "an empty path set is refused, not silently unrestricted")
+        }
+
+    // --- Merge base -----------------------------------------------------------
+
+    [<Test>]
+    member _.MergeBaseMatchesAcrossBackends() : Task =
+        task {
+            let pair = fixture.Pair
+            // MergeBase of a revision with itself should return that revision.
+            let! gitMerge = pair.Git.MergeBase(pair.GitSandbox.CommittedRev, pair.GitSandbox.CommittedRev)
+            let! jjMerge = pair.Jj.MergeBase(pair.JjSandbox.CommittedRev, pair.JjSandbox.CommittedRev)
+
+            assertSame "MergeBase (rev with itself)" (Result.isOk gitMerge) (Result.isOk jjMerge)
+            Assert.That(Result.isOk gitMerge, Is.True, "MergeBase should succeed for valid revisions")
+
+            // MergeBase of HistoryRev and CommittedRev should work (CommittedRev is part of HistoryRev).
+            let! gitWithHistory = pair.Git.MergeBase(pair.GitSandbox.HistoryRev, pair.GitSandbox.CommittedRev)
+
+            let! jjWithHistory = pair.Jj.MergeBase(pair.JjSandbox.HistoryRev, pair.JjSandbox.CommittedRev)
+
+            assertSame "MergeBase (history with committed)" (Result.isOk gitWithHistory) (Result.isOk jjWithHistory)
+            Assert.That(Result.isOk gitWithHistory, Is.True, "MergeBase should succeed for both revisions")
         }
 
     // --- File content ---------------------------------------------------------

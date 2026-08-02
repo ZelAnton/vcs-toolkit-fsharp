@@ -641,6 +641,38 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
         // non-UTF-8 bytes; a verbatim byte read of blob content is `FileShowBytes`.
         runUntrimmed core (cmdInRead dir args)
 
+    /// The full commit id of a best non-root common ancestor of `a` and `b`, or `None` when
+    /// their histories are disconnected (`heads(::(a) & ::(b))`). Both caller-supplied
+    /// revsets are validated before they are embedded in the combined expression.
+    member this.MergeBase(dir: string, a: string, b: string) =
+        task {
+            match RevsetExpr.Create a with
+            | Error e -> return Error e
+            | Ok aExpr ->
+                match RevsetExpr.Create b with
+                | Error e -> return Error e
+                | Ok bExpr ->
+                    let common = sprintf "heads(::(%s) & ::(%s))" aExpr.Value bExpr.Value
+
+                    match! this.TemplateQuery(dir, common, "commit_id", Some 1) with
+                    | Error e -> return Error e
+                    | Ok output ->
+                        let commitId = output.Trim()
+
+                        // jj's immutable virtual root is rendered as an all-zero id. It is the
+                        // implementation-level parent of otherwise disconnected histories, not
+                        // a real commit that git's merge-base could return.
+                        let isVirtualRoot = commitId <> "" && (commitId |> Seq.forall ((=) '0'))
+
+                        return
+                            Ok(
+                                if commitId = "" || isVirtualRoot then
+                                    None
+                                else
+                                    Some commitId
+                            )
+        }
+
     /// The full (possibly multiline) description of the commit `revset` resolves to,
     /// trailing whitespace trimmed; empty for an undescribed change. A multi-commit
     /// revset yields only the newest commit's description (`--limit 1`).
@@ -704,6 +736,15 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
                 | Error e -> return Error e
                 | Ok ok -> return Ok(JjParse.parseAnnotate (System.Text.Encoding.UTF8.GetString ok.Stdout))
         }
+
+    /// Repo-relative tracked paths at `revset` (`jj file list -r <revset>`; `None` = `@`),
+    /// lossless via `.escape_json()` template framing (`JjParse.FILE_LIST_TEMPLATE`/
+    /// `parseFileList`) — see `ResolveList`'s doc comment for why a templated `file list`
+    /// beats parsing a human-readable jj listing command directly.
+    member _.FileList(dir: string, revset: string option) =
+        let r = revset |> Option.defaultValue "@"
+
+        core.Parse(cmdInRead dir [ "file"; "list"; "-r"; r; "-T"; JjParse.FILE_LIST_TEMPLATE ], JjParse.parseFileList)
 
     /// A file's content at a revision (`jj file show -r <revset> root-file:"<path>"` — the
     /// path is wrapped as an exact-path fileset, so metacharacters stay literal and the path is
@@ -1248,11 +1289,11 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
 /// `jj.At(dir).Status()` is `jj.Status dir`. Construct one with `Jj.At` (or, through the
 /// facade, `Repo.JjAt`). Cheap to construct: it only holds the client and the path.
 ///
-/// Every method — the *modelled* `dir` forwarders AND the raw `Run`/`RunRaw` escape hatches —
-/// runs in the bound `dir`: the modelled methods inject it as their leading argument, and the
-/// hatches forward to `jj.Run(dir, …)`/`jj.RunRaw(dir, …)`. For a raw command that must run in
-/// the process's current directory instead, call `Run`/`RunRaw` on the unbound `Jj` client. As
-/// on the client, the hatches are unguarded — never forward untrusted argv.
+/// Modelled methods use the bound `dir` as their repository context; queries whose output is
+/// repo-relative, including `FileList`, may first resolve the workspace root and run there. The
+/// raw `Run`/`RunRaw` hatches always run in the bound `dir`; for a raw command that must run in
+/// the process's current directory instead, call `Run`/`RunRaw` on the unbound `Jj` client. As on
+/// the client, the hatches are unguarded — never forward untrusted argv.
 and [<Sealed>] JjAt internal (jj: Jj, dir: string) =
 
     // --- Escape hatches (bound to `dir`) -------------------------------------
@@ -1380,6 +1421,9 @@ and [<Sealed>] JjAt internal (jj: Jj, dir: string) =
     member _.TemplateQuery(revset: string, template: string, limit: int option) =
         jj.TemplateQuery(dir, revset, template, limit)
 
+    /// The full commit id of a best non-root common ancestor of `a` and `b`, or `None` when unrelated.
+    member _.MergeBase(a: string, b: string) = jj.MergeBase(dir, a, b)
+
     /// The full description of the commit `revset` resolves to.
     member _.Description(revset: string) = jj.Description(dir, revset)
 
@@ -1388,6 +1432,14 @@ and [<Sealed>] JjAt internal (jj: Jj, dir: string) =
 
     /// Per-line authorship of `path` (`jj file annotate <path> [-r <revset>]`).
     member _.FileAnnotate(path: string, revset: string option) = jj.FileAnnotate(dir, path, revset)
+
+    /// Repo-relative tracked paths at `revset` (`jj file list -r <revset>`; `None` = `@`).
+    member _.FileList(revset: string option) =
+        task {
+            match! jj.Root dir with
+            | Error e -> return Error e
+            | Ok root -> return! jj.FileList(root, revset)
+        }
 
     /// A file's content at a revision (`jj file show -r <revset> root-file:"<path>"`),
     /// UTF-8-decoded (non-UTF-8 bytes become U+FFFD — use `FileShowBytes` for verbatim binary

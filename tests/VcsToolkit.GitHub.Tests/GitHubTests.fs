@@ -715,6 +715,30 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.IssueEditBuildsOptionalTitleAndBodyArgs() : Task =
+        task {
+            let gh, args = capturing (Reply.Ok "")
+
+            match! gh.IssueEdit(".", 7UL, Some "New title", Some "New body") with
+            | Ok() -> assertArgs [ "issue"; "edit"; "7"; "--title"; "New title"; "--body"; "New body" ] args
+            | Error e -> Assert.Fail $"issue edit failed: {e}"
+
+            match! gh.IssueEdit(".", 7UL, None, Some "Body only") with
+            | Ok() -> assertArgs [ "issue"; "edit"; "7"; "--body"; "Body only" ] args
+            | Error e -> Assert.Fail $"issue edit (body only) failed: {e}"
+        }
+
+    [<Test>]
+    member _.IssueEditRejectsNoFieldsBeforeSpawning() : Task =
+        task {
+            let gh = permissive ()
+
+            match! gh.IssueEdit(".", 7UL, None, None) with
+            | Error _ -> ()
+            | Ok() -> Assert.Fail "issue edit with no fields must be refused before spawning"
+        }
+
+    [<Test>]
     member _.IssueReopenBuildsArgs() : Task =
         task {
             let reopen = scripted [ "issue"; "reopen"; "3" ] (Reply.Ok "")

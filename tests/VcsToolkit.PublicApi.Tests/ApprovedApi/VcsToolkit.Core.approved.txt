@@ -189,10 +189,12 @@ namespace VcsToolkit.Core
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<bool, VcsToolkit.Core.RepoError>> HasTrackedChanges() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<bool, VcsToolkit.Core.RepoError>> HasUncommittedChanges() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Core.OperationState, VcsToolkit.Core.RepoError>> InProgressState() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<string>, VcsToolkit.Core.RepoError>> ListFiles(Microsoft.FSharp.Core.FSharpOption<string>? rev) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Core.WorktreeInfo>, VcsToolkit.Core.RepoError>> ListWorktrees() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<string>, VcsToolkit.Core.RepoError>> LocalBranches() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Core.Commit>, VcsToolkit.Core.RepoError>> Log(string revspecOrRevset, int max) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Core.Commit>, VcsToolkit.Core.RepoError>> LogPaths(string revspecOrRevset, int max, Microsoft.FSharp.Collections.FSharpList<string> paths) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.FSharpOption<string>?, VcsToolkit.Core.RepoError>> MergeBase(string a, string b) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> NewChild(string reference) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> Push(string branch) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> Rebase(string onto) { }

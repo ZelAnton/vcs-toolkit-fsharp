@@ -386,6 +386,25 @@ type Git private (core: ManagedClient) =
                     )
         }
 
+    /// The full commit id of a best common ancestor of `a` and `b` (`git merge-base <a> <b>`),
+    /// or `None` when the histories have no common ancestor (exit code 1).
+    member _.MergeBase(dir: string, a: string, b: string) =
+        task {
+            match checkFlags BINARY [ "revision", a; "revision", b ] with
+            | Error e -> return Error e
+            | Ok() ->
+                match! core.Output(core.CommandIn(dir, [ "merge-base"; a; b ])) with
+                | Error e -> return Error e
+                | Ok res ->
+                    match res.Code with
+                    | Some 0 -> return Ok(Some(res.Stdout.Trim()))
+                    | Some 1 -> return Ok None
+                    | _ ->
+                        match ProcessResult.ensureSuccess res with
+                        | Error e -> return Error e
+                        | Ok ok -> return Ok(Some(ok.Stdout.Trim()))
+        }
+
     /// Like `Log`, but scoped to commits that touched `paths` (`git --literal-pathspecs log
     /// <revspec> -n<max> -z --format=… -- <paths>`) — e.g. "who changed this module".
     /// `--literal-pathspecs` matches a path containing `*`/`?`/`[]` literally rather than as
@@ -621,6 +640,30 @@ type Git private (core: ManagedClient) =
     /// The last commit's full message (`git log -1 --format=%B`).
     member _.LastCommitMessage(dir: string) =
         core.Run(core.CommandIn(dir, [ "log"; "-1"; "--format=%B" ]))
+
+    /// Repo-relative tracked paths — `git ls-files -z` on the working copy (`rev = None`), or
+    /// `git ls-tree -r --name-only -z <rev>` on a specific revision. `-z` NUL-delimits the
+    /// output AND disables git's default C-style quoting of a non-ASCII/space-containing path,
+    /// so the total NUL-split parser (`GitParse.parseNulPaths`, shared with `ConflictedFiles`)
+    /// recovers every UTF-8 path losslessly, unmangled by quoting or line-ending processing.
+    member _.ListFiles(dir: string, rev: string option) =
+        task {
+            let command =
+                match rev with
+                | None -> Ok(core.CommandIn(dir, [ "ls-files"; "-z" ]))
+                | Some r ->
+                    checkFlags BINARY [ "revision", r ]
+                    |> Result.map (fun () -> core.CommandIn(dir, [ "ls-tree"; "-r"; "--name-only"; "-z"; r ]))
+
+            match command with
+            | Error e -> return Error e
+            | Ok cmd ->
+                match! runUntrimmedBytes core cmd with
+                | Error e -> return Error e
+                | Ok bytes ->
+                    let output = System.Text.Encoding.UTF8.GetString bytes
+                    return Ok(GitParse.parseNulPaths output)
+        }
 
     /// Whether `HEAD` is unborn — a fresh repo with no commits yet.
     member _.IsUnborn(dir: string) =
@@ -1832,10 +1875,11 @@ type Git private (core: ManagedClient) =
 /// (or, through the facade, `Repo.GitAt`). Cheap to construct: it only holds the client
 /// and the path.
 ///
-/// Every method — the *modelled* `dir` forwarders AND the raw `Run`/`RunRaw` escape hatches —
-/// runs in the bound `dir`: the modelled methods inject it as their leading argument, and the
-/// hatches forward to `git.Run(dir, …)`/`git.RunRaw(dir, …)`. For a raw command that must run
-/// in the process's current directory instead, call `Run`/`RunRaw` on the unbound `Git` client.
+/// Modelled methods use the bound `dir` as their repository context. `ListFiles` resolves that
+/// context's repository root before listing so its paths stay repo-relative; the other forwarders
+/// inject `dir` directly as their leading argument. The raw `Run`/`RunRaw` hatches always run in
+/// the bound `dir`; for a raw command that must run in the process's current directory instead,
+/// call `Run`/`RunRaw` on the unbound `Git` client.
 and [<Sealed>] GitAt internal (git: Git, dir: string) =
 
     // --- Escape hatches (bound to `dir`) -------------------------------------
@@ -1884,6 +1928,9 @@ and [<Sealed>] GitAt internal (git: Git, dir: string) =
     /// Like `Log`, but scoped to commits that touched `paths`.
     member _.LogPaths(revspec: string, max: int, paths: string list) = git.LogPaths(dir, revspec, max, paths)
 
+    /// The full commit id of a best common ancestor of `a` and `b`, or `None` when unrelated.
+    member _.MergeBase(a: string, b: string) = git.MergeBase(dir, a, b)
+
     /// Resolve a revision to a full hash (`git rev-parse --verify <rev>`).
     member _.RevParse(rev: string) = git.RevParse(dir, rev)
 
@@ -1913,6 +1960,14 @@ and [<Sealed>] GitAt internal (git: Git, dir: string) =
 
     /// The last commit's full message (`git log -1 --format=%B`).
     member _.LastCommitMessage() = git.LastCommitMessage dir
+
+    /// Repo-relative tracked paths at `rev` (`None` = working copy).
+    member _.ListFiles(rev: string option) =
+        task {
+            match! git.Run(dir, [ "rev-parse"; "--show-toplevel" ]) with
+            | Error e -> return Error e
+            | Ok root -> return! git.ListFiles(root, rev)
+        }
 
     /// Whether `HEAD` is unborn — a fresh repo with no commits yet.
     member _.IsUnborn() = git.IsUnborn dir

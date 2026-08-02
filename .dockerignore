@@ -1,0 +1,45 @@
+# Build context filter for Dockerfile (the `vcs-mcp` container image).
+#
+# The build stage runs `dotnet build`/`dotnet publish` on the sources, so the context
+# needs src/, tests/, benchmarks/ and the root MSBuild files — and nothing else. Two
+# reasons this list matters beyond context size:
+#   * a host bin/obj tree (Windows or macOS artifacts) copied into the Linux build would
+#     be picked up by AssemblySearchPaths and silently mix platforms;
+#   * repository/agent state (.jj, .git, .work) has no business inside an image layer.
+
+## Build outputs — never copy host artifacts into the container build.
+**/bin/
+**/obj/
+artifacts/
+TestResults/
+CoverageReport/
+/output/
+/.fsdocs/
+
+## Version-control metadata. The image is built from a checkout's *files*; it needs no
+## history. SourceLink degrades to "no repository information" rather than failing.
+.git/
+.gitignore
+.gitattributes
+.jj/
+
+## Orchestration / agent-local state and instructions (never part of a release artifact).
+.work/
+.claude/
+AGENTS.md
+CLAUDE.md
+CLAUDE.local.md
+
+## Editor / IDE local state.
+.vs/
+.idea/
+.vscode/
+*.user
+*.DotSettings.user
+
+## Docker's own inputs — the daemon reads them before the context is unpacked.
+Dockerfile
+.dockerignore
+
+## Release-pipeline scratch (written by .github/workflows/release.yml).
+release-notes.md

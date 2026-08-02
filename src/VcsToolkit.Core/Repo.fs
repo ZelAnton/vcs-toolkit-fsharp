@@ -344,6 +344,15 @@ type Repo private (root: string, cwd: string, backend: Backend) =
         | Backend.Git g -> GitBackend.log g cwd revspecOrRevset max
         | Backend.Jj j -> JjBackend.log j cwd revspecOrRevset max
 
+    /// The full commit id of a best common ancestor of `a` and `b`, or `None` when the histories
+    /// are disconnected. Inputs are backend-specific revision expressions: git commit-ish values
+    /// or jj revsets. Git uses `git merge-base <a> <b>`; jj selects a non-root head of
+    /// `::(a) & ::(b)`, excluding jj's all-zero virtual root from the result.
+    member _.MergeBase(a: string, b: string) =
+        match backend with
+        | Backend.Git g -> GitBackend.mergeBase g cwd a b
+        | Backend.Jj j -> JjBackend.mergeBase j cwd a b
+
     /// Like `Log`, but scoped to commits that touched `paths` — e.g. "who changed this module".
     /// `paths` are **repo-root-relative** and resolved against the repository `Root` even when this
     /// handle is bound to a subdirectory (`Cwd` ≠ `Root`), matching the root-relative paths
@@ -572,3 +581,21 @@ type Repo private (root: string, cwd: string, backend: Backend) =
         match backend with
         | Backend.Git g -> GitBackend.annotate g root path rev
         | Backend.Jj j -> JjBackend.annotate j root path rev
+
+    /// Repo-relative tracked paths at `rev` ('/'-separated) — git `ls-files`/`ls-tree -r
+    /// --name-only`; jj `file list`. `None` lists the working copy on git / `@` on jj. `rev` is
+    /// passed through as-is to the underlying client (git commit-ish / jj revset, not
+    /// cross-backend-portable).
+    ///
+    /// Anchored at `Root` on both backends, like `Annotate`: git's `ls-files`/`ls-tree` resolve
+    /// paths relative to the invocation directory (no `--full-tree`), so this runs from `Root`,
+    /// not this handle's `Cwd` (which may be a subdirectory). jj's `file list` takes no path
+    /// argument to self-anchor via a `root-file:` fileset the way `LogPaths` does — so, again
+    /// like `Annotate`, the underlying `jj` invocation itself runs from `Root` rather than
+    /// `Cwd`, which resolves `path.display()`'s cwd-relative rendering at the repo root instead
+    /// of wherever `Cwd` happens to point (avoiding the `ConflictedFiles` cwd-anchoring defect
+    /// on jj, K-086).
+    member _.ListFiles(rev: string option) =
+        match backend with
+        | Backend.Git g -> GitBackend.listFiles g root rev
+        | Backend.Jj j -> JjBackend.listFiles j root rev

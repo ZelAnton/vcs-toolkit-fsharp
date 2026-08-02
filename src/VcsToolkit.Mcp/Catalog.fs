@@ -209,6 +209,17 @@ module internal Catalog =
               "The configured remotes (name and URL) — git `remote -v` (deduplicated to one entry per remote, carrying its fetch URL) / jj `jj git remote list`."
               []
           read
+              "repo_merge_base"
+              "The full commit id of a best common ancestor of `a` and `b`, or null when the histories are disconnected. Inputs are backend-specific revision expressions: git commit-ish values or jj revsets. Git uses `git merge-base`; jj selects a non-root head of the common ancestor set and excludes its all-zero virtual root."
+              [ { Name = "a"
+                  JsonType = "string"
+                  Description = "The first git commit-ish or jj revset."
+                  Required = true }
+                { Name = "b"
+                  JsonType = "string"
+                  Description = "The second git commit-ish or jj revset."
+                  Required = true } ]
+          read
               "repo_show_file"
               "The content of a file as it exists at a revision, untrimmed up to the server's output budget (--output-budget; default 200000 bytes, 0 disables). Content beyond the budget is truncated with a trailing '[truncated: showing N of M bytes]' marker. The content is UTF-8-decoded text: a non-UTF-8 byte (a binary or legacy-encoded blob) is replaced with U+FFFD and does NOT round-trip, so this tool is for text files — a byte-exact read of arbitrary binary content is a library-level concern (VcsToolkit.Core Repo.ShowFileBytes), not exposed over this text-only MCP surface. `rev` is passed through as-is to the backend — a git commit-ish or a jj revset; the two syntaxes are NOT cross-backend portable."
               [ { Name = "rev"
@@ -242,6 +253,14 @@ module internal Catalog =
                   JsonType = "string"
                   Description =
                     "The revision (git commit-ish) or revset (jj) to annotate at; omit to annotate the working copy / `@`."
+                  Required = false } ]
+          read
+              "repo_list_files"
+              "Repo-relative tracked paths at a revision ('/'-separated) — git `ls-files`/`ls-tree -r --name-only`, jj `file list`. Anchored at the repository root on both backends, not the server's working directory. `rev` is passed through as-is to the backend — a git commit-ish or a jj revset; the two syntaxes are NOT cross-backend portable. Normally returns the original JSON array. If the server's output budget truncates it (--output-budget; default 200000 bytes, 0 disables), whole trailing entries are dropped and the result is a valid JSON envelope with `items`, `truncated: true`, `shown`, and `total`."
+              [ { Name = "rev"
+                  JsonType = "string"
+                  Description =
+                    "The revision (git commit-ish) or revset (jj) to list files at; omit to list the working copy / `@`."
                   Required = false } ]
 
           // repo_try_merge is write-gated (a real, rolled-back trial merge) but non-destructive/idempotent.
@@ -483,6 +502,22 @@ module internal Catalog =
                   JsonType = "string"
                   Description = "The markdown comment body."
                   Required = true } ]
+          // Non-destructive: only overwrites title/body text and is reversible via another
+          // edit; idempotent: re-applying the same values leaves the issue unchanged.
+          write
+              "forge_issue_edit"
+              "Edit an issue's title and/or body (at least one required; empty strings clear fields). GitLab refuses a body equal to `-` before spawning. Unsupported on Gitea (tea 0.9.2 has no issue edit command)."
+              false
+              true
+              [ pIssueNumber
+                { Name = "title"
+                  JsonType = "string"
+                  Description = "New title; omit to leave unchanged."
+                  Required = false }
+                { Name = "body"
+                  JsonType = "string"
+                  Description = "New body / description; omit to leave unchanged."
+                  Required = false } ]
           write
               "forge_pr_create"
               "Open a pull/merge request, returning the CLI's output (the URL on success)."
@@ -689,6 +724,8 @@ module internal Catalog =
         | "repo_conflicts" -> server.RepoConflicts()
         | "repo_worktrees" -> server.RepoWorktrees()
         | "repo_remotes" -> server.RepoRemotes()
+        | "repo_merge_base" ->
+            bind (reqStr args "a") (fun a -> bind (reqStr args "b") (fun b -> server.RepoMergeBase(a, b)))
         | "repo_show_file" ->
             bind (reqStr args "rev") (fun rev -> bind (reqStr args "path") (fun path -> server.RepoShowFile(rev, path)))
         | "repo_log" ->
@@ -696,6 +733,7 @@ module internal Catalog =
                 bind (reqU64 args "max") (fun max -> server.RepoLog(rev, max)))
         | "repo_annotate" ->
             bind (reqStr args "path") (fun path -> bind (optStr args "rev") (fun rev -> server.RepoAnnotate(path, rev)))
+        | "repo_list_files" -> bind (optStr args "rev") server.RepoListFiles
         | "repo_try_merge" -> bind (reqStr args "source") server.RepoTryMerge
         | "repo_commit" ->
             bind (reqStrArray args "paths") (fun paths ->
@@ -749,6 +787,10 @@ module internal Catalog =
         | "forge_issue_comment" ->
             bind (reqU64 args "number") (fun number ->
                 bind (reqStr args "body") (fun body -> server.ForgeIssueComment(number, body)))
+        | "forge_issue_edit" ->
+            bind (reqU64 args "number") (fun number ->
+                bind (optStr args "title") (fun title ->
+                    bind (optStr args "body") (fun body -> server.ForgeIssueEdit(number, title, body))))
         | "forge_pr_create" ->
             bind (reqStr args "title") (fun title ->
                 bind (reqStr args "body") (fun body ->

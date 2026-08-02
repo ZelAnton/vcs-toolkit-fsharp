@@ -559,6 +559,36 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.IssueEditBuildsOptionalTitleAndDescriptionArgs() : Task =
+        task {
+            let glab, args = capturing (Reply.Ok "")
+
+            match! glab.IssueEdit(".", 7UL, Some "New title", Some "New body") with
+            | Ok() -> assertArgs [ "issue"; "update"; "7"; "--title"; "New title"; "--description"; "New body" ] args
+            | Error e -> Assert.Fail $"issue update failed: {e}"
+
+            match! glab.IssueEdit(".", 7UL, Some "Title only", None) with
+            | Ok() -> assertArgs [ "issue"; "update"; "7"; "--title"; "Title only" ] args
+            | Error e -> Assert.Fail $"issue update (title only) failed: {e}"
+        }
+
+    [<Test>]
+    member _.IssueEditValidatesNoFieldsAndDashSentinelBeforeSpawning() : Task =
+        task {
+            // A permissive fallback would turn any leaked spawn into Ok, so both Error results
+            // prove validation ran before the first process launch (K-088).
+            let glab = permissive ()
+
+            match! glab.IssueEdit(".", 7UL, None, None) with
+            | Error _ -> ()
+            | Ok() -> Assert.Fail "issue update with no fields must be refused before spawning"
+
+            match! glab.IssueEdit(".", 7UL, None, Some "-") with
+            | Error e -> Assert.That(e.Message, Does.Contain "sentinel")
+            | Ok() -> Assert.Fail "the glab body sentinel must be refused before spawning"
+        }
+
+    [<Test>]
     member _.IssueReopenBuildsArgs() : Task =
         task {
             let reopen, args = capturing (Reply.Ok "")

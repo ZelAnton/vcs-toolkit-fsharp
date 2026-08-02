@@ -334,6 +334,12 @@ module internal JjBackend =
             | Ok changes -> return Ok(changes |> List.map commitFromChange)
         }
 
+    let mergeBase (jj: Jj) (dir: string) (a: string) (b: string) =
+        task {
+            let! r = jj.MergeBase(dir, a, b)
+            return ofVcs r
+        }
+
     let logPaths (jj: Jj) (dir: string) (revset: string) (max: int) (paths: string list) =
         task {
             let filesets = paths |> List.map JjFileset.Path
@@ -782,4 +788,11 @@ module internal JjBackend =
             match! jj.FileAnnotate(dir, path, revset) with
             | Error e -> return Error(RepoError.Vcs e)
             | Ok lines -> return Ok(lines |> List.map annotateLineFromAnnotation)
+        }
+
+    /// Repo-relative tracked paths at `revset` (`None` = `@`) — `jj file list -r <revset>`.
+    let listFiles (jj: Jj) (dir: string) (revset: string option) =
+        task {
+            let! r = jj.FileList(dir, revset)
+            return ofVcs r
         }
