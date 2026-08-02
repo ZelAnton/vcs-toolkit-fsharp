@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A container image of the `vcs-mcp` MCP server, published to `ghcr.io/zelanton/vcs-toolkit-fsharp/vcs-mcp` on every release under the release version and `latest`, with `git`, `jj`, `gh`, `glab` and `tea` preinstalled — mount a repository at `/repo` and point an MCP client at `docker run --rm -i` instead of installing the global tool (see the "Docker" section of `docs/mcp-server.md`).
 - A consolidated security model covering trust boundaries, typed API guarantees and raw escape hatches, credential handling, Git/submodule hardening, Jujutsu raw-command risks, and safe `vcs-mcp` deployment.
 - `Repo.Diff()` / `Repo.DiffText()` on `VcsToolkit.Core` expose the working copy's parsed or raw unified diff across Git and Jujutsu, with a new read-only MCP `repo_diff` tool that returns per-file JSON and uses the configured output budget's valid truncation envelope.
 - Git remote management on `VcsToolkit.Jj`: add, remove, rename, and set-url operations with guarded positional arguments, plus matching `JjAt` forwarders.

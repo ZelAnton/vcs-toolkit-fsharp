@@ -81,6 +81,173 @@ vcs-mcp --repo ./my-repo --forge github --timeout 60
 vcs-mcp --repo ./my-repo --allow-tools repo_commit,repo_push
 ```
 
+## Docker
+
+Every release also publishes a container image carrying `vcs-mcp` **and every VCS/forge CLI it
+drives**, so an MCP client can launch the server without a .NET SDK, a global-tool install, or a
+local `git`/`jj`/`gh`/`glab`/`tea`:
+
+```sh
+docker pull ghcr.io/zelanton/vcs-toolkit-fsharp/vcs-mcp:latest
+```
+
+Two tags are published per release: the release version (`1.2.3` — the same number as the git tag,
+the GitHub Release and the NuGet packages) and `latest`. The image is built from the `Dockerfile`
+at the repository root by the `image` job of `.github/workflows/release.yml`, which smoke-tests the
+built image over stdio — an `initialize` handshake plus a read tool call against a real repository
+— and pushes only if that passes.
+
+### What is inside
+
+| Component | Where it comes from |
+|---|---|
+| `vcs-mcp` | the framework-dependent publish output of `VcsToolkit.Mcp.Server`, on a .NET **runtime** base image (no SDK is shipped) |
+| `git` | the base image's distribution package |
+| `jj` | a pinned upstream release — the same version `.github/workflows/ci.yml` installs |
+| `gh` | a pinned upstream release |
+| `glab` | a pinned upstream release |
+| `tea` | a pinned upstream release |
+
+All three forge CLIs ship on purpose, even though a given session uses at most one: the `forge_*`
+tools cover GitHub, GitLab **and** Gitea, so an image without `glab`/`tea` would fail at tool-call
+time on two of the three supported forges. They are static binaries costing about 105 MB of a
+~620 MB image (the .NET runtime base and `git` account for most of the rest). Every CLI version is
+a build `ARG` pinned to an exact release and — where the upstream project publishes one — verified
+against its checksum file; see the `DECISION` notes at the top of the `Dockerfile` for the full
+rationale and the trimming instructions if you need a smaller image.
+
+### Running it
+
+The entrypoint is `vcs-mcp`, so everything after the image name is a server flag (the same flags
+documented above). Mount the repository at `/repo`, which is the image's working directory and its
+default `--repo`:
+
+```sh
+docker run --rm --interactive \
+  --volume "$PWD:/repo" \
+  ghcr.io/zelanton/vcs-toolkit-fsharp/vcs-mcp:latest --repo /repo
+```
+
+`--interactive` is required: MCP is JSON-RPC over stdin/stdout, so the container must keep stdin
+open. Never add `--tty` — it turns the stream into a terminal and corrupts the protocol.
+
+Mount the repository **root**, not a subdirectory: backend detection needs the `.git` / `.jj`
+marker itself. For a read-only session, mount it read-only — the write gate is already off by
+default, and `:ro` turns that policy into a kernel-enforced guarantee:
+
+```sh
+docker run --rm -i --volume "$PWD:/repo:ro" \
+  ghcr.io/zelanton/vcs-toolkit-fsharp/vcs-mcp:latest --repo /repo
+```
+
+### Write access
+
+`--allow-write` and `--allow-tools` behave exactly as they do outside a container:
+
+```sh
+IMAGE=ghcr.io/zelanton/vcs-toolkit-fsharp/vcs-mcp:latest
+
+# Read-only (the default): every read tool, no mutation.
+docker run --rm -i -v "$PWD:/repo:ro" "$IMAGE" --repo /repo
+
+# Just enough write access to commit and push.
+docker run --rm -i -v "$PWD:/repo" "$IMAGE" --repo /repo --allow-tools repo_commit,repo_push
+
+# Every mutating tool.
+docker run --rm -i -v "$PWD:/repo" "$IMAGE" --repo /repo --allow-write
+```
+
+### Credentials
+
+The server uses **ambient** CLI authentication (it configures no credential provider of its own),
+so the bundled forge CLI reads whatever the container's environment gives it. Forward a token from
+your shell with `--env NAME` — the no-`=value` form, which passes the variable through without
+putting the secret on the command line:
+
+```sh
+docker run --rm -i \
+  --volume "$PWD:/repo" \
+  --env GH_TOKEN \
+  ghcr.io/zelanton/vcs-toolkit-fsharp/vcs-mcp:latest --repo /repo --forge github
+```
+
+| Forge | How the bundled CLI authenticates |
+|---|---|
+| GitHub | `GH_TOKEN` (`gh` also accepts `GITHUB_TOKEN`); for GitHub Enterprise Server, `GH_ENTERPRISE_TOKEN` together with `GH_HOST` |
+| GitLab | `GITLAB_TOKEN` |
+| Gitea | `tea` has no ambient token: every command reads a *stored login*, and `GITEA_SERVER_URL`/`GITEA_SERVER_TOKEN` are only defaults for `tea logins add`, not for `tea pr list` and friends. Mount a prepared config — `--volume "$HOME/.config/tea:/root/.config/tea:ro"` — or create one once into a named volume (see below) |
+
+Creating a `tea` login inside a named volume, for a container that has no host config to borrow:
+
+```sh
+docker volume create tea-config
+docker run --rm --env GITEA_SERVER_URL --env GITEA_SERVER_TOKEN \
+  --volume tea-config:/root/.config/tea \
+  --entrypoint tea ghcr.io/zelanton/vcs-toolkit-fsharp/vcs-mcp:latest logins add --name default
+```
+
+Then add `--volume tea-config:/root/.config/tea` to the server's own `docker run`.
+
+Git remotes over SSH need your keys inside the container as well
+(`--volume "$HOME/.ssh:/root/.ssh:ro"`); `openssh-client` is installed for exactly that case.
+Tokens are never written into the image — pass them per run.
+
+### User, ownership, and writable state
+
+The container runs as `root` by default and `git`'s ownership check is disabled image-wide
+(`git config --system --add safe.directory '*'`). A bind-mounted repository is owned by the *host*
+user, never by the container's, so without that the "dubious ownership" refusal would break every
+`repo_*` call. To run as yourself instead — which is what you want whenever the server may write to
+the mounted working copy, so new files are not left root-owned — pass `--user`:
+
+```sh
+docker run --rm -i --user "$(id -u):$(id -g)" --env HOME=/tmp \
+  --volume "$PWD:/repo" \
+  ghcr.io/zelanton/vcs-toolkit-fsharp/vcs-mcp:latest --repo /repo --allow-write
+```
+
+`HOME=/tmp` gives the CLIs a writable home directory; an arbitrary uid has none inside the image,
+and `jj` in particular wants one for its user configuration.
+
+### Example MCP client configuration
+
+The client launches `docker` instead of `vcs-mcp`; everything after the image reference is the
+server's own argument list:
+
+```json
+{
+  "mcpServers": {
+    "vcs-toolkit": {
+      "command": "docker",
+      "args": [
+        "run", "--rm", "--interactive",
+        "--volume", "/path/to/repo:/repo",
+        "--env", "GH_TOKEN",
+        "ghcr.io/zelanton/vcs-toolkit-fsharp/vcs-mcp:latest",
+        "--repo", "/repo",
+        "--forge", "github",
+        "--allow-tools", "repo_commit,repo_push"
+      ]
+    }
+  }
+}
+```
+
+`--env GH_TOKEN` forwards the variable from the MCP client's own environment, so the token lives
+neither in this configuration file nor in the image.
+
+### Building and checking it locally
+
+```sh
+docker build --build-arg VERSION=0.1.0 -t vcs-mcp:dev .
+pwsh ./scripts/smoke-mcp-image.ps1 -Image vcs-mcp:dev -ExpectedVersion 0.1.0
+```
+
+`scripts/smoke-mcp-image.ps1` is the very gate the release workflow runs before publishing: it
+checks that every bundled CLI runs, then drives the image over stdio (`initialize` → `tools/list` →
+`repo_snapshot` against a repository it seeds inside a throwaway Docker volume) and asserts the
+version the server advertises. It needs nothing on the host but Docker.
+
 ## Forge auto-detection
 
 Unless `--forge` names one explicitly, the server tries to detect the forge from the
