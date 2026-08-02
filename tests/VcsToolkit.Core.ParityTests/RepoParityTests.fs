@@ -35,6 +35,7 @@ let private coveredReadMethods =
           "LocalBranches"
           "Log"
           "LogPaths"
+          "MergeBase"
           "Remotes"
           "ShowFile"
           "ShowFileBytes"
@@ -404,6 +405,30 @@ type RepoFacadeParityTests() =
             let! jjEmpty = pair.Jj.LogPaths(pair.JjSandbox.HistoryRev, 10, [])
             assertSame "LogPaths []" (Result.isError gitEmpty) (Result.isError jjEmpty)
             Assert.That(Result.isError gitEmpty, Is.True, "an empty path set is refused, not silently unrestricted")
+        }
+
+    // --- Merge base -----------------------------------------------------------
+
+    [<Test>]
+    member _.MergeBaseMatchesAcrossBackends() : Task =
+        task {
+            let pair = fixture.Pair
+            // MergeBase of a revision with itself should return that revision.
+            let! gitMerge = pair.Git.MergeBase(pair.GitSandbox.CommittedRev, pair.GitSandbox.CommittedRev)
+            let! jjMerge = pair.Jj.MergeBase(pair.JjSandbox.CommittedRev, pair.JjSandbox.CommittedRev)
+
+            assertSame "MergeBase (rev with itself)" (Result.isOk gitMerge) (Result.isOk jjMerge)
+            Assert.That(Result.isOk gitMerge, Is.True, "MergeBase should succeed for valid revisions")
+
+            // MergeBase of HistoryRev and CommittedRev should work (CommittedRev is part of HistoryRev).
+            let! gitWithHistory =
+                pair.Git.MergeBase(pair.GitSandbox.HistoryRev, pair.GitSandbox.CommittedRev)
+
+            let! jjWithHistory =
+                pair.Jj.MergeBase(pair.JjSandbox.HistoryRev, pair.JjSandbox.CommittedRev)
+
+            assertSame "MergeBase (history with committed)" (Result.isOk gitWithHistory) (Result.isOk jjWithHistory)
+            Assert.That(Result.isOk gitWithHistory, Is.True, "MergeBase should succeed for both revisions")
         }
 
     // --- File content ---------------------------------------------------------

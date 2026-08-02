@@ -55,6 +55,7 @@ for this client's place in the layering.
 | `Branches` | `branch --no-column --no-color` | current one flagged |
 | `Log` | `log <revspec> -n<max> -z --format=…` | |
 | `LogPaths` | `--literal-pathspecs log <revspec> -n<max> -z --format=… -- <paths>` | scoped to paths; non-empty required; chunks across several within-budget calls above `ArgvPathBudget` |
+| `MergeBase` | `merge-base <a> <b>` | full commit id; `None` on exit code 1 (no common ancestor) |
 | `RevParse` | `rev-parse --verify <rev>` | full hash |
 | `RevParseShort` | `rev-parse --short <rev>` | abbreviated hash |
 | `ResolveCommit` | `rev-parse --verify <rev>^{commit}` | peels annotated tags |
@@ -186,7 +187,7 @@ for this client's place in the layering.
 
 `add -p`/interactive staging, `am`/`apply` (patch application other than the in-progress-`am`
 probes above), `archive`, `bundle`, `describe`, `difftool`/`mergetool`, `fsck`, `gc`, `grep`,
-`ls-files`/`ls-tree`, `merge-base`, `mv`/`rm` (path staging goes through `Add`), `notes`,
+`ls-files`/`ls-tree`, `mv`/`rm` (path staging goes through `Add`), `notes`,
 `rebase --onto` (a three-way rebase onto an explicit upstream — only the plain `rebase <onto>`
 form is typed), `reflog`, `replace`, `reset` (soft/mixed — only `--hard`/`--merge` are typed),
 `send-email`, `shortlog`, `sparse-checkout`, `submodule` (only `list`/`status`/`update` are
@@ -212,6 +213,7 @@ caller-supplied name can't fan a mutation out across every matching ref.
 | `StatusText` | `status` (human text) | |
 | `Log` | `log -r <revset> -n<max> --no-graph -T <template>` | up to `max`, newest first |
 | `LogPaths` | `log -r <revset> -n<max> --no-graph -T <template> <filesets>` | non-empty filesets required |
+| `MergeBase` | `log -r 'heads(::(<a>) & ::(<b>))' --no-graph --limit 1 -T commit_id` | full non-root commit id; `None` on disconnected histories; both revsets guarded before composition |
 | `CurrentChange` | `Log(dir, "@", 1)`, reduced to one `Change` | |
 | `CurrentBookmark` | `log -r @ --no-graph --limit 1 -T <bookmarks-template>` | local bookmark on `@`, if exactly one; `None` when none |
 | `Trunk` | `log -r trunk() --no-graph --limit 1 -T <bookmarks-template>` | `None` when unresolved |

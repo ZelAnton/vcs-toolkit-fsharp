@@ -276,6 +276,7 @@ namespace VcsToolkit.Git
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Git.Commit>, ProcessKit.ProcessError>> LogPaths(string dir, string revspec, int max, Microsoft.FSharp.Collections.FSharpList<string> paths) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> MergeAbort(string dir) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> MergeAbortDetached(string dir) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.FSharpOption<string>?, ProcessKit.ProcessError>> MergeBase(string dir, string a, string b) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> MergeCommit(string dir, VcsToolkit.Git.MergeCommit spec) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> MergeContinue(string dir) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> MergeNoCommit(string dir, VcsToolkit.Git.MergeNoCommit spec) { }
@@ -397,6 +398,7 @@ namespace VcsToolkit.Git
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Git.Commit>, ProcessKit.ProcessError>> LogPaths(string revspec, int max, Microsoft.FSharp.Collections.FSharpList<string> paths) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> MergeAbort() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> MergeAbortDetached() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.FSharpOption<string>?, ProcessKit.ProcessError>> MergeBase(string a, string b) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> MergeCommit(VcsToolkit.Git.MergeCommit spec) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> MergeContinue() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> MergeNoCommit(VcsToolkit.Git.MergeNoCommit spec) { }

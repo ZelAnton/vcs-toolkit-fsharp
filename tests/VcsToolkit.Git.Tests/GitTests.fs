@@ -306,6 +306,36 @@ type QueryTests() =
         }
 
     [<Test>]
+    member _.MergeBaseReturnsFullCommitId() : Task =
+        task {
+            let full = "0123456789abcdef0123456789abcdef01234567"
+            let git = scripted [ "merge-base"; "left"; "right" ] (Reply.Ok(full + "\n"))
+
+            match! git.MergeBase(".", "left", "right") with
+            | Ok(Some commitId) -> Assert.That(commitId, Is.EqualTo full)
+            | Ok None -> Assert.Fail "expected a common ancestor"
+            | Error e -> Assert.Fail $"merge-base failed: {e}"
+        }
+
+    [<Test>]
+    member _.MergeBaseDistinguishesNoAncestorFromErrors() : Task =
+        task {
+            let unrelated = scripted [ "merge-base"; "left"; "right" ] (Reply.Exit 1)
+
+            match! unrelated.MergeBase(".", "left", "right") with
+            | Ok None -> ()
+            | Ok(Some commitId) -> Assert.Fail $"expected None, got {commitId}"
+            | Error e -> Assert.Fail $"exit code 1 must mean no common ancestor: {e}"
+
+            let failed =
+                scripted [ "merge-base"; "left"; "right" ] (Reply.Fail(2, "bad revision"))
+
+            match! failed.MergeBase(".", "left", "right") with
+            | Error _ -> ()
+            | Ok value -> Assert.Fail $"exit code 2 must remain an error, got {value}"
+        }
+
+    [<Test>]
     member _.LogPreservesSubjectWith0x1f() : Task =
         task {
             let subject = $"Keep{us}this separator"

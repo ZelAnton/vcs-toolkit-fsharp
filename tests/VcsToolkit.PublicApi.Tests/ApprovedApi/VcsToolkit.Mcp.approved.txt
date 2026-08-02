@@ -75,6 +75,7 @@ namespace VcsToolkit.Mcp
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoFetch() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoInfo() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoLog(string revspecOrRevset, ulong max) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoMergeBase(string a, string b) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoNewChild(string reference) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoPush(string branch) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoRebase(string onto) { }

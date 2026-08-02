@@ -215,6 +215,12 @@ module internal GitBackend =
             | Ok commits -> return Ok(commits |> List.map commitFromGit)
         }
 
+    let mergeBase (git: Git) (dir: string) (a: string) (b: string) =
+        task {
+            let! r = git.MergeBase(dir, a, b)
+            return ofVcs r
+        }
+
     let logPaths (git: Git) (dir: string) (revspec: string) (max: int) (paths: string list) =
         task {
             match! git.LogPaths(dir, revspec, max, paths) with

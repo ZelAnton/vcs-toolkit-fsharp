@@ -653,6 +653,26 @@ type DispatchTests() =
         }
 
     [<Test>]
+    member _.MergeBaseDispatchesThroughBothBackends() : Task =
+        task {
+            let full = "0123456789abcdef0123456789abcdef01234567"
+            let git = gitRepo [ "merge-base"; "left"; "right" ] (Reply.Ok(full + "\n"))
+
+            match! git.MergeBase("left", "right") with
+            | Ok(Some commitId) -> Assert.That(commitId, Is.EqualTo full)
+            | Ok None -> Assert.Fail "git backend returned no common ancestor"
+            | Error e -> Assert.Fail $"git MergeBase failed: {e.Message}"
+
+            let jj =
+                jjRepo [ "heads(::(left) & ::(right))"; "commit_id" ] (Reply.Ok(full + "\n"))
+
+            match! jj.MergeBase("left", "right") with
+            | Ok(Some commitId) -> Assert.That(commitId, Is.EqualTo full)
+            | Ok None -> Assert.Fail "jj backend returned no common ancestor"
+            | Error e -> Assert.Fail $"jj MergeBase failed: {e.Message}"
+        }
+
+    [<Test>]
     member _.CommitPathsRefusesAnEmptyPathSet() : Task =
         task {
             // The empty-set guard fires before any spawn, on both backends — a permissive
@@ -1678,6 +1698,101 @@ type RepoDiffIntegrationTests() =
                 Assert.That(text, Does.Contain "diff --git a/nested/a.txt b/nested/a.txt")
                 Assert.That(text, Does.Contain "+after")
             | Error e -> Assert.Fail $"DiffText failed: {e.Message}"
+        }
+
+// ---------------------------------------------------------------------------
+// Merge base through the Core facade — real git and jj, including disconnected roots
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type MergeBaseIntegrationTests() =
+
+    let requireGit () =
+        try
+            Raw.git "." [ "--version" ]
+        with _ ->
+            Assert.Ignore "git not available on PATH"
+
+    let requireJj () =
+        try
+            Raw.jj "." [ "--version" ]
+        with _ ->
+            if Environment.GetEnvironmentVariable "REQUIRE_JJ" = "1" then
+                Assert.Fail "REQUIRE_JJ=1 but jj not available on PATH"
+            else
+                Assert.Ignore "jj not available on PATH"
+
+    [<Test>]
+    member _.GitReturnsFullCommonAncestorAndNoneForIndependentRoot() : Task =
+        task {
+            requireGit ()
+            use sandbox = GitSandbox.Init "core-merge-base-git"
+            sandbox.CommitFile("base.txt", "base\n", "base")
+            let baseId = sandbox.RevParse "HEAD"
+            sandbox.Branch "left"
+            sandbox.Checkout "left"
+            sandbox.CommitFile("left.txt", "left\n", "left")
+            let leftId = sandbox.RevParse "HEAD"
+            sandbox.Checkout "main"
+            sandbox.CommitFile("right.txt", "right\n", "right")
+            let rightId = sandbox.RevParse "HEAD"
+            let repo = Repo.FromGit(sandbox.Path, sandbox.Path, Git.Create())
+
+            match! repo.MergeBase(leftId, rightId) with
+            | Ok(Some commitId) -> Assert.That(commitId, Is.EqualTo baseId)
+            | Ok None -> Assert.Fail "the sibling commits must share their full base commit id"
+            | Error e -> Assert.Fail $"git MergeBase failed: {e.Message}"
+
+            sandbox.Git [ "checkout"; "-q"; "--orphan"; "independent" ]
+            sandbox.Git [ "rm"; "-q"; "-rf"; "." ]
+            sandbox.CommitFile("independent.txt", "independent\n", "independent")
+            let independentId = sandbox.RevParse "HEAD"
+
+            match! repo.MergeBase(leftId, independentId) with
+            | Ok None -> ()
+            | Ok(Some commitId) -> Assert.Fail $"independent roots must have no merge base, got {commitId}"
+            | Error e -> Assert.Fail $"git disconnected-history query failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.JjReturnsFullCommonAncestorAndNoneForIndependentRoot() : Task =
+        task {
+            requireJj ()
+            use sandbox = JjSandbox.Init "core-merge-base-jj"
+            let client = Jj.Create()
+            sandbox.Write("base.txt", "base\n")
+            sandbox.Describe "base"
+
+            let! baseResult = client.TemplateQuery(sandbox.Path, "@", "commit_id", Some 1)
+
+            let baseId =
+                match baseResult with
+                | Ok commitId -> commitId.Trim()
+                | Error e ->
+                    Assert.Fail $"failed to resolve jj base id: {e}"
+                    ""
+
+            sandbox.NewChange "left"
+            sandbox.Write("left.txt", "left\n")
+            sandbox.Bookmark "left"
+            sandbox.Jj [ "new"; baseId; "-m"; "right" ]
+            sandbox.Write("right.txt", "right\n")
+            sandbox.Bookmark "right"
+            let repo = Repo.FromJj(sandbox.Path, sandbox.Path, client)
+
+            match! repo.MergeBase("left", "right") with
+            | Ok(Some commitId) -> Assert.That(commitId, Is.EqualTo baseId)
+            | Ok None -> Assert.Fail "the sibling changes must share their full base commit id"
+            | Error e -> Assert.Fail $"jj MergeBase failed: {e.Message}"
+
+            sandbox.Jj [ "new"; "root()"; "-m"; "independent" ]
+            sandbox.Write("independent.txt", "independent\n")
+            sandbox.Bookmark "independent"
+
+            match! repo.MergeBase("left", "independent") with
+            | Ok None -> ()
+            | Ok(Some commitId) -> Assert.Fail $"independent roots must have no merge base, got {commitId}"
+            | Error e -> Assert.Fail $"jj disconnected-history query failed: {e.Message}"
         }
 
 // ---------------------------------------------------------------------------

@@ -498,6 +498,54 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.MergeBaseUsesGuardedCombinedRevsetAndReturnsFullCommitId() : Task =
+        task {
+            let full = "0123456789abcdef0123456789abcdef01234567"
+
+            let jj =
+                scripted
+                    [ "log"
+                      "-r"
+                      "heads(::(left) & ::(right))"
+                      "--limit"
+                      "1"
+                      "-T"
+                      "commit_id" ]
+                    (Reply.Ok(full + "\n"))
+
+            match! jj.MergeBase(".", "left", "right") with
+            | Ok(Some commitId) -> Assert.That(commitId, Is.EqualTo full)
+            | Ok None -> Assert.Fail "expected a common ancestor"
+            | Error e -> Assert.Fail $"merge-base failed: {e}"
+        }
+
+    [<Test>]
+    member _.MergeBaseReturnsNoneForEmptyOrVirtualRootAndGuardsInputs() : Task =
+        task {
+            let empty = scripted [ "heads(::(left) & ::(right))" ] (Reply.Ok "")
+
+            match! empty.MergeBase(".", "left", "right") with
+            | Ok None -> ()
+            | Ok(Some commitId) -> Assert.Fail $"expected None, got {commitId}"
+            | Error e -> Assert.Fail $"empty result failed: {e}"
+
+            let virtualRoot =
+                scripted [ "heads(::(left) & ::(right))" ] (Reply.Ok(String.replicate 40 "0"))
+
+            match! virtualRoot.MergeBase(".", "left", "right") with
+            | Ok None -> ()
+            | Ok(Some commitId) -> Assert.Fail $"the virtual root is not a real merge base: {commitId}"
+            | Error e -> Assert.Fail $"virtual-root result failed: {e}"
+
+            let calls, runner = recording (Reply.Ok "leaked")
+            let guarded = Jj.WithRunner runner
+
+            match! guarded.MergeBase(".", "--all", "right") with
+            | Error _ -> Assert.That(calls, Is.Empty, "a rejected revset must not spawn jj")
+            | Ok value -> Assert.Fail $"a flag-like revset must be rejected, got {value}"
+        }
+
+    [<Test>]
     member _.RootApisShareTheSameLineTerminatorParsing() : Task =
         task {
             let output = $" /repo {tab}{cr}\n"
@@ -1953,6 +2001,7 @@ type ReadOnlyModeTests() =
             let! _ = jj.IsConflicted(".", "@")
             let! _ = jj.ResolveList(".", "@")
             let! _ = jj.TemplateQuery(".", "@", "commit_id", Some 1)
+            let! _ = jj.MergeBase(".", "@", "@-")
             let! _ = jj.Evolog(".", "@", 3)
             let! _ = jj.FileShow(".", "@", "a.fs")
             let! _ = jj.OpHead "."
@@ -1961,7 +2010,7 @@ type ReadOnlyModeTests() =
             let! _ = jj.WorkspaceRoot(".", None)
             let! _ = jj.WorkspaceRoots(".", [ "default" ])
 
-            Assert.That(calls.Count, Is.EqualTo 21, "one command per read (WorkspaceRoots fans out one per name)")
+            Assert.That(calls.Count, Is.EqualTo 22, "one command per read (WorkspaceRoots fans out one per name)")
 
             for cmd in calls do
                 let args = argsOf cmd
@@ -1987,7 +2036,7 @@ type ReadOnlyModeTests() =
             )
 
             Assert.That(
-                ((argsOf calls.[17]) |> List.take 3) = [ "--ignore-working-copy"; "op"; "log" ],
+                ((argsOf calls.[18]) |> List.take 3) = [ "--ignore-working-copy"; "op"; "log" ],
                 Is.True,
                 "op log leads with the flag then the two-word subcommand"
             )

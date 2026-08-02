@@ -334,6 +334,12 @@ module internal JjBackend =
             | Ok changes -> return Ok(changes |> List.map commitFromChange)
         }
 
+    let mergeBase (jj: Jj) (dir: string) (a: string) (b: string) =
+        task {
+            let! r = jj.MergeBase(dir, a, b)
+            return ofVcs r
+        }
+
     let logPaths (jj: Jj) (dir: string) (revset: string) (max: int) (paths: string list) =
         task {
             let filesets = paths |> List.map JjFileset.Path

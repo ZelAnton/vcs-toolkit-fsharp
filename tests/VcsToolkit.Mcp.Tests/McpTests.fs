@@ -411,6 +411,26 @@ type ToolTests() =
         }
 
     [<Test>]
+    member _.RepoMergeBaseReturnsOptionalCommitIdJsonAsARead() : Task =
+        task {
+            let full = "0123456789abcdef0123456789abcdef01234567"
+
+            let found =
+                gitServer (ScriptedRunner().On([ "merge-base"; "left"; "right" ], Reply.Ok(full + "\n"))) WriteGate.None
+
+            match! found.RepoMergeBase("left", "right") with
+            | Ok json -> Assert.That(json, Does.Contain full)
+            | Error e -> Assert.Fail $"repo_merge_base failed: {e.Message}"
+
+            let missing =
+                gitServer (ScriptedRunner().On([ "merge-base"; "left"; "right" ], Reply.Exit 1)) WriteGate.None
+
+            match! missing.RepoMergeBase("left", "right") with
+            | Ok json -> Assert.That(json.Trim(), Is.EqualTo "null")
+            | Error e -> Assert.Fail $"repo_merge_base None failed: {e.Message}"
+        }
+
+    [<Test>]
     member _.RepoAnnotateReturnsAnnotateLineJson() : Task =
         task {
             // repo_annotate is a read tool (no write gate) that surfaces the facade's unified
@@ -1587,8 +1607,8 @@ type CatalogTests() =
 
     [<Test>]
     member _.CatalogCoversEveryTool() =
-        // 13 repo-read + repo_try_merge + 12 repo-write + 12 forge-read + 14 forge-write = 52.
-        Assert.That(List.length Catalog.all, Is.EqualTo 52)
+        // 14 repo-read + repo_try_merge + 12 repo-write + 12 forge-read + 14 forge-write = 53.
+        Assert.That(List.length Catalog.all, Is.EqualTo 53)
         // Every write-gated tool name appears in the catalogue.
         let names = Catalog.all |> List.map (fun t -> t.Name) |> Set.ofList
         Assert.That(WriteTools.all |> List.forall names.Contains, Is.True, "every write tool is catalogued")
@@ -1694,6 +1714,19 @@ type CatalogTests() =
             match! Catalog.callTool server "repo_current_branch" (argsOf "{}") with
             | Ok json -> Assert.That(json, Does.Contain "main")
             | Error e -> Assert.Fail $"dispatch failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.CallToolDispatchesRepoMergeBase() : Task =
+        task {
+            let full = "0123456789abcdef0123456789abcdef01234567"
+
+            let server =
+                gitServer (ScriptedRunner().On([ "merge-base"; "left"; "right" ], Reply.Ok(full + "\n"))) WriteGate.None
+
+            match! Catalog.callTool server "repo_merge_base" (argsOf """{"a":"left","b":"right"}""") with
+            | Ok json -> Assert.That(json, Does.Contain full)
+            | Error e -> Assert.Fail $"repo_merge_base dispatch failed: {e.Message}"
         }
 
     [<Test>]

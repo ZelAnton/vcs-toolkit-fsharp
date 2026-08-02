@@ -386,6 +386,25 @@ type Git private (core: ManagedClient) =
                     )
         }
 
+    /// The full commit id of a best common ancestor of `a` and `b` (`git merge-base <a> <b>`),
+    /// or `None` when the histories have no common ancestor (exit code 1).
+    member _.MergeBase(dir: string, a: string, b: string) =
+        task {
+            match checkFlags BINARY [ "revision", a; "revision", b ] with
+            | Error e -> return Error e
+            | Ok() ->
+                match! core.Output(core.CommandIn(dir, [ "merge-base"; a; b ])) with
+                | Error e -> return Error e
+                | Ok res ->
+                    match res.Code with
+                    | Some 0 -> return Ok(Some(res.Stdout.Trim()))
+                    | Some 1 -> return Ok None
+                    | _ ->
+                        match ProcessResult.ensureSuccess res with
+                        | Error e -> return Error e
+                        | Ok ok -> return Ok(Some(ok.Stdout.Trim()))
+        }
+
     /// Like `Log`, but scoped to commits that touched `paths` (`git --literal-pathspecs log
     /// <revspec> -n<max> -z --format=… -- <paths>`) — e.g. "who changed this module".
     /// `--literal-pathspecs` matches a path containing `*`/`?`/`[]` literally rather than as
@@ -1883,6 +1902,9 @@ and [<Sealed>] GitAt internal (git: Git, dir: string) =
 
     /// Like `Log`, but scoped to commits that touched `paths`.
     member _.LogPaths(revspec: string, max: int, paths: string list) = git.LogPaths(dir, revspec, max, paths)
+
+    /// The full commit id of a best common ancestor of `a` and `b`, or `None` when unrelated.
+    member _.MergeBase(a: string, b: string) = git.MergeBase(dir, a, b)
 
     /// Resolve a revision to a full hash (`git rev-parse --verify <rev>`).
     member _.RevParse(rev: string) = git.RevParse(dir, rev)

@@ -641,6 +641,38 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
         // non-UTF-8 bytes; a verbatim byte read of blob content is `FileShowBytes`.
         runUntrimmed core (cmdInRead dir args)
 
+    /// The full commit id of a best non-root common ancestor of `a` and `b`, or `None` when
+    /// their histories are disconnected (`heads(::(a) & ::(b))`). Both caller-supplied
+    /// revsets are validated before they are embedded in the combined expression.
+    member this.MergeBase(dir: string, a: string, b: string) =
+        task {
+            match RevsetExpr.Create a with
+            | Error e -> return Error e
+            | Ok aExpr ->
+                match RevsetExpr.Create b with
+                | Error e -> return Error e
+                | Ok bExpr ->
+                    let common = sprintf "heads(::(%s) & ::(%s))" aExpr.Value bExpr.Value
+
+                    match! this.TemplateQuery(dir, common, "commit_id", Some 1) with
+                    | Error e -> return Error e
+                    | Ok output ->
+                        let commitId = output.Trim()
+
+                        // jj's immutable virtual root is rendered as an all-zero id. It is the
+                        // implementation-level parent of otherwise disconnected histories, not
+                        // a real commit that git's merge-base could return.
+                        let isVirtualRoot = commitId <> "" && (commitId |> Seq.forall ((=) '0'))
+
+                        return
+                            Ok(
+                                if commitId = "" || isVirtualRoot then
+                                    None
+                                else
+                                    Some commitId
+                            )
+        }
+
     /// The full (possibly multiline) description of the commit `revset` resolves to,
     /// trailing whitespace trimmed; empty for an undescribed change. A multi-commit
     /// revset yields only the newest commit's description (`--limit 1`).
@@ -1379,6 +1411,9 @@ and [<Sealed>] JjAt internal (jj: Jj, dir: string) =
     /// Run an arbitrary templated `jj log` query and return raw stdout.
     member _.TemplateQuery(revset: string, template: string, limit: int option) =
         jj.TemplateQuery(dir, revset, template, limit)
+
+    /// The full commit id of a best non-root common ancestor of `a` and `b`, or `None` when unrelated.
+    member _.MergeBase(a: string, b: string) = jj.MergeBase(dir, a, b)
 
     /// The full description of the commit `revset` resolves to.
     member _.Description(revset: string) = jj.Description(dir, revset)

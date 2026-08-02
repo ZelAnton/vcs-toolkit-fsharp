@@ -322,6 +322,15 @@ type Repo private (root: string, cwd: string, backend: Backend) =
         | Backend.Git g -> GitBackend.log g cwd revspecOrRevset max
         | Backend.Jj j -> JjBackend.log j cwd revspecOrRevset max
 
+    /// The full commit id of a best common ancestor of `a` and `b`, or `None` when the histories
+    /// are disconnected. Inputs are backend-specific revision expressions: git commit-ish values
+    /// or jj revsets. Git uses `git merge-base <a> <b>`; jj selects a non-root head of
+    /// `::(a) & ::(b)`, excluding jj's all-zero virtual root from the result.
+    member _.MergeBase(a: string, b: string) =
+        match backend with
+        | Backend.Git g -> GitBackend.mergeBase g cwd a b
+        | Backend.Jj j -> JjBackend.mergeBase j cwd a b
+
     /// Like `Log`, but scoped to commits that touched `paths` — e.g. "who changed this module".
     /// `paths` are **repo-root-relative** and resolved against the repository `Root` even when this
     /// handle is bound to a subdirectory (`Cwd` ≠ `Root`), matching the root-relative paths
