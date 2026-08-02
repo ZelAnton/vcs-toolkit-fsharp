@@ -249,11 +249,12 @@ type ForgeKindTests() =
 
     [<Test>]
     member _.ForgeOpAllEnumeratesTheVaryingOps() =
-        Assert.That(ForgeOp.All.Length, Is.EqualTo 7)
+        Assert.That(ForgeOp.All.Length, Is.EqualTo 8)
         Assert.That(List.contains ForgeOp.PrChecks ForgeOp.All, Is.True)
         Assert.That(List.contains ForgeOp.PrDiff ForgeOp.All, Is.True)
         Assert.That(List.contains ForgeOp.IssueReopen ForgeOp.All, Is.True)
         Assert.That(List.contains ForgeOp.ReleaseDelete ForgeOp.All, Is.True)
+        Assert.That(List.contains ForgeOp.PrEdit ForgeOp.All, Is.True)
 
 // ---------------------------------------------------------------------------
 // ForgeError classifiers
@@ -338,11 +339,13 @@ type DispatchTests() =
         Assert.That(gh.Kind, Is.EqualTo ForgeKind.GitHub)
         Assert.That(gh.Supports ForgeOp.PrChecks, Is.True)
         Assert.That(gh.Supports ForgeOp.PrDiff, Is.True)
+        Assert.That(gh.Supports ForgeOp.PrEdit, Is.True)
         Assert.That(gh.Cwd, Is.EqualTo(Directory.GetCurrentDirectory()))
 
         let gl = glForge [ "mr"; "list" ] (Reply.Ok "[]")
         Assert.That(gl.Kind, Is.EqualTo ForgeKind.GitLab)
         Assert.That(gl.Supports ForgeOp.PrDiff, Is.True)
+        Assert.That(gl.Supports ForgeOp.PrEdit, Is.True)
 
         let tea = teaForge [ "pr"; "list" ] (Reply.Ok "[]")
         // Gitea supports NONE of the varying ops.
@@ -352,6 +355,7 @@ type DispatchTests() =
         Assert.That(tea.Supports ForgeOp.PrDiff, Is.False)
         Assert.That(tea.Supports ForgeOp.IssueReopen, Is.False)
         Assert.That(tea.Supports ForgeOp.ReleaseDelete, Is.False)
+        Assert.That(tea.Supports ForgeOp.PrEdit, Is.False)
 
     [<Test>]
     member _.SupportsReviewMergeOptionsAndCloseReflectTheBackend() =
@@ -512,6 +516,23 @@ type DispatchTests() =
                   f, "issueReopen"
                   g, "releaseDelete" ] do
                 Assert.That(flag, Is.True, $"Gitea {name} must be Unsupported without spawning")
+
+            // Invariant: `Forge.Supports` agrees with the dispatch verdict just proven above,
+            // for every `ForgeOp` case Gitea rejects unconditionally — not just declared, but
+            // checked against the same handle's real dispatch in this test.
+            for op in
+                [ ForgeOp.RepoView
+                  ForgeOp.PrChecks
+                  ForgeOp.ReleaseView
+                  ForgeOp.PrMarkReady
+                  ForgeOp.PrEdit
+                  ForgeOp.IssueReopen
+                  ForgeOp.ReleaseDelete ] do
+                Assert.That(
+                    forge.Supports op,
+                    Is.False,
+                    $"Forge.Supports must agree with the Unsupported dispatch for {op}"
+                )
         }
 
     [<Test>]
@@ -2579,6 +2600,33 @@ type PrReviewTests() =
             )
         )
 
+    let glReviewForgeWithBody (approveReply: Reply) (noteReply: Reply) =
+        let calls = ResizeArray<string>()
+
+        let runner =
+            ScriptedRunner()
+                .On([ "--version" ], Reply.Ok "glab 1.36.0\n")
+                .When(
+                    (fun (cmd: Command) ->
+                        if cmd.Arguments |> Seq.toList = [ "mr"; "approve"; "1" ] then
+                            calls.Add "approve"
+                            true
+                        else
+                            false),
+                    approveReply
+                )
+                .When(
+                    (fun (cmd: Command) ->
+                        if cmd.Arguments |> Seq.toList = [ "mr"; "note"; "1"; "-m"; "LGTM" ] then
+                            calls.Add "note"
+                            true
+                        else
+                            false),
+                    noteReply
+                )
+
+        Forge.FromGitLab(".", VcsToolkit.GitLab.GitLab.WithRunner runner), calls
+
     let teaReviewForge (opTokens: string list) (opReply: Reply) =
         Forge.FromGitea(
             ".",
@@ -2614,6 +2662,29 @@ type PrReviewTests() =
         }
 
     [<Test>]
+    member _.GitHubApproveWithBodyDispatchesReviewApproveAndBody() : Task =
+        task {
+            let forge =
+                ghReviewForge [ "pr"; "review"; "1"; "--approve"; "--body"; "LGTM" ] (Reply.Exit 0)
+
+            match! forge.PrReview(1UL, ReviewAction.Approve.WithBody "LGTM") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"gh approve with body must dispatch: {e.Message}"
+        }
+
+    [<TestCase("")>]
+    [<TestCase("-")>]
+    member _.GitHubApprovePreservesEmptyAndDashBodies(body: string) : Task =
+        task {
+            let forge =
+                ghReviewForge [ "pr"; "review"; "1"; "--approve"; "--body"; body ] (Reply.Exit 0)
+
+            match! forge.PrReview(1UL, ReviewAction.Approve.WithBody body) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"gh approve must preserve the supplied body: {e.Message}"
+        }
+
+    [<Test>]
     member _.GitLabApproveDispatchesMrApprove() : Task =
         task {
             let forge = glReviewForge [ "mr"; "approve"; "1" ] (Reply.Exit 0)
@@ -2622,6 +2693,54 @@ type PrReviewTests() =
             match! forge.PrReview(1UL, ReviewAction.Approve) with
             | Ok() -> ()
             | Error e -> Assert.Fail $"glab mr approve must dispatch: {e.Message}"
+        }
+
+    [<TestCase("")>]
+    [<TestCase("   ")>]
+    member _.GitLabApproveWithEmptyBodySkipsNote(body: string) : Task =
+        task {
+            let forge = glReviewForge [ "mr"; "approve"; "1" ] (Reply.Exit 0)
+
+            match! forge.PrReview(1UL, ReviewAction.Approve.WithBody body) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"glab approve with an empty body must skip the note: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabApproveWithDashBodyIsRejectedBeforeAnySpawn() : Task =
+        task {
+            let forge =
+                Forge.FromGitLab(".", VcsToolkit.GitLab.GitLab.WithRunner(ScriptedRunner()))
+
+            match! forge.PrReview(1UL, ReviewAction.Approve.WithBody "-") with
+            | Error(ForgeError.InvalidInput message) -> Assert.That(message, Does.Contain "stdin/editor sentinel")
+            | Error e -> Assert.Fail $"expected InvalidInput for glab's dash sentinel, got: {e.Message}"
+            | Ok() -> Assert.Fail "glab's dash sentinel must be rejected before approval"
+        }
+
+    [<Test>]
+    member _.GitLabApproveWithBodyDispatchesApproveThenNote() : Task =
+        task {
+            let forge, calls =
+                glReviewForgeWithBody (Reply.Exit 0) (Reply.Ok "https://gl/note/1\n")
+
+            match! forge.PrReview(1UL, ReviewAction.Approve.WithBody "LGTM") with
+            | Ok() -> Assert.That((Seq.toList calls = [ "approve"; "note" ]), Is.True)
+            | Error e -> Assert.Fail $"glab approve with body must dispatch approve then note: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabApproveWithBodyReturnsNoteErrorWithoutRevokingApproval() : Task =
+        task {
+            let forge, calls =
+                glReviewForgeWithBody (Reply.Exit 0) (Reply.Fail(1, "note failed"))
+
+            match! forge.PrReview(1UL, ReviewAction.Approve.WithBody "LGTM") with
+            | Error(ForgeError.Forge e) ->
+                Assert.That(e.Message, Does.Contain "note failed")
+                Assert.That((Seq.toList calls = [ "approve"; "note" ]), Is.True)
+            | Error e -> Assert.Fail $"expected the note's forge error, got: {e.Message}"
+            | Ok() -> Assert.Fail "a failed note after approval must be reported to the caller"
         }
 
     [<Test>]
@@ -2633,6 +2752,34 @@ type PrReviewTests() =
             match! forge.PrReview(1UL, ReviewAction.Approve) with
             | Ok() -> ()
             | Error e -> Assert.Fail $"tea pr approve must dispatch: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaApproveWithBodyDispatchesPrApproveComment() : Task =
+        task {
+            let forge = teaReviewForge [ "pr"; "approve"; "1"; "LGTM" ] (Reply.Exit 0)
+
+            match! forge.PrReview(1UL, ReviewAction.Approve.WithBody "LGTM") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"tea approve with body must dispatch: {e.Message}"
+        }
+
+    [<TestCase("")>]
+    [<TestCase("-")>]
+    member _.GiteaApprovePreservesEmptyAndDashBodyValidation(body: string) : Task =
+        task {
+            let forge =
+                Forge.FromGitea(
+                    ".",
+                    VcsToolkit.Gitea.Gitea.WithRunner(
+                        ScriptedRunner().On([ "--version" ], Reply.Ok "tea version 0.9.2\n")
+                    )
+                )
+
+            match! forge.PrReview(1UL, ReviewAction.Approve.WithBody body) with
+            | Error(ForgeError.Forge _) -> ()
+            | Error e -> Assert.Fail $"expected tea's existing body validation error, got: {e.Message}"
+            | Ok() -> Assert.Fail "tea must keep rejecting empty and dash-leading positional comments"
         }
 
     // --- Request-changes: GitHub (--request-changes) + Gitea (pr reject); Unsupported on GitLab ---

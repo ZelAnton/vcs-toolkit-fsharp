@@ -1,5 +1,9 @@
 # Security Policy
 
+For the toolkit's trust boundaries, typed API guarantees, credential handling, Git/submodule
+hardening, raw-command risks, and `vcs-mcp` deployment guidance, read the
+[security model](docs/security.md). This policy explains how to report a vulnerability.
+
 ## Supported versions
 
 Before the first release, security fixes are applied to `main`; consumers of a

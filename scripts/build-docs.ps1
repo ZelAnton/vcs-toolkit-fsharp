@@ -104,8 +104,12 @@ Set-Content -LiteralPath $IndexPath -Value ($frontMatter + $readme) -NoNewline
 
 $verb = if ($Watch) { 'watch' } else { 'build' }
 $dotnetArgs = @('fsdocs', $verb, '--properties', "Configuration=$Configuration")
+$siteParameterValues = @(
+    'fsdocs-favicon-src'
+    'img/logo.png'
+)
 if ($Watch) {
-    $dotnetArgs += @('--parameters', 'fsdocs-favicon-src', 'img/logo.png')
+    $dotnetArgs += @('--parameters') + $siteParameterValues
     Write-Host "==> Watching fsdocs site (local preview server)" -ForegroundColor DarkGray
 }
 else {
@@ -116,9 +120,7 @@ else {
         '--parameters'
         'root'
         $Root
-        'fsdocs-favicon-src'
-        'img/logo.png'
-    )
+    ) + $siteParameterValues
     Write-Host "==> Building fsdocs site -> $Output (root=$Root)" -ForegroundColor DarkGray
 }
 

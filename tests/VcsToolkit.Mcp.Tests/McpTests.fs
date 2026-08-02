@@ -1505,6 +1505,28 @@ type OutputBudgetTests() =
         }
 
     [<Test>]
+    member _.RepoDiffOverBudgetReturnsTheValidJsonEnvelopeShape() : Task =
+        task {
+            let runner =
+                ScriptedRunner()
+                    .On([ "rev-parse"; "--verify"; "-q"; "HEAD" ], Reply.Ok "abc\n")
+                    .On([ "diff" ], Reply.Ok prDiffRaw)
+
+            let server = gitServerWithBudget runner WriteGate.None (Some 1)
+
+            match! server.RepoDiff() with
+            | Ok json ->
+                use parsed = System.Text.Json.JsonDocument.Parse json
+                let root = parsed.RootElement
+                Assert.That(root.GetProperty("truncated").GetBoolean(), Is.True)
+                Assert.That(root.GetProperty("shown").GetInt32(), Is.Zero)
+                Assert.That(root.GetProperty("total").GetInt32(), Is.EqualTo 1)
+                Assert.That(root.GetProperty("items").GetArrayLength(), Is.Zero)
+                Assert.That(json, Does.Not.Contain "[truncated:")
+            | Error e -> Assert.Fail $"repo_diff failed: {e.Message}"
+        }
+
+    [<Test>]
     member _.RepoAnnotateNoOrZeroBudgetPreservesTheOriginalJsonArrayByteForByte() : Task =
         task {
             let expected = Json.ok annotateLines
@@ -1565,8 +1587,8 @@ type CatalogTests() =
 
     [<Test>]
     member _.CatalogCoversEveryTool() =
-        // 12 repo-read + repo_try_merge + 12 repo-write + 12 forge-read + 14 forge-write = 51.
-        Assert.That(List.length Catalog.all, Is.EqualTo 51)
+        // 13 repo-read + repo_try_merge + 12 repo-write + 12 forge-read + 14 forge-write = 52.
+        Assert.That(List.length Catalog.all, Is.EqualTo 52)
         // Every write-gated tool name appears in the catalogue.
         let names = Catalog.all |> List.map (fun t -> t.Name) |> Set.ofList
         Assert.That(WriteTools.all |> List.forall names.Contains, Is.True, "every write tool is catalogued")
@@ -1672,6 +1694,31 @@ type CatalogTests() =
             match! Catalog.callTool server "repo_current_branch" (argsOf "{}") with
             | Ok json -> Assert.That(json, Does.Contain "main")
             | Error e -> Assert.Fail $"dispatch failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.CallToolDispatchesRepoDiff() : Task =
+        task {
+            let raw =
+                "diff --git a/foo.txt b/foo.txt\n"
+                + "--- a/foo.txt\n"
+                + "+++ b/foo.txt\n"
+                + "@@ -1 +1 @@\n"
+                + "-old\n"
+                + "+new\n"
+
+            let runner =
+                ScriptedRunner()
+                    .On([ "rev-parse"; "--verify"; "-q"; "HEAD" ], Reply.Ok "abc\n")
+                    .On([ "diff" ], Reply.Ok raw)
+
+            let server = gitServer runner WriteGate.None
+
+            match! Catalog.callTool server "repo_diff" (argsOf "{}") with
+            | Ok json ->
+                Assert.That(json, Does.Contain "\"path\": \"foo.txt\"")
+                Assert.That(json, Does.Contain "\"change\": \"Modified\"")
+            | Error e -> Assert.Fail $"repo_diff dispatch failed: {e.Message}"
         }
 
     [<Test>]

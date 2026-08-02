@@ -22,6 +22,9 @@ let inspectAndCreateWorktree repoDir =
             | Ok snapshot ->
                 printfn "Head: %A; branch: %A" snapshot.Head snapshot.Branch
 
+                let! workingCopyDiff = repo.Diff()
+                printfn "Working-copy unified diff: %A" workingCopyDiff
+
                 let! merge = repo.TryMerge "origin/main"
                 printfn "Merge probe: %A" merge
 

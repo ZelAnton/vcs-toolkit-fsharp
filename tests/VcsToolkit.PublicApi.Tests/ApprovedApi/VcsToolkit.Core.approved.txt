@@ -180,7 +180,9 @@ namespace VcsToolkit.Core
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Core.CreateOutcome, VcsToolkit.Core.RepoError>> CreateWorktree(string path, string branch, string baseRef) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.FSharpOption<string>?, VcsToolkit.Core.RepoError>> CurrentBranch() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> DeleteBranch(string name, bool force) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Diff.FileDiff>, VcsToolkit.Core.RepoError>> Diff() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Diff.DiffStat, VcsToolkit.Core.RepoError>> DiffStat() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Core.RepoError>> DiffText() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> Fetch() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> FetchBranch(string branch) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> FetchFrom(string remote) { }

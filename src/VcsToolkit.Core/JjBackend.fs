@@ -237,6 +237,18 @@ module internal JjBackend =
             | Ok entries -> return Ok(entries |> List.map fileChangeFromSummary)
         }
 
+    let diffText (jj: Jj) (dir: string) =
+        task {
+            let! r = jj.DiffText(dir, DiffSpec.WorkingTree)
+            return ofVcs r
+        }
+
+    let diff (jj: Jj) (dir: string) =
+        task {
+            let! r = jj.Diff(dir, DiffSpec.WorkingTree)
+            return ofVcs r
+        }
+
     let diffStat (jj: Jj) (dir: string) =
         task {
             let! r = jj.DiffStat(dir, "@")

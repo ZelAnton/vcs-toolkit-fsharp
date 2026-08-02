@@ -126,8 +126,8 @@ for this client's place in the layering.
 
 | Method | Runs | Notes |
 |---|---|---|
-| `Diff` | layered on `DiffText` | parsed `FileDiff list` |
-| `DiffText` | `diff <target> --no-color --no-ext-diff -M --src-prefix=a/ --dst-prefix=b/` | untrimmed; `WorkingTree` diffs against `HEAD` (or the empty tree on an unborn repo) |
+| `Diff` | layered on `DiffText` | parsed `FileDiff list`; working-copy form is reachable as `Repo.Diff()` |
+| `DiffText` | `diff <target> --no-color --no-ext-diff -M --src-prefix=a/ --dst-prefix=b/` | untrimmed; `WorkingTree` diffs against `HEAD` (or the empty tree on an unborn repo); reachable as `Repo.DiffText()` |
 
 ### Fetch, push, merge, rebase, sequencer, stash
 
@@ -235,8 +235,8 @@ caller-supplied name can't fan a mutation out across every matching ref.
 
 | Method | Runs | Notes |
 |---|---|---|
-| `Diff` | layered on `DiffText` | parsed `FileDiff list` |
-| `DiffText` | `diff -r <spec> --git` | verbatim |
+| `Diff` | layered on `DiffText` | parsed `FileDiff list`; working-copy form is reachable as `Repo.Diff()` |
+| `DiffText` | `diff -r <spec> --git` | verbatim; working-copy form is reachable as `Repo.DiffText()` |
 | `DiffSummary` | `diff -r (<from>)..(<to>) --summary` | per-file, resolves the workspace root first |
 | `DiffStat` | `diff -r <revset> --stat` | |
 | `CommitCount` | `log -r <revset> --no-graph -T <count-template>` | one id per line |
@@ -473,8 +473,10 @@ so dropping to a wrapper-level method (any row above) never needs an extra depen
 - **`VcsToolkit.Core`** (`src/VcsToolkit.Core/Repo.fs`) — `Repo.Git` / `Repo.Jj` (`Some` only
   for the handle's own backend; the raw client, still `dir`-taking) and `Repo.GitAt` /
   `Repo.JjAt` (the view bound to this handle's `Cwd` — re-anchor with `repo.At(path)` first to
-  reach another directory). Its portable `Repo.Remotes()` wraps either `Git.Remotes` or
-  `Jj.GitRemoteList` into a facade-owned name/URL DTO. Its portable `Repo.Clone`/`CloneWith`
+  reach another directory). Its portable `Repo.Diff()` / `Repo.DiffText()` wrap the typed
+  working-copy form of `Git.Diff` / `Git.DiffText` or `Jj.Diff` / `Jj.DiffText`, and
+  `Repo.Remotes()` wraps either `Git.Remotes` or `Jj.GitRemoteList` into a facade-owned
+  name/URL DTO. Its portable `Repo.Clone`/`CloneWith`
   (the one associated constructor, since there is no handle yet) wrap either `Git.CloneRepo` or
   `Jj.GitClone` under a unified `CloneOptions` (`CloneKind.Git`/`JjColocated`/
   `JjNonColocated`).
