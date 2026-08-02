@@ -142,7 +142,7 @@ simple and race-free), and `repo_try_merge` (a real trial merge that materialize
 rolling itself back, so it needs the same isolation). An MCP host can dispatch tool calls
 concurrently; without this lock, two working-copy mutations could interleave (e.g. a
 `repo_try_merge` probe's materialize-then-rollback racing a `repo_commit`).
-**Remote-only forge writes** (`forge_issue_create`, `forge_issue_close`, `forge_issue_reopen`, `forge_issue_comment`,
+**Remote-only forge writes** (`forge_issue_create`, `forge_issue_close`, `forge_issue_reopen`, `forge_issue_comment`, `forge_issue_edit`,
 `forge_pr_create`, `forge_pr_comment`, `forge_pr_edit`, `forge_pr_mark_ready`, `forge_pr_review`,
 `forge_release_create`)
 do **not** take this local lock — they only touch the remote forge, and the forge's own server
