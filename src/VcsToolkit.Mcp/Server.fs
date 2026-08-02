@@ -290,6 +290,16 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
     member this.RepoDiffStat() =
         this.ReadRepo(fun () -> repo.DiffStat())
 
+    /// The working copy's unified diff, per file. Normally serialized as the original JSON
+    /// array. When the server's output budget truncates it, whole trailing entries are dropped
+    /// and a valid JSON envelope reports `items`, `truncated`, `shown`, and `total`.
+    member _.RepoDiff() : Task<Result<string, McpError>> =
+        task {
+            match! repo.Diff() with
+            | Error e -> return Error(coreErr e)
+            | Ok files -> return Ok(applyJsonArrayOutputBudget outputBudget files)
+        }
+
     /// Local branch (git) / bookmark (jj) names.
     member this.RepoBranches() =
         this.ReadRepo(fun () -> repo.LocalBranches())

@@ -502,6 +502,50 @@ type DispatchTests() =
             | Error e -> Assert.Fail $"changed files failed: {e.Message}"
         }
 
+    [<Test>]
+    member _.GitDiffFacadePinsTheTypedWorkingTreeArgv() : Task =
+        task {
+            let raw =
+                "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+new\n"
+
+            // K-040: the facade routes through GitBackend into the typed Git.Diff entry point.
+            // Exact scripted argv (with no fallback) rejects any raw/flag-like argument leak.
+            let runner =
+                ScriptedRunner()
+                    .On([ "rev-parse"; "--verify"; "-q"; "HEAD" ], Reply.Ok "abc\n")
+                    .On(
+                        [ "diff"
+                          "--no-relative"
+                          "HEAD"
+                          "--no-color"
+                          "--no-ext-diff"
+                          "-M"
+                          "--src-prefix=a/"
+                          "--dst-prefix=b/" ],
+                        Reply.Ok raw
+                    )
+
+            let repo = Repo.FromGit("/repo", "/repo", Git.WithRunner runner)
+
+            match! repo.Diff() with
+            | Ok [ file ] -> Assert.That(file.Path, Is.EqualTo "a.txt")
+            | Ok other -> Assert.Fail $"expected one diff, got {other.Length}"
+            | Error e -> Assert.Fail $"Diff failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.JjDiffTextFacadePinsTheTypedWorkingTreeArgv() : Task =
+        task {
+            let raw =
+                "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+new\n"
+
+            let repo = jjRepo [ "diff"; "-r"; "@"; "--git" ] (Reply.Ok raw)
+
+            match! repo.DiffText() with
+            | Ok text -> Assert.That(text, Is.EqualTo raw)
+            | Error e -> Assert.Fail $"DiffText failed: {e.Message}"
+        }
+
     // `Repo.Remotes()` takes no caller-supplied argv, so there is no leading-`-`/injection value to
     // guard-reject the way the argument-taking facade ops (K-040) do; these facade entry-point tests
     // instead prove it routes through GitBackend/JjBackend and maps the backend Remote → the DTO.
@@ -1563,6 +1607,77 @@ type GitBackendDiffStatUnbornTests() =
             match! facade.DiffStat() with
             | Ok stat -> Assert.That(stat.FilesChanged, Is.EqualTo 1UL, "the unborn working tree reports the new file")
             | Error e -> Assert.Fail $"DiffStat failed on a SHA-256 unborn repo: {e.Message}"
+        }
+
+// ---------------------------------------------------------------------------
+// Working-copy unified diff through the Core facade — real git and jj
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type RepoDiffIntegrationTests() =
+
+    let requireGit () =
+        try
+            Raw.git "." [ "--version" ]
+        with _ ->
+            // git isn't on PATH (or failed to spawn) — a hermetic CI without it must skip.
+            Assert.Ignore "git not available on PATH"
+
+    let requireJj () =
+        try
+            Raw.jj "." [ "--version" ]
+        with _ ->
+            // jj isn't on PATH (or failed to spawn) — a hermetic CI without it must skip.
+            Assert.Ignore "jj not available on PATH"
+
+    [<Test>]
+    member _.GitDiffAndDiffTextReturnTheTrackedWorkingCopyHunk() : Task =
+        task {
+            requireGit ()
+            use sandbox = GitSandbox.Init "core-repo-diff-git"
+            sandbox.CommitFile("nested/a.txt", "before\n", "seed")
+            sandbox.Write("nested/a.txt", "after\n")
+            let repo = Repo.FromGit(sandbox.Path, sandbox.Path, Git.Create())
+
+            match! repo.Diff() with
+            | Ok [ file ] ->
+                Assert.That(file.Path, Is.EqualTo "nested/a.txt")
+                Assert.That(file.Change, Is.EqualTo ChangeKind.Modified)
+                Assert.That(file.Hunks, Is.Not.Empty)
+            | Ok other -> Assert.Fail $"expected one diff, got {other.Length}"
+            | Error e -> Assert.Fail $"Diff failed: {e.Message}"
+
+            match! repo.DiffText() with
+            | Ok text ->
+                Assert.That(text, Does.Contain "diff --git a/nested/a.txt b/nested/a.txt")
+                Assert.That(text, Does.Contain "+after")
+            | Error e -> Assert.Fail $"DiffText failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.JjDiffAndDiffTextReturnTheWorkingCopyHunk() : Task =
+        task {
+            requireJj ()
+            use sandbox = JjSandbox.Init "core-repo-diff-jj"
+            sandbox.Write("nested/a.txt", "before\n")
+            sandbox.Describe "seed"
+            sandbox.NewChange "working copy"
+            sandbox.Write("nested/a.txt", "after\n")
+            let repo = Repo.FromJj(sandbox.Path, sandbox.Path, Jj.Create())
+
+            match! repo.Diff() with
+            | Ok [ file ] ->
+                Assert.That(file.Path, Is.EqualTo "nested/a.txt")
+                Assert.That(file.Change, Is.EqualTo ChangeKind.Modified)
+                Assert.That(file.Hunks, Is.Not.Empty)
+            | Ok other -> Assert.Fail $"expected one diff, got {other.Length}"
+            | Error e -> Assert.Fail $"Diff failed: {e.Message}"
+
+            match! repo.DiffText() with
+            | Ok text ->
+                Assert.That(text, Does.Contain "diff --git a/nested/a.txt b/nested/a.txt")
+                Assert.That(text, Does.Contain "+after")
+            | Error e -> Assert.Fail $"DiffText failed: {e.Message}"
         }
 
 // ---------------------------------------------------------------------------

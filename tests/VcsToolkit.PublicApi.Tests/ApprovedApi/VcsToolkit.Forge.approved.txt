@@ -203,6 +203,7 @@ namespace VcsToolkit.Forge
             public const int IssueReopen = 5;
             public const int PrChecks = 2;
             public const int PrDiff = 4;
+            public const int PrEdit = 7;
             public const int PrMarkReady = 1;
             public const int ReleaseDelete = 6;
             public const int ReleaseView = 3;

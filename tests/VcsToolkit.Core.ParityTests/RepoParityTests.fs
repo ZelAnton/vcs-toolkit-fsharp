@@ -25,7 +25,9 @@ let private coveredReadMethods =
           "ChangedFiles"
           "ConflictedFiles"
           "CurrentBranch"
+          "Diff"
           "DiffStat"
+          "DiffText"
           "HasTrackedChanges"
           "HasUncommittedChanges"
           "InProgressState"
@@ -153,6 +155,48 @@ type RepoFacadeParityTests() =
             Assert.That(git.FilesChanged, Is.EqualTo 1UL)
             Assert.That(git.Insertions, Is.EqualTo 1UL)
             Assert.That(git.Deletions, Is.EqualTo 1UL)
+        }
+
+    [<Test>]
+    member _.DiffTextMatchesAcrossBackends() : Task =
+        task {
+            let pair = fixture.Pair
+            let! gitResult = pair.Git.DiffText()
+            let! jjResult = pair.Jj.DiffText()
+            let git = expectOk "git" "DiffText" gitResult
+            let jj = expectOk "jj" "DiffText" jjResult
+
+            // Both backends should produce non-empty diff text for the modified file.
+            // Exact formatting may differ (git vs jj hunk headers, context lines, etc.),
+            // so we verify presence of content rather than exact equality.
+            Assert.That(git.Length, Is.GreaterThan 0, "git DiffText should have content")
+            Assert.That(jj.Length, Is.GreaterThan 0, "jj DiffText should have content")
+            // Both should contain diff markers indicating changes.
+            Assert.That(git, Does.Contain "@@", "git diff should contain hunk headers")
+            Assert.That(jj, Does.Contain "@@", "jj diff should contain hunk headers")
+        }
+
+    [<Test>]
+    member _.DiffMatchesAcrossBackends() : Task =
+        task {
+            let pair = fixture.Pair
+            let! gitResult = pair.Git.Diff()
+            let! jjResult = pair.Jj.Diff()
+            let git = expectOk "git" "Diff" gitResult
+            let jj = expectOk "jj" "Diff" jjResult
+
+            // Parsed diff should have matching file changes.
+            Assert.That(git.Length, Is.EqualTo jj.Length, "Diff result list lengths should match")
+
+            // Both should report at least one changed file.
+            Assert.That(git.Length, Is.GreaterThan 0, "Should have at least one file in the diff")
+
+            // Check that the files and change kinds match across backends.
+            for i in 0 .. (git.Length - 1) do
+                let gitFile = git[i]
+                let jjFile = jj[i]
+                assertSame $"Diff[{i}].Path" gitFile.Path jjFile.Path
+                assertSame $"Diff[{i}].Change" gitFile.Change jjFile.Change
         }
 
     [<Test>]

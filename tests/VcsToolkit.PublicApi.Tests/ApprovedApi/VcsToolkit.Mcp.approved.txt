@@ -70,6 +70,7 @@ namespace VcsToolkit.Mcp
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoCreateWorktree(string path, string branch, string baseRef) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoCurrentBranch() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoDeleteBranch(string name, bool force) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoDiff() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoDiffStat() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoFetch() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoInfo() { }
