@@ -180,6 +180,7 @@ tool additionally requires `--allow-write`, or `--allow-tools` naming it.
 | `repo_diff` | The working copy's unified diff, serialized per file as JSON. When truncated by `--output-budget`, returns a valid JSON envelope with `items`, `truncated: true`, `shown`, and `total`. | — |
 | `repo_branches` | Local branch (git) / bookmark (jj) names. | — |
 | `repo_current_branch` | The current branch/bookmark (null when detached/unset). | — |
+| `repo_tags` | Git tag names, sorted by git's default ordering. Unsupported on jj before any command is spawned. | — |
 | `repo_conflicts` | Paths with unresolved merge conflicts (repo-relative, `/`-separated). | — |
 | `repo_worktrees` | Attached worktrees (git) / workspaces (jj). | — |
 | `repo_remotes` | Configured remotes (name and URL): git remotes are deduplicated to one entry carrying the fetch URL; jj uses `jj git remote list`. | — |
@@ -218,6 +219,8 @@ it is safe to retry or clean up manually.
 | `repo_continue_in_progress` | Continue the in-progress operation after conflict resolution (git: `commit --no-edit` for a merge / `rebase --continue`; jj: a no-op). Reports the fresh post-call operation state (`Conflict` when unresolved paths still block, `Clear` when finished). | — | no | no |
 | `repo_delete_branch` | Delete a local branch (git) / bookmark (jj). `force` (git only) deletes even an unmerged branch, discarding its unique commits. | `name` (string, required), `force` (boolean, optional) | **yes** | no |
 | `repo_rename_branch` | Rename a local branch (git) / bookmark (jj). Preserves the commits. | `old_name` (string, required), `new_name` (string, required) | no | no |
+| `repo_tag_create` | Create a git tag at `rev` (or `HEAD` when omitted). Supplying `message` creates an annotated tag; omitting it creates a lightweight tag. Unsupported on jj before any command is spawned. | `name` (string, required), `message` (string, optional), `rev` (string, optional) | no | no |
+| `repo_tag_delete` | Delete a git tag. Unsupported on jj before any command is spawned. | `name` (string, required) | **yes** | no |
 | `repo_new_child` | Start new work on top of `reference` **without** modifying it (git checkout / jj new) — unlike `repo_checkout`, does not rewrite `reference` in place on jj. | `reference` (string, required) | no | no |
 
 ### `forge_*` — forge tools (GitHub/GitLab/Gitea, via `VcsToolkit.Forge`)

@@ -27,6 +27,8 @@ module WriteTools =
           "repo_continue_in_progress"
           "repo_delete_branch"
           "repo_rename_branch"
+          "repo_tag_create"
+          "repo_tag_delete"
           "repo_new_child"
           "forge_issue_create"
           "forge_issue_close"

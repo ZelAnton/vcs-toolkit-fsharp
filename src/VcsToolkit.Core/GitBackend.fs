@@ -95,6 +95,34 @@ module internal GitBackend =
             return ofVcs r
         }
 
+    let tags (git: Git) (dir: string) =
+        task {
+            let! r = git.TagList dir
+            return ofVcs r
+        }
+
+    let tagCreate (git: Git) (dir: string) (name: string) (message: string option) (rev: string option) =
+        task {
+            let! r =
+                match message with
+                | Some tagMessage ->
+                    git.TagCreateAnnotated(
+                        dir,
+                        { Name = name
+                          Message = tagMessage
+                          Rev = rev }
+                    )
+                | None -> git.TagCreate(dir, name, rev)
+
+            return ofVcs r
+        }
+
+    let tagDelete (git: Git) (dir: string) (name: string) =
+        task {
+            let! r = git.TagDelete(dir, name)
+            return ofVcs r
+        }
+
     /// Map a git-typed `Remote` (name + URL) into the facade DTO.
     let private remoteFromGit (r: VcsToolkit.Git.Remote) : VcsToolkit.Core.Remote = { Name = r.Name; Url = r.Url }
 

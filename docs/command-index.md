@@ -114,6 +114,7 @@ for this client's place in the layering.
 | `TagCreateAnnotated` | `tag -a <name> -m <message> [<rev>]` | via `AnnotatedTag` |
 | `TagList` | `tag --list --no-column` | |
 | `TagDelete` | `tag -d <name>` | |
+| Core / MCP tag facade | `Repo.Tags()` / `Repo.TagCreate(name, message, rev)` / `Repo.TagDelete(name)`; `repo_tags` / `repo_tag_create` / `repo_tag_delete` | Git-only; Core returns `RepoError.Unsupported` on jj before spawning; MCP create/delete are write-gated |
 | `ShowFile` | `show <rev>:<path>` | UTF-8-decoded, lossy on non-UTF-8 content |
 | `ShowFileBytes` | `show <rev>:<path>` | verbatim bytes — byte-exact for non-UTF-8 content |
 | `ConfigGet` | `config --get <key>` | `None` when unset |

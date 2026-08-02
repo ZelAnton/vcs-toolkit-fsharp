@@ -308,6 +308,10 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
     member this.RepoCurrentBranch() =
         this.ReadRepo(fun () -> repo.CurrentBranch())
 
+    /// Git tag names, sorted by git's default ordering. Unsupported on jj, where the Core
+    /// facade refuses the operation before spawning a command.
+    member this.RepoTags() = this.ReadRepo(fun () -> repo.Tags())
+
     /// Paths with unresolved merge conflicts.
     member this.RepoConflicts() =
         this.ReadRepo(fun () -> repo.ConflictedFiles())
@@ -481,6 +485,33 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
                                 {| renamedFrom = oldName
                                    renamedTo = newName |}
                         )
+            })
+
+    /// Create a git tag named `name` at `rev` (`None` means `HEAD`). `Some message` creates an
+    /// annotated tag; `None` creates a lightweight tag. Unsupported on jj before any spawn.
+    member this.RepoTagCreate(name: string, message: string option, rev: string option) =
+        this.WithRepoWrite "repo_tag_create" (fun () ->
+            task {
+                match! repo.TagCreate(name, message, rev) with
+                | Error e -> return Error(coreErr e)
+                | Ok() ->
+                    return
+                        Ok(
+                            Json.ok
+                                {| created = name
+                                   annotated = message.IsSome
+                                   revision = rev |}
+                        )
+            })
+
+    /// Delete the git tag named `name`. Unsupported on jj before any spawn. This is destructive
+    /// and non-idempotent because a deleted tag reference cannot be recovered by a second call.
+    member this.RepoTagDelete(name: string) =
+        this.WithRepoWrite "repo_tag_delete" (fun () ->
+            task {
+                match! repo.TagDelete name with
+                | Error e -> return Error(coreErr e)
+                | Ok() -> return Ok(Json.ok {| deleted = name |})
             })
 
     /// Start new work on top of `reference` **without modifying it** (git `checkout <reference>`;

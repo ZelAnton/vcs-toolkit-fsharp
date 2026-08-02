@@ -198,6 +198,10 @@ module internal Catalog =
               []
           read "repo_branches" "Local branch (git) / bookmark (jj) names." []
           read "repo_current_branch" "The current branch/bookmark (null when detached/unset)." []
+          read
+              "repo_tags"
+              "Git tag names, sorted by git's default ordering. Unsupported on jj, where the Core facade refuses the operation before spawning a command."
+              []
           read "repo_conflicts" "Paths with unresolved merge conflicts (repo-relative, '/'-separated)." []
           read "repo_worktrees" "Attached worktrees (git) / workspaces (jj)." []
           read
@@ -375,6 +379,32 @@ module internal Catalog =
                 { Name = "new_name"
                   JsonType = "string"
                   Description = "The new name."
+                  Required = true } ]
+          write
+              "repo_tag_create"
+              "Create a git tag named `name` at `rev` (`HEAD` when omitted). Supplying `message` creates an annotated tag; omitting it creates a lightweight tag. Unsupported on jj before any spawn."
+              false
+              false
+              [ { Name = "name"
+                  JsonType = "string"
+                  Description = "The new tag name."
+                  Required = true }
+                { Name = "message"
+                  JsonType = "string"
+                  Description = "Annotation message; omit to create a lightweight tag."
+                  Required = false }
+                { Name = "rev"
+                  JsonType = "string"
+                  Description = "The revision to tag; omit to tag HEAD."
+                  Required = false } ]
+          write
+              "repo_tag_delete"
+              "Delete the git tag named `name`. Unsupported on jj before any spawn."
+              true
+              false
+              [ { Name = "name"
+                  JsonType = "string"
+                  Description = "The tag name to delete."
                   Required = true } ]
           // Non-destructive: starts fresh work on top of `reference` and leaves it untouched; not
           // idempotent: on jj each call creates a new child change.
@@ -655,6 +685,7 @@ module internal Catalog =
         | "repo_diff" -> server.RepoDiff()
         | "repo_branches" -> server.RepoBranches()
         | "repo_current_branch" -> server.RepoCurrentBranch()
+        | "repo_tags" -> server.RepoTags()
         | "repo_conflicts" -> server.RepoConflicts()
         | "repo_worktrees" -> server.RepoWorktrees()
         | "repo_remotes" -> server.RepoRemotes()
@@ -688,6 +719,11 @@ module internal Catalog =
         | "repo_rename_branch" ->
             bind (reqStr args "old_name") (fun oldName ->
                 bind (reqStr args "new_name") (fun newName -> server.RepoRenameBranch(oldName, newName)))
+        | "repo_tag_create" ->
+            bind (reqStr args "name") (fun tagName ->
+                bind (optStr args "message") (fun message ->
+                    bind (optStr args "rev") (fun rev -> server.RepoTagCreate(tagName, message, rev))))
+        | "repo_tag_delete" -> bind (reqStr args "name") server.RepoTagDelete
         | "repo_new_child" -> bind (reqStr args "reference") server.RepoNewChild
         | "forge_auth_status" -> server.ForgeAuthStatus()
         | "forge_repo_view" -> server.ForgeRepoView()

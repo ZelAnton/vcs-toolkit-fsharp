@@ -583,6 +583,70 @@ type DispatchTests() =
         }
 
     [<Test>]
+    member _.GitTagsRoutesThroughBackend() : Task =
+        task {
+            let repo = gitRepo [ "tag"; "--list"; "--no-column" ] (Reply.Ok "v1.0\nv2.0\n")
+
+            match! repo.Tags() with
+            | Ok tags -> Assert.That((tags = [ "v1.0"; "v2.0" ]), Is.True)
+            | Error e -> Assert.Fail $"tags failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitTagCreateSelectsLightweightOrAnnotatedCommand() : Task =
+        task {
+            let lightweight = gitRepo [ "tag"; "light"; "HEAD~1" ] (Reply.Ok "")
+
+            match! lightweight.TagCreate("light", None, Some "HEAD~1") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"lightweight tag creation failed: {e.Message}"
+
+            let annotated =
+                gitRepo [ "tag"; "-a"; "release"; "-m"; "Release notes"; "HEAD" ] (Reply.Ok "")
+
+            match! annotated.TagCreate("release", Some "Release notes", Some "HEAD") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"annotated tag creation failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitTagDeleteRoutesThroughBackend() : Task =
+        task {
+            let repo = gitRepo [ "tag"; "-d"; "obsolete" ] (Reply.Ok "")
+
+            match! repo.TagDelete "obsolete" with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"tag deletion failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.TagCreateGuardRejectedArgumentsReturnVcsErrorWithoutSpawning() : Task =
+        task {
+            let repo = Repo.FromGit("/repo", "/repo", Git.WithRunner(ScriptedRunner()))
+
+            match! repo.TagCreate("--force", None, None) with
+            | Error(RepoError.Vcs _ as e) -> Assert.That(e.Message, Does.Contain "tag name")
+            | Error e -> Assert.Fail $"expected RepoError.Vcs, got: {e.Message}"
+            | Ok() -> Assert.Fail "a guard-rejected tag name must be refused before spawning"
+
+            match! repo.TagCreate("release", Some "message", Some "--delete") with
+            | Error(RepoError.Vcs _ as e) -> Assert.That(e.Message, Does.Contain "revision")
+            | Error e -> Assert.Fail $"expected RepoError.Vcs, got: {e.Message}"
+            | Ok() -> Assert.Fail "a guard-rejected tag revision must be refused before spawning"
+        }
+
+    [<Test>]
+    member _.TagDeleteGuardRejectedNameReturnsVcsErrorWithoutSpawning() : Task =
+        task {
+            let repo = Repo.FromGit("/repo", "/repo", Git.WithRunner(ScriptedRunner()))
+
+            match! repo.TagDelete "--all" with
+            | Error(RepoError.Vcs _ as e) -> Assert.That(e.Message, Does.Contain "tag name")
+            | Error e -> Assert.Fail $"expected RepoError.Vcs, got: {e.Message}"
+            | Ok() -> Assert.Fail "a guard-rejected tag name must be refused before spawning"
+        }
+
+    [<Test>]
     member _.JjCurrentBranchIsNearestReachableBookmark() : Task =
         task {
             // reachable_bookmarks with two equally-near names returns the smallest.
@@ -1678,6 +1742,89 @@ type RepoDiffIntegrationTests() =
                 Assert.That(text, Does.Contain "diff --git a/nested/a.txt b/nested/a.txt")
                 Assert.That(text, Does.Contain "+after")
             | Error e -> Assert.Fail $"DiffText failed: {e.Message}"
+        }
+
+// ---------------------------------------------------------------------------
+// Git-only tags through the Core facade — real git lifecycle plus structural
+// jj refusal before the injected runner can spawn anything.
+// ---------------------------------------------------------------------------
+
+[<TestFixture>]
+type RepoTagsIntegrationTests() =
+
+    let requireGit () =
+        try
+            Raw.git "." [ "--version" ]
+        with _ ->
+            // git isn't on PATH (or failed to spawn) — a hermetic CI without it must skip.
+            Assert.Ignore "git not available on PATH"
+
+    let requireJj () =
+        try
+            Raw.jj "." [ "--version" ]
+        with _ ->
+            // jj isn't on PATH (or failed to spawn) — a hermetic CI without it must skip.
+            Assert.Ignore "jj not available on PATH"
+
+    [<Test>]
+    member _.GitCreatesListsAndDeletesLightweightAndAnnotatedTags() : Task =
+        task {
+            requireGit ()
+            use sandbox = GitSandbox.Init "core-repo-tags-git"
+            sandbox.CommitFile("first.txt", "first\n", "first")
+            let firstCommit = sandbox.RevParse "HEAD"
+            sandbox.CommitFile("second.txt", "second\n", "second")
+            let repo = Repo.FromGit(sandbox.Path, sandbox.Path, Git.Create())
+
+            match! repo.TagCreate("lightweight", None, Some firstCommit) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"lightweight tag creation failed: {e.Message}"
+
+            match! repo.TagCreate("annotated", Some "Annotated release", None) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"annotated tag creation failed: {e.Message}"
+
+            Assert.That(sandbox.RevParse "lightweight", Is.EqualTo firstCommit)
+            Assert.That(sandbox.RevParse "annotated^{tag}", Is.Not.Empty, "annotated resolves to a tag object")
+
+            match! repo.Tags() with
+            | Ok tags -> Assert.That((tags = [ "annotated"; "lightweight" ]), Is.True)
+            | Error e -> Assert.Fail $"tag listing failed: {e.Message}"
+
+            match! repo.TagDelete "lightweight" with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"lightweight tag deletion failed: {e.Message}"
+
+            match! repo.TagDelete "annotated" with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"annotated tag deletion failed: {e.Message}"
+
+            match! repo.Tags() with
+            | Ok tags -> Assert.That(tags, Is.Empty)
+            | Error e -> Assert.Fail $"post-delete tag listing failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.JjReturnsUnsupportedForEveryTagOperationWithoutSpawning() : Task =
+        task {
+            requireJj ()
+            use sandbox = JjSandbox.Init "core-repo-tags-jj"
+            let repo = Repo.FromJj(sandbox.Path, sandbox.Path, Jj.WithRunner(ScriptedRunner()))
+
+            match! repo.Tags() with
+            | Error(RepoError.Unsupported operation) -> Assert.That(operation, Does.Contain "tags")
+            | Error e -> Assert.Fail $"expected Unsupported from Tags, got: {e.Message}"
+            | Ok _ -> Assert.Fail "Tags must be unsupported on jj"
+
+            match! repo.TagCreate("v1", None, None) with
+            | Error(RepoError.Unsupported operation) -> Assert.That(operation, Does.Contain "tag creation")
+            | Error e -> Assert.Fail $"expected Unsupported from TagCreate, got: {e.Message}"
+            | Ok() -> Assert.Fail "TagCreate must be unsupported on jj"
+
+            match! repo.TagDelete "v1" with
+            | Error(RepoError.Unsupported operation) -> Assert.That(operation, Does.Contain "tag deletion")
+            | Error e -> Assert.Fail $"expected Unsupported from TagDelete, got: {e.Message}"
+            | Ok() -> Assert.Fail "TagDelete must be unsupported on jj"
         }
 
 // ---------------------------------------------------------------------------

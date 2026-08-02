@@ -241,6 +241,28 @@ type Repo private (root: string, cwd: string, backend: Backend) =
         | Backend.Git g -> GitBackend.renameBranch g cwd oldName newName
         | Backend.Jj j -> JjBackend.renameBranch j cwd oldName newName
 
+    /// Git tag names, sorted by git's default ordering. Tags are not modelled by jj: when
+    /// `Kind = BackendKind.Jj`, returns `RepoError.Unsupported` before spawning a command.
+    member _.Tags() =
+        match backend with
+        | Backend.Git g -> GitBackend.tags g cwd
+        | Backend.Jj _ -> task { return Error(RepoError.Unsupported "tags on the jj backend") }
+
+    /// Create a git tag named `name` at `rev` (`None` means `HEAD`). `Some message` creates an
+    /// annotated tag; `None` creates a lightweight tag. Tags are not modelled by jj: when
+    /// `Kind = BackendKind.Jj`, returns `RepoError.Unsupported` before spawning a command.
+    member _.TagCreate(name: string, message: string option, rev: string option) =
+        match backend with
+        | Backend.Git g -> GitBackend.tagCreate g cwd name message rev
+        | Backend.Jj _ -> task { return Error(RepoError.Unsupported "tag creation on the jj backend") }
+
+    /// Delete the git tag named `name`. Tags are not modelled by jj: when
+    /// `Kind = BackendKind.Jj`, returns `RepoError.Unsupported` before spawning a command.
+    member _.TagDelete(name: string) =
+        match backend with
+        | Backend.Git g -> GitBackend.tagDelete g cwd name
+        | Backend.Jj _ -> task { return Error(RepoError.Unsupported "tag deletion on the jj backend") }
+
     /// The configured remotes (name + URL) — git's `remote -v` (deduplicated to one entry per
     /// remote, carrying its fetch URL) / jj's `jj git remote list`. Read-only on both backends;
     /// on jj the query always runs with `--ignore-working-copy`, so it never perturbs the working

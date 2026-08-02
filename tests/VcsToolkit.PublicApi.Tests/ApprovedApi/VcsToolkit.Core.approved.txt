@@ -202,6 +202,9 @@ namespace VcsToolkit.Core
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Core.RepoError>> ShowFile(string rev, string path) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<byte[], VcsToolkit.Core.RepoError>> ShowFileBytes(string rev, string path) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Core.RepoSnapshot, VcsToolkit.Core.RepoError>> Snapshot() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> TagCreate(string name, Microsoft.FSharp.Core.FSharpOption<string>? message, Microsoft.FSharp.Core.FSharpOption<string>? rev) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> TagDelete(string name) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<string>, VcsToolkit.Core.RepoError>> Tags() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.FSharpOption<string>?, VcsToolkit.Core.RepoError>> Trunk() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Core.MergeProbe, VcsToolkit.Core.RepoError>> TryMerge(string source) { }
         public static System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Core.Repo, VcsToolkit.Core.RepoError>> Clone(string url, string dest, VcsToolkit.Core.CloneOptions spec) { }

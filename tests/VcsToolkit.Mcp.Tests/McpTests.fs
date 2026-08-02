@@ -67,13 +67,15 @@ type WriteGateTests() =
 
     [<Test>]
     member _.WriteToolsCoversTheGatedTools() =
-        Assert.That(List.length WriteTools.all, Is.EqualTo 27)
+        Assert.That(List.length WriteTools.all, Is.EqualTo 29)
         Assert.That(WriteTools.asSet.Contains "repo_commit", Is.True)
         Assert.That(WriteTools.asSet.Contains "repo_rebase", Is.True, "the new rebase tool is write-gated")
         Assert.That(WriteTools.asSet.Contains "forge_pr_checkout", Is.True, "the local-checkout tool is write-gated")
         Assert.That(WriteTools.asSet.Contains "forge_pr_review", Is.True, "the new pr-review tool is write-gated")
         Assert.That(WriteTools.asSet.Contains "forge_issue_close", Is.True, "the new issue-close tool is write-gated")
         Assert.That(WriteTools.asSet.Contains "forge_issue_reopen", Is.True, "the new issue-reopen tool is write-gated")
+        Assert.That(WriteTools.asSet.Contains "repo_tag_create", Is.True, "tag creation is write-gated")
+        Assert.That(WriteTools.asSet.Contains "repo_tag_delete", Is.True, "tag deletion is write-gated")
 
         Assert.That(
             WriteTools.asSet.Contains "forge_issue_comment",
@@ -354,6 +356,19 @@ type ToolTests() =
             match! server.RepoCurrentBranch() with
             | Ok json -> Assert.That(json, Does.Contain "main")
             | Error e -> Assert.Fail $"tool failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.RepoTagsReturnsTagNamesInReadOnlyMode() : Task =
+        task {
+            let server =
+                gitServer (ScriptedRunner().On([ "tag"; "--list"; "--no-column" ], Reply.Ok "v1\nv2\n")) WriteGate.None
+
+            match! server.RepoTags() with
+            | Ok json ->
+                Assert.That(json, Does.Contain "v1")
+                Assert.That(json, Does.Contain "v2")
+            | Error e -> Assert.Fail $"repo_tags failed: {e.Message}"
         }
 
     [<Test>]
@@ -1164,6 +1179,52 @@ type ToolTests() =
         }
 
     [<Test>]
+    member _.RepoTagCreateIsWriteGated() : Task =
+        task {
+            let server = gitServer (ScriptedRunner()) WriteGate.None
+
+            match! server.RepoTagCreate("v1", None, None) with
+            | Error e -> Assert.That(e.Message, Does.Contain "allow-write")
+            | Ok _ -> Assert.Fail "repo_tag_create must be gated in read-only mode"
+        }
+
+    [<Test>]
+    member _.RepoTagCreateReachesAnnotatedRunnerWithAllowWrite() : Task =
+        task {
+            let server =
+                gitServer
+                    (ScriptedRunner().On([ "tag"; "-a"; "v1"; "-m"; "Release"; "HEAD" ], Reply.Ok ""))
+                    WriteGate.All
+
+            match! server.RepoTagCreate("v1", Some "Release", Some "HEAD") with
+            | Ok json ->
+                Assert.That(json, Does.Contain "v1")
+                Assert.That(json, Does.Contain "\"annotated\": true")
+            | Error e -> Assert.Fail $"repo_tag_create failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.RepoTagDeleteIsWriteGated() : Task =
+        task {
+            let server = gitServer (ScriptedRunner()) WriteGate.None
+
+            match! server.RepoTagDelete "v1" with
+            | Error e -> Assert.That(e.Message, Does.Contain "allow-write")
+            | Ok _ -> Assert.Fail "repo_tag_delete must be gated in read-only mode"
+        }
+
+    [<Test>]
+    member _.RepoTagDeleteReachesRunnerWithAllowWrite() : Task =
+        task {
+            let server =
+                gitServer (ScriptedRunner().On([ "tag"; "-d"; "v1" ], Reply.Ok "")) WriteGate.All
+
+            match! server.RepoTagDelete "v1" with
+            | Ok json -> Assert.That(json, Does.Contain "v1")
+            | Error e -> Assert.Fail $"repo_tag_delete failed: {e.Message}"
+        }
+
+    [<Test>]
     member _.RepoNewChildIsWriteGated() : Task =
         task {
             let server = gitServer (ScriptedRunner()) WriteGate.None
@@ -1587,8 +1648,8 @@ type CatalogTests() =
 
     [<Test>]
     member _.CatalogCoversEveryTool() =
-        // 13 repo-read + repo_try_merge + 12 repo-write + 12 forge-read + 14 forge-write = 52.
-        Assert.That(List.length Catalog.all, Is.EqualTo 52)
+        // 14 repo-read + repo_try_merge + 14 repo-write + 12 forge-read + 14 forge-write = 55.
+        Assert.That(List.length Catalog.all, Is.EqualTo 55)
         // Every write-gated tool name appears in the catalogue.
         let names = Catalog.all |> List.map (fun t -> t.Name) |> Set.ofList
         Assert.That(WriteTools.all |> List.forall names.Contains, Is.True, "every write tool is catalogued")
@@ -1613,6 +1674,8 @@ type CatalogTests() =
               "repo_continue_in_progress", false, false
               "repo_delete_branch", true, false
               "repo_rename_branch", false, false
+              "repo_tag_create", false, false
+              "repo_tag_delete", true, false
               "repo_new_child", false, false
               "forge_issue_create", false, false
               "forge_issue_close", false, true
@@ -1694,6 +1757,17 @@ type CatalogTests() =
             match! Catalog.callTool server "repo_current_branch" (argsOf "{}") with
             | Ok json -> Assert.That(json, Does.Contain "main")
             | Error e -> Assert.Fail $"dispatch failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.CallToolDispatchesRepoTags() : Task =
+        task {
+            let server =
+                gitServer (ScriptedRunner().On([ "tag"; "--list"; "--no-column" ], Reply.Ok "v1\n")) WriteGate.None
+
+            match! Catalog.callTool server "repo_tags" (argsOf "{}") with
+            | Ok json -> Assert.That(json, Does.Contain "v1")
+            | Error e -> Assert.Fail $"repo_tags dispatch failed: {e.Message}"
         }
 
     [<Test>]
@@ -2381,6 +2455,9 @@ type CatalogTests() =
                     .On([ "rebase" ], Reply.Ok "")
                     .On([ "branch" ], Reply.Ok "")
                     .On([ "checkout" ], Reply.Ok "")
+                    .On([ "tag"; "lightweight"; "HEAD" ], Reply.Ok "")
+                    .On([ "tag"; "-a"; "annotated"; "-m"; "Release" ], Reply.Ok "")
+                    .On([ "tag"; "-d"; "obsolete" ], Reply.Ok "")
 
             let server = gitServer runner WriteGate.All
 
@@ -2395,6 +2472,9 @@ type CatalogTests() =
             do! assertOk "repo_delete_branch" """{"name":"feature"}""" "feature"
             do! assertOk "repo_delete_branch" """{"name":"feature","force":true}""" "feature"
             do! assertOk "repo_rename_branch" """{"old_name":"old","new_name":"renamed"}""" "renamed"
+            do! assertOk "repo_tag_create" """{"name":"lightweight","rev":"HEAD"}""" "lightweight"
+            do! assertOk "repo_tag_create" """{"name":"annotated","message":"Release"}""" "annotated"
+            do! assertOk "repo_tag_delete" """{"name":"obsolete"}""" "obsolete"
             do! assertOk "repo_new_child" """{"reference":"main"}""" "main"
         }
 
@@ -2413,8 +2493,18 @@ type CatalogTests() =
             do! assertMissing "repo_rebase" "{}" "onto"
             do! assertMissing "repo_delete_branch" "{}" "name"
             do! assertMissing "repo_rename_branch" """{"old_name":"old"}""" "new_name"
+            do! assertMissing "repo_tag_create" "{}" "name"
+            do! assertMissing "repo_tag_delete" "{}" "name"
             do! assertMissing "repo_new_child" "{}" "reference"
         }
+
+    [<Test>]
+    member _.TagCreateSchemaAdvertisesOptionalMessageAndRevision() =
+        let create = Catalog.all |> List.find (fun t -> t.Name = "repo_tag_create")
+        let schema = Catalog.inputSchema create
+        Assert.That(schema, Does.Contain "\"message\"")
+        Assert.That(schema, Does.Contain "\"rev\"")
+        Assert.That(schema, Does.Contain "\"required\":[\"name\"]", "message and rev are optional")
 
     [<Test>]
     member _.DeleteBranchSchemaAdvertisesOptionalForce() =
