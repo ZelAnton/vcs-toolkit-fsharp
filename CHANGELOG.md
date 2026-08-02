@@ -103,8 +103,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - `vcs-mcp --log-commands <unavailable-path>` now exits cleanly with code 1 and a one-line stderr diagnostic instead of crashing with an unhandled exception.
-- `Forge.PrReview` on GitLab now validates an approve review's optional note before applying the approval: an empty/whitespace body skips the note, while glab's `-` stdin/editor sentinel is rejected before any CLI spawn.
-- `Forge.PrReview` on GitLab now posts an approve review's optional body as a follow-up merge-request note instead of silently discarding it; if the note fails after approval, the note error is returned and the approval remains applied.
+- `Forge.PrReview` on GitLab no longer silently discards an approve review's optional body: a non-empty body is now posted as a follow-up merge-request note after the approval (if the note fails, the note error is returned and the approval remains applied), an empty/whitespace body is treated as absent and skips the note, and a body of exactly `-` is rejected as glab's stdin/editor sentinel before any CLI spawn (approval never applied).
 - `Jj.ConfigGet` now preserves significant leading/trailing spaces in a config value, stripping only the trailing line terminator — matching `Git.ConfigGet`'s behaviour instead of silently trimming a round-tripped value.
 - `Git.ConflictedFiles`/`DiffIsEmpty`/`StagedIsEmpty`/`DiffRangeIsEmpty`/`DiffStat`/`DiffText`/`Diff` now pin `--no-relative` on every `git diff` invocation, so a user's `diff.relative=true` config (repo-local or global) can no longer rewrite reported paths cwd-relative or silently drop changes/conflicts outside the current directory for a handle bound to a subdirectory (e.g. via `Repo.At`).
 - `Git.Remotes`, `Repo.Remotes`, and the MCP `repo_remotes` tool no longer truncate remote URLs at the first space, allowing filesystem-path URLs containing spaces to work correctly.

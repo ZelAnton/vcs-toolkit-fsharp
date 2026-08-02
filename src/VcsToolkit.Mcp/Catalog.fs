@@ -545,12 +545,14 @@ module internal Catalog =
           // data; NOT idempotent: request-changes/comment add a new review record each call (the
           // worst case sets the flag). `kind` support varies by forge: request_changes is
           // Unsupported on GitLab; comment is Unsupported on GitLab and Gitea (refused before any
-          // spawn). `body` is required for request_changes/comment, optional for approve. GitLab
-          // delivers an approve body as a note after approving, so a note failure leaves the
-          // approval applied and is returned as the tool error.
+          // spawn). `body` is required for request_changes/comment, optional for approve. On
+          // GitLab a non-empty approve body is posted as a note after approving (a note failure
+          // leaves the approval applied and is returned as the tool error); an empty/whitespace
+          // body skips the note; a body of exactly "-" is rejected before any spawn as glab's
+          // stdin/editor sentinel.
           write
               "forge_pr_review"
-              "Submit a review on a pull/merge request: approve, request_changes, or comment. request_changes is Unsupported on GitLab; a comment review is Unsupported on GitLab and Gitea (use forge_pr_comment for a plain comment there). On GitLab, an approve body is added as a note after approval; if the note fails, the approval remains applied and the tool returns the note error."
+              "Submit a review on a pull/merge request: approve, request_changes, or comment. request_changes is Unsupported on GitLab; a comment review is Unsupported on GitLab and Gitea (use forge_pr_comment for a plain comment there). On GitLab, a non-empty approve body is posted as a note after approval (a note failure leaves the approval applied and returns the note error); an empty/whitespace body skips the note; a body of exactly \"-\" is rejected before any spawn as glab's stdin/editor sentinel."
               false
               false
               [ pNumber
