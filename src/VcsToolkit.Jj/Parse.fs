@@ -197,6 +197,12 @@ module internal JjParse =
     let CONFLICTED_PATHS_TEMPLATE =
         "if(conflict, path.display().escape_json() ++ \"\\n\")"
 
+    /// `jj file list -T` template driving `parseFileList`: every path `file list` matches at
+    /// the revset, one `.escape_json()`-framed `path.display()` field per line (same
+    /// cwd-relative rendering as `CONFLICTED_PATHS_TEMPLATE`) — unlike that template, there is
+    /// no `if(conflict, …)` guard, so every entry is emitted, not only conflicted ones.
+    let FILE_LIST_TEMPLATE = "path.display().escape_json() ++ \"\\n\""
+
     /// `jj log -T` template emitting one short commit id per line — for counting a revset.
     let COUNT_TEMPLATE = "commit_id.short() ++ \"\\n\""
 
@@ -496,6 +502,18 @@ module internal JjParse =
     /// exactly the conflicted paths, unambiguously JSON-framed — so it is the reliable
     /// alternative source used here instead.
     let parseResolveList (output: string) : string list =
+        lines output
+        |> List.choose (fun line ->
+            if line.Length = 0 then
+                None
+            else
+                Some(normalize (decodeJsonField line)))
+
+    /// Parse `jj file list -T FILE_LIST_TEMPLATE` output: one `.escape_json()`-framed path per
+    /// line (the same framing contract as `parseResolveList`), decoded and forward-slash
+    /// normalised. Every entry `file list` matched is a row here — unlike `parseResolveList`,
+    /// whose driving template only emits conflicted paths.
+    let parseFileList (output: string) : string list =
         lines output
         |> List.choose (fun line ->
             if line.Length = 0 then

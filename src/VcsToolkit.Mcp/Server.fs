@@ -359,6 +359,19 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
             | Ok lines -> return Ok(applyJsonArrayOutputBudget outputBudget lines)
         }
 
+    /// Repo-relative tracked paths at `rev` ('/'-separated) — git `ls-files`/`ls-tree -r
+    /// --name-only` / jj `file list`. Normally serialized as the original JSON array. When the
+    /// server's output budget truncates it, whole trailing entries are dropped and a valid
+    /// JSON envelope reports `items`, `truncated`, `shown`, and `total`. `rev` is passed
+    /// through as-is (git commit-ish / jj revset, not cross-backend-portable); `None` lists the
+    /// working copy / `@`.
+    member this.RepoListFiles(rev: string option) : Task<Result<string, McpError>> =
+        task {
+            match! repo.ListFiles rev with
+            | Error e -> return Error(coreErr e)
+            | Ok files -> return Ok(applyJsonArrayOutputBudget outputBudget files)
+        }
+
     // --- repo: mutations (gated) -------------------------------------------
 
     /// Probe whether merging `source` into the current work would conflict (rolled back).

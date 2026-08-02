@@ -443,6 +443,40 @@ type ToolTests() =
         }
 
     [<Test>]
+    member _.RepoListFilesReturnsPathsJson() : Task =
+        task {
+            // repo_list_files is a read tool (no write gate) over the facade's repo-relative
+            // path list, anchored at the repo root on both backends.
+            let nul = string (char 0)
+
+            let server =
+                gitServer
+                    (ScriptedRunner().On([ "ls-files"; "-z" ], Reply.Ok($"a.rs{nul}sub/b.rs{nul}")))
+                    WriteGate.None
+
+            match! server.RepoListFiles Option.None with
+            | Ok json ->
+                Assert.That(json, Does.Contain "a.rs")
+                Assert.That(json, Does.Contain "sub/b.rs")
+            | Error e -> Assert.Fail $"repo_list_files failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.RepoListFilesAtARevisionUsesLsTree() : Task =
+        task {
+            let nul = string (char 0)
+
+            let server =
+                gitServer
+                    (ScriptedRunner().On([ "ls-tree"; "-r"; "--name-only"; "-z"; "HEAD~1" ], Reply.Ok($"a.rs{nul}")))
+                    WriteGate.None
+
+            match! server.RepoListFiles(Some "HEAD~1") with
+            | Ok json -> Assert.That(json, Does.Contain "a.rs")
+            | Error e -> Assert.Fail $"repo_list_files at rev failed: {e.Message}"
+        }
+
+    [<Test>]
     member _.MutationIsGatedWithoutAllowWrite() : Task =
         task {
             // The scripted runner has NO checkout rule; if the gate failed and the tool
@@ -1552,6 +1586,72 @@ type OutputBudgetTests() =
             | Error e -> Assert.Fail $"zero-budget repo_annotate failed: {e.Message}"
         }
 
+    [<Test>]
+    member _.RepoListFilesTruncatesAtAnItemBoundaryWithAValidJsonEnvelope() : Task =
+        task {
+            let nul = string (char 0)
+            // Long enough that the full two-item array outgrows the envelope overhead of a
+            // single-item truncation (short paths like "a.rs"/"b.rs" would make the envelope
+            // itself bigger than the untruncated array, so nothing would need truncating).
+            let pathA = "src/" + String.replicate 80 "a" + ".rs"
+            let pathB = "src/" + String.replicate 80 "b" + ".rs"
+            let paths = [ pathA; pathB ]
+
+            let expected =
+                Json.ok
+                    {| Items = List.take 1 paths
+                       Truncated = true
+                       Shown = 1
+                       Total = 2 |}
+
+            let budget = System.Text.Encoding.UTF8.GetByteCount expected
+
+            let server =
+                gitServerWithBudget
+                    (ScriptedRunner().On([ "ls-files"; "-z" ], Reply.Ok($"{pathA}{nul}{pathB}{nul}")))
+                    WriteGate.None
+                    (Some budget)
+
+            match! server.RepoListFiles Option.None with
+            | Ok json ->
+                use parsed = System.Text.Json.JsonDocument.Parse json
+                let root = parsed.RootElement
+                Assert.That(json, Is.EqualTo expected)
+                Assert.That(root.GetProperty("truncated").GetBoolean(), Is.True)
+                Assert.That(root.GetProperty("shown").GetInt32(), Is.EqualTo 1)
+                Assert.That(root.GetProperty("total").GetInt32(), Is.EqualTo 2)
+                Assert.That(root.GetProperty("items").GetArrayLength(), Is.EqualTo 1)
+                Assert.That(System.Text.Encoding.UTF8.GetByteCount json, Is.LessThanOrEqualTo budget)
+            | Error e -> Assert.Fail $"repo_list_files failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.RepoListFilesNoOrZeroBudgetPreservesTheOriginalJsonArrayByteForByte() : Task =
+        task {
+            let nul = string (char 0)
+            let expected = Json.ok [ "a.rs"; "b.rs" ]
+
+            let unbounded =
+                gitServerWithBudget
+                    (ScriptedRunner().On([ "ls-files"; "-z" ], Reply.Ok($"a.rs{nul}b.rs{nul}")))
+                    WriteGate.None
+                    Option.None
+
+            match! unbounded.RepoListFiles Option.None with
+            | Ok json -> Assert.That(json, Is.EqualTo expected)
+            | Error e -> Assert.Fail $"unbounded repo_list_files failed: {e.Message}"
+
+            let zero =
+                gitServerWithBudget
+                    (ScriptedRunner().On([ "ls-files"; "-z" ], Reply.Ok($"a.rs{nul}b.rs{nul}")))
+                    WriteGate.None
+                    (Some 0)
+
+            match! zero.RepoListFiles Option.None with
+            | Ok json -> Assert.That(json, Is.EqualTo expected)
+            | Error e -> Assert.Fail $"zero-budget repo_list_files failed: {e.Message}"
+        }
+
 // ---------------------------------------------------------------------------
 // JSON serialization (clean F# → JSON)
 // ---------------------------------------------------------------------------
@@ -1587,8 +1687,8 @@ type CatalogTests() =
 
     [<Test>]
     member _.CatalogCoversEveryTool() =
-        // 13 repo-read + repo_try_merge + 12 repo-write + 12 forge-read + 14 forge-write = 52.
-        Assert.That(List.length Catalog.all, Is.EqualTo 52)
+        // 14 repo-read + repo_try_merge + 12 repo-write + 12 forge-read + 14 forge-write = 53.
+        Assert.That(List.length Catalog.all, Is.EqualTo 53)
         // Every write-gated tool name appears in the catalogue.
         let names = Catalog.all |> List.map (fun t -> t.Name) |> Set.ofList
         Assert.That(WriteTools.all |> List.forall names.Contains, Is.True, "every write tool is catalogued")
@@ -2368,6 +2468,34 @@ type CatalogTests() =
             match! Catalog.callTool server "repo_annotate" (argsOf "{}") with
             | Error e -> Assert.That(e.Message, Does.Contain "path")
             | Ok _ -> Assert.Fail "a missing required argument must be refused"
+        }
+
+    [<Test>]
+    member _.CallToolDispatchesRepoListFiles() : Task =
+        task {
+            let nul = string (char 0)
+
+            let server =
+                gitServer
+                    (ScriptedRunner().On([ "ls-tree"; "-r"; "--name-only"; "-z"; "HEAD" ], Reply.Ok($"a.rs{nul}")))
+                    WriteGate.None
+
+            match! Catalog.callTool server "repo_list_files" (argsOf """{"rev":"HEAD"}""") with
+            | Ok json -> Assert.That(json, Does.Contain "a.rs")
+            | Error e -> Assert.Fail $"dispatch failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.CallToolRepoListFilesAcceptsAnOmittedRev() : Task =
+        task {
+            let nul = string (char 0)
+
+            let server =
+                gitServer (ScriptedRunner().On([ "ls-files"; "-z" ], Reply.Ok($"a.rs{nul}"))) WriteGate.None
+
+            match! Catalog.callTool server "repo_list_files" (argsOf "{}") with
+            | Ok json -> Assert.That(json, Does.Contain "a.rs")
+            | Error e -> Assert.Fail $"dispatch failed: {e.Message}"
         }
 
     [<Test>]

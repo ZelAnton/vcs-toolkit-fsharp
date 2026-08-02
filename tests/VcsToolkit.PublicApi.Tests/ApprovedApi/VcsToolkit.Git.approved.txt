@@ -272,6 +272,7 @@ namespace VcsToolkit.Git
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<bool, ProcessKit.ProcessError>> IsRevertInProgress(string dir) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<bool, ProcessKit.ProcessError>> IsUnborn(string dir) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> LastCommitMessage(string dir) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<string>, ProcessKit.ProcessError>> ListFiles(string dir, Microsoft.FSharp.Core.FSharpOption<string>? rev) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Git.Commit>, ProcessKit.ProcessError>> Log(string dir, string revspec, int max) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Git.Commit>, ProcessKit.ProcessError>> LogPaths(string dir, string revspec, int max, Microsoft.FSharp.Collections.FSharpList<string> paths) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> MergeAbort(string dir) { }
@@ -393,6 +394,7 @@ namespace VcsToolkit.Git
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<bool, ProcessKit.ProcessError>> IsRevertInProgress() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<bool, ProcessKit.ProcessError>> IsUnborn() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> LastCommitMessage() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<string>, ProcessKit.ProcessError>> ListFiles(Microsoft.FSharp.Core.FSharpOption<string>? rev) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Git.Commit>, ProcessKit.ProcessError>> Log(string revspec, int max) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Git.Commit>, ProcessKit.ProcessError>> LogPaths(string revspec, int max, Microsoft.FSharp.Collections.FSharpList<string> paths) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> MergeAbort() { }

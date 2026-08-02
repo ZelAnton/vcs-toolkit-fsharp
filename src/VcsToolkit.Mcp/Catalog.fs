@@ -239,6 +239,14 @@ module internal Catalog =
                   Description =
                     "The revision (git commit-ish) or revset (jj) to annotate at; omit to annotate the working copy / `@`."
                   Required = false } ]
+          read
+              "repo_list_files"
+              "Repo-relative tracked paths at a revision ('/'-separated) — git `ls-files`/`ls-tree -r --name-only`, jj `file list`. Anchored at the repository root on both backends, not the server's working directory. `rev` is passed through as-is to the backend — a git commit-ish or a jj revset; the two syntaxes are NOT cross-backend portable. Normally returns the original JSON array. If the server's output budget truncates it (--output-budget; default 200000 bytes, 0 disables), whole trailing entries are dropped and the result is a valid JSON envelope with `items`, `truncated: true`, `shown`, and `total`."
+              [ { Name = "rev"
+                  JsonType = "string"
+                  Description =
+                    "The revision (git commit-ish) or revset (jj) to list files at; omit to list the working copy / `@`."
+                  Required = false } ]
 
           // repo_try_merge is write-gated (a real, rolled-back trial merge) but non-destructive/idempotent.
           { Name = "repo_try_merge"
@@ -665,6 +673,7 @@ module internal Catalog =
                 bind (reqU64 args "max") (fun max -> server.RepoLog(rev, max)))
         | "repo_annotate" ->
             bind (reqStr args "path") (fun path -> bind (optStr args "rev") (fun rev -> server.RepoAnnotate(path, rev)))
+        | "repo_list_files" -> bind (optStr args "rev") server.RepoListFiles
         | "repo_try_merge" -> bind (reqStr args "source") server.RepoTryMerge
         | "repo_commit" ->
             bind (reqStrArray args "paths") (fun paths ->

@@ -705,6 +705,15 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
                 | Ok ok -> return Ok(JjParse.parseAnnotate (System.Text.Encoding.UTF8.GetString ok.Stdout))
         }
 
+    /// Repo-relative tracked paths at `revset` (`jj file list -r <revset>`; `None` = `@`),
+    /// lossless via `.escape_json()` template framing (`JjParse.FILE_LIST_TEMPLATE`/
+    /// `parseFileList`) — see `ResolveList`'s doc comment for why a templated `file list`
+    /// beats parsing a human-readable jj listing command directly.
+    member _.FileList(dir: string, revset: string option) =
+        let r = revset |> Option.defaultValue "@"
+
+        core.Parse(cmdInRead dir [ "file"; "list"; "-r"; r; "-T"; JjParse.FILE_LIST_TEMPLATE ], JjParse.parseFileList)
+
     /// A file's content at a revision (`jj file show -r <revset> root-file:"<path>"` — the
     /// path is wrapped as an exact-path fileset, so metacharacters stay literal and the path is
     /// resolved relative to the workspace root regardless of `dir`), untrimmed and UTF-8-decoded.
@@ -1388,6 +1397,9 @@ and [<Sealed>] JjAt internal (jj: Jj, dir: string) =
 
     /// Per-line authorship of `path` (`jj file annotate <path> [-r <revset>]`).
     member _.FileAnnotate(path: string, revset: string option) = jj.FileAnnotate(dir, path, revset)
+
+    /// Repo-relative tracked paths at `revset` (`jj file list -r <revset>`; `None` = `@`).
+    member _.FileList(revset: string option) = jj.FileList(dir, revset)
 
     /// A file's content at a revision (`jj file show -r <revset> root-file:"<path>"`),
     /// UTF-8-decoded (non-UTF-8 bytes become U+FFFD — use `FileShowBytes` for verbatim binary

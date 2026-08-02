@@ -904,6 +904,76 @@ type DispatchTests() =
         }
 
     [<Test>]
+    member _.GitListFilesOnWorkingCopyUsesLsFiles() : Task =
+        task {
+            let nul = string (char 0)
+            let repo = gitRepo [ "ls-files"; "-z" ] (Reply.Ok($"a.rs{nul}sub/b.rs{nul}"))
+
+            match! repo.ListFiles None with
+            | Ok paths ->
+                Assert.That(paths.Length, Is.EqualTo 2)
+                Assert.That(paths.[0], Is.EqualTo "a.rs")
+                Assert.That(paths.[1], Is.EqualTo "sub/b.rs")
+            | Error e -> Assert.Fail $"ListFiles failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitListFilesOnRevisionUsesLsTree() : Task =
+        task {
+            let nul = string (char 0)
+
+            let repo =
+                gitRepo [ "ls-tree"; "-r"; "--name-only"; "-z"; "HEAD~1" ] (Reply.Ok($"a.rs{nul}"))
+
+            match! repo.ListFiles(Some "HEAD~1") with
+            | Ok paths ->
+                Assert.That(paths.Length, Is.EqualTo 1)
+                Assert.That(paths.[0], Is.EqualTo "a.rs")
+            | Error e -> Assert.Fail $"ListFiles at rev failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.JjListFilesDefaultsToWorkingCopyRevset() : Task =
+        task {
+            let repo =
+                jjRepo [ "file"; "list"; "-r"; "@" ] (Reply.Ok "\"a.rs\"\n\"sub/b.rs\"\n")
+
+            match! repo.ListFiles Option.None with
+            | Ok paths ->
+                Assert.That(paths.Length, Is.EqualTo 2)
+                Assert.That(paths.[0], Is.EqualTo "a.rs")
+                Assert.That(paths.[1], Is.EqualTo "sub/b.rs")
+            | Error e -> Assert.Fail $"ListFiles failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.JjListFilesOnRevsetUsesGivenRevset() : Task =
+        task {
+            let repo = jjRepo [ "file"; "list"; "-r"; "@-" ] (Reply.Ok "\"a.rs\"\n")
+
+            match! repo.ListFiles(Some "@-") with
+            | Ok paths ->
+                Assert.That(paths.Length, Is.EqualTo 1)
+                Assert.That(paths.[0], Is.EqualTo "a.rs")
+            | Error e -> Assert.Fail $"ListFiles at revset failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.ListFilesGuardRejectedGitRevisionReturnsVcsErrorWithoutSpawning() : Task =
+        task {
+            // K-040: `Repo.ListFiles` must go through `GitBackend`, which delegates to
+            // `Git.ListFiles`'s own argv guard on `rev` (a leading `-` would be parsed as a
+            // flag) — not re-implement or bypass it. A bare `ScriptedRunner()` with no rules
+            // would raise on any spawn, so a guard that let this through would fail differently.
+            let repo = Repo.FromGit("/repo", "/repo", Git.WithRunner(ScriptedRunner()))
+
+            match! repo.ListFiles(Some "--upload-pack=touch /tmp/pwned") with
+            | Error(RepoError.Vcs _ as e) -> Assert.That(e.Message, Does.Contain "revision")
+            | Error e -> Assert.Fail $"expected RepoError.Vcs, got: {e.Message}"
+            | Ok _ -> Assert.Fail "a guard-rejected revision must be refused before spawning"
+        }
+
+    [<Test>]
     member _.GitNewChildIsEquivalentToCheckout() : Task =
         task {
             // On git, NewChild is exactly `checkout <reference> --` — the next commit
@@ -1954,6 +2024,191 @@ type PathAnchoringTests() =
                 | Ok lines ->
                     Assert.That(lines.Length, Is.EqualTo 1)
                     Assert.That(lines.[0].Content, Is.EqualTo "a1")
+        }
+
+    // --- T-155: ListFiles must anchor at Root on BOTH backends, like Annotate/LogPaths ------
+
+    [<Test>]
+    member _.GitListFilesRunsFromRepoRootNotTheSubdirectoryCwd() : Task =
+        task {
+            let captured, runner = capturing (Reply.Ok "")
+            let repo = Repo.FromGit("/repo", "/repo/sub", Git.WithRunner runner)
+
+            match! repo.ListFiles None with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"ListFiles failed: {e.Message}"
+
+            match captured.Value with
+            | Some cmd ->
+                Assert.That(
+                    cmd.WorkingDirectory,
+                    Is.EqualTo(Some(Path.GetFullPath "/repo")),
+                    "ls-files runs from Root, not the subdirectory Cwd"
+                )
+            | None -> Assert.Fail "no command captured"
+        }
+
+    [<Test>]
+    member _.JjListFilesRunsFromRepoRootNotTheSubdirectoryCwd() : Task =
+        task {
+            // jj's `file list` (unlike LogPaths' `root-file:` filesets) takes no path argument
+            // to self-anchor — the underlying invocation itself must run from Root instead of
+            // Cwd, avoiding the cwd-anchoring defect ConflictedFiles still has on jj (K-086).
+            let captured, runner = capturing (Reply.Ok "")
+            let repo = Repo.FromJj("/repo", "/repo/sub", Jj.WithRunner runner)
+
+            match! repo.ListFiles Option.None with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"ListFiles failed: {e.Message}"
+
+            match captured.Value with
+            | Some cmd ->
+                Assert.That(
+                    cmd.WorkingDirectory,
+                    Is.EqualTo(Some(Path.GetFullPath "/repo")),
+                    "file list runs from Root, not the subdirectory Cwd"
+                )
+            | None -> Assert.Fail "no command captured"
+        }
+
+    // --- T-155: ListFiles on real git/jj — working copy vs a specific revision --------------
+
+    [<Test>]
+    member _.GitListFilesReportsTheWorkingCopyAndASpecificRevision() : Task =
+        task {
+            requireGit ()
+            use sandbox = GitSandbox.Init "t155-git-list-files"
+            sandbox.CommitFile("a.txt", "a\n", "add a")
+            let rev1 = sandbox.RevParse "HEAD"
+            sandbox.CommitFile("b.txt", "b\n", "add b")
+
+            let repo = Repo.FromGit(sandbox.Path, sandbox.Path, Git.Create())
+
+            match! repo.ListFiles(Some rev1) with
+            | Error e -> Assert.Fail $"ListFiles at rev failed: {e.Message}"
+            | Ok paths ->
+                Assert.That(paths, Does.Contain "a.txt")
+                Assert.That(paths, Does.Not.Contain "b.txt", "a.txt's revision predates b.txt")
+
+            match! repo.ListFiles None with
+            | Error e -> Assert.Fail $"ListFiles (working copy) failed: {e.Message}"
+            | Ok paths ->
+                Assert.That(paths, Does.Contain "a.txt")
+                Assert.That(paths, Does.Contain "b.txt")
+        }
+
+    [<Test>]
+    member _.JjListFilesReportsTheWorkingCopyAndASpecificRevision() : Task =
+        task {
+            requireJj ()
+            use sandbox = JjSandbox.Init "t155-jj-list-files"
+            sandbox.Write("a.txt", "a\n")
+            sandbox.Describe "add a"
+            sandbox.NewChange "add b"
+            sandbox.Write("b.txt", "b\n")
+
+            let repo = Repo.FromJj(sandbox.Path, sandbox.Path, Jj.Create())
+
+            match! repo.ListFiles(Some "@-") with
+            | Error e -> Assert.Fail $"ListFiles at revset failed: {e.Message}"
+            | Ok paths ->
+                Assert.That(paths, Does.Contain "a.txt")
+                Assert.That(paths, Does.Not.Contain "b.txt", "@- predates b.txt")
+
+            match! repo.ListFiles None with
+            | Error e -> Assert.Fail $"ListFiles (working copy) failed: {e.Message}"
+            | Ok paths ->
+                Assert.That(paths, Does.Contain "a.txt")
+                Assert.That(paths, Does.Contain "b.txt")
+        }
+
+    // --- T-155: ListFiles from a subdirectory-bound handle, both backends (K-086/K-013) -----
+
+    [<Test>]
+    member _.GitListFilesFromASubdirectoryHandleListsRootRelativePaths() : Task =
+        task {
+            requireGit ()
+            use sandbox = GitSandbox.Init "t155-git-subdir"
+            sandbox.CommitFile("sub/a.txt", "a\n", "touch a")
+            sandbox.CommitFile("top.txt", "top\n", "touch top")
+
+            // Open the handle IN the subdirectory (Cwd = sub, Root = repo root).
+            match Repo.Open(Path.Combine(sandbox.Path, "sub")) with
+            | Error e -> Assert.Fail $"Repo.Open(subdir) failed: {e.Message}"
+            | Ok repo ->
+                Assert.That(repo.Cwd, Is.Not.EqualTo repo.Root, "the handle is bound to the subdirectory")
+
+                match! repo.ListFiles None with
+                | Error e -> Assert.Fail $"ListFiles from a subdirectory handle failed: {e.Message}"
+                | Ok paths ->
+                    // Repo-root-relative paths, not distorted by the subdirectory Cwd (regression
+                    // K-086/K-013: a cwd-anchored listing would report "a.txt" instead).
+                    Assert.That(paths, Does.Contain "sub/a.txt")
+                    Assert.That(paths, Does.Contain "top.txt")
+        }
+
+    [<Test>]
+    member _.JjListFilesFromASubdirectoryHandleListsRootRelativePaths() : Task =
+        task {
+            requireJj ()
+            use sandbox = JjSandbox.Init "t155-jj-subdir"
+            sandbox.Write("sub/a.txt", "a\n")
+            sandbox.Write("top.txt", "top\n")
+
+            // Open the handle IN the subdirectory (Cwd = sub, Root = workspace root).
+            match Repo.Open(Path.Combine(sandbox.Path, "sub")) with
+            | Error e -> Assert.Fail $"Repo.Open(subdir) failed: {e.Message}"
+            | Ok repo ->
+                Assert.That(repo.Cwd, Is.Not.EqualTo repo.Root, "the handle is bound to the subdirectory")
+
+                match! repo.ListFiles Option.None with
+                | Error e -> Assert.Fail $"ListFiles from a subdirectory handle failed: {e.Message}"
+                | Ok paths ->
+                    // Repo-root-relative paths, not distorted by the subdirectory Cwd — the same
+                    // regression class as ConflictedFiles' unfixed cwd-anchoring defect on jj (K-086).
+                    Assert.That(paths, Does.Contain "sub/a.txt")
+                    Assert.That(paths, Does.Contain "top.txt")
+        }
+
+    // --- T-155: ListFiles preserves a spaced / non-ASCII filename losslessly ----------------
+
+    [<Test>]
+    member _.GitListFilesReportsASpacedAndNonAsciiFilenameLossless() : Task =
+        task {
+            requireGit ()
+            use sandbox = GitSandbox.Init "t155-git-nonascii"
+            let spaced = "has space.txt"
+            // Cyrillic + CJK + a surrogate-pair emoji: multi-byte UTF-8 on every segment.
+            let exotic = "файл-文件-📁.txt"
+            sandbox.CommitFile(spaced, "content\n", "add spaced")
+            sandbox.CommitFile(exotic, "content\n", "add exotic")
+
+            let repo = Repo.FromGit(sandbox.Path, sandbox.Path, Git.Create())
+
+            match! repo.ListFiles None with
+            | Error e -> Assert.Fail $"ListFiles failed: {e.Message}"
+            | Ok paths ->
+                Assert.That(paths, Does.Contain spaced)
+                Assert.That(paths, Does.Contain exotic)
+        }
+
+    [<Test>]
+    member _.JjListFilesReportsASpacedAndNonAsciiFilenameLossless() : Task =
+        task {
+            requireJj ()
+            use sandbox = JjSandbox.Init "t155-jj-nonascii"
+            let spaced = "has space.txt"
+            let exotic = "файл-文件-📁.txt"
+            sandbox.Write(spaced, "content\n")
+            sandbox.Write(exotic, "content\n")
+
+            let repo = Repo.FromJj(sandbox.Path, sandbox.Path, Jj.Create())
+
+            match! repo.ListFiles Option.None with
+            | Error e -> Assert.Fail $"ListFiles failed: {e.Message}"
+            | Ok paths ->
+                Assert.That(paths, Does.Contain spaced)
+                Assert.That(paths, Does.Contain exotic)
         }
 
 // ---------------------------------------------------------------------------

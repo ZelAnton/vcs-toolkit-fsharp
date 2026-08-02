@@ -622,6 +622,26 @@ type Git private (core: ManagedClient) =
     member _.LastCommitMessage(dir: string) =
         core.Run(core.CommandIn(dir, [ "log"; "-1"; "--format=%B" ]))
 
+    /// Repo-relative tracked paths — `git ls-files -z` on the working copy (`rev = None`), or
+    /// `git ls-tree -r --name-only -z <rev>` on a specific revision. `-z` NUL-delimits the
+    /// output AND disables git's default C-style quoting of a non-ASCII/space-containing path,
+    /// so the total NUL-split parser (`GitParse.parseNulPaths`, shared with `ConflictedFiles`)
+    /// recovers every path's bytes lossless, unmangled by quoting.
+    member _.ListFiles(dir: string, rev: string option) =
+        task {
+            match rev with
+            | None -> return! core.Parse(core.CommandIn(dir, [ "ls-files"; "-z" ]), GitParse.parseNulPaths)
+            | Some r ->
+                match checkFlags BINARY [ "revision", r ] with
+                | Error e -> return Error e
+                | Ok() ->
+                    return!
+                        core.Parse(
+                            core.CommandIn(dir, [ "ls-tree"; "-r"; "--name-only"; "-z"; r ]),
+                            GitParse.parseNulPaths
+                        )
+        }
+
     /// Whether `HEAD` is unborn — a fresh repo with no commits yet.
     member _.IsUnborn(dir: string) =
         task {
@@ -1913,6 +1933,9 @@ and [<Sealed>] GitAt internal (git: Git, dir: string) =
 
     /// The last commit's full message (`git log -1 --format=%B`).
     member _.LastCommitMessage() = git.LastCommitMessage dir
+
+    /// Repo-relative tracked paths at `rev` (`None` = working copy).
+    member _.ListFiles(rev: string option) = git.ListFiles(dir, rev)
 
     /// Whether `HEAD` is unborn — a fresh repo with no commits yet.
     member _.IsUnborn() = git.IsUnborn dir

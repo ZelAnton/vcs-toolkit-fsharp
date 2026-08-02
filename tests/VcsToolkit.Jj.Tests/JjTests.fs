@@ -1206,6 +1206,44 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.FileListDefaultsToWorkingCopyRevset() : Task =
+        task {
+            let jj =
+                scripted [ "file"; "list"; "-r"; "@" ] (Reply.Ok "\"a.rs\"\n\"sub/b.rs\"\n")
+
+            match! jj.FileList(".", None) with
+            | Ok paths ->
+                Assert.That(paths.Length, Is.EqualTo 2)
+                Assert.That(paths.[0], Is.EqualTo "a.rs")
+                Assert.That(paths.[1], Is.EqualTo "sub/b.rs")
+            | Error e -> Assert.Fail $"file_list failed: {e}"
+        }
+
+    [<Test>]
+    member _.FileListUsesTheGivenRevset() : Task =
+        task {
+            let jj = scripted [ "file"; "list"; "-r"; "@-" ] (Reply.Ok "\"a.rs\"\n")
+
+            match! jj.FileList(".", Some "@-") with
+            | Ok paths ->
+                Assert.That(paths.Length, Is.EqualTo 1)
+                Assert.That(paths.[0], Is.EqualTo "a.rs")
+            | Error e -> Assert.Fail $"file_list at revset failed: {e}"
+        }
+
+    [<Test>]
+    member _.FileListEmptyRevsetIsEmptyListNotError() : Task =
+        task {
+            // Mirrors ResolveList: `file list` on an empty tree is a normal, empty-output
+            // success — never an error just because nothing matched.
+            let jj = scripted [ "file"; "list"; "-r"; "@" ] (Reply.Ok "")
+
+            match! jj.FileList(".", None) with
+            | Ok paths -> Assert.That(paths, Is.Empty)
+            | Error e -> Assert.Fail $"file_list (empty) failed: {e}"
+        }
+
+    [<Test>]
     member _.FileAnnotatePreservesCrThroughByteCapture() : Task =
         task {
             // A CRLF-terminated source line: the `\r` in each annotate row's content must survive

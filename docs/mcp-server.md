@@ -186,6 +186,7 @@ tool additionally requires `--allow-write`, or `--allow-tools` naming it.
 | `repo_show_file` | The content of a file at a revision, subject to `--output-budget` (default 200000 bytes; a truncated read appends `[truncated: showing N of M bytes]`). UTF-8-decoded text only — a non-UTF-8 byte is replaced with U+FFFD and does not round-trip, so this is for text files, not byte-exact binary reads. `rev` is passed through as-is to the backend (git commit-ish or jj revset — not cross-backend portable). | `rev` (string, required), `path` (string, required) |
 | `repo_log` | Up to `max` commits reachable from `revspec_or_revset` (git revspec, e.g. `"HEAD"`, or jj revset, e.g. `"@"`), most-recent-first. `author`/`date` are null on jj (its typed log doesn't surface authorship/timestamp). | `revspec_or_revset` (string, required), `max` (integer, required) |
 | `repo_annotate` | Per-line authorship of a file at a revision (git blame / jj file annotate), as a JSON array of lines. When truncated by `--output-budget`, returns a valid JSON envelope with `items`, `truncated: true`, `shown`, and `total`. `rev` is passed through as-is (git commit-ish or jj revset). | `path` (string, required), `rev` (string, optional — omit to annotate the working copy / `@`) |
+| `repo_list_files` | Repo-relative tracked paths at a revision (git `ls-files`/`ls-tree -r --name-only`, jj `file list`), as a JSON array of `/`-separated paths, anchored at the repository root on both backends. When truncated by `--output-budget`, returns a valid JSON envelope with `items`, `truncated: true`, `shown`, and `total`. `rev` is passed through as-is (git commit-ish or jj revset). | `rev` (string, optional — omit to list the working copy / `@`) |
 
 #### Writes (gated)
 
@@ -265,16 +266,16 @@ that forge, rather than silently degrading.
 
 ## Output-size budget
 
-`repo_show_file`, `repo_annotate`, `repo_diff`, and `forge_pr_diff` can return arbitrarily large
-output (a full file, a full per-line annotation, a full working-copy diff, or a full pull-request
-diff). All four are subject to
+`repo_show_file`, `repo_annotate`, `repo_diff`, `forge_pr_diff`, and `repo_list_files` can return
+arbitrarily large output (a full file, a full per-line annotation, a full working-copy diff, a
+full pull-request diff, or a full path listing). All five are subject to
 `--output-budget` (default 200000 bytes; `0` disables it), but plain text and JSON arrays use
 different truncation policies. Content within the budget passes through unchanged.
 
 **Structured JSON and validity.** `repo_show_file` returns plain text, so it continues to
 truncate the raw file content at a full UTF-8 character boundary and append a
-`[truncated: showing N of M bytes]` marker. `repo_annotate`, `repo_diff`, and `forge_pr_diff`
-instead truncate at an array-item boundary. When truncation is necessary, they return a structured JSON envelope
+`[truncated: showing N of M bytes]` marker. `repo_annotate`, `repo_diff`, `forge_pr_diff`, and
+`repo_list_files` instead truncate at an array-item boundary. When truncation is necessary, they return a structured JSON envelope
 whose `items` field contains the retained prefix, `truncated` is `true`, `shown` is the number of
 retained items, and `total` is the original item count. The envelope is always valid JSON. If the
 budget cannot fit even the minimum envelope with zero items, the complete empty envelope is still

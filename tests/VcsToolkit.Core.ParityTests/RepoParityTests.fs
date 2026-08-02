@@ -31,6 +31,7 @@ let private coveredReadMethods =
           "HasTrackedChanges"
           "HasUncommittedChanges"
           "InProgressState"
+          "ListFiles"
           "ListWorktrees"
           "LocalBranches"
           "Log"
@@ -212,6 +213,30 @@ type RepoFacadeParityTests() =
 
             assertSameList "ConflictedFiles" id git jj
             Assert.That(List.isEmpty git, Is.True, "a clean working copy has no conflicted paths")
+        }
+
+    [<Test>]
+    member _.ListFilesMatchAcrossBackends() : Task =
+        task {
+            // The working-copy listing (the seed scenario's uncommitted edit is to an
+            // already-tracked file, so it changes no backend's file SET) and a specific
+            // revision must both agree, repo-relative, on the paths carrying spaces and
+            // non-ASCII characters.
+            let pair = fixture.Pair
+            let! gitResult = pair.Git.ListFiles None
+            let! jjResult = pair.Jj.ListFiles None
+            let git = expectOk "git" "ListFiles" gitResult |> List.sort
+            let jj = expectOk "jj" "ListFiles" jjResult |> List.sort
+
+            assertSameList "ListFiles" id git jj
+            assertListEquals "ListFiles" (List.sort [ "a.txt"; NestedPath; SpacedPath; UnicodePath ]) git
+
+            let! gitRevResult = pair.Git.ListFiles(Some pair.GitSandbox.CommittedRev)
+            let! jjRevResult = pair.Jj.ListFiles(Some pair.JjSandbox.CommittedRev)
+            let gitRev = expectOk "git" "ListFiles" gitRevResult |> List.sort
+            let jjRev = expectOk "jj" "ListFiles" jjRevResult |> List.sort
+
+            assertSameList "ListFiles at a revision" id gitRev jjRev
         }
 
     [<Test>]

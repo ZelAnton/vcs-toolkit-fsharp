@@ -95,6 +95,7 @@ for this client's place in the layering.
 | `Commit` | `commit -m <message>` | staged index |
 | `CommitPaths` | `--literal-pathspecs commit [--amend] -m <message> --only -- <paths>` | via `CommitPaths` spec; stdin transport for large sets |
 | `LastCommitMessage` | `log -1 --format=%B` | full message |
+| `ListFiles` | `ls-files -z` (working copy) / `ls-tree -r --name-only -z <rev>` (a revision) | repo-relative, NUL-safe, lossless paths; reachable as `Repo.ListFiles()` |
 | `Init` | `init` | |
 
 ### Checkout, worktrees, tags, clone, config, show
@@ -186,7 +187,7 @@ for this client's place in the layering.
 
 `add -p`/interactive staging, `am`/`apply` (patch application other than the in-progress-`am`
 probes above), `archive`, `bundle`, `describe`, `difftool`/`mergetool`, `fsck`, `gc`, `grep`,
-`ls-files`/`ls-tree`, `merge-base`, `mv`/`rm` (path staging goes through `Add`), `notes`,
+`merge-base`, `mv`/`rm` (path staging goes through `Add`), `notes`,
 `rebase --onto` (a three-way rebase onto an explicit upstream — only the plain `rebase <onto>`
 form is typed), `reflog`, `replace`, `reset` (soft/mixed — only `--hard`/`--merge` are typed),
 `send-email`, `shortlog`, `sparse-checkout`, `submodule` (only `list`/`status`/`update` are
@@ -247,6 +248,7 @@ caller-supplied name can't fan a mutation out across every matching ref.
 | `Description` | `TemplateQuery(dir, revset, "description", Some 1)`, trimmed | newest commit of a multi-commit revset |
 | `Evolog` | `evolog -r <revset> --no-graph --limit <max> -T <template>` | newest predecessor first |
 | `FileAnnotate` | `file annotate [-r <revset>] -T <template> --color never -- <path>` | plain path, not a fileset |
+| `FileList` | `file list -r <revset> -T <file-list-template>` | lossless paths; every entry (unlike `ResolveList`'s conflict-only rows); default revset `@`; reachable as `Repo.ListFiles()` |
 | `FileShow` | `file show -r <revset> root-file:"<path>"` | UTF-8-decoded, lossy on non-UTF-8 content |
 | `FileShowBytes` | `file show -r <revset> root-file:"<path>"` | verbatim bytes |
 
