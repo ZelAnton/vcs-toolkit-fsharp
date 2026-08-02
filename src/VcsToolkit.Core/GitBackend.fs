@@ -519,3 +519,11 @@ module internal GitBackend =
             | Error e -> return Error(RepoError.Vcs e)
             | Ok lines -> return Ok(lines |> List.map annotateLineFromBlame)
         }
+
+    /// Repo-relative tracked paths at `rev` (`None` = working copy) — `git ls-files -z` /
+    /// `git ls-tree -r --name-only -z <rev>`.
+    let listFiles (git: Git) (dir: string) (rev: string option) =
+        task {
+            let! r = git.ListFiles(dir, rev)
+            return ofVcs r
+        }

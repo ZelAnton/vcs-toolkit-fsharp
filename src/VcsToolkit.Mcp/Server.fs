@@ -365,6 +365,19 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
             | Ok lines -> return Ok(applyJsonArrayOutputBudget outputBudget lines)
         }
 
+    /// Repo-relative tracked paths at `rev` ('/'-separated) — git `ls-files`/`ls-tree -r
+    /// --name-only` / jj `file list`. Normally serialized as the original JSON array. When the
+    /// server's output budget truncates it, whole trailing entries are dropped and a valid
+    /// JSON envelope reports `items`, `truncated`, `shown`, and `total`. `rev` is passed
+    /// through as-is (git commit-ish / jj revset, not cross-backend-portable); `None` lists the
+    /// working copy / `@`.
+    member this.RepoListFiles(rev: string option) : Task<Result<string, McpError>> =
+        task {
+            match! repo.ListFiles rev with
+            | Error e -> return Error(coreErr e)
+            | Ok files -> return Ok(applyJsonArrayOutputBudget outputBudget files)
+        }
+
     // --- repo: mutations (gated) -------------------------------------------
 
     /// Probe whether merging `source` into the current work would conflict (rolled back).
@@ -680,6 +693,44 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
                     match! f.IssueComment(number, body) with
                     | Error e -> return Error(forgeErr e)
                     | Ok out -> return Ok(Json.ok {| output = out |})
+            })
+
+    /// Edit an issue's title and/or body (at least one required; empty strings clear fields).
+    /// GitLab refuses a body equal to `-` before spawning. **Unsupported on Gitea** (`tea`
+    /// 0.9.2 has no issue edit command), where a populated edit is refused before any spawn.
+    member this.ForgeIssueEdit(number: uint64, title: string option, body: string option) =
+        this.WithForgeWrite "forge_issue_edit" (fun f ->
+            task {
+                let titleGuard =
+                    match title with
+                    | Some t -> guardArgvField "title" t
+                    | Option.None -> Ok()
+
+                match titleGuard with
+                | Error e -> return Error e
+                | Ok() ->
+                    let bodyGuard =
+                        match body with
+                        | Some b -> guardArgvField "body" b
+                        | Option.None -> Ok()
+
+                    match bodyGuard with
+                    | Error e -> return Error e
+                    | Ok() ->
+                        let edit =
+                            IssueEdit.Create()
+                            |> fun ed ->
+                                match title with
+                                | Some t -> ed.WithTitle t
+                                | Option.None -> ed
+                            |> fun ed ->
+                                match body with
+                                | Some b -> ed.WithBody b
+                                | Option.None -> ed
+
+                        match! f.IssueEdit(number, edit) with
+                        | Error e -> return Error(forgeErr e)
+                        | Ok() -> return Ok(Json.ok {| edited = number |})
             })
 
     /// Delete a release by tag. This is a remote-only destructive mutation, so it uses

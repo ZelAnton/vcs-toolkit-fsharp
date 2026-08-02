@@ -232,6 +232,61 @@ type QueryTests() =
         }
 
     [<Test>]
+    member _.ListFilesOnWorkingCopyUsesLsFiles() : Task =
+        task {
+            let git =
+                scripted [ "ls-files"; "-z" ] (Reply.Ok($"a.rs{nul}sub/spaced name.rs{nul}"))
+
+            match! git.ListFiles(".", None) with
+            | Ok paths ->
+                Assert.That(paths.Length, Is.EqualTo 2)
+                Assert.That(paths.[0], Is.EqualTo "a.rs")
+                Assert.That(paths.[1], Is.EqualTo "sub/spaced name.rs")
+            | Error e -> Assert.Fail $"list_files failed: {e}"
+        }
+
+    [<Test>]
+    member _.ListFilesOnRevisionUsesLsTree() : Task =
+        task {
+            let git =
+                scripted [ "ls-tree"; "-r"; "--name-only"; "-z"; "HEAD~1" ] (Reply.Ok($"a.rs{nul}b.rs{nul}"))
+
+            match! git.ListFiles(".", Some "HEAD~1") with
+            | Ok paths ->
+                Assert.That(paths.Length, Is.EqualTo 2)
+                Assert.That(paths.[0], Is.EqualTo "a.rs")
+                Assert.That(paths.[1], Is.EqualTo "b.rs")
+            | Error e -> Assert.Fail $"list_files at rev failed: {e}"
+        }
+
+    [<Test>]
+    member _.ListFilesPreservesLiteralCrLfThroughByteCapture() : Task =
+        task {
+            let path = "literal\r\nline-break.txt"
+            let git = scripted [ "ls-files"; "-z" ] (Reply.Ok($"{path}{nul}"))
+
+            match! git.ListFiles(".", None) with
+            | Ok paths ->
+                Assert.That(paths.Length, Is.EqualTo 1)
+                Assert.That(paths.[0], Is.EqualTo path)
+            | Error e -> Assert.Fail $"list_files failed: {e}"
+        }
+
+    [<Test>]
+    member _.ListFilesRefusesLeadingDashRevisionBeforeSpawning() : Task =
+        task {
+            let captured, runner = capturing (Reply.Ok "")
+            let git = Git.WithRunner runner
+
+            match! git.ListFiles(".", Some "--evil") with
+            | Error(ProcessError.Spawn(program, _)) -> Assert.That(program, Is.EqualTo "git")
+            | Error e -> Assert.Fail $"expected a Spawn refusal, got {e}"
+            | Ok _ -> Assert.Fail "a leading-dash revision must be refused"
+
+            Assert.That(captured.Value.IsNone, "the guard must refuse before any spawn")
+        }
+
+    [<Test>]
     member _.CurrentBranchReadsNameOnExitZero() : Task =
         task {
             let git =

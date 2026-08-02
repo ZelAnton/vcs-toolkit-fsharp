@@ -559,3 +559,21 @@ type Repo private (root: string, cwd: string, backend: Backend) =
         match backend with
         | Backend.Git g -> GitBackend.annotate g root path rev
         | Backend.Jj j -> JjBackend.annotate j root path rev
+
+    /// Repo-relative tracked paths at `rev` ('/'-separated) — git `ls-files`/`ls-tree -r
+    /// --name-only`; jj `file list`. `None` lists the working copy on git / `@` on jj. `rev` is
+    /// passed through as-is to the underlying client (git commit-ish / jj revset, not
+    /// cross-backend-portable).
+    ///
+    /// Anchored at `Root` on both backends, like `Annotate`: git's `ls-files`/`ls-tree` resolve
+    /// paths relative to the invocation directory (no `--full-tree`), so this runs from `Root`,
+    /// not this handle's `Cwd` (which may be a subdirectory). jj's `file list` takes no path
+    /// argument to self-anchor via a `root-file:` fileset the way `LogPaths` does — so, again
+    /// like `Annotate`, the underlying `jj` invocation itself runs from `Root` rather than
+    /// `Cwd`, which resolves `path.display()`'s cwd-relative rendering at the repo root instead
+    /// of wherever `Cwd` happens to point (avoiding the `ConflictedFiles` cwd-anchoring defect
+    /// on jj, K-086).
+    member _.ListFiles(rev: string option) =
+        match backend with
+        | Backend.Git g -> GitBackend.listFiles g root rev
+        | Backend.Jj j -> JjBackend.listFiles j root rev

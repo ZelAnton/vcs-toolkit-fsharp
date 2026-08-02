@@ -358,6 +358,12 @@ module internal GitLabForge =
             return ofForge r
         }
 
+    let issueEdit (glab: VcsToolkit.GitLab.GitLab) (dir: string) (number: uint64) (edit: IssueEdit) =
+        task {
+            let! r = glab.IssueEdit(dir, number, edit.Title, edit.Body)
+            return ofForge r
+        }
+
     let releaseList (glab: VcsToolkit.GitLab.GitLab) (dir: string) =
         task {
             match! glab.ReleaseList dir with

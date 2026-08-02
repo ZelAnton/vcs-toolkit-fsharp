@@ -1254,6 +1254,44 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.FileListDefaultsToWorkingCopyRevset() : Task =
+        task {
+            let jj =
+                scripted [ "file"; "list"; "-r"; "@" ] (Reply.Ok "\"a.rs\"\n\"sub/b.rs\"\n")
+
+            match! jj.FileList(".", None) with
+            | Ok paths ->
+                Assert.That(paths.Length, Is.EqualTo 2)
+                Assert.That(paths.[0], Is.EqualTo "a.rs")
+                Assert.That(paths.[1], Is.EqualTo "sub/b.rs")
+            | Error e -> Assert.Fail $"file_list failed: {e}"
+        }
+
+    [<Test>]
+    member _.FileListUsesTheGivenRevset() : Task =
+        task {
+            let jj = scripted [ "file"; "list"; "-r"; "@-" ] (Reply.Ok "\"a.rs\"\n")
+
+            match! jj.FileList(".", Some "@-") with
+            | Ok paths ->
+                Assert.That(paths.Length, Is.EqualTo 1)
+                Assert.That(paths.[0], Is.EqualTo "a.rs")
+            | Error e -> Assert.Fail $"file_list at revset failed: {e}"
+        }
+
+    [<Test>]
+    member _.FileListEmptyRevsetIsEmptyListNotError() : Task =
+        task {
+            // Mirrors ResolveList: `file list` on an empty tree is a normal, empty-output
+            // success — never an error just because nothing matched.
+            let jj = scripted [ "file"; "list"; "-r"; "@" ] (Reply.Ok "")
+
+            match! jj.FileList(".", None) with
+            | Ok paths -> Assert.That(paths, Is.Empty)
+            | Error e -> Assert.Fail $"file_list (empty) failed: {e}"
+        }
+
+    [<Test>]
     member _.FileAnnotatePreservesCrThroughByteCapture() : Task =
         task {
             // A CRLF-terminated source line: the `\r` in each annotate row's content must survive
@@ -1868,6 +1906,40 @@ type SemanticsTests() =
 
 [<TestFixture>]
 type AtViewTests() =
+
+    [<Test>]
+    member _.JjAtFileListRunsFromRootAndMatchesTheUnboundRootListing() : Task =
+        task {
+            let captured = ref (None: Command option)
+
+            let recordFileListCommand (cmd: Command) =
+                let args = cmd.Arguments |> Seq.toList
+
+                if List.truncate 4 args = [ "file"; "list"; "-r"; "@" ] then
+                    captured.Value <- Some cmd
+
+                true
+
+            let runner =
+                ScriptedRunner()
+                    .On([ "root" ], Reply.Ok "/repo\n")
+                    .When(recordFileListCommand, Reply.Ok "\"sub/a.txt\"\n\"top.txt\"\n")
+
+            let jj = Jj.WithRunner runner
+            let! rootResult = jj.FileList("/repo", None)
+            let! boundResult = jj.At("/repo/sub").FileList None
+
+            match rootResult, boundResult, captured.Value with
+            | Ok rootPaths, Ok boundPaths, Some cmd ->
+                Assert.That((boundPaths = rootPaths), Is.True)
+                Assert.That(boundPaths, Does.Contain "sub/a.txt")
+                Assert.That(boundPaths, Does.Contain "top.txt")
+                Assert.That(boundPaths, Does.Not.Contain "a.txt")
+                Assert.That(cmd.WorkingDirectory, Is.EqualTo(Some "/repo"))
+            | Error e, _, _ -> Assert.Fail $"root FileList failed: {e}"
+            | _, Error e, _ -> Assert.Fail $"bound FileList failed: {e}"
+            | _, _, None -> Assert.Fail "no file-list command captured"
+        }
 
     [<Test>]
     member _.JjAtBindsDirWithByteIdenticalArgv() : Task =

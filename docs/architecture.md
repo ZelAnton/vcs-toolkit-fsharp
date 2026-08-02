@@ -151,7 +151,7 @@ host to a forge kind for the handful of recognized public SaaS hosts
 (`github.com`, `gitlab.com`, `gitea.com`, `codeberg.org`) using an anchored
 match (exact host or a genuine `*.domain` subdomain) so a lookalike host like
 `gitlab.com.attacker.net` cannot masquerade as GitLab. Several operations
-(`repoView`, `prEdit`, `prMarkReady`, `prChecks`, `prDiff`, `issueReopen`,
+(`repoView`, `prEdit`, `prMarkReady`, `prChecks`, `prDiff`, `issueReopen`, `issueEdit`,
 `releaseView`, `releaseDelete`) are `Unsupported` on Gitea because `tea` lacks a
 usable equivalent; `Forge.Supports` lets a caller branch on that before calling
 rather than discovering it via a runtime error. The listing operations

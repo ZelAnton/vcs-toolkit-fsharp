@@ -151,6 +151,9 @@ type ForgeOp =
     /// has no `pr edit` command at all — an unrecognised `pr edit` silently falls through to
     /// `pr list`; K-063).
     | PrEdit
+    /// `issueEdit` — edit an issue's title and/or body. **`Unsupported` on Gitea** (`tea`
+    /// 0.9.2 has no issue edit command).
+    | IssueEdit
 
     /// Every capability-varying operation — iterate it to build a full support matrix.
     static member All =
@@ -161,7 +164,8 @@ type ForgeOp =
           ForgeOp.PrDiff
           ForgeOp.IssueReopen
           ForgeOp.ReleaseDelete
-          ForgeOp.PrEdit ]
+          ForgeOp.PrEdit
+          ForgeOp.IssueEdit ]
 
 /// The normalised state of a `ForgePr`, unifying GitHub's `OPEN`/`CLOSED`/`MERGED`,
 /// GitLab's `opened`/`closed`/`locked`/`merged`, and Gitea's `open`/`closed`.
@@ -545,6 +549,27 @@ type PrEdit =
 
     /// An edit that leaves both fields alone (rejected before spawning). Start with this
     /// and add what to change via `WithTitle`/`WithBody`.
+    static member Create() = { Title = None; Body = None }
+
+    /// Set the new title.
+    member this.WithTitle(title: string) = { this with Title = Some title }
+
+    /// Set the new body / description.
+    member this.WithBody(body: string) = { this with Body = Some body }
+
+/// Options for `issueEdit` — the unified edit-an-issue spec. At least one of `Title`/`Body`
+/// must be `Some` — both-`None` is rejected by the facade before spawning. An empty string is
+/// a real value (clears the field), not a `None`.
+type IssueEdit =
+    {
+        /// The new title; `None` leaves the title alone.
+        Title: string option
+        /// The new body / description; `None` leaves the body alone.
+        Body: string option
+    }
+
+    /// An edit that leaves both fields alone (rejected before spawning). Start with this and
+    /// add what to change via `WithTitle`/`WithBody`.
     static member Create() = { Title = None; Body = None }
 
     /// Set the new title.

@@ -789,3 +789,10 @@ module internal JjBackend =
             | Error e -> return Error(RepoError.Vcs e)
             | Ok lines -> return Ok(lines |> List.map annotateLineFromAnnotation)
         }
+
+    /// Repo-relative tracked paths at `revset` (`None` = `@`) — `jj file list -r <revset>`.
+    let listFiles (jj: Jj) (dir: string) (revset: string option) =
+        task {
+            let! r = jj.FileList(dir, revset)
+            return ofVcs r
+        }

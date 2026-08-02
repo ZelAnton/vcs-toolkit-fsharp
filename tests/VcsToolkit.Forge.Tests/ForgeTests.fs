@@ -249,12 +249,13 @@ type ForgeKindTests() =
 
     [<Test>]
     member _.ForgeOpAllEnumeratesTheVaryingOps() =
-        Assert.That(ForgeOp.All.Length, Is.EqualTo 8)
+        Assert.That(ForgeOp.All.Length, Is.EqualTo 9)
         Assert.That(List.contains ForgeOp.PrChecks ForgeOp.All, Is.True)
         Assert.That(List.contains ForgeOp.PrDiff ForgeOp.All, Is.True)
         Assert.That(List.contains ForgeOp.IssueReopen ForgeOp.All, Is.True)
         Assert.That(List.contains ForgeOp.ReleaseDelete ForgeOp.All, Is.True)
         Assert.That(List.contains ForgeOp.PrEdit ForgeOp.All, Is.True)
+        Assert.That(List.contains ForgeOp.IssueEdit ForgeOp.All, Is.True)
 
 // ---------------------------------------------------------------------------
 // ForgeError classifiers
@@ -340,12 +341,14 @@ type DispatchTests() =
         Assert.That(gh.Supports ForgeOp.PrChecks, Is.True)
         Assert.That(gh.Supports ForgeOp.PrDiff, Is.True)
         Assert.That(gh.Supports ForgeOp.PrEdit, Is.True)
+        Assert.That(gh.Supports ForgeOp.IssueEdit, Is.True)
         Assert.That(gh.Cwd, Is.EqualTo(Directory.GetCurrentDirectory()))
 
         let gl = glForge [ "mr"; "list" ] (Reply.Ok "[]")
         Assert.That(gl.Kind, Is.EqualTo ForgeKind.GitLab)
         Assert.That(gl.Supports ForgeOp.PrDiff, Is.True)
         Assert.That(gl.Supports ForgeOp.PrEdit, Is.True)
+        Assert.That(gl.Supports ForgeOp.IssueEdit, Is.True)
 
         let tea = teaForge [ "pr"; "list" ] (Reply.Ok "[]")
         // Gitea supports NONE of the varying ops.
@@ -356,6 +359,7 @@ type DispatchTests() =
         Assert.That(tea.Supports ForgeOp.IssueReopen, Is.False)
         Assert.That(tea.Supports ForgeOp.ReleaseDelete, Is.False)
         Assert.That(tea.Supports ForgeOp.PrEdit, Is.False)
+        Assert.That(tea.Supports ForgeOp.IssueEdit, Is.False)
 
     [<Test>]
     member _.SupportsReviewMergeOptionsAndCloseReflectTheBackend() =
@@ -2516,6 +2520,54 @@ type IssueLifecycleTests() =
             match! forge.IssueComment(3UL, "nice") with
             | Ok out -> Assert.That(out, Does.Contain "commented")
             | Error e -> Assert.Fail $"tea comment must dispatch: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitHubDispatchesIssueEdit() : Task =
+        task {
+            let forge =
+                ghIssueForge [ "issue"; "edit"; "1"; "--title"; "New"; "--body"; "Body" ] (Reply.Exit 0)
+
+            match! forge.IssueEdit(1UL, IssueEdit.Create().WithTitle("New").WithBody("Body")) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"gh issue edit must dispatch: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabDispatchesIssueEdit() : Task =
+        task {
+            let forge =
+                glIssueForge [ "issue"; "update"; "2"; "--description"; "Body" ] (Reply.Exit 0)
+
+            match! forge.IssueEdit(2UL, IssueEdit.Create().WithBody "Body") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"glab issue update must dispatch: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaIssueEditIsUnsupportedWithoutSpawning() : Task =
+        task {
+            let forge =
+                Forge.FromGitea(".", VcsToolkit.Gitea.Gitea.WithRunner(ScriptedRunner()))
+
+            match! forge.IssueEdit(3UL, IssueEdit.Create().WithTitle "New") with
+            | Error e -> Assert.That(e.IsUnsupported, Is.True, "tea issue edit must be Unsupported")
+            | Ok() -> Assert.Fail "tea issue edit must be Unsupported"
+        }
+
+    [<Test>]
+    member _.IssueEditRejectsNoFieldsBeforeSpawningOnEveryBackend() : Task =
+        task {
+            let forges =
+                [ Forge.FromGitHub(".", VcsToolkit.GitHub.GitHub.WithRunner(ScriptedRunner()))
+                  Forge.FromGitLab(".", VcsToolkit.GitLab.GitLab.WithRunner(ScriptedRunner()))
+                  Forge.FromGitea(".", VcsToolkit.Gitea.Gitea.WithRunner(ScriptedRunner())) ]
+
+            for forge in forges do
+                match! forge.IssueEdit(1UL, IssueEdit.Create()) with
+                | Error(ForgeError.InvalidInput _) -> ()
+                | Error e -> Assert.Fail $"expected InvalidInput for {forge.Kind.AsString}, got: {e.Message}"
+                | Ok() -> Assert.Fail $"an empty issue edit must be rejected on {forge.Kind.AsString}"
         }
 
     [<Test>]

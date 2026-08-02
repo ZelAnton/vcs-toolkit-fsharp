@@ -96,6 +96,7 @@ for this client's place in the layering.
 | `Commit` | `commit -m <message>` | staged index |
 | `CommitPaths` | `--literal-pathspecs commit [--amend] -m <message> --only -- <paths>` | via `CommitPaths` spec; stdin transport for large sets |
 | `LastCommitMessage` | `log -1 --format=%B` | full message |
+| `ListFiles` | `ls-files -z` (working copy) / `ls-tree -r --name-only -z <rev>` (a revision) | repo-relative, NUL-safe, lossless paths; reachable as `Repo.ListFiles(rev: string option)` |
 | `Init` | `init` | |
 
 ### Checkout, worktrees, tags, clone, config, show
@@ -187,7 +188,7 @@ for this client's place in the layering.
 
 `add -p`/interactive staging, `am`/`apply` (patch application other than the in-progress-`am`
 probes above), `archive`, `bundle`, `describe`, `difftool`/`mergetool`, `fsck`, `gc`, `grep`,
-`ls-files`/`ls-tree`, `mv`/`rm` (path staging goes through `Add`), `notes`,
+`mv`/`rm` (path staging goes through `Add`), `notes`,
 `rebase --onto` (a three-way rebase onto an explicit upstream — only the plain `rebase <onto>`
 form is typed), `reflog`, `replace`, `reset` (soft/mixed — only `--hard`/`--merge` are typed),
 `send-email`, `shortlog`, `sparse-checkout`, `submodule` (only `list`/`status`/`update` are
@@ -249,6 +250,7 @@ caller-supplied name can't fan a mutation out across every matching ref.
 | `Description` | `TemplateQuery(dir, revset, "description", Some 1)`, trimmed | newest commit of a multi-commit revset |
 | `Evolog` | `evolog -r <revset> --no-graph --limit <max> -T <template>` | newest predecessor first |
 | `FileAnnotate` | `file annotate [-r <revset>] -T <template> --color never -- <path>` | plain path, not a fileset |
+| `FileList` | `file list -r <revset> -T <file-list-template>` | lossless paths; every entry (unlike `ResolveList`'s conflict-only rows); default revset `@`; reachable as `Repo.ListFiles(rev: string option)` |
 | `FileShow` | `file show -r <revset> root-file:"<path>"` | UTF-8-decoded, lossy on non-UTF-8 content |
 | `FileShowBytes` | `file show -r <revset> root-file:"<path>"` | verbatim bytes |
 
@@ -347,6 +349,7 @@ Client: `GitHub` / `GitHubAt` (`src/VcsToolkit.GitHub/GitHub.fs`). See
 | `IssueClose` | `issue close <n>` | |
 | `IssueReopen` | `issue reopen <n>` | |
 | `IssueComment` | `issue comment <n> --body <body>` | returns the comment URL |
+| `IssueEdit` | `issue edit <n> [--title <title>] [--body <body>]` | ≥1 field required |
 | `RunList` | `run list --limit <n> [--branch <b>] --json …` | Actions runs, newest first |
 | `RunView` | `run view <id> --json …` | id is `WorkflowRun`'s database id |
 | `RunWatch` | `run watch <id>`, then `run view <id>` | **blocks** until the run finishes; stdout capture bounded to the last 256 lines/256 KiB |
@@ -402,6 +405,7 @@ not its breadth. See
 | `IssueClose` | `issue close <id>` | |
 | `IssueReopen` | `issue reopen <id>` | |
 | `IssueComment` | `issue note <id> -m <body>` | body rejected if exactly `-` |
+| `IssueEdit` | `issue update <id> [--title <title>] [--description <body>]` | ≥1 field required; body rejected if exactly `-` before spawning |
 | `ReleaseList` | `release list --per-page 100 --output json` | ≤100 |
 | `ReleaseView` | `release view <tag> --output json` | |
 | `ReleaseCreate` | `release create <tag> [--name …] [--notes …]` | via `ReleaseCreate`; no draft/pre-release (glab has none) |
@@ -446,6 +450,7 @@ hatch; authentication is **ambient only** (`tea login add`, out of band — ther
 | `IssueClose` | `issues close <number>` | |
 | `IssueReopen` | *(none — refused before spawning)* | `tea` 0.9.2 has no `issues reopen` command |
 | `IssueComment` | `comment <index> <body>` | shared with PRs |
+| `IssueEdit` | *(none — refused before spawning)* | `tea` 0.9.2 has no issue edit command; use the Gitea REST API |
 | `ReleaseList` | `releases list --limit 100 --output csv` | ≤~50 (Gitea server page cap); same `--output csv` reason |
 | `ReleaseCreate` | `release create --tag <tag> [--title …] [--note …] [--draft] [--prerelease]` | via `ReleaseCreate`; returns tea's text output |
 | `ReleaseDelete` | *(none — refused before spawning)* | `tea` 0.9.2 has no `release delete` command |
@@ -454,8 +459,8 @@ hatch; authentication is **ambient only** (`tea login add`, out of band — ther
 | `Run` | `tea <args>` in the process cwd (client) or the bound `dir` (`GiteaAt`); **unguarded** | |
 | `RunRaw` | like `Run`, never errors on a non-zero exit; **unguarded** | |
 
-There is intentionally **no** `RepoView`, `PrMarkReady`, `PrChecks`, `ReleaseView`, `IssueReopen`, or
-`ReleaseDelete` command implementation on `Gitea` — `tea` has no equivalent command; the [`VcsToolkit.Forge`](#Facade-escape-hatch-routers)
+There is intentionally **no** `RepoView`, `PrMarkReady`, `PrChecks`, `ReleaseView`, `IssueReopen`,
+`IssueEdit`, or `ReleaseDelete` command implementation on `Gitea` — `tea` has no equivalent command; the [`VcsToolkit.Forge`](#Facade-escape-hatch-routers)
 facade reports these `Unsupported` for the Gitea backend.
 
 ### tea — not modeled (examples) → escape hatch
@@ -484,7 +489,9 @@ so dropping to a wrapper-level method (any row above) never needs an extra depen
   `JjNonColocated`).
 - **`VcsToolkit.Forge`** (`src/VcsToolkit.Forge/Forge.fs`) — `Forge.GitHubClient` /
   `Forge.GitLabClient` / `Forge.GiteaClient` (`Some` only for the handle's own backend), or the
-  wrapper client's own `Api`/`Run` for anything beyond that.
+  wrapper client's own `Api`/`Run` for anything beyond that. Its portable
+  `Forge.IssueEdit(number, edit)` maps title/body edits to GitHub and GitLab; Gitea reports
+  `Unsupported` because `tea` 0.9.2 has no issue edit command.
 
 A facade operation marked `Unsupported` on a given backend (e.g. a Gitea release-by-tag view)
 has **no** wrapper method to drop to either — the CLI itself can't do it; go through the
