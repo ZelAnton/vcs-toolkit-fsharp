@@ -107,12 +107,6 @@ $dotnetArgs = @('fsdocs', $verb, '--properties', "Configuration=$Configuration")
 $siteParameterValues = @(
     'fsdocs-favicon-src'
     'img/logo.png'
-    'fsdocs-license-link'
-    "$RepoUrl/blob/main/LICENSE"
-    'fsdocs-release-notes-link'
-    "$RepoUrl/blob/main/CHANGELOG.md"
-    'fsdocs-repository-link'
-    $RepoUrl
 )
 if ($Watch) {
     $dotnetArgs += @('--parameters') + $siteParameterValues

@@ -342,3 +342,5 @@ To also allow committing and pushing (but nothing else destructive):
 Adjust the block's exact top-level shape (some clients nest it differently, or take `command`/
 `args` under a different key) to match your specific MCP client's configuration format; the
 `command`/`args` values themselves are the same regardless.
+
+See also: [security model](security.md).
