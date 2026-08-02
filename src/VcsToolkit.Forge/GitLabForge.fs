@@ -1,5 +1,6 @@
 namespace VcsToolkit.Forge
 
+open System
 open System.Threading.Tasks
 open ProcessKit
 
@@ -10,6 +11,13 @@ type internal GitLabVersionProbe = Lazy<Task<Result<VcsToolkit.GitLab.GitLabCapa
 /// GitLab-backed implementations of the facade operations: thin calls to the
 /// `VcsToolkit.GitLab` client plus pure mappers from its types into the unified DTOs.
 module internal GitLabForge =
+
+    let normalizeApproveBody (body: string option) : Result<string option, ForgeError> =
+        match body with
+        | Some value when String.IsNullOrWhiteSpace value -> Ok None
+        | Some "-" ->
+            Error(ForgeError.InvalidInput("review body is \"-\", which glab treats as its own stdin/editor sentinel"))
+        | value -> Ok value
 
     let private stateOf (state: string) : ForgePrState =
         // GitLab REST emits lowercase; match case-insensitively for parity.
@@ -272,12 +280,23 @@ module internal GitLabForge =
         task {
             // Only `Approve` reaches here — `RequestChanges`/`Comment` are refused structurally by
             // the facade's shared `ForgeSupport.unsupportedReview` gate before dispatch (glab has
-            // no equivalent verb). `glab mr approve` carries no comment, so an approve body has no
-            // CLI home and is intentionally not threaded through.
+            // no equivalent verb). `glab mr approve` carries no comment, so an approve body is
+            // validated before approval and delivered by a subsequent additive note. If that note
+            // fails, the approval remains applied and the note's error is returned to the caller.
             match action.Kind with
             | ReviewKind.Approve ->
-                let! r = glab.MrApprove(dir, number)
-                return ofForge r
+                match normalizeApproveBody action.Body with
+                | Error e -> return Error e
+                | Ok bodyToNote ->
+                    match! glab.MrApprove(dir, number) with
+                    | Error e -> return Error(ForgeError.Forge e)
+                    | Ok() ->
+                        match bodyToNote with
+                        | None -> return Ok()
+                        | Some body ->
+                            match! glab.MrComment(dir, number, body) with
+                            | Ok _ -> return Ok()
+                            | Error e -> return Error(ForgeError.Forge e)
             | ReviewKind.RequestChanges
             | ReviewKind.Comment ->
                 // Unreachable: refused by `ForgeSupport.unsupportedReview` before dispatch.
