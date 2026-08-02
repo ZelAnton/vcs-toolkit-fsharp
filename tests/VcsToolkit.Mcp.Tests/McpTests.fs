@@ -67,7 +67,7 @@ type WriteGateTests() =
 
     [<Test>]
     member _.WriteToolsCoversTheGatedTools() =
-        Assert.That(List.length WriteTools.all, Is.EqualTo 27)
+        Assert.That(List.length WriteTools.all, Is.EqualTo 28)
         Assert.That(WriteTools.asSet.Contains "repo_commit", Is.True)
         Assert.That(WriteTools.asSet.Contains "repo_rebase", Is.True, "the new rebase tool is write-gated")
         Assert.That(WriteTools.asSet.Contains "forge_pr_checkout", Is.True, "the local-checkout tool is write-gated")
@@ -80,6 +80,8 @@ type WriteGateTests() =
             Is.True,
             "the new issue-comment tool is write-gated"
         )
+
+        Assert.That(WriteTools.asSet.Contains "forge_issue_edit", Is.True, "the issue-edit tool is write-gated")
 
         Assert.That(WriteTools.asSet.Contains "repo_status", Is.False, "a read tool is not a write tool")
 
@@ -823,6 +825,45 @@ type ToolTests() =
             match! server.ForgeIssueComment(1UL, "hi") with
             | Error e -> Assert.That(e.Message, Does.Contain "allow-write")
             | Ok _ -> Assert.Fail "forge_issue_comment must be gated in read-only mode"
+        }
+
+    [<Test>]
+    member _.ForgeIssueEditIsWriteGated() : Task =
+        task {
+            let server = gitServer (ScriptedRunner()) WriteGate.None
+
+            match! server.ForgeIssueEdit(1UL, Some "New", Option.None) with
+            | Error e -> Assert.That(e.Message, Does.Contain "allow-write")
+            | Ok _ -> Assert.Fail "forge_issue_edit must be gated in read-only mode"
+        }
+
+    [<Test>]
+    member _.ForgeIssueEditRejectsNoFieldsWithoutSpawning() : Task =
+        task {
+            let runner =
+                ScriptedRunner().Fallback(Reply.Fail(1, "must not spawn — refusal must precede it"))
+
+            let server = gitServerWithForge runner WriteGate.All
+
+            match! server.ForgeIssueEdit(1UL, Option.None, Option.None) with
+            | Error(McpError.InvalidParams message) -> Assert.That(message, Does.Contain "at least one")
+            | Error e -> Assert.Fail $"expected invalid params, got: {e.Message}"
+            | Ok _ -> Assert.Fail "forge_issue_edit must require a title or body"
+        }
+
+    [<Test>]
+    member _.ForgeIssueEditAcceptsOptionalTitleAndBody() : Task =
+        task {
+            let server =
+                gitServerWithForge
+                    (ScriptedRunner()
+                        .On([ "--version" ], Reply.Ok "gh version 2.40.0\n")
+                        .On([ "issue"; "edit"; "9"; "--title"; "New" ], Reply.Ok ""))
+                    WriteGate.All
+
+            match! server.ForgeIssueEdit(9UL, Some "New", Option.None) with
+            | Ok json -> Assert.That(json, Does.Contain "edited")
+            | Error e -> Assert.Fail $"forge_issue_edit failed: {e.Message}"
         }
 
     [<Test>]
@@ -1587,8 +1628,8 @@ type CatalogTests() =
 
     [<Test>]
     member _.CatalogCoversEveryTool() =
-        // 13 repo-read + repo_try_merge + 12 repo-write + 12 forge-read + 14 forge-write = 52.
-        Assert.That(List.length Catalog.all, Is.EqualTo 52)
+        // 13 repo-read + repo_try_merge + 12 repo-write + 12 forge-read + 15 forge-write = 53.
+        Assert.That(List.length Catalog.all, Is.EqualTo 53)
         // Every write-gated tool name appears in the catalogue.
         let names = Catalog.all |> List.map (fun t -> t.Name) |> Set.ofList
         Assert.That(WriteTools.all |> List.forall names.Contains, Is.True, "every write tool is catalogued")
@@ -1618,6 +1659,7 @@ type CatalogTests() =
               "forge_issue_close", false, true
               "forge_issue_reopen", false, true
               "forge_issue_comment", false, false
+              "forge_issue_edit", false, true
               "forge_pr_create", false, false
               "forge_pr_merge", true, false
               "forge_pr_close", true, true
@@ -1733,7 +1775,7 @@ type CatalogTests() =
         }
 
     [<Test>]
-    member _.CallToolDispatchesForgeIssueCloseAndComment() : Task =
+    member _.CallToolDispatchesForgeIssueLifecycleWrites() : Task =
         task {
             let runner =
                 ScriptedRunner()
@@ -1741,6 +1783,7 @@ type CatalogTests() =
                     .On([ "issue"; "close" ], Reply.Ok "")
                     .On([ "issue"; "reopen" ], Reply.Ok "")
                     .On([ "issue"; "comment" ], Reply.Ok "https://c/1\n")
+                    .On([ "issue"; "edit" ], Reply.Ok "")
 
             let server = gitServerWithForge runner WriteGate.All
 
@@ -1756,10 +1799,18 @@ type CatalogTests() =
             | Ok json -> Assert.That(json, Does.Contain "output")
             | Error e -> Assert.Fail $"forge_issue_comment dispatch failed: {e.Message}"
 
+            match! Catalog.callTool server "forge_issue_edit" (argsOf """{"number":3,"title":"New"}""") with
+            | Ok json -> Assert.That(json, Does.Contain "edited")
+            | Error e -> Assert.Fail $"forge_issue_edit dispatch failed: {e.Message}"
+
             // A missing required arg is refused as invalid-params before the tool runs.
             match! Catalog.callTool server "forge_issue_comment" (argsOf """{"number":3}""") with
             | Error e -> Assert.That(e.Message, Does.Contain "body")
             | Ok _ -> Assert.Fail "forge_issue_comment must require a body"
+
+            match! Catalog.callTool server "forge_issue_edit" (argsOf """{"number":3}""") with
+            | Error e -> Assert.That(e.Message, Does.Contain "at least one")
+            | Ok _ -> Assert.Fail "forge_issue_edit must require a title or body"
         }
 
     [<Test>]
@@ -2006,6 +2057,7 @@ type CatalogTests() =
                     .On([ "--version" ], Reply.Ok "gh version 2.40.0\n")
                     .On([ "pr"; "create" ], Reply.Ok "https://x/2\n")
                     .On([ "pr"; "edit" ], Reply.Ok "")
+                    .On([ "issue"; "edit" ], Reply.Ok "")
 
             let server = gitServerWithForge runner WriteGate.All
 
@@ -2030,6 +2082,15 @@ type CatalogTests() =
             with
             | Ok _ -> ()
             | Error e -> Assert.Fail $"forge_pr_edit should accept string title/body: {e.Message}"
+
+            match!
+                Catalog.callTool
+                    server
+                    "forge_issue_edit"
+                    (argsOf """{"number":1,"title":"new title","body":"new body"}""")
+            with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"forge_issue_edit should accept string title/body: {e.Message}"
         }
 
     [<Test>]
@@ -2188,6 +2249,17 @@ type CatalogTests() =
             | Error(McpError.InvalidParams _) -> ()
             | Error e -> Assert.Fail $"expected InvalidParams for an Unsupported forge op, got: {e.Message}"
             | Ok _ -> Assert.Fail "forge_pr_edit must be Unsupported on Gitea"
+        }
+
+    [<Test>]
+    member _.CallToolForgeIssueEditIsUnsupportedOnGitea() : Task =
+        task {
+            let server = gitServerWithGiteaForge (ScriptedRunner()) WriteGate.All
+
+            match! Catalog.callTool server "forge_issue_edit" (argsOf """{"number":1,"title":"x"}""") with
+            | Error(McpError.InvalidParams _) -> ()
+            | Error e -> Assert.Fail $"expected InvalidParams for an Unsupported forge op, got: {e.Message}"
+            | Ok _ -> Assert.Fail "forge_issue_edit must be Unsupported on Gitea"
         }
 
     [<Test>]

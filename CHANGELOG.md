@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Edit issue titles and bodies on GitHub and GitLab through the new `IssueEdit` APIs and write-gated `forge_issue_edit` MCP tool, with structured `Unsupported` responses on Gitea.
 - A consolidated security model covering trust boundaries, typed API guarantees and raw escape hatches, credential handling, Git/submodule hardening, Jujutsu raw-command risks, and safe `vcs-mcp` deployment.
 - `Repo.Diff()` / `Repo.DiffText()` on `VcsToolkit.Core` expose the working copy's parsed or raw unified diff across Git and Jujutsu, with a new read-only MCP `repo_diff` tool that returns per-file JSON and uses the configured output budget's valid truncation envelope.
 - Git remote management on `VcsToolkit.Jj`: add, remove, rename, and set-url operations with guarded positional arguments, plus matching `JjAt` forwarders.
