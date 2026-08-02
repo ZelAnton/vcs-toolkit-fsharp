@@ -58,6 +58,18 @@ dotnet reportgenerator "-reports:TestResults/**/coverage.cobertura.xml" "-target
 Open `CoverageReport/index.html` for the browsable report. `./TestResults` and
 `./CoverageReport` are both git-ignored scratch output.
 
+> **Why the CI build passes `-p:DeterministicSourcePaths=false`.** On an ordinary local
+> clone `GITHUB_ACTIONS` is unset, so `src/Directory.Build.props`'s
+> `ContinuousIntegrationBuild` (and the deterministic source-path rewrite it enables) stays
+> off, and the `Build` command above already produces a Cobertura report whose source paths
+> resolve to the real `src/VcsToolkit.*/*.fs` files — no extra flag needed. The CI `coverage`
+> job runs on a `GITHUB_ACTIONS=true` runner where that rewrite *would* otherwise normalize
+> those paths to a deterministic root token, so its `Build` step overrides
+> `DeterministicSourcePaths=false` explicitly (only for that job, so the `test`/
+> `pack-validate` jobs keep the deterministic-build benefit). If you want to reproduce CI's
+> exact environment locally (e.g. `GITHUB_ACTIONS=true dotnet build ...`), add the same
+> `-p:DeterministicSourcePaths=false` override to the `dotnet build` command above.
+
 ## Adding a new capability
 
 Adding a new git/jj/forge operation touches up to three layers — a CLI wrapper, a

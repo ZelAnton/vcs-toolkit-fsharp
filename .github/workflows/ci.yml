@@ -266,8 +266,22 @@ jobs:
       - name: Restore
         run: dotnet restore
 
+      # `-p:DeterministicSourcePaths=false` overrides src/Directory.Build.props's
+      # `ContinuousIntegrationBuild` (which auto-enables under `GITHUB_ACTIONS=true`, as it does
+      # on every GitHub-hosted runner including this job). Left alone, deterministic builds
+      # rewrite the PDB source paths embedded in the coverlet-instrumented VcsToolkit.*
+      # assemblies to a normalized root token instead of the real `src/VcsToolkit.*/*.fs`
+      # paths, so the Cobertura report this job produces could not be mapped back to real
+      # source files — the task's explicit "покрытие корректно соотносится с исходниками"
+      # criterion. The MSBuild property is command-line-set here specifically for this build
+      # (not repo-wide via Directory.Build.props), so the `test`/`pack-validate` jobs keep the
+      # deterministic-build benefit (reproducible PDBs, embedded SourceLink) unaffected; only
+      # this job's PDBs — used solely as coverage-collection input, never packed/shipped —
+      # carry real local paths. `dotnet test --no-build` below reuses these binaries, so no
+      # further override is needed there. See CONTRIBUTING.md's "Code coverage" section for
+      # the equivalent local recipe.
       - name: Build
-        run: dotnet build --no-restore --configuration Release
+        run: dotnet build --no-restore --configuration Release -p:DeterministicSourcePaths=false
 
       # Same install recipe as the `test` job's Unix branch (ubuntu-only here, so no OS
       # switch needed) — VcsToolkit.Core.ParityTests and the Jj/Watch suites need a real
