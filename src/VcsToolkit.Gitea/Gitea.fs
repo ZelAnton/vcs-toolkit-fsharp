@@ -445,6 +445,25 @@ type Gitea private (core: ManagedClient) =
             | Ok() -> return! core.Run(core.CommandIn(dir, [ "comment"; string number; body ]))
         }
 
+    /// Editing an issue's title/description is unsupported on `tea` 0.9.2, which has no
+    /// issue edit/update command; refuses structurally before any spawn.
+    member _.IssueEdit(dir: string, number: uint64, title: string option, body: string option) =
+        task {
+            ignore (dir, title, body)
+
+            let refusal: Result<unit, ProcessError> =
+                Error(
+                    ProcessError.Spawn(
+                        BINARY,
+                        sprintf
+                            "tea 0.9.2 has no issue edit command — cannot edit issue #%d's title/description; use the Gitea REST API"
+                            number
+                    )
+                )
+
+            return refusal
+        }
+
     /// Releases for `dir` (`tea releases list --limit 100 --output csv`). Up to 100. tea 0.9.2
     /// does not support `--output json` on `releases list` (K-049), so this drives its
     /// supported `--output csv` (`outputdsv`) format, parsed positionally by tea's fixed
@@ -574,6 +593,10 @@ and [<Sealed>] GiteaAt internal (gitea: Gitea, dir: string) =
 
     /// Add a comment to an issue (`tea comment <index> <body>`).
     member _.IssueComment(number: uint64, body: string) = gitea.IssueComment(dir, number, body)
+
+    /// Editing an issue is unsupported on `tea` 0.9.2; refuses before any spawn.
+    member _.IssueEdit(number: uint64, title: string option, body: string option) =
+        gitea.IssueEdit(dir, number, title, body)
 
     /// Releases for the bound `dir` (`tea releases list …`).
     member _.ReleaseList() = gitea.ReleaseList dir

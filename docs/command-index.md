@@ -345,6 +345,7 @@ Client: `GitHub` / `GitHubAt` (`src/VcsToolkit.GitHub/GitHub.fs`). See
 | `IssueClose` | `issue close <n>` | |
 | `IssueReopen` | `issue reopen <n>` | |
 | `IssueComment` | `issue comment <n> --body <body>` | returns the comment URL |
+| `IssueEdit` | `issue edit <n> [--title <title>] [--body <body>]` | ≥1 field required |
 | `RunList` | `run list --limit <n> [--branch <b>] --json …` | Actions runs, newest first |
 | `RunView` | `run view <id> --json …` | id is `WorkflowRun`'s database id |
 | `RunWatch` | `run watch <id>`, then `run view <id>` | **blocks** until the run finishes; stdout capture bounded to the last 256 lines/256 KiB |
@@ -400,6 +401,7 @@ not its breadth. See
 | `IssueClose` | `issue close <id>` | |
 | `IssueReopen` | `issue reopen <id>` | |
 | `IssueComment` | `issue note <id> -m <body>` | body rejected if exactly `-` |
+| `IssueEdit` | `issue update <id> [--title <title>] [--description <body>]` | ≥1 field required; body rejected if exactly `-` before spawning |
 | `ReleaseList` | `release list --per-page 100 --output json` | ≤100 |
 | `ReleaseView` | `release view <tag> --output json` | |
 | `ReleaseCreate` | `release create <tag> [--name …] [--notes …]` | via `ReleaseCreate`; no draft/pre-release (glab has none) |
@@ -444,6 +446,7 @@ hatch; authentication is **ambient only** (`tea login add`, out of band — ther
 | `IssueClose` | `issues close <number>` | |
 | `IssueReopen` | *(none — refused before spawning)* | `tea` 0.9.2 has no `issues reopen` command |
 | `IssueComment` | `comment <index> <body>` | shared with PRs |
+| `IssueEdit` | *(none — refused before spawning)* | `tea` 0.9.2 has no issue edit command; use the Gitea REST API |
 | `ReleaseList` | `releases list --limit 100 --output csv` | ≤~50 (Gitea server page cap); same `--output csv` reason |
 | `ReleaseCreate` | `release create --tag <tag> [--title …] [--note …] [--draft] [--prerelease]` | via `ReleaseCreate`; returns tea's text output |
 | `ReleaseDelete` | *(none — refused before spawning)* | `tea` 0.9.2 has no `release delete` command |
@@ -452,8 +455,8 @@ hatch; authentication is **ambient only** (`tea login add`, out of band — ther
 | `Run` | `tea <args>` in the process cwd (client) or the bound `dir` (`GiteaAt`); **unguarded** | |
 | `RunRaw` | like `Run`, never errors on a non-zero exit; **unguarded** | |
 
-There is intentionally **no** `RepoView`, `PrMarkReady`, `PrChecks`, `ReleaseView`, `IssueReopen`, or
-`ReleaseDelete` command implementation on `Gitea` — `tea` has no equivalent command; the [`VcsToolkit.Forge`](#Facade-escape-hatch-routers)
+There is intentionally **no** `RepoView`, `PrMarkReady`, `PrChecks`, `ReleaseView`, `IssueReopen`,
+`IssueEdit`, or `ReleaseDelete` command implementation on `Gitea` — `tea` has no equivalent command; the [`VcsToolkit.Forge`](#Facade-escape-hatch-routers)
 facade reports these `Unsupported` for the Gitea backend.
 
 ### tea — not modeled (examples) → escape hatch
@@ -482,7 +485,9 @@ so dropping to a wrapper-level method (any row above) never needs an extra depen
   `JjNonColocated`).
 - **`VcsToolkit.Forge`** (`src/VcsToolkit.Forge/Forge.fs`) — `Forge.GitHubClient` /
   `Forge.GitLabClient` / `Forge.GiteaClient` (`Some` only for the handle's own backend), or the
-  wrapper client's own `Api`/`Run` for anything beyond that.
+  wrapper client's own `Api`/`Run` for anything beyond that. Its portable
+  `Forge.IssueEdit(number, edit)` maps title/body edits to GitHub and GitLab; Gitea reports
+  `Unsupported` because `tea` 0.9.2 has no issue edit command.
 
 A facade operation marked `Unsupported` on a given backend (e.g. a Gitea release-by-tag view)
 has **no** wrapper method to drop to either — the CLI itself can't do it; go through the

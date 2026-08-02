@@ -33,6 +33,7 @@ namespace VcsToolkit.Forge
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Forge.ForgeError>> IssueClose(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Forge.ForgeError>> IssueComment(ulong number, string body) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Forge.ForgeError>> IssueCreate(string title, string body) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Forge.ForgeError>> IssueEdit(ulong number, VcsToolkit.Forge.IssueEdit edit) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Forge.ForgeIssue>, VcsToolkit.Forge.ForgeError>> IssueList() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Forge.ForgeIssue>, VcsToolkit.Forge.ForgeError>> IssueList(VcsToolkit.Forge.IssueListOptions options) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Forge.ForgeError>> IssueReopen(ulong number) { }
@@ -200,6 +201,7 @@ namespace VcsToolkit.Forge
         public static Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Forge.ForgeOp> All { get; }
         public static class Tags
         {
+            public const int IssueEdit = 8;
             public const int IssueReopen = 5;
             public const int PrChecks = 2;
             public const int PrDiff = 4;
@@ -295,6 +297,20 @@ namespace VcsToolkit.Forge
         public Microsoft.FSharp.Core.FSharpOption<bool>? Private { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
         public string Url { get; }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class IssueEdit : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Forge.IssueEdit>, System.IEquatable<VcsToolkit.Forge.IssueEdit>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Forge.IssueEdit))]
+        public IssueEdit(Microsoft.FSharp.Core.FSharpOption<string>? title, Microsoft.FSharp.Core.FSharpOption<string>? body) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? Body { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? Title { get; }
+        public VcsToolkit.Forge.IssueEdit WithBody(string body) { }
+        public VcsToolkit.Forge.IssueEdit WithTitle(string title) { }
+        public static VcsToolkit.Forge.IssueEdit Create() { }
     }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
     [System.Serializable]

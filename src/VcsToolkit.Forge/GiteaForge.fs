@@ -349,6 +349,14 @@ module internal GiteaForge =
             return ofForge r
         }
 
+    let issueEdit (_tea: VcsToolkit.Gitea.Gitea) (_dir: string) (number: uint64) (_edit: IssueEdit) =
+        task {
+            let refusal: Result<unit, ForgeError> =
+                Error(ForgeError.Unsupported(ForgeKind.Gitea, sprintf "issueEdit #%d" number))
+
+            return refusal
+        }
+
     let releaseList (tea: VcsToolkit.Gitea.Gitea) (dir: string) =
         task {
             match! tea.ReleaseList dir with

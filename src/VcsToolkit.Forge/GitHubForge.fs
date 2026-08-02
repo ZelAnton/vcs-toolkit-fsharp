@@ -362,6 +362,12 @@ module internal GitHubForge =
             return ofForge r
         }
 
+    let issueEdit (gh: VcsToolkit.GitHub.GitHub) (dir: string) (number: uint64) (edit: IssueEdit) =
+        task {
+            let! r = gh.IssueEdit(dir, number, edit.Title, edit.Body)
+            return ofForge r
+        }
+
     let releaseList (gh: VcsToolkit.GitHub.GitHub) (dir: string) =
         task {
             match! gh.ReleaseList dir with

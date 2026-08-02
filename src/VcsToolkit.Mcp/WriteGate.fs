@@ -32,6 +32,7 @@ module WriteTools =
           "forge_issue_close"
           "forge_issue_reopen"
           "forge_issue_comment"
+          "forge_issue_edit"
           "forge_pr_create"
           "forge_pr_merge"
           "forge_pr_close"

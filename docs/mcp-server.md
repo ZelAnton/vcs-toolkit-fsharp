@@ -309,7 +309,7 @@ simple and race-free), and `repo_try_merge` (a real trial merge that materialize
 rolling itself back, so it needs the same isolation). An MCP host can dispatch tool calls
 concurrently; without this lock, two working-copy mutations could interleave (e.g. a
 `repo_try_merge` probe's materialize-then-rollback racing a `repo_commit`).
-**Remote-only forge writes** (`forge_issue_create`, `forge_issue_close`, `forge_issue_reopen`, `forge_issue_comment`,
+**Remote-only forge writes** (`forge_issue_create`, `forge_issue_close`, `forge_issue_reopen`, `forge_issue_comment`, `forge_issue_edit`,
 `forge_pr_create`, `forge_pr_comment`, `forge_pr_edit`, `forge_pr_mark_ready`, `forge_pr_review`,
 `forge_release_create`)
 do **not** take this local lock — they only touch the remote forge, and the forge's own server
@@ -419,6 +419,7 @@ that forge, rather than silently degrading.
 | `forge_issue_close` | Close an issue (reopenable). | `number` (integer, required) | no | yes |
 | `forge_issue_reopen` | Reopen a closed issue. **Unsupported on Gitea** (`tea` 0.9.2 has no `issues reopen` command). | `number` (integer, required) | no | yes |
 | `forge_issue_comment` | Post a comment to an existing issue, returning the CLI's output. | `number` (integer, required), `body` (string, required) | no | no |
+| `forge_issue_edit` | Edit an issue's title and/or body (at least one required; empty strings clear fields). GitLab refuses a body equal to `-` before spawning. **Unsupported on Gitea** (`tea` 0.9.2 has no issue edit command). | `number` (integer, required), `title` (string, optional), `body` (string, optional) | no | yes |
 | `forge_pr_create` | Open a pull/merge request, returning the CLI's output (the URL on success). | `title` (string, required), `body` (string, required), `source` (string, optional — defaults to the current branch), `target` (string, optional — defaults to the repo default) | no | no |
 | `forge_pr_merge` | Merge a pull/merge request with a strategy (`merge`/`squash`/`rebase`). `auto`/`delete_branch` are GitHub-only — refused as Unsupported on GitLab/Gitea if set. `delete_branch=true` deletes the source branch. | `number` (integer, required), `strategy` (string, required), `auto` (boolean, optional), `delete_branch` (boolean, optional) | **yes** | no |
 | `forge_pr_close` | Close a pull/merge request without merging. `delete_branch` is GitHub-only (refused as Unsupported on GitLab/Gitea) and also deletes the source branch. | `number` (integer, required), `delete_branch` (boolean, optional) | **yes** | yes |
