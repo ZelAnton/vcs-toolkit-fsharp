@@ -95,7 +95,7 @@ for this client's place in the layering.
 | `Commit` | `commit -m <message>` | staged index |
 | `CommitPaths` | `--literal-pathspecs commit [--amend] -m <message> --only -- <paths>` | via `CommitPaths` spec; stdin transport for large sets |
 | `LastCommitMessage` | `log -1 --format=%B` | full message |
-| `ListFiles` | `ls-files -z` (working copy) / `ls-tree -r --name-only -z <rev>` (a revision) | repo-relative, NUL-safe, lossless paths; reachable as `Repo.ListFiles()` |
+| `ListFiles` | `ls-files -z` (working copy) / `ls-tree -r --name-only -z <rev>` (a revision) | repo-relative, NUL-safe, lossless paths; reachable as `Repo.ListFiles(rev: string option)` |
 | `Init` | `init` | |
 
 ### Checkout, worktrees, tags, clone, config, show
@@ -248,7 +248,7 @@ caller-supplied name can't fan a mutation out across every matching ref.
 | `Description` | `TemplateQuery(dir, revset, "description", Some 1)`, trimmed | newest commit of a multi-commit revset |
 | `Evolog` | `evolog -r <revset> --no-graph --limit <max> -T <template>` | newest predecessor first |
 | `FileAnnotate` | `file annotate [-r <revset>] -T <template> --color never -- <path>` | plain path, not a fileset |
-| `FileList` | `file list -r <revset> -T <file-list-template>` | lossless paths; every entry (unlike `ResolveList`'s conflict-only rows); default revset `@`; reachable as `Repo.ListFiles()` |
+| `FileList` | `file list -r <revset> -T <file-list-template>` | lossless paths; every entry (unlike `ResolveList`'s conflict-only rows); default revset `@`; reachable as `Repo.ListFiles(rev: string option)` |
 | `FileShow` | `file show -r <revset> root-file:"<path>"` | UTF-8-decoded, lossy on non-UTF-8 content |
 | `FileShowBytes` | `file show -r <revset> root-file:"<path>"` | verbatim bytes |
 

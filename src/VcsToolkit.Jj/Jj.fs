@@ -1257,11 +1257,11 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
 /// `jj.At(dir).Status()` is `jj.Status dir`. Construct one with `Jj.At` (or, through the
 /// facade, `Repo.JjAt`). Cheap to construct: it only holds the client and the path.
 ///
-/// Every method — the *modelled* `dir` forwarders AND the raw `Run`/`RunRaw` escape hatches —
-/// runs in the bound `dir`: the modelled methods inject it as their leading argument, and the
-/// hatches forward to `jj.Run(dir, …)`/`jj.RunRaw(dir, …)`. For a raw command that must run in
-/// the process's current directory instead, call `Run`/`RunRaw` on the unbound `Jj` client. As
-/// on the client, the hatches are unguarded — never forward untrusted argv.
+/// Modelled methods use the bound `dir` as their repository context; queries whose output is
+/// repo-relative, including `FileList`, may first resolve the workspace root and run there. The
+/// raw `Run`/`RunRaw` hatches always run in the bound `dir`; for a raw command that must run in
+/// the process's current directory instead, call `Run`/`RunRaw` on the unbound `Jj` client. As on
+/// the client, the hatches are unguarded — never forward untrusted argv.
 and [<Sealed>] JjAt internal (jj: Jj, dir: string) =
 
     // --- Escape hatches (bound to `dir`) -------------------------------------
@@ -1399,7 +1399,12 @@ and [<Sealed>] JjAt internal (jj: Jj, dir: string) =
     member _.FileAnnotate(path: string, revset: string option) = jj.FileAnnotate(dir, path, revset)
 
     /// Repo-relative tracked paths at `revset` (`jj file list -r <revset>`; `None` = `@`).
-    member _.FileList(revset: string option) = jj.FileList(dir, revset)
+    member _.FileList(revset: string option) =
+        task {
+            match! jj.Root dir with
+            | Error e -> return Error e
+            | Ok root -> return! jj.FileList(root, revset)
+        }
 
     /// A file's content at a revision (`jj file show -r <revset> root-file:"<path>"`),
     /// UTF-8-decoded (non-UTF-8 bytes become U+FFFD — use `FileShowBytes` for verbatim binary

@@ -260,6 +260,19 @@ type QueryTests() =
         }
 
     [<Test>]
+    member _.ListFilesPreservesLiteralCrLfThroughByteCapture() : Task =
+        task {
+            let path = "literal\r\nline-break.txt"
+            let git = scripted [ "ls-files"; "-z" ] (Reply.Ok($"{path}{nul}"))
+
+            match! git.ListFiles(".", None) with
+            | Ok paths ->
+                Assert.That(paths.Length, Is.EqualTo 1)
+                Assert.That(paths.[0], Is.EqualTo path)
+            | Error e -> Assert.Fail $"list_files failed: {e}"
+        }
+
+    [<Test>]
     member _.ListFilesRefusesLeadingDashRevisionBeforeSpawning() : Task =
         task {
             let captured, runner = capturing (Reply.Ok "")
