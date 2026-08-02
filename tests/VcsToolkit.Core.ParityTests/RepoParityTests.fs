@@ -61,6 +61,9 @@ let private nonReadMembers =
           "Rebase"
           "RemoveWorktree"
           "RenameBranch"
+          "TagCreate"
+          "TagDelete"
+          "Tags" // git-only read method; jj has no tag concept
           "TryMerge" ]
 
 /// Render a `FileChange` for element-wise comparison.
