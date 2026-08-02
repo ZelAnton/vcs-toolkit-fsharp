@@ -238,12 +238,51 @@ type Forge private (cwd: string, backend: Backend) =
     /// a specific *variant* aren't `ForgeOp`s — see `SupportsReview`/`SupportsMergeOptions`/
     /// `SupportsCloseDeleteBranch` for those.
     member this.Supports(op: ForgeOp) =
-        match this.Kind, op with
-        | ForgeKind.Unknown, _ -> false
-        | ForgeKind.Gitea,
-          (ForgeOp.RepoView | ForgeOp.PrMarkReady | ForgeOp.PrChecks | ForgeOp.ReleaseView | ForgeOp.PrDiff | ForgeOp.IssueReopen | ForgeOp.ReleaseDelete | ForgeOp.PrEdit) ->
-            false
-        | _ -> true
+        // Exhaustive on (ForgeKind, ForgeOp) with no wildcard fallback on either axis: a new
+        // `ForgeKind` case breaks the outer match, and a new `ForgeOp` case breaks every one of
+        // the four inner matches — forcing an explicit, reviewed decision for the new
+        // combination instead of silently defaulting it.
+        match this.Kind with
+        | ForgeKind.GitHub ->
+            match op with
+            | ForgeOp.RepoView
+            | ForgeOp.PrMarkReady
+            | ForgeOp.PrChecks
+            | ForgeOp.ReleaseView
+            | ForgeOp.PrDiff
+            | ForgeOp.IssueReopen
+            | ForgeOp.ReleaseDelete
+            | ForgeOp.PrEdit -> true
+        | ForgeKind.GitLab ->
+            match op with
+            | ForgeOp.RepoView
+            | ForgeOp.PrMarkReady
+            | ForgeOp.PrChecks
+            | ForgeOp.ReleaseView
+            | ForgeOp.PrDiff
+            | ForgeOp.IssueReopen
+            | ForgeOp.ReleaseDelete
+            | ForgeOp.PrEdit -> true
+        | ForgeKind.Gitea ->
+            match op with
+            | ForgeOp.RepoView
+            | ForgeOp.PrMarkReady
+            | ForgeOp.PrChecks
+            | ForgeOp.ReleaseView
+            | ForgeOp.PrDiff
+            | ForgeOp.IssueReopen
+            | ForgeOp.ReleaseDelete
+            | ForgeOp.PrEdit -> false
+        | ForgeKind.Unknown ->
+            match op with
+            | ForgeOp.RepoView
+            | ForgeOp.PrMarkReady
+            | ForgeOp.PrChecks
+            | ForgeOp.ReleaseView
+            | ForgeOp.PrDiff
+            | ForgeOp.IssueReopen
+            | ForgeOp.ReleaseDelete
+            | ForgeOp.PrEdit -> false
 
     /// Whether this handle's backend can submit a `PrReview` of `kind`. Unlike `Supports` (which
     /// answers *operation-level* gaps), `prReview` exists on every CLI but honours a different set
