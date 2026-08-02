@@ -252,7 +252,8 @@ type Forge private (cwd: string, backend: Backend) =
             | ForgeOp.PrDiff
             | ForgeOp.IssueReopen
             | ForgeOp.ReleaseDelete
-            | ForgeOp.PrEdit -> true
+            | ForgeOp.PrEdit
+            | ForgeOp.IssueEdit -> true
         | ForgeKind.GitLab ->
             match op with
             | ForgeOp.RepoView
@@ -262,7 +263,8 @@ type Forge private (cwd: string, backend: Backend) =
             | ForgeOp.PrDiff
             | ForgeOp.IssueReopen
             | ForgeOp.ReleaseDelete
-            | ForgeOp.PrEdit -> true
+            | ForgeOp.PrEdit
+            | ForgeOp.IssueEdit -> true
         | ForgeKind.Gitea ->
             match op with
             | ForgeOp.RepoView
@@ -272,7 +274,8 @@ type Forge private (cwd: string, backend: Backend) =
             | ForgeOp.PrDiff
             | ForgeOp.IssueReopen
             | ForgeOp.ReleaseDelete
-            | ForgeOp.PrEdit -> false
+            | ForgeOp.PrEdit
+            | ForgeOp.IssueEdit -> false
         | ForgeKind.Unknown ->
             match op with
             | ForgeOp.RepoView
@@ -282,7 +285,8 @@ type Forge private (cwd: string, backend: Backend) =
             | ForgeOp.PrDiff
             | ForgeOp.IssueReopen
             | ForgeOp.ReleaseDelete
-            | ForgeOp.PrEdit -> false
+            | ForgeOp.PrEdit
+            | ForgeOp.IssueEdit -> false
 
     /// Whether this handle's backend can submit a `PrReview` of `kind`. Unlike `Supports` (which
     /// answers *operation-level* gaps), `prReview` exists on every CLI but honours a different set
@@ -697,6 +701,31 @@ type Forge private (cwd: string, backend: Backend) =
                         | Backend.Gitea(c, _) -> GiteaForge.issueComment c cwd number body
                         | Backend.Unknown ->
                             task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "issueComment")) })
+        }
+
+    /// Edit an issue's title and/or body (see `IssueEdit`). At least one of `Title`/`Body`
+    /// must be `Some`; both-`None` is rejected with `InvalidInput` before any CLI spawn on every
+    /// backend. Empty strings are real values that clear fields. GitHub and GitLab dispatch to
+    /// their native edit commands and are version-gated; GitLab refuses a body equal to `-`
+    /// before spawning because glab treats it as an stdin/editor sentinel. **`Unsupported` on
+    /// Gitea** (`tea` 0.9.2 has no issue edit command), structurally before any version probe or
+    /// operation spawn once the input contains a field.
+    member _.IssueEdit(number: uint64, edit: IssueEdit) =
+        task {
+            if edit.Title.IsNone && edit.Body.IsNone then
+                return Error(ForgeError.InvalidInput "issueEdit: at least one of title or body must be set")
+            else
+                match backend with
+                | Backend.Gitea(c, _) -> return! GiteaForge.issueEdit c cwd number edit
+                | _ ->
+                    return!
+                        gated backend "issueEdit" (fun () ->
+                            match backend with
+                            | Backend.GitHub(c, _) -> GitHubForge.issueEdit c cwd number edit
+                            | Backend.GitLab(c, _) -> GitLabForge.issueEdit c cwd number edit
+                            | Backend.Gitea(c, _) -> GiteaForge.issueEdit c cwd number edit
+                            | Backend.Unknown ->
+                                task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "issueEdit")) })
         }
 
     /// Releases for the bound directory, newest first (up to 100).

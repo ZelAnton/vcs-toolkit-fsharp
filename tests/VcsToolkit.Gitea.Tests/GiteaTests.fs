@@ -669,6 +669,20 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.IssueEditIsUnsupportedBeforeSpawning() : Task =
+        task {
+            let tea = Gitea.WithRunner(ScriptedRunner())
+
+            match! tea.IssueEdit(".", 7UL, Some "New title", Some "New body") with
+            | Error e -> Assert.That(e.Message, Does.Contain "no issue edit command")
+            | Ok() -> Assert.Fail "tea 0.9.2 must refuse issue edit before spawning"
+
+            match! tea.IssueEdit(".", 7UL, None, None) with
+            | Error _ -> ()
+            | Ok() -> Assert.Fail "tea issue edit must be unconditionally unsupported"
+        }
+
+    [<Test>]
     member _.ReleaseListRequestsLimit() : Task =
         task {
             let tea =

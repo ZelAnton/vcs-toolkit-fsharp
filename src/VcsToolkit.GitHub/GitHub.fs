@@ -542,6 +542,26 @@ type GitHub private (core: ManagedClient) =
     member _.IssueComment(dir: string, number: uint64, body: string) =
         core.Run(core.CommandIn(dir, [ "issue"; "comment"; string number; "--body"; body ]))
 
+    /// Edit an issue's title and/or body (`gh issue edit <n> [--title …] [--body …]`).
+    /// At least one field must be supplied; both-`None` is refused before spawning.
+    member _.IssueEdit(dir: string, number: uint64, title: string option, body: string option) =
+        task {
+            match title, body with
+            | None, None ->
+                return Error(ProcessError.Spawn(BINARY, "issue edit requires at least a title or a body to change"))
+            | _ ->
+                let args =
+                    [ "issue"; "edit"; string number ]
+                    @ (match title with
+                       | Some t -> [ "--title"; t ]
+                       | None -> [])
+                    @ (match body with
+                       | Some b -> [ "--body"; b ]
+                       | None -> [])
+
+                return! core.RunUnit(core.CommandIn(dir, args))
+        }
+
     /// Releases, newest first (`gh release list --limit 100 --json …`). `Body`/`Url`
     /// are not fetched here — use `ReleaseView`. Up to 100 releases.
     member _.ReleaseList(dir: string) =
@@ -730,6 +750,10 @@ and [<Sealed>] GitHubAt internal (github: GitHub, dir: string) =
 
     /// Add a comment to an issue, returning its URL (`gh issue comment <n> --body …`).
     member _.IssueComment(number: uint64, body: string) = github.IssueComment(dir, number, body)
+
+    /// Edit an issue's title and/or body (`gh issue edit <n> …`).
+    member _.IssueEdit(number: uint64, title: string option, body: string option) =
+        github.IssueEdit(dir, number, title, body)
 
     /// Releases, newest first (`gh release list …`).
     member _.ReleaseList() = github.ReleaseList dir

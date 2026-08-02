@@ -461,6 +461,22 @@ module internal Catalog =
                   JsonType = "string"
                   Description = "The markdown comment body."
                   Required = true } ]
+          // Non-destructive: only overwrites title/body text and is reversible via another
+          // edit; idempotent: re-applying the same values leaves the issue unchanged.
+          write
+              "forge_issue_edit"
+              "Edit an issue's title and/or body (at least one required; empty strings clear fields). GitLab refuses a body equal to `-` before spawning. Unsupported on Gitea (tea 0.9.2 has no issue edit command)."
+              false
+              true
+              [ pIssueNumber
+                { Name = "title"
+                  JsonType = "string"
+                  Description = "New title; omit to leave unchanged."
+                  Required = false }
+                { Name = "body"
+                  JsonType = "string"
+                  Description = "New body / description; omit to leave unchanged."
+                  Required = false } ]
           write
               "forge_pr_create"
               "Open a pull/merge request, returning the CLI's output (the URL on success)."
@@ -722,6 +738,10 @@ module internal Catalog =
         | "forge_issue_comment" ->
             bind (reqU64 args "number") (fun number ->
                 bind (reqStr args "body") (fun body -> server.ForgeIssueComment(number, body)))
+        | "forge_issue_edit" ->
+            bind (reqU64 args "number") (fun number ->
+                bind (optStr args "title") (fun title ->
+                    bind (optStr args "body") (fun body -> server.ForgeIssueEdit(number, title, body))))
         | "forge_pr_create" ->
             bind (reqStr args "title") (fun title ->
                 bind (reqStr args "body") (fun body ->
