@@ -249,11 +249,12 @@ type ForgeKindTests() =
 
     [<Test>]
     member _.ForgeOpAllEnumeratesTheVaryingOps() =
-        Assert.That(ForgeOp.All.Length, Is.EqualTo 7)
+        Assert.That(ForgeOp.All.Length, Is.EqualTo 8)
         Assert.That(List.contains ForgeOp.PrChecks ForgeOp.All, Is.True)
         Assert.That(List.contains ForgeOp.PrDiff ForgeOp.All, Is.True)
         Assert.That(List.contains ForgeOp.IssueReopen ForgeOp.All, Is.True)
         Assert.That(List.contains ForgeOp.ReleaseDelete ForgeOp.All, Is.True)
+        Assert.That(List.contains ForgeOp.PrEdit ForgeOp.All, Is.True)
 
 // ---------------------------------------------------------------------------
 // ForgeError classifiers
@@ -338,11 +339,13 @@ type DispatchTests() =
         Assert.That(gh.Kind, Is.EqualTo ForgeKind.GitHub)
         Assert.That(gh.Supports ForgeOp.PrChecks, Is.True)
         Assert.That(gh.Supports ForgeOp.PrDiff, Is.True)
+        Assert.That(gh.Supports ForgeOp.PrEdit, Is.True)
         Assert.That(gh.Cwd, Is.EqualTo(Directory.GetCurrentDirectory()))
 
         let gl = glForge [ "mr"; "list" ] (Reply.Ok "[]")
         Assert.That(gl.Kind, Is.EqualTo ForgeKind.GitLab)
         Assert.That(gl.Supports ForgeOp.PrDiff, Is.True)
+        Assert.That(gl.Supports ForgeOp.PrEdit, Is.True)
 
         let tea = teaForge [ "pr"; "list" ] (Reply.Ok "[]")
         // Gitea supports NONE of the varying ops.
@@ -352,6 +355,7 @@ type DispatchTests() =
         Assert.That(tea.Supports ForgeOp.PrDiff, Is.False)
         Assert.That(tea.Supports ForgeOp.IssueReopen, Is.False)
         Assert.That(tea.Supports ForgeOp.ReleaseDelete, Is.False)
+        Assert.That(tea.Supports ForgeOp.PrEdit, Is.False)
 
     [<Test>]
     member _.SupportsReviewMergeOptionsAndCloseReflectTheBackend() =
@@ -512,6 +516,23 @@ type DispatchTests() =
                   f, "issueReopen"
                   g, "releaseDelete" ] do
                 Assert.That(flag, Is.True, $"Gitea {name} must be Unsupported without spawning")
+
+            // Invariant: `Forge.Supports` agrees with the dispatch verdict just proven above,
+            // for every `ForgeOp` case Gitea rejects unconditionally — not just declared, but
+            // checked against the same handle's real dispatch in this test.
+            for op in
+                [ ForgeOp.RepoView
+                  ForgeOp.PrChecks
+                  ForgeOp.ReleaseView
+                  ForgeOp.PrMarkReady
+                  ForgeOp.PrEdit
+                  ForgeOp.IssueReopen
+                  ForgeOp.ReleaseDelete ] do
+                Assert.That(
+                    forge.Supports op,
+                    Is.False,
+                    $"Forge.Supports must agree with the Unsupported dispatch for {op}"
+                )
         }
 
     [<Test>]
