@@ -205,6 +205,17 @@ module internal Catalog =
               "The configured remotes (name and URL) — git `remote -v` (deduplicated to one entry per remote, carrying its fetch URL) / jj `jj git remote list`."
               []
           read
+              "repo_merge_base"
+              "The full commit id of a best common ancestor of `a` and `b`, or null when the histories are disconnected. Inputs are backend-specific revision expressions: git commit-ish values or jj revsets. Git uses `git merge-base`; jj selects a non-root head of the common ancestor set and excludes its all-zero virtual root."
+              [ { Name = "a"
+                  JsonType = "string"
+                  Description = "The first git commit-ish or jj revset."
+                  Required = true }
+                { Name = "b"
+                  JsonType = "string"
+                  Description = "The second git commit-ish or jj revset."
+                  Required = true } ]
+          read
               "repo_show_file"
               "The content of a file as it exists at a revision, untrimmed up to the server's output budget (--output-budget; default 200000 bytes, 0 disables). Content beyond the budget is truncated with a trailing '[truncated: showing N of M bytes]' marker. The content is UTF-8-decoded text: a non-UTF-8 byte (a binary or legacy-encoded blob) is replaced with U+FFFD and does NOT round-trip, so this tool is for text files — a byte-exact read of arbitrary binary content is a library-level concern (VcsToolkit.Core Repo.ShowFileBytes), not exposed over this text-only MCP surface. `rev` is passed through as-is to the backend — a git commit-ish or a jj revset; the two syntaxes are NOT cross-backend portable."
               [ { Name = "rev"
@@ -226,17 +237,6 @@ module internal Catalog =
                 { Name = "max"
                   JsonType = "integer"
                   Description = "Maximum number of commits to return."
-                  Required = true } ]
-          read
-              "repo_merge_base"
-              "The full commit id of a best common ancestor of `a` and `b`, or null when the histories are disconnected. Inputs are backend-specific revision expressions: git commit-ish values or jj revsets. Git uses `git merge-base`; jj selects a non-root head of the common ancestor set and excludes its all-zero virtual root."
-              [ { Name = "a"
-                  JsonType = "string"
-                  Description = "The first git commit-ish or jj revset."
-                  Required = true }
-                { Name = "b"
-                  JsonType = "string"
-                  Description = "The second git commit-ish or jj revset."
                   Required = true } ]
           read
               "repo_annotate"
@@ -669,13 +669,13 @@ module internal Catalog =
         | "repo_conflicts" -> server.RepoConflicts()
         | "repo_worktrees" -> server.RepoWorktrees()
         | "repo_remotes" -> server.RepoRemotes()
+        | "repo_merge_base" ->
+            bind (reqStr args "a") (fun a -> bind (reqStr args "b") (fun b -> server.RepoMergeBase(a, b)))
         | "repo_show_file" ->
             bind (reqStr args "rev") (fun rev -> bind (reqStr args "path") (fun path -> server.RepoShowFile(rev, path)))
         | "repo_log" ->
             bind (reqStr args "revspec_or_revset") (fun rev ->
                 bind (reqU64 args "max") (fun max -> server.RepoLog(rev, max)))
-        | "repo_merge_base" ->
-            bind (reqStr args "a") (fun a -> bind (reqStr args "b") (fun b -> server.RepoMergeBase(a, b)))
         | "repo_annotate" ->
             bind (reqStr args "path") (fun path -> bind (optStr args "rev") (fun rev -> server.RepoAnnotate(path, rev)))
         | "repo_try_merge" -> bind (reqStr args "source") server.RepoTryMerge

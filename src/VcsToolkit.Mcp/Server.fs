@@ -320,6 +320,12 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
     /// URL) / jj `jj git remote list`.
     member this.RepoRemotes() = this.ReadRepo(fun () -> repo.Remotes())
 
+    /// The full commit id of a best common ancestor of `a` and `b`, or null when the histories
+    /// are disconnected. Inputs are backend-specific revision expressions: git commit-ish values
+    /// or jj revsets. Git uses `git merge-base`; jj excludes its all-zero virtual root.
+    member this.RepoMergeBase(a: string, b: string) =
+        this.ReadRepo(fun () -> repo.MergeBase(a, b))
+
     /// The content of `path` as it exists at `rev`, untrimmed up to the server's output
     /// budget (`--output-budget`; a byte count). Content within the budget is returned
     /// byte-for-byte unchanged; content beyond it is truncated with a trailing
@@ -345,12 +351,6 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
                 int max
 
         this.ReadRepo(fun () -> repo.Log(revspecOrRevset, capped))
-
-    /// The full commit id of a best common ancestor of `a` and `b`, or null when the histories
-    /// are disconnected. Inputs are backend-specific revision expressions: git commit-ish values
-    /// or jj revsets. Git uses `git merge-base`; jj excludes its all-zero virtual root.
-    member this.RepoMergeBase(a: string, b: string) =
-        this.ReadRepo(fun () -> repo.MergeBase(a, b))
 
     /// Per-line authorship of `path` at `rev` (git `blame --line-porcelain` / jj `file
     /// annotate`) — "who last touched this line, and when". Normally serialized as the original

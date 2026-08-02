@@ -421,11 +421,9 @@ type RepoFacadeParityTests() =
             Assert.That(Result.isOk gitMerge, Is.True, "MergeBase should succeed for valid revisions")
 
             // MergeBase of HistoryRev and CommittedRev should work (CommittedRev is part of HistoryRev).
-            let! gitWithHistory =
-                pair.Git.MergeBase(pair.GitSandbox.HistoryRev, pair.GitSandbox.CommittedRev)
+            let! gitWithHistory = pair.Git.MergeBase(pair.GitSandbox.HistoryRev, pair.GitSandbox.CommittedRev)
 
-            let! jjWithHistory =
-                pair.Jj.MergeBase(pair.JjSandbox.HistoryRev, pair.JjSandbox.CommittedRev)
+            let! jjWithHistory = pair.Jj.MergeBase(pair.JjSandbox.HistoryRev, pair.JjSandbox.CommittedRev)
 
             assertSame "MergeBase (history with committed)" (Result.isOk gitWithHistory) (Result.isOk jjWithHistory)
             Assert.That(Result.isOk gitWithHistory, Is.True, "MergeBase should succeed for both revisions")
