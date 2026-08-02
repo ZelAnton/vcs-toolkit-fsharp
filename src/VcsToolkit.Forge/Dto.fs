@@ -632,8 +632,9 @@ type ReviewAction private (kind: ReviewKind, body: string option) =
 
     /// Attach or replace the body — mainly to give an `Approve` a message. GitHub and Gitea
     /// submit it with the approval; GitLab submits the approval first and then adds the body as
-    /// a note. If that note fails, `Forge.PrReview` returns the note error while leaving the
-    /// approval applied.
+    /// a note. On GitLab, an empty/whitespace body is treated as absent and `-` is refused before
+    /// approval because glab treats it as an stdin/editor sentinel. If a non-empty note fails,
+    /// `Forge.PrReview` returns the note error while leaving the approval applied.
     member _.WithBody(body: string) = ReviewAction(kind, Some body)
 
 /// The flat capability map for a configured forge — what its CLI is honest about doing,

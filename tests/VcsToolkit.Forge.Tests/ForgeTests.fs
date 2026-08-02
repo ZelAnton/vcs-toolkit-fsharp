@@ -2651,6 +2651,18 @@ type PrReviewTests() =
             | Error e -> Assert.Fail $"gh approve with body must dispatch: {e.Message}"
         }
 
+    [<TestCase("")>]
+    [<TestCase("-")>]
+    member _.GitHubApprovePreservesEmptyAndDashBodies(body: string) : Task =
+        task {
+            let forge =
+                ghReviewForge [ "pr"; "review"; "1"; "--approve"; "--body"; body ] (Reply.Exit 0)
+
+            match! forge.PrReview(1UL, ReviewAction.Approve.WithBody body) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"gh approve must preserve the supplied body: {e.Message}"
+        }
+
     [<Test>]
     member _.GitLabApproveDispatchesMrApprove() : Task =
         task {
@@ -2660,6 +2672,29 @@ type PrReviewTests() =
             match! forge.PrReview(1UL, ReviewAction.Approve) with
             | Ok() -> ()
             | Error e -> Assert.Fail $"glab mr approve must dispatch: {e.Message}"
+        }
+
+    [<TestCase("")>]
+    [<TestCase("   ")>]
+    member _.GitLabApproveWithEmptyBodySkipsNote(body: string) : Task =
+        task {
+            let forge = glReviewForge [ "mr"; "approve"; "1" ] (Reply.Exit 0)
+
+            match! forge.PrReview(1UL, ReviewAction.Approve.WithBody body) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"glab approve with an empty body must skip the note: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GitLabApproveWithDashBodyIsRejectedBeforeAnySpawn() : Task =
+        task {
+            let forge =
+                Forge.FromGitLab(".", VcsToolkit.GitLab.GitLab.WithRunner(ScriptedRunner()))
+
+            match! forge.PrReview(1UL, ReviewAction.Approve.WithBody "-") with
+            | Error(ForgeError.InvalidInput message) -> Assert.That(message, Does.Contain "stdin/editor sentinel")
+            | Error e -> Assert.Fail $"expected InvalidInput for glab's dash sentinel, got: {e.Message}"
+            | Ok() -> Assert.Fail "glab's dash sentinel must be rejected before approval"
         }
 
     [<Test>]
@@ -2706,6 +2741,24 @@ type PrReviewTests() =
             match! forge.PrReview(1UL, ReviewAction.Approve.WithBody "LGTM") with
             | Ok() -> ()
             | Error e -> Assert.Fail $"tea approve with body must dispatch: {e.Message}"
+        }
+
+    [<TestCase("")>]
+    [<TestCase("-")>]
+    member _.GiteaApprovePreservesEmptyAndDashBodyValidation(body: string) : Task =
+        task {
+            let forge =
+                Forge.FromGitea(
+                    ".",
+                    VcsToolkit.Gitea.Gitea.WithRunner(
+                        ScriptedRunner().On([ "--version" ], Reply.Ok "tea version 0.9.2\n")
+                    )
+                )
+
+            match! forge.PrReview(1UL, ReviewAction.Approve.WithBody body) with
+            | Error(ForgeError.Forge _) -> ()
+            | Error e -> Assert.Fail $"expected tea's existing body validation error, got: {e.Message}"
+            | Ok() -> Assert.Fail "tea must keep rejecting empty and dash-leading positional comments"
         }
 
     // --- Request-changes: GitHub (--request-changes) + Gitea (pr reject); Unsupported on GitLab ---
