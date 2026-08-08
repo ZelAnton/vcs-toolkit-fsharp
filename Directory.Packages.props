@@ -28,7 +28,7 @@
 		<PackageVersion Include="NUnit3TestAdapter" Version="6.2.0" />
 		<!-- Property-based testing on top of NUnit; pinned to the FsCheck.NUnit release whose
 		     NUnit dependency range ([4.0.0, 5.0.0)) covers the NUnit pin above. -->
-		<PackageVersion Include="FsCheck.NUnit" Version="3.3.3" />
+		<PackageVersion Include="FsCheck.NUnit" Version="3.3.4" />
 		<!-- Public-API snapshot generation for the PublicApi.Tests project: renders each
 		     library's public surface as text (via Mono.Cecil) to diff against a committed
 		     .approved baseline, catching accidental SemVer breaks. -->
@@ -53,8 +53,8 @@
 	     (ScriptedRunner/Reply) — a TEST-only dependency, now also published on nuget.org
 	     (no local feed / vendoring). -->
 	<ItemGroup>
-		<PackageVersion Include="ProcessKit" Version="2.10.0" />
-		<PackageVersion Include="ProcessKit.Testing" Version="2.10.0" />
+		<PackageVersion Include="ProcessKit" Version="2.11.0" />
+		<PackageVersion Include="ProcessKit.Testing" Version="2.11.0" />
 	</ItemGroup>
 
 	<!-- VcsToolkit.Mcp dependencies: clean F#→JSON for tool results, and the Model Context
