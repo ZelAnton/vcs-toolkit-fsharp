@@ -104,12 +104,15 @@ did not create. It:
 These pins disable repository hooks and prevent repository config from re-enabling fsmonitor or
 choosing an SSH command for this client. Other repository configuration is still read; `Harden()`
 is a targeted execution-surface profile, not a blanket replacement for all Git configuration.
+The profile's mandatory environment pins take precedence over earlier caller-side removals of the
+same keys; a removal applied later by the caller still wins, so configuration order remains explicit.
 
 The full list lives in the
 [`Harden` doc comment and implementation](https://github.com/ZelAnton/vcs-toolkit-fsharp/blob/main/src/VcsToolkit.Git/Git.fs#L1770-L1824).
-The config-pin mechanism requires Git 2.31 or newer; older Git silently ignores those pins even
-though environment scrubbing still applies. A deployment that depends on hardening must verify
-`Git.Capabilities()` at startup and fail closed below that floor.
+`Harden()` probes the Git version before choosing its config-pin transport. Git 2.31 and newer
+use `GIT_CONFIG_COUNT`; older Git uses the compatible `GIT_CONFIG_PARAMETERS` command-scope
+channel, so repo-local hooks are not silently left active. If the version probe fails, Harden
+uses that legacy channel as the conservative compatibility fallback.
 
 The `vcs-mcp` binary always opens a Git-backed repository with `Git.Hardened()` and applies its
 configured per-command timeout. A direct library caller must choose `Git.Hardened()` explicitly;
