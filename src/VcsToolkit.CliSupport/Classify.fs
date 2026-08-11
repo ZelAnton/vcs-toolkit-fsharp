@@ -125,24 +125,42 @@ module Classify =
     let isTransientFetchError (err: ProcessError) =
         ProcessError.isTransient err || exitOutputMatches err transientFetchMarkers
 
-    /// Whether an index lock path is under git's per-ref directory. A `refs/` segment in the
-    /// repository path itself must not make a whole-repository `.git/index.lock` non-retryable.
-    let private isPerRefIndexLock (err: ProcessError) =
+    /// Whether a diagnostic contains a structurally confirmed per-ref lock. A `refs/` segment
+    /// in the repository path itself must not make a whole-repository `.git/index.lock`
+    /// non-retryable. Scan every occurrence because one process error can contain several
+    /// diagnostics, and a later per-ref failure makes the whole operation unsafe to retry.
+    let private isPerRefLockDiagnostic (err: ProcessError) =
         match err with
         | ProcessError.Exit(_, _, stdout, stderr) ->
             [ stdout; stderr ]
             |> List.exists (fun text ->
                 let normalized = asciiLower text
                 let normalized = normalized.Replace('\\', '/')
-                let lockIndex = normalized.IndexOf("index.lock", StringComparison.Ordinal)
 
-                if lockIndex < 0 then
-                    false
-                else
-                    let beforeLock = normalized.Substring(0, lockIndex)
-                    let gitDirIndex = beforeLock.LastIndexOf(".git/", StringComparison.Ordinal)
-                    let refsIndex = beforeLock.LastIndexOf("refs/", StringComparison.Ordinal)
-                    refsIndex > gitDirIndex)
+                let hasRefLockMarker =
+                    normalized.Contains("cannot lock ref", StringComparison.Ordinal)
+                    || normalized.Contains("unable to lock ref", StringComparison.Ordinal)
+                    || normalized.Contains("failed to lock ref", StringComparison.Ordinal)
+
+                let mutable searchFrom = 0
+                let mutable hasRefLockPath = false
+
+                while not hasRefLockPath && searchFrom < normalized.Length do
+                    let refsPathIndex =
+                        normalized.IndexOf(".git/refs/", searchFrom, StringComparison.Ordinal)
+
+                    if refsPathIndex < 0 then
+                        searchFrom <- normalized.Length
+                    else
+                        let lockIndex =
+                            normalized.IndexOf(".lock", refsPathIndex + ".git/refs/".Length, StringComparison.Ordinal)
+
+                        if lockIndex >= 0 then
+                            hasRefLockPath <- true
+                        else
+                            searchFrom <- refsPathIndex + ".git/refs/".Length
+
+                hasRefLockMarker || hasRefLockPath)
         | _ -> false
 
     /// Whether `err` is a whole-repository lock-contention failure — another process held
@@ -150,7 +168,7 @@ module Classify =
     /// start. Such a failure is pre-execution and therefore safe to retry even on a mutating
     /// operation. Per-ref locks are excluded because an earlier ref may already have moved.
     let isLockContention (err: ProcessError) =
-        if isPerRefIndexLock err then
+        if isPerRefLockDiagnostic err then
             false
         else
             exitOutputMatches err lockContentionMarkers

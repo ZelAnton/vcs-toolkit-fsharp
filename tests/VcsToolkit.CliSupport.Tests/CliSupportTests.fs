@@ -110,6 +110,27 @@ type ClassifierTests() =
         for e in notLocks do
             Assert.That(isLockContention e, Is.False, $"should NOT be lock contention: {e}")
 
+        let mixedDiagnostics =
+            [ ProcessError.Exit(
+                  "git",
+                  128,
+                  "fatal: Unable to create '/work/refs/project/.git/index.lock': File exists",
+                  "error: cannot lock ref 'refs/heads/main': reference already exists"
+              )
+              ProcessError.Exit(
+                  "git",
+                  128,
+                  "fatal: Unable to create '/work/refs/project/.git/index.lock': File exists",
+                  "fatal: Unable to create '/r/.git/refs/heads/index.lock': File exists"
+              ) ]
+
+        for e in mixedDiagnostics do
+            Assert.That(
+                isLockContention e,
+                Is.False,
+                $"a later per-ref diagnostic must make mixed output non-retryable: {e}"
+            )
+
     [<Test>]
     member _.UnfamiliarVariantsAreNotClassified() =
         let notReady = ProcessError.NotReady("git", TimeSpan.FromSeconds 5.0)
