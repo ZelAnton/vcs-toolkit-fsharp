@@ -27,6 +27,19 @@ type DiffSpec =
     /// A specific revset, e.g. `@-` or `main..@` (`jj diff -r <revset>`).
     | Rev of string
 
+/// A local bookmark reachable from the working copy, with its shortest graph distance from
+/// `@`. The distance counts parent edges, so a bookmark on either parent of a merge is one
+/// edge away even when the two parents are unrelated except through that merge.
+type ReachableBookmark =
+    {
+        /// Bookmark name.
+        Name: string
+        /// **Full** commit id of the bookmark target.
+        Target: string
+        /// Shortest number of parent edges from `@` to `Target`.
+        Distance: int
+    }
+
 /// How a new workspace inherits sparse patterns (`jj workspace add --sparse-patterns <mode>`).
 [<RequireQualifiedAccess>]
 type SparseMode =

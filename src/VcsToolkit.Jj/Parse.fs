@@ -28,6 +28,13 @@ type Bookmark =
         Target: string
     }
 
+/// A commit and its parent identities from a typed `jj log` graph query. Internal because the
+/// graph is an implementation detail of `ReachableBookmarksWithDistance`, not a public history
+/// model.
+type internal CommitGraphEntry =
+    { CommitId: string
+      Parents: string list }
+
 /// A bookmark from `jj bookmark list -a` — local *or* remote-tracking.
 type BookmarkRef =
     {
@@ -212,6 +219,12 @@ module internal JjParse =
     /// then the **full** commit id (identity — see the framing contract).
     let REACHABLE_BOOKMARKS_TEMPLATE =
         "local_bookmarks.map(|b| b.name().escape_json()).join(\" \") ++ \"\\t\" ++ commit_id ++ \"\\n\""
+
+    /// `jj log -T` template for the parent graph used to calculate shortest distances from `@`.
+    /// `self.parents()` is available on the supported jj floor (0.38); the full ids keep graph
+    /// edges unambiguous even when commits share a short prefix.
+    let COMMIT_GRAPH_TEMPLATE =
+        "commit_id ++ \"\\t\" ++ self.parents().map(|p| p.commit_id()).join(\" \") ++ \"\\n\""
 
     /// `jj evolog -T` template. Evolog renders in a *commit* context where the bare
     /// keywords (`change_id`, …) don't exist — the `commit.` method form is required.
@@ -482,6 +495,31 @@ module internal JjParse =
 
                   for name in decodeNameList names do
                       yield { Name = name; Target = target } ]
+
+    /// Parse rows produced by `COMMIT_GRAPH_TEMPLATE`: `<full-commit>\t<parent> …`, with an
+    /// empty parent field for the root. Malformed/empty rows are ignored like the other total
+    /// template parsers.
+    let parseCommitGraph (output: string) : CommitGraphEntry list =
+        lines output
+        |> List.choose (fun line ->
+            if line.Length = 0 then
+                None
+            else
+                let f = line.Split([| '\t' |], 2)
+                let commitId = f.[0]
+
+                if commitId.Length = 0 then
+                    None
+                else
+                    let parents =
+                        if f.Length < 2 || f.[1].Length = 0 then
+                            []
+                        else
+                            f.[1].Split([| ' ' |], StringSplitOptions.RemoveEmptyEntries) |> Array.toList
+
+                    Some
+                        { CommitId = commitId
+                          Parents = parents })
 
     // --- Resolve / workspaces ------------------------------------------------
 

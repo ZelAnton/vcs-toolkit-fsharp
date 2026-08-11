@@ -654,11 +654,52 @@ type DispatchTests() =
     member _.JjCurrentBranchIsNearestReachableBookmark() : Task =
         task {
             // reachable_bookmarks with two equally-near names returns the smallest.
-            let repo =
-                jjRepo [ "log"; "heads(::@ & bookmarks())" ] (Reply.Ok "main feature\tabc123\n")
+            let runner =
+                ScriptedRunner()
+                    .On([ "root" ], Reply.Ok "/repo\n")
+                    .On([ "log"; "-r"; "heads(::@ & bookmarks())" ], Reply.Ok "main feature\tabc123\n")
+                    .On([ "log"; "-r"; "@" ], Reply.Ok "abc123\n")
+                    .On([ "log"; "-r"; "::@" ], Reply.Ok "abc123\tbase\nbase\t\n")
+
+            let repo = Repo.FromJj("/repo", "/repo", Jj.WithRunner runner)
 
             match! repo.CurrentBranch() with
             | Ok(Some name) -> Assert.That(name, Is.EqualTo "feature", "the lexicographically-smallest name")
+            | Ok None -> Assert.Fail "expected a branch"
+            | Error e -> Assert.Fail $"current branch failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.JjCurrentBranchPrefersNearBookmarkAcrossMergeGraph() : Task =
+        task {
+            let runner =
+                ScriptedRunner()
+                    .On([ "log"; "-r"; "heads(::@ & bookmarks())" ], Reply.Ok "a-old\told\nz-near\tnear\n")
+                    .On([ "log"; "-r"; "@" ], Reply.Ok "merge\n")
+                    .On([ "log"; "-r"; "::@" ], Reply.Ok "merge\tnear far\nnear\tbase\nfar\told\nold\tbase\nbase\t\n")
+
+            let repo = Repo.FromJj("/repo", "/repo", Jj.WithRunner runner)
+
+            match! repo.CurrentBranch() with
+            | Ok(Some name) ->
+                Assert.That(name, Is.EqualTo "z-near", "the one-edge merge parent beats the two-edge a-old bookmark")
+            | Ok None -> Assert.Fail "expected a branch"
+            | Error e -> Assert.Fail $"current branch failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.JjCurrentBranchUsesNameTieBreakOnlyAtEqualDistance() : Task =
+        task {
+            let runner =
+                ScriptedRunner()
+                    .On([ "log"; "-r"; "heads(::@ & bookmarks())" ], Reply.Ok "z-near\tright\na-near\tleft\n")
+                    .On([ "log"; "-r"; "@" ], Reply.Ok "merge\n")
+                    .On([ "log"; "-r"; "::@" ], Reply.Ok "merge\tleft right\nleft\tbase\nright\tbase\nbase\t\n")
+
+            let repo = Repo.FromJj("/repo", "/repo", Jj.WithRunner runner)
+
+            match! repo.CurrentBranch() with
+            | Ok(Some name) -> Assert.That(name, Is.EqualTo "a-near", "equal graph distance uses the lexical tie-break")
             | Ok None -> Assert.Fail "expected a branch"
             | Error e -> Assert.Fail $"current branch failed: {e.Message}"
         }

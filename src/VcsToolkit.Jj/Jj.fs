@@ -120,6 +120,24 @@ module private JjHelpers =
             )
         | None -> Ok entries
 
+    /// Compute shortest parent-edge distances from `start` without relying on jj's log order.
+    /// A breadth-first walk is required here: a merge can expose one candidate through a short
+    /// side branch while another candidate has more commits on a different parent branch.
+    let shortestDistancesFrom (start: string) (graph: CommitGraphEntry list) =
+        let parentsByCommit =
+            graph |> List.map (fun entry -> entry.CommitId, entry.Parents) |> Map.ofList
+
+        let rec visit pending distances =
+            match pending with
+            | [] -> distances
+            | (commitId, _) :: rest when Map.containsKey commitId distances -> visit rest distances
+            | (commitId, distance) :: rest ->
+                let parents = Map.tryFind commitId parentsByCommit |> Option.defaultValue []
+                let next = parents |> List.map (fun parent -> parent, distance + 1)
+                visit (List.append rest next) (Map.add commitId distance distances)
+
+        visit [ start, 0 ] Map.empty
+
 /// The real Jujutsu client: typed async methods that run the real `jj`, parse its
 /// templated output, and return structured values. `Jj.Create()` uses the
 /// job-backed runner; `Jj.WithRunner` injects a fake one for tests. Wraps a
@@ -382,6 +400,48 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
                   JjParse.REACHABLE_BOOKMARKS_TEMPLATE ],
             JjParse.parseReachableBookmarks
         )
+
+    /// Local bookmarks on the nearest commits reachable from `@`, annotated with their shortest
+    /// graph distance. The existing `ReachableBookmarks` method remains the raw candidate query;
+    /// this typed variant adds the parent-graph traversal needed by callers that must distinguish
+    /// a nearer bookmark from a lexicographically smaller but more distant one.
+    member this.ReachableBookmarksWithDistance(dir: string) =
+        task {
+            match! this.ReachableBookmarks dir with
+            | Error e -> return Error e
+            | Ok bookmarks when List.isEmpty bookmarks -> return Ok []
+            | Ok bookmarks ->
+                match!
+                    core.Run(cmdInRead dir [ "log"; "-r"; "@"; "--no-graph"; "--limit"; "1"; "-T"; "commit_id" ])
+                with
+                | Error e -> return Error e
+                | Ok workingCopyOutput ->
+                    let workingCopy = workingCopyOutput.Trim()
+
+                    if workingCopy.Length = 0 then
+                        return Ok []
+                    else
+                        match!
+                            core.Parse(
+                                cmdInRead dir [ "log"; "-r"; "::@"; "--no-graph"; "-T"; JjParse.COMMIT_GRAPH_TEMPLATE ],
+                                JjParse.parseCommitGraph
+                            )
+                        with
+                        | Error e -> return Error e
+                        | Ok graph ->
+                            let distances = shortestDistancesFrom workingCopy graph
+
+                            return
+                                Ok(
+                                    bookmarks
+                                    |> List.choose (fun bookmark ->
+                                        Map.tryFind bookmark.Target distances
+                                        |> Option.map (fun distance ->
+                                            { Name = bookmark.Name
+                                              Target = bookmark.Target
+                                              Distance = distance }))
+                                )
+        }
 
     /// Track a remote bookmark (`jj bookmark track <name>@<remote>`).
     member _.BookmarkTrack(dir: string, name: string, remote: string) =
@@ -1357,6 +1417,9 @@ and [<Sealed>] JjAt internal (jj: Jj, dir: string) =
 
     /// Local bookmarks on the nearest commits reachable from `@`.
     member _.ReachableBookmarks() = jj.ReachableBookmarks dir
+
+    /// Local bookmarks on the nearest commits reachable from `@`, with shortest graph distance.
+    member _.ReachableBookmarksWithDistance() = jj.ReachableBookmarksWithDistance dir
 
     /// Track a remote bookmark (`jj bookmark track <name>@<remote>`).
     member _.BookmarkTrack(name: string, remote: string) = jj.BookmarkTrack(dir, name, remote)
