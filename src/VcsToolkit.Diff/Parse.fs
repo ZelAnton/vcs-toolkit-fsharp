@@ -88,6 +88,44 @@ module Parse =
             else
                 let s = first.Substring 11
 
+                // C-quoted headers contain two arguments. Scan quoted arguments instead of
+                // searching for `"b/`, because an escaped quote inside the second path can
+                // be followed by `b/` too.
+                let tryCQuotedSecondArgument (s: string) : string option =
+                    let tryClosingQuote (start: int) : int option =
+                        if start >= s.Length || s.[start] <> '"' then
+                            None
+                        else
+                            let mutable idx = start + 1
+                            let mutable escaped = false
+                            let mutable closing = -1
+
+                            while closing < 0 && idx < s.Length do
+                                let c = s.[idx]
+
+                                if escaped then
+                                    escaped <- false
+                                elif c = '\\' then
+                                    escaped <- true
+                                elif c = '"' then
+                                    closing <- idx
+
+                                idx <- idx + 1
+
+                            if closing >= 0 then Some closing else None
+
+                    match tryClosingQuote 0 with
+                    | None -> None
+                    | Some firstClosing ->
+                        let mutable secondStart = firstClosing + 1
+
+                        while secondStart < s.Length && Char.IsWhiteSpace s.[secondStart] do
+                            secondStart <- secondStart + 1
+
+                        match tryClosingQuote secondStart with
+                        | None -> None
+                        | Some secondClosing -> Some(s.Substring(secondStart, secondClosing - secondStart + 1))
+
                 // For the unquoted `a/<p> b/<p>` form, git does not escape spaces, so a
                 // path that itself contains the substring " b/" (e.g. a directory named
                 // "a b") makes the naive first-match split land inside the a-path. The
@@ -114,9 +152,9 @@ module Parse =
                         None
 
                 let path =
-                    match s.LastIndexOf("\"b/", StringComparison.Ordinal) with
-                    | q when q >= 0 -> defaultArg (stripPrefix "b/" (TextParse.unquoteGitPath (s.Substring q))) ""
-                    | _ -> defaultArg (findSymmetricBPath s) ""
+                    match tryCQuotedSecondArgument s with
+                    | Some secondArgument -> defaultArg (stripPrefix "b/" (TextParse.unquoteGitPath secondArgument)) ""
+                    | None -> defaultArg (findSymmetricBPath s) ""
 
                 if path <> "" then Some path else None
 

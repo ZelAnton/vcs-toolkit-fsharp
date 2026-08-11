@@ -159,6 +159,25 @@ type DiffTests() =
         Assert.That(files.[0].Path, Is.EqualTo "café.bin")
 
     [<Test>]
+    member _.HeaderFallbackHandlesEscapedQuoteBeforeBSlash() =
+        let quote = string (char 34)
+        let backslash = string (char 92)
+        let path = "foo" + quote + "b/bar.bin"
+        let oldHeader = quote + "a/" + "foo" + backslash + quote + "b/bar.bin" + quote
+        let newHeader = quote + "b/" + "foo" + backslash + quote + "b/bar.bin" + quote
+        let header = "diff --git " + oldHeader + " " + newHeader
+
+        let binary = parseDiff (doc [ header; "Binary files differ" ])
+
+        Assert.That(binary.Length, Is.EqualTo 1)
+        Assert.That(binary.[0].Path, Is.EqualTo path)
+
+        let modeOnly = parseDiff (doc [ header; "old mode 100644"; "new mode 100755" ])
+
+        Assert.That(modeOnly.Length, Is.EqualTo 1)
+        Assert.That(modeOnly.[0].Path, Is.EqualTo path)
+
+    [<Test>]
     member _.UnquotesEscapedTabPath() =
         let p = "a" + tab + "b.txt"
 
