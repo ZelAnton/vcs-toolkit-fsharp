@@ -64,9 +64,13 @@ let private withCurrentDirectory (dir: string) (f: unit -> unit) =
 let private jjRepo (tokens: string list) (reply: Reply) =
     Repo.FromJj("/repo", "/repo", Jj.WithRunner(ScriptedRunner().On([ "root" ], Reply.Ok "/repo\n").On(tokens, reply)))
 
-// A git-backed Repo over a runner scripted to reply to `tokens` with `reply`.
+// A git-backed Repo over a runner scripted to reply to the root probe and then `tokens`.
 let private gitRepo (tokens: string list) (reply: Reply) =
-    Repo.FromGit("/repo", "/repo", Git.WithRunner(ScriptedRunner().On(tokens, reply)))
+    Repo.FromGit(
+        "/repo",
+        "/repo",
+        Git.WithRunner(ScriptedRunner().On([ "rev-parse"; "--show-toplevel" ], Reply.Ok "/repo\n").On(tokens, reply))
+    )
 
 // A tab, built explicitly so no escape has to survive a round-trip.
 let private tab = string (char 9)
@@ -2039,6 +2043,25 @@ type PathAnchoringTests() =
 
         captured, runner
 
+    // A runner that answers each backend's root-discovery probe with `/repo`, then records the
+    // actual listing command for asserting its argv and working directory.
+    let capturingList (reply: Reply) : (Command option ref) * ScriptedRunner =
+        let captured = ref (None: Command option)
+        let repoRoot = Path.GetFullPath "/repo"
+
+        let runner =
+            ScriptedRunner()
+                .On([ "rev-parse"; "--show-toplevel" ], Reply.Ok $"{repoRoot}\n")
+                .On([ "root" ], Reply.Ok $"{repoRoot}\n")
+                .When(
+                    (fun (cmd: Command) ->
+                        captured.Value <- Some cmd
+                        true),
+                    reply
+                )
+
+        captured, runner
+
     let requireGit () =
         try
             Raw.git "." [ "--version" ]
@@ -2293,7 +2316,7 @@ type PathAnchoringTests() =
     [<Test>]
     member _.GitListFilesRunsFromRepoRootNotTheSubdirectoryCwd() : Task =
         task {
-            let captured, runner = capturing (Reply.Ok "")
+            let captured, runner = capturingList (Reply.Ok "")
             let repo = Repo.FromGit("/repo", "/repo/sub", Git.WithRunner runner)
 
             match! repo.ListFiles None with
@@ -2302,6 +2325,8 @@ type PathAnchoringTests() =
 
             match captured.Value with
             | Some cmd ->
+                Assert.That(String.concat " " cmd.Arguments, Is.EqualTo "ls-files -z")
+
                 Assert.That(
                     cmd.WorkingDirectory,
                     Is.EqualTo(Some(Path.GetFullPath "/repo")),
@@ -2316,7 +2341,7 @@ type PathAnchoringTests() =
             // jj's `file list` (unlike LogPaths' `root-file:` filesets) takes no path argument
             // to self-anchor — the underlying invocation itself must run from Root instead of
             // Cwd, avoiding the cwd-anchoring defect ConflictedFiles still has on jj (K-086).
-            let captured, runner = capturing (Reply.Ok "")
+            let captured, runner = capturingList (Reply.Ok "")
             let repo = Repo.FromJj("/repo", "/repo/sub", Jj.WithRunner runner)
 
             match! repo.ListFiles Option.None with
@@ -2325,6 +2350,8 @@ type PathAnchoringTests() =
 
             match captured.Value with
             | Some cmd ->
+                Assert.That(String.concat " " cmd.Arguments, Does.StartWith "file list -r @ -T ")
+
                 Assert.That(
                     cmd.WorkingDirectory,
                     Is.EqualTo(Some(Path.GetFullPath "/repo")),
