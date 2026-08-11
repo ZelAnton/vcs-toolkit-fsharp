@@ -4,6 +4,8 @@ open System
 open System.Collections.Generic
 open System.Diagnostics
 open System.IO
+open System.Net
+open System.Net.Sockets
 open System.Text.Json
 open System.Threading
 open System.Threading.Tasks
@@ -152,6 +154,61 @@ let private readAllTextAfterWriterExit (path: string) : Task<string> =
         | None -> return File.ReadAllText path
     }
 
+/// A loopback HTTP remote that accepts Git's first fetch request and holds it until released.
+/// This makes a real repo_fetch command in-flight without relying on hooks, which the server's
+/// hardened Git profile intentionally disables.
+type private BlockingHttpServer() =
+    let port =
+        use probe = new TcpListener(IPAddress.Loopback, 0)
+        probe.Start()
+        (probe.LocalEndpoint :?> IPEndPoint).Port
+
+    let listener = new HttpListener()
+
+    let requestReceived =
+        new TaskCompletionSource<unit>(TaskCreationOptions.RunContinuationsAsynchronously)
+
+    let release =
+        new TaskCompletionSource<unit>(TaskCreationOptions.RunContinuationsAsynchronously)
+
+    do
+        listener.Prefixes.Add($"http://127.0.0.1:{port}/")
+        listener.Start()
+
+    let requestLoop =
+        task {
+            try
+                let! context = listener.GetContextAsync()
+                requestReceived.TrySetResult() |> ignore
+                do! release.Task
+                context.Response.StatusCode <- 200
+                context.Response.Close()
+            with
+            | :? HttpListenerException
+            | :? ObjectDisposedException ->
+                // Teardown closes the listener while the request loop is waiting; no response is
+                // needed once the child process has been cancelled or the test has finished.
+                ()
+        }
+
+    member _.Url = $"http://127.0.0.1:{port}/"
+
+    member _.WaitForRequest(timeout: TimeSpan) : Task<bool> =
+        task {
+            let! completed = Task.WhenAny(requestReceived.Task :> Task, Task.Delay timeout)
+            return Object.ReferenceEquals(completed, requestReceived.Task)
+        }
+
+    member _.Release() = release.TrySetResult() |> ignore
+
+    interface IDisposable with
+        member _.Dispose() =
+            release.TrySetResult() |> ignore
+            listener.Stop()
+            listener.Close()
+            let _ = requestLoop.Status
+            ()
+
 /// The single text content block the server returns (its JSON body).
 let private textOf (result: CallToolResult) : string =
     let block =
@@ -205,7 +262,11 @@ let private assertInvalidParamsCode (ex: McpException) : unit =
 /// Spawn `vcs-mcp` over a fresh git sandbox (seeded with one commit on `main`),
 /// connect the SDK client over stdio, run `body`, then tear the child process down. The
 /// sandbox has no `origin` remote, so no forge is detected and no forge CLI is needed.
-let private e2e (extraArgs: string list) (body: McpClient -> CancellationToken -> Task<unit>) : Task =
+let private e2eWithSandbox
+    (extraArgs: string list)
+    (prepare: GitSandbox -> unit)
+    (body: GitSandbox -> McpClient -> CancellationToken -> Task<unit>)
+    : Task =
     task {
         match resolveBinary () with
         | None -> Assert.Ignore "vcs-mcp build output not found next to the test assembly (server project not built)"
@@ -215,6 +276,7 @@ let private e2e (extraArgs: string list) (body: McpClient -> CancellationToken -
 
             use sandbox = GitSandbox.Init "mcp-e2e"
             sandbox.CommitFile("README.md", "hello\n", "seed the working copy so HEAD is born")
+            prepare sandbox
 
             // A generous ceiling so a hung child can't wedge the whole test run.
             use cts = new CancellationTokenSource(TimeSpan.FromSeconds 60.0)
@@ -234,12 +296,15 @@ let private e2e (extraArgs: string list) (body: McpClient -> CancellationToken -
             let! client = McpClient.CreateAsync(transport, cancellationToken = cts.Token)
 
             try
-                do! body client cts.Token
+                do! body sandbox client cts.Token
             finally
                 // Dispose the client (and with it the transport) BEFORE the sandbox dir is
                 // removed, so the child process releases the repo it is serving.
                 (client :> IAsyncDisposable).DisposeAsync().GetAwaiter().GetResult()
     }
+
+let private e2e (extraArgs: string list) (body: McpClient -> CancellationToken -> Task<unit>) : Task =
+    e2eWithSandbox extraArgs ignore (fun _ client ct -> body client ct)
 
 [<TestFixture>]
 type McpServerStdioE2eTests() =
@@ -393,6 +458,81 @@ type McpServerStdioE2eTests() =
             Assert.That(logText, Does.Contain "vcs-mcp: start program=git", "a start line for the git client")
             Assert.That(logText, Does.Contain "vcs-mcp: done  program=git", "a finish line for the git client")
             Assert.That(logText, Does.Contain "outcome=ok(", "the observed command succeeded")
+        }
+
+    /// The request cancellation must cross the SDK handler boundary while a real write command
+    /// is in flight. A blocking loopback fetch makes the first call hold the server's repo lock;
+    /// cancelling that MCP request must release the lock so a second write call can complete.
+    [<Test>]
+    member _.RequestCancellationStopsInFlightWriteAndKeepsServerUsable() : Task =
+        task {
+            use blockingRemote = new BlockingHttpServer()
+
+            let prepare (sandbox: GitSandbox) =
+                sandbox.Git [ "remote"; "add"; "origin"; blockingRemote.Url ]
+
+            try
+                do!
+                    e2eWithSandbox [ "--allow-write" ] prepare (fun _sandbox client ct ->
+                        task {
+                            let checkoutArgs = Dictionary<string, obj | null>()
+                            checkoutArgs["reference"] <- "main"
+
+                            use requestCts = new CancellationTokenSource()
+
+                            let firstCall =
+                                client.CallToolAsync("repo_fetch", cancellationToken = requestCts.Token).AsTask()
+
+                            let! started = blockingRemote.WaitForRequest(TimeSpan.FromSeconds 5.0)
+
+                            Assert.That(started, Is.True, "the first MCP call must reach the in-flight backend fetch")
+
+                            let secondCall =
+                                client.CallToolAsync("repo_checkout", checkoutArgs, cancellationToken = ct).AsTask()
+
+                            let secondCallAsTask = secondCall :> Task
+                            let! stillWaiting = Task.WhenAny(secondCallAsTask, Task.Delay 250)
+
+                            Assert.That(
+                                Object.ReferenceEquals(stillWaiting, secondCallAsTask),
+                                Is.False,
+                                "the second write must wait while the first call owns the repo lock"
+                            )
+
+                            requestCts.Cancel()
+
+                            let firstCallAsTask = firstCall :> Task
+                            let! firstFinished = Task.WhenAny(firstCallAsTask, Task.Delay(TimeSpan.FromSeconds 5.0))
+
+                            Assert.That(
+                                Object.ReferenceEquals(firstFinished, firstCallAsTask),
+                                Is.True,
+                                "the cancelled MCP request must finish promptly"
+                            )
+
+                            let! secondFinished = Task.WhenAny(secondCallAsTask, Task.Delay(TimeSpan.FromSeconds 5.0))
+
+                            Assert.That(
+                                Object.ReferenceEquals(secondFinished, secondCallAsTask),
+                                Is.True,
+                                "the follow-up write must run after cancellation releases the repo lock"
+                            )
+
+                            let! secondResult = secondCall
+
+                            Assert.That(
+                                isError secondResult,
+                                Is.False,
+                                "the repository must remain usable after cancellation"
+                            )
+
+                            let! snapshot = client.CallToolAsync("repo_snapshot", cancellationToken = ct)
+                            Assert.That(isError snapshot, Is.False, "a read after cancellation must still succeed")
+                        })
+            finally
+                // If an implementation fails to cancel the fetch, release it before the client
+                // and sandbox teardown so the failed test cannot strand a child process.
+                blockingRemote.Release()
         }
 
     /// A file sink whose parent directory does not exist is a normal startup failure: the
