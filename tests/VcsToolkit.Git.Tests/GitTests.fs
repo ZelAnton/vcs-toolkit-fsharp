@@ -174,6 +174,34 @@ type StatusTests() =
 type QueryTests() =
 
     [<Test>]
+    member _.ResolvedGitDirMakesRelativeDirAndGitOutputAbsolute() : Task =
+        task {
+            let dir = Path.Combine("relative", "repo")
+            let git = scripted [ "rev-parse"; "--git-dir" ] (Reply.Ok ".git\n")
+
+            match! git.ResolvedGitDir(dir) with
+            | Ok resolved ->
+                Assert.That(resolved, Is.EqualTo(Path.GetFullPath(Path.Combine(dir, ".git"))))
+                Assert.That(Path.IsPathRooted resolved, Is.True)
+            | Error e -> Assert.Fail $"resolved_git_dir failed: {e}"
+        }
+
+    [<Test>]
+    member _.ResolvedGitDirKeepsAbsoluteWorktreeGitDir() : Task =
+        task {
+            let dir = Path.Combine("relative", "repo")
+
+            let worktreeGitDir =
+                Path.GetFullPath(Path.Combine(dir, ".git", "worktrees", "linked"))
+
+            let git = scripted [ "rev-parse"; "--git-dir" ] (Reply.Ok(worktreeGitDir + "\n"))
+
+            match! git.ResolvedGitDir(dir) with
+            | Ok resolved -> Assert.That(resolved, Is.EqualTo worktreeGitDir)
+            | Error e -> Assert.Fail $"resolved_git_dir failed: {e}"
+        }
+
+    [<Test>]
     member _.RevParseShortBuildsShortFlag() : Task =
         task {
             let git = scripted [ "rev-parse"; "--short"; "HEAD" ] (Reply.Ok "a1b2c3d\n")

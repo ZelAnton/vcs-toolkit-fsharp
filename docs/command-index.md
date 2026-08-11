@@ -62,7 +62,7 @@ for this client's place in the layering.
 | `IsUnborn` | `rev-parse --verify -q HEAD` | fresh repo, no commits |
 | `CommonDir` | `rev-parse --git-common-dir` | stable across worktrees |
 | `GitDir` | `rev-parse --git-dir` | this worktree's git dir |
-| `ResolvedGitDir` | `GitDir`, resolved to an absolute path | |
+| `ResolvedGitDir` | `GitDir`, resolved to an absolute path | absolute even when `dir` and Git's `--git-dir` output are relative; preserves linked-worktree git dirs |
 | `RemoteHeadBranch` | `symbolic-ref --quiet refs/remotes/origin/HEAD` | `None` when unset |
 | `BranchExists` | `show-ref --verify --quiet refs/heads/<name>` | |
 | `RemoteBranchExists` | `ls-remote origin refs/heads/<name>` | fully-qualified ref |

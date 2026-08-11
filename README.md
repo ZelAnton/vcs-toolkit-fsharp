@@ -41,6 +41,9 @@ The toolkit is split into one package per concern, mirroring the Rust workspace.
 | `VcsToolkit.Watch` | Implemented | Filesystem-watch a git/jj repository and emit typed state-change events. A `RepoWatcher` watches the `.git`/`.jj` state dir (and, optionally, the working tree), debounces the write burst a VCS operation makes, re-queries `Repo.Snapshot`, and diffs it against the previous state to yield typed `RepoEvent`s (`HeadMoved`, `BranchSwitched`, `BranchCreated`/`Deleted`, `WorkingCopyChanged`, upstream/ahead-behind/operation/conflict). Re-query-and-diff (not raw FS events) makes it robust to ref temp-file renames and `index.lock` churn. The foundation for prompts, status bars, and TUIs. |
 | `VcsToolkit.Mcp` | Implemented | A Model Context Protocol server exposing the toolkit's typed git/jj + forge operations as agent-callable tools. The `VcsToolkit.Mcp` library is the hermetically-testable core — `VcsMcpServer` with the `repo_*` / `forge_*` tools over `Core`/`Forge`, the `WriteGate` write policy (read tools always available, mutations gated by `--allow-write`/`--allow-tools`), the tool catalogue and dispatcher, and the CLI parser. The thin `vcs-mcp` binary (`VcsToolkit.Mcp.Server`) wires it to the `ModelContextProtocol` SDK over stdio, with a hardened git client, per-command timeout, and request cancellation propagation through commands and repository lock waits. |
 
+`Git.ResolvedGitDir(dir)` always returns an absolute metadata-directory path, including when
+`dir` is relative and Git reports a relative `--git-dir` for a linked worktree.
+
 ## The `vcs-mcp` MCP server
 
 The `vcs-mcp` binary (`VcsToolkit.Mcp.Server`) is packaged as a **.NET global tool**. After the
