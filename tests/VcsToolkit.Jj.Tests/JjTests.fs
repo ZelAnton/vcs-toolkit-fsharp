@@ -178,6 +178,16 @@ type ParseTests() =
         Assert.That(got.[1].Target, Is.EqualTo "abc123")
 
     [<Test>]
+    member _.CommitGraphParsesMergeParents() =
+        let got =
+            JjParse.parseCommitGraph $"merge{tab}near far\nnear{tab}base\nfar{tab}old\nold{tab}base\nbase{tab}\n"
+
+        Assert.That(got.Length, Is.EqualTo 5)
+        Assert.That(got.[0].CommitId, Is.EqualTo "merge")
+        Assert.That((got.[0].Parents = [ "near"; "far" ]), Is.True)
+        Assert.That(got.[4].Parents, Is.Empty)
+
+    [<Test>]
     member _.ResolveListExtractsPathsAndNormalises() =
         // Input mirrors `CONFLICTED_PATHS_TEMPLATE`'s output: one `.escape_json()`-framed
         // path per line.

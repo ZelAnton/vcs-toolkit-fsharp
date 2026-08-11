@@ -526,14 +526,53 @@ type QueryTests() =
     [<Test>]
     member _.RemoteBranchExistsBuildsLsRemoteHeadsRef() : Task =
         task {
-            let git =
-                scripted
-                    [ "ls-remote"; "origin"; "refs/heads/feature/T-010_fix" ]
-                    (Reply.Ok "abc123\trefs/heads/feature/T-010_fix\n")
+            let captured, runner = capturing (Reply.Ok "abc123\trefs/heads/feature/T-010_fix\n")
+            let git = Git.WithRunner runner
 
             match! git.RemoteBranchExists(".", "feature/T-010_fix") with
             | Ok exists -> Assert.That(exists)
             | Error e -> Assert.Fail $"remote_branch_exists failed: {e}"
+
+            match captured.Value with
+            | Some cmd ->
+                Assert.That(String.concat " " cmd.Arguments, Is.EqualTo "ls-remote origin refs/heads/feature/T-010_fix")
+            | None -> Assert.Fail "RemoteBranchExists did not spawn git"
+        }
+
+    [<Test>]
+    member _.RemoteBranchExistsReturnsFalseForAnEmptySuccessfulResult() : Task =
+        task {
+            let captured, runner = capturing (Reply.Ok "")
+            let git = Git.WithRunner runner
+
+            match! git.RemoteBranchExists(".", "feature/missing") with
+            | Ok exists -> Assert.That(exists, Is.False)
+            | Error e -> Assert.Fail $"remote_branch_exists failed: {e}"
+
+            match captured.Value with
+            | Some cmd ->
+                Assert.That(String.concat " " cmd.Arguments, Is.EqualTo "ls-remote origin refs/heads/feature/missing")
+            | None -> Assert.Fail "RemoteBranchExists did not spawn git"
+        }
+
+    [<Test>]
+    member _.RemoteBranchExistsReturnsErrorForANonZeroLsRemoteExit() : Task =
+        task {
+            let captured, runner = capturing (Reply.Exit 128)
+            let git = Git.WithRunner runner
+
+            match! git.RemoteBranchExists(".", "feature/unreachable") with
+            | Error(ProcessError.Exit(_, code, _, _)) -> Assert.That(code, Is.EqualTo 128)
+            | Error e -> Assert.Fail $"expected ls-remote exit error, got {e}"
+            | Ok exists -> Assert.Fail $"expected ls-remote failure, got Ok {exists}"
+
+            match captured.Value with
+            | Some cmd ->
+                Assert.That(
+                    String.concat " " cmd.Arguments,
+                    Is.EqualTo "ls-remote origin refs/heads/feature/unreachable"
+                )
+            | None -> Assert.Fail "RemoteBranchExists did not spawn git"
         }
 
     [<Test>]

@@ -157,14 +157,14 @@ module internal JjBackend =
         task {
             // jj has no "current branch" in the git sense; report the nearest bookmark
             // reachable from `@` (`heads(::@ & bookmarks())`), which stays non-empty
-            // across a commit. Tie-break: pick the lexicographically-smallest name so the
-            // answer is deterministic instead of dependent on jj's row order.
-            match! jj.ReachableBookmarks dir with
+            // across a commit. The Jj client supplies shortest graph distances so merge
+            // topology is respected. Tie-break only among equally near candidates.
+            match! jj.ReachableBookmarksWithDistance dir with
             | Error e -> return Error(RepoError.Vcs e)
             | Ok bookmarks ->
-                let names = bookmarks |> List.map (fun b -> b.Name)
+                let nearest = bookmarks |> List.sortBy (fun b -> b.Distance, b.Name) |> List.tryHead
 
-                return Ok(if List.isEmpty names then None else Some(List.min names))
+                return Ok(nearest |> Option.map (fun bookmark -> bookmark.Name))
         }
 
     let trunk (jj: Jj) (dir: string) =
