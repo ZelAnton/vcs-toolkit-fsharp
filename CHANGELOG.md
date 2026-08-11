@@ -112,6 +112,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - `Git.ResolvedGitDir` now returns an absolute metadata-directory path when called with a relative directory and Git reports a relative `--git-dir`, including linked-worktree git dirs.
+- `Repo.ConflictedFiles` on Jujutsu now resolves conflicted paths from the workspace root, preserving every repo-relative path when a `Repo` handle is bound to a subdirectory.
+- `Repo.TryMerge` on Jujutsu now reports every merge conflict with a workspace-root-relative path when the `Repo` handle is bound to a subdirectory, while keeping the merge probe and rollback anchored to that handle.
 - `VcsToolkit.TestKit`'s `GitSandbox` and `JjSandbox` now reject rooted or escaping paths before writing, keeping fixture files inside their sandbox roots.
 - `vcs-mcp` request cancellation now stops read and write tool execution, including per-repository lock waits, without starting another retry attempt or losing the configured server timeout.
 - Direct `Git.ListFiles` and `Jj.FileList` calls from a repository subdirectory now return repo-relative paths, matching their bound and facade counterparts.

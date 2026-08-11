@@ -1150,6 +1150,7 @@ type AssemblyTests() =
                     .On([ "op"; "log"; "--limit"; "32" ], Reply.Ok(opRow "opabc")) // divergence probe: captured op present
                     .On([ "new" ], Reply.Ok "")
                     .On([ "log"; "-T" ], Reply.Ok "1\n") // conflicted
+                    .On([ "root" ], Reply.Ok "/repo\n") // resolve conflicted paths from workspace root
                     .On([ "file"; "list" ], Reply.Ok "\"a.rs\"\n")
                     .On([ "op"; "restore"; "opabc" ], Reply.Ok "")
 
@@ -2457,6 +2458,61 @@ type PathAnchoringTests() =
                     // regression class as ConflictedFiles' unfixed cwd-anchoring defect on jj (K-086).
                     Assert.That(paths, Does.Contain "sub/a.txt")
                     Assert.That(paths, Does.Contain "top.txt")
+        }
+
+    [<Test>]
+    member _.JjTryMergeFromASubdirectoryHandleReportsAllConflictsRootRelativeAndRollsBack() : Task =
+        task {
+            requireJj ()
+            use sandbox = JjSandbox.Init "t165-jj-try-merge-subdir"
+            sandbox.Write("sub/inside.txt", "base\n")
+            sandbox.Write("outside.txt", "base\n")
+            sandbox.Describe "base"
+            sandbox.Bookmark "main"
+
+            sandbox.NewChange "feature"
+            sandbox.Write("sub/inside.txt", "feature\n")
+            sandbox.Write("outside.txt", "feature\n")
+            sandbox.Bookmark "feature"
+
+            sandbox.Jj [ "new"; "main"; "-m"; "main changes" ]
+            sandbox.Write("sub/inside.txt", "main\n")
+            sandbox.Write("outside.txt", "main\n")
+            sandbox.Describe "main changes"
+
+            let rootRepo = Repo.FromJj(sandbox.Path, sandbox.Path, Jj.Create())
+            let repo = rootRepo.At(Path.Combine(sandbox.Path, "sub"))
+
+            match! repo.Snapshot() with
+            | Error e -> Assert.Fail $"Baseline snapshot failed: {e.Message}"
+            | Ok baseline ->
+                match! repo.TryMerge "feature" with
+                | Error e -> Assert.Fail $"TryMerge from a subdirectory handle failed: {e.Message}"
+                | Ok MergeProbe.Clean -> Assert.Fail "expected conflicts in both files"
+                | Ok(MergeProbe.Conflicts conflicts) ->
+                    Assert.That(
+                        List.sort conflicts = [ "outside.txt"; "sub/inside.txt" ],
+                        Is.True,
+                        "MergeProbe.Conflicts must include every conflict as a workspace-root-relative path"
+                    )
+
+                    match! repo.ConflictedFiles() with
+                    | Error e -> Assert.Fail $"ConflictedFiles after TryMerge failed: {e.Message}"
+                    | Ok paths -> Assert.That(paths, Is.Empty, "TryMerge must roll back the probe conflict")
+
+                    match! repo.Snapshot() with
+                    | Error e -> Assert.Fail $"Snapshot after TryMerge failed: {e.Message}"
+                    | Ok snapshot ->
+                        Assert.That(snapshot.Head = baseline.Head, Is.True, "TryMerge must restore the original head")
+
+                        Assert.That(
+                            snapshot.Dirty = baseline.Dirty,
+                            Is.True,
+                            "TryMerge must preserve the original working-copy state"
+                        )
+
+                        Assert.That(snapshot.Conflicted, Is.False, "rollback must remove the probe conflict")
+                        Assert.That(snapshot.Operation, Is.EqualTo OperationState.Clear)
         }
 
     // --- T-155: ListFiles preserves a spaced / non-ASCII filename losslessly ----------------

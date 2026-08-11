@@ -246,7 +246,7 @@ caller-supplied name can't fan a mutation out across every matching ref.
 | `CommitCount` | `log -r <revset> --no-graph -T <count-template>` | one id per line |
 | `IsConflicted` | `log -r <revset> --no-graph --limit 1 -T <conflict-template>` | |
 | `HasWorkingCopyConflict` | `IsConflicted(dir, "@")` | |
-| `ResolveList` | `file list -r <revset> -T <conflicted-paths-template>` | lossless paths; empty output on no conflicts (never errors) |
+| `ResolveList` | `file list -r <revset> -T <conflicted-paths-template>` | lossless paths; empty output on no conflicts (never errors); `Repo.ConflictedFiles` resolves the workspace root before calling it so facade paths stay repo-relative |
 | `TemplateQuery` | `log -r <revset> --no-graph [--limit n] -T <template>` | untrimmed raw stdout |
 | `Description` | `TemplateQuery(dir, revset, "description", Some 1)`, trimmed | newest commit of a multi-commit revset |
 | `Evolog` | `evolog -r <revset> --no-graph --limit <max> -T <template>` | newest predecessor first |
