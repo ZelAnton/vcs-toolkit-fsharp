@@ -1084,6 +1084,41 @@ type HardeningTests() =
         }
 
     [<Test>]
+    member _.WorkflowDispatchRejectsInvalidInputKeysBeforeSpawning() : Task =
+        task {
+            let nulKey = "input" + string (char 0) + "name"
+
+            for key, label in [ "", "empty"; "a=b", "equals"; nulKey, "NUL" ] do
+                let runner = ScriptedRunner().Fallback(Reply.Ok "")
+                let gh = GitHub.WithRunner runner
+                let spec = WorkflowDispatch.Create("triage.yml").WithInput(key, "value")
+
+                match! gh.WorkflowDispatch(".", spec) with
+                | Error(ProcessError.Spawn(program, message)) ->
+                    Assert.That(program, Is.EqualTo "gh", label)
+                    Assert.That(message, Does.Contain "workflow input key", label)
+                | Error e -> Assert.Fail $"{label} input key returned the wrong error: {e}"
+                | Ok() -> Assert.Fail $"{label} input key was accepted"
+
+                Assert.That(
+                    runner.Received |> Seq.isEmpty,
+                    Is.True,
+                    $"{label} input key must be rejected before invoking gh"
+                )
+        }
+
+    [<Test>]
+    member _.WorkflowDispatchAllowsEqualsInInputValue() : Task =
+        task {
+            let gh, args = capturing (Reply.Ok "")
+            let spec = WorkflowDispatch.Create("triage.yml").WithInput("name", "a=b")
+
+            match! gh.WorkflowDispatch(".", spec) with
+            | Ok() -> assertArgs [ "workflow"; "run"; "triage.yml"; "--raw-field"; "name=a=b" ] args
+            | Error e -> Assert.Fail $"workflow dispatch with an equals-containing value failed: {e}"
+        }
+
+    [<Test>]
     member _.RunRerunAllScopeOmitsFailedFlag() : Task =
         task {
             let gh, args = capturing (Reply.Ok "")
