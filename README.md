@@ -86,7 +86,9 @@ example `mcpServers` configuration block.
 ## Quick start
 
 Install `VcsToolkit.Core`, then open a Git or Jujutsu repository. `Repo.Open` detects the
-backend; `CommitPaths` accepts repository-root-relative paths and never commits an empty list.
+backend; `CommitPaths` accepts repository-root-relative paths and never commits an empty list,
+while `ConflictedFiles` returns every unresolved path in that same root-relative form even
+when the handle is bound to a subdirectory with `Repo.At`.
 
 ```fsharp
 open VcsToolkit.Core
