@@ -171,6 +171,18 @@ module internal Internals =
 
             true
 
+    /// Check whether `candidate` is lexically contained by the canonical `root`.
+    let isPathWithinRoot (root: string) (candidate: string) =
+        let relative = Path.GetRelativePath(root, candidate)
+        let parentPrefix separator = ".." + string separator
+
+        not (
+            Path.IsPathRooted relative
+            || relative = ".."
+            || relative.StartsWith(parentPrefix Path.DirectorySeparatorChar, StringComparison.Ordinal)
+            || relative.StartsWith(parentPrefix Path.AltDirectorySeparatorChar, StringComparison.Ordinal)
+        )
+
     /// Resolve a sandbox-relative path and reject rooted or escaping paths before any
     /// parent directory or file is created. `Path.GetRelativePath` provides the canonical
     /// lexical containment check while preserving platform-specific case and separators.
@@ -183,14 +195,8 @@ module internal Internals =
         let canonicalRoot = Path.GetFullPath root
         let candidate = Path.GetFullPath(path, canonicalRoot)
         let relative = Path.GetRelativePath(canonicalRoot, candidate)
-        let parentPrefix separator = ".." + string separator
 
-        if
-            Path.IsPathRooted relative
-            || relative = ".."
-            || relative.StartsWith(parentPrefix Path.DirectorySeparatorChar, StringComparison.Ordinal)
-            || relative.StartsWith(parentPrefix Path.AltDirectorySeparatorChar, StringComparison.Ordinal)
-        then
+        if not (isPathWithinRoot canonicalRoot candidate) then
             invalidArg "path" "path must remain within the sandbox root"
 
         let components =
@@ -209,6 +215,32 @@ module internal Internals =
 
         candidate
 
+    /// Convert an arbitrary fixture tag into one portable filename component, then
+    /// canonicalize and verify the generated directory before its first filesystem write.
+    let tempDirPath (tag: string) : string =
+        let forbidden = Path.GetInvalidFileNameChars() |> Set.ofArray
+
+        let safeTag =
+            tag.ToCharArray()
+            |> Array.map (fun c ->
+                if Char.IsControl c || c = '/' || c = '\\' || c = ':' || Set.contains c forbidden then
+                    '-'
+                else
+                    c)
+            |> System.String
+
+        let canonicalRoot = Path.GetFullPath(Path.GetTempPath())
+
+        let name =
+            sprintf "vcs-testkit-%s-%d-%d" safeTag (Environment.ProcessId) (nextCount ())
+
+        let candidate = Path.GetFullPath(Path.Combine(canonicalRoot, name))
+
+        if not (isPathWithinRoot canonicalRoot candidate) then
+            invalidArg "tag" "tag must resolve to a single directory component inside the temp root"
+
+        candidate
+
 /// A unique temporary directory, removed on `Dispose`.
 ///
 /// Unique without a temp-dir library: process id + a process-wide monotonic counter, so
@@ -218,8 +250,7 @@ module internal Internals =
 [<Sealed>]
 type TempDir(tag: string) =
     let path =
-        let p =
-            Path.Combine(Path.GetTempPath(), sprintf "vcs-testkit-%s-%d-%d" tag (Environment.ProcessId) (nextCount ()))
+        let p = tempDirPath tag
 
         Directory.CreateDirectory p |> ignore
         p

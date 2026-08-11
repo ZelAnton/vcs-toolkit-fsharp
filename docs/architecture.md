@@ -163,8 +163,10 @@ narrowed on our side, over the window the CLI fetched, rather than by the CLI.
 ### `VcsToolkit.TestKit` — throwaway sandboxes, intentionally dependency-free
 
 `TestKit` gives a test a real, disposable git/jj repository to work against: a
-self-cleaning `TempDir`, `GitSandbox`/`JjSandbox` scenario builders, and a
-seeded `BareRemote` to clone/fetch/push against — synchronous and raising on
+self-cleaning `TempDir` whose tag is sanitized to one filename component and
+whose canonical path is checked against the OS temp root before creation,
+`GitSandbox`/`JjSandbox` scenario builders, and a seeded `BareRemote` to
+clone/fetch/push against — synchronous and raising on
 failure (it is test fixture code, not library code, so "throw on the
 unexpected" is the right default here, unlike everywhere else in this stack).
 It is placed off to the side in the dependency diagram on purpose: it has *no*

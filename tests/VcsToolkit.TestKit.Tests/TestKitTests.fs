@@ -34,6 +34,19 @@ let private assertPathArgumentException (path: string) (action: string -> unit) 
     | null -> raise (InvalidOperationException "Assert.Throws returned null unexpectedly")
     | caught -> Assert.That(caught.ParamName, Is.EqualTo "path")
 
+let private isWithinTempRoot (path: string) =
+    let root = Path.GetFullPath(Path.GetTempPath())
+    let candidate = Path.GetFullPath path
+    let relative = Path.GetRelativePath(root, candidate)
+    let parentPrefix separator = ".." + string separator
+
+    not (
+        Path.IsPathRooted relative
+        || relative = ".."
+        || relative.StartsWith(parentPrefix Path.DirectorySeparatorChar, StringComparison.Ordinal)
+        || relative.StartsWith(parentPrefix Path.AltDirectorySeparatorChar, StringComparison.Ordinal)
+    )
+
 let private tryCreateDirectoryLink (link: string) (target: string) : bool =
     try
         if OperatingSystem.IsWindows() then
@@ -90,9 +103,67 @@ type TempDirTests() =
 
     [<Test>]
     member _.PathIsUnderTempAndTagged() =
-        use dir = new TempDir("tagme")
-        Assert.That(Path.GetFileName dir.Path, Does.StartWith "vcs-testkit-tagme-")
-        Assert.That(dir.Path, Does.StartWith(Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar)))
+        let dir = new TempDir("tagme")
+        let kept = dir.Path
+
+        try
+            Assert.That(Path.GetFileName kept, Does.StartWith "vcs-testkit-tagme-")
+            Assert.That(isWithinTempRoot kept, Is.True, "safe tags stay under the canonical temp root")
+            Assert.That(Directory.Exists kept, Is.True)
+        finally
+            (dir :> IDisposable).Dispose()
+
+        Assert.That(Directory.Exists kept, Is.False, "safe tags retain self-cleaning disposal")
+
+    [<Test>]
+    member _.TraversalAndRootedTagsCannotEscapeTempRoot() =
+        let tempRoot = Path.GetFullPath(Path.GetTempPath())
+
+        let tempParent =
+            Directory.GetParent(tempRoot)
+            |> Option.ofObj
+            |> Option.map (fun parent -> parent.FullName)
+            |> Option.defaultWith (fun () -> failwith "the OS temp root must have a parent")
+
+        let marker = $"vcs-testkit-tempdir-escape-{Guid.NewGuid():N}"
+        let separator = string Path.DirectorySeparatorChar
+        let alternateSeparator = string Path.AltDirectorySeparatorChar
+        let traversalTag = $"{separator}..{alternateSeparator}..{separator}{marker}"
+
+        let rootedTag =
+            Path.GetPathRoot tempRoot
+            |> Option.ofObj
+            |> Option.map (fun root -> Path.Combine(root, marker))
+            |> Option.defaultWith (fun () -> failwith "the OS temp root must have a path root")
+
+        let outsideDirectories () =
+            Directory.GetDirectories(tempParent, marker + "-*")
+
+        let disposeAndRemoveOutside (dir: TempDir) =
+            (dir :> IDisposable).Dispose()
+
+            for outside in outsideDirectories () do
+                if Directory.Exists outside then
+                    Directory.Delete(outside, true)
+                elif File.Exists outside then
+                    File.Delete outside
+
+        Assert.That(outsideDirectories (), Is.Empty, "the unique marker must not pre-exist")
+
+        for tag in [ traversalTag; rootedTag ] do
+            let dir = new TempDir(tag)
+
+            try
+                Assert.That(isWithinTempRoot dir.Path, Is.True, $"tag stayed contained: {tag}")
+                Assert.That(Directory.Exists dir.Path, Is.True)
+            finally
+                disposeAndRemoveOutside dir
+
+        Assert.That(
+            outsideDirectories (),
+            Is.Empty,
+            "separator and rooted tags must not create a directory beside the temp root"
+        )
 
 // ---------------------------------------------------------------------------
 // GitSandbox / BareRemote — require the git binary (present on CI runners)
