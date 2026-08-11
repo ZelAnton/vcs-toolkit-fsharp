@@ -146,9 +146,9 @@ module private GitHelpers =
             | Ok gitDir ->
                 let resolved =
                     if Path.IsPathRooted gitDir then
-                        gitDir
+                        Path.GetFullPath gitDir
                     else
-                        Path.Combine(dir, gitDir)
+                        Path.GetFullPath(Path.Combine(dir, gitDir))
 
                 return Ok resolved
         }

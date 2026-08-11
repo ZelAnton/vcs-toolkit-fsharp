@@ -491,8 +491,12 @@ type ConflictParityTests() =
             let git = expectOk "git" "ConflictedFiles" gitResult
             let jj = expectOk "jj" "ConflictedFiles" jjResult
 
+            let expected = [ ConflictPath; OutsideConflictPath ] |> List.sort
+            let git = List.sort git
+            let jj = List.sort jj
+
             assertSameList "ConflictedFiles" id git jj
-            assertListEquals "ConflictedFiles paths" [ ConflictPath ] git
+            assertListEquals "ConflictedFiles paths" expected git
             git |> List.iter (assertRepoRelativePath "git ConflictedFiles")
             jj |> List.iter (assertRepoRelativePath "jj ConflictedFiles")
 
@@ -548,28 +552,32 @@ type ConflictParityTests() =
         }
 
     [<Test>]
-    member _.ConflictedFilesFromASubdirectoryDivergeOnJj() : Task =
+    member _.ConflictedFilesFromASubdirectoryRemainRepoRelative() : Task =
         task {
-            // KNOWN DIVERGENCE, pinned deliberately. `Repo.ConflictedFiles` documents
-            // repo-relative paths, and git delivers them from anywhere; jj's underlying query
-            // runs from the handle's `Cwd` and renders paths relative to it, so a handle bound
-            // to a subdirectory reports a *cwd-relative* path instead. Reported for a follow-up
-            // fix in `JjBackend.conflictedFiles` (it needs the repository root, the way
-            // `Repo.Annotate`/`LogPaths` already anchor theirs); when that lands, this test
-            // becomes a plain parity assertion.
+            // `Repo.ConflictedFiles` promises workspace-root-relative paths even when the
+            // handle is bound to a subdirectory. The scenario includes one conflict outside
+            // that directory to prove the query is not narrowed to the caller's cwd.
             let pair = fixture.Pair
             let! gitResult = pair.Git.At(Path.Combine(pair.GitSandbox.Path, ConflictDirectory)).ConflictedFiles()
             let! jjResult = pair.Jj.At(Path.Combine(pair.JjSandbox.Path, ConflictDirectory)).ConflictedFiles()
 
-            assertListEquals
-                "git ConflictedFiles from a subdirectory handle stays repo-relative"
-                [ ConflictPath ]
-                (expectOk "git" "ConflictedFiles" gitResult)
+            let expected = [ ConflictPath; OutsideConflictPath ] |> List.sort
 
             assertListEquals
-                "jj ConflictedFiles from a subdirectory handle is cwd-relative (known gap)"
-                [ ConflictFileName ]
-                (expectOk "jj" "ConflictedFiles" jjResult)
+                "git ConflictedFiles from a subdirectory handle stays repo-relative"
+                expected
+                (expectOk "git" "ConflictedFiles" gitResult |> List.sort)
+
+            assertListEquals
+                "jj ConflictedFiles from a subdirectory handle stays repo-relative and complete"
+                expected
+                (expectOk "jj" "ConflictedFiles" jjResult |> List.sort)
+
+            expectOk "git" "ConflictedFiles" gitResult
+            |> List.iter (assertRepoRelativePath "git ConflictedFiles from subdirectory")
+
+            expectOk "jj" "ConflictedFiles" jjResult
+            |> List.iter (assertRepoRelativePath "jj ConflictedFiles from subdirectory")
         }
 
 // ---------------------------------------------------------------------------

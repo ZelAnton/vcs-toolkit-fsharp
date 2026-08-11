@@ -204,8 +204,14 @@ module internal JjBackend =
 
     let conflictedFiles (jj: Jj) (dir: string) =
         task {
-            let! r = jj.ResolveList(dir, "@")
-            return ofVcs r
+            // `ResolveList` renders `path.display()` relative to its process cwd. Run it
+            // from the workspace root so the facade's paths stay repo-relative for a handle
+            // bound to a subdirectory, and so conflicts outside that directory are included.
+            match! jj.Root dir with
+            | Error e -> return Error(RepoError.Vcs e)
+            | Ok root ->
+                let! r = jj.ResolveList(root, "@")
+                return ofVcs r
         }
 
     let deleteBranch (jj: Jj) (dir: string) (name: string) =
@@ -446,9 +452,12 @@ module internal JjBackend =
                         match! jj.IsConflicted(dir, "@") with
                         | Error e -> return Error e
                         | Ok true ->
-                            match! jj.ResolveList(dir, "@") with
+                            match! jj.Root dir with
                             | Error e -> return Error e
-                            | Ok files -> return Ok(Some files)
+                            | Ok root ->
+                                match! jj.ResolveList(root, "@") with
+                                | Error e -> return Error e
+                                | Ok files -> return Ok(Some files)
                         | Ok false -> return Ok None
                     }
 

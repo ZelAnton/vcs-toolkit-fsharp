@@ -220,22 +220,33 @@ type ScenarioRepo private (handle: SandboxHandle) =
         | GitBox _ -> ()
         | JjBox j -> j.Jj [ "bookmark"; "create"; "main"; "-r"; "@" ]
 
-    /// Leave the working copy holding an unresolved conflict in `path`: `basis` is committed
+    /// Leave the working copy holding unresolved conflicts in `conflicts`: the basis is committed
     /// first, then two divergent edits are merged. git pauses a real merge (`MERGE_HEAD` + an
-    /// unmerged index); jj records the conflict on a merge change instead — the two models the
+    /// unmerged index); jj records the conflicts on a merge change instead — the two models the
     /// facade unifies.
-    member this.CreateConflict(path: string, basis: string, left: string, right: string) =
-        this.Write(path, basis)
+    member this.CreateConflicts(conflicts: (string * string * string * string) list) =
+        if List.isEmpty conflicts then
+            invalidArg (nameof conflicts) "at least one conflict is required"
+
+        for (path, basis, _, _) in conflicts do
+            this.Write(path, basis)
+
         this.CommitAll "conflict basis"
 
         match handle with
         | GitBox g ->
             g.Git [ "checkout"; "-q"; "-b"; "right" ]
-            g.Write(path, right)
+
+            for (path, _, _, right) in conflicts do
+                g.Write(path, right)
+
             g.AddAll()
             g.Commit "right side"
             g.Checkout "main"
-            g.Write(path, left)
+
+            for (path, _, left, _) in conflicts do
+                g.Write(path, left)
+
             g.AddAll()
             g.Commit "left side"
 
@@ -250,12 +261,22 @@ type ScenarioRepo private (handle: SandboxHandle) =
         | JjBox j ->
             j.Jj [ "bookmark"; "create"; "basis"; "-r"; "@-" ]
             j.Jj [ "new"; "basis"; "-m"; "right side" ]
-            j.Write(path, right)
+
+            for (path, _, _, right) in conflicts do
+                j.Write(path, right)
+
             j.Jj [ "bookmark"; "create"; "right"; "-r"; "@" ]
             j.Jj [ "new"; "basis"; "-m"; "left side" ]
-            j.Write(path, left)
+
+            for (path, _, left, _) in conflicts do
+                j.Write(path, left)
+
             j.Jj [ "bookmark"; "create"; "left"; "-r"; "@" ]
             j.Jj [ "new"; "left"; "right"; "-m"; "merge" ]
+
+    /// Leave the working copy holding one unresolved conflict.
+    member this.CreateConflict(path: string, basis: string, left: string, right: string) =
+        this.CreateConflicts [ path, basis, left, right ]
 
     interface IDisposable with
         member _.Dispose() =
@@ -422,15 +443,18 @@ let seedWhitespaceScenario (repo: ScenarioRepo) =
 [<Literal>]
 let ConflictDirectory = "conflict dir"
 
-/// The path the conflict scenario leaves unresolved — inside a subdirectory, and with a space,
+/// One path the conflict scenario leaves unresolved — inside a subdirectory, and with a space,
 /// so the conflicted-path *shape* is exercised too.
 [<Literal>]
 let ConflictPath = ConflictDirectory + "/f.txt"
 
-/// The bare file name of `ConflictPath`.
+/// A second unresolved path outside `ConflictDirectory`, proving a nested-cwd query does not
+/// silently omit conflicts elsewhere in the workspace.
 [<Literal>]
-let ConflictFileName = "f.txt"
+let OutsideConflictPath = "outside.txt"
 
-/// A working copy holding an unresolved conflict in `ConflictPath`.
+/// A working copy holding unresolved conflicts both inside and outside `ConflictDirectory`.
 let seedConflictScenario (repo: ScenarioRepo) =
-    repo.CreateConflict(ConflictPath, "base\n", "left\n", "right\n")
+    repo.CreateConflicts
+        [ ConflictPath, "base\n", "left\n", "right\n"
+          OutsideConflictPath, "outside base\n", "outside left\n", "outside right\n" ]

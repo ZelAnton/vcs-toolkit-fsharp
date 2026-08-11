@@ -357,7 +357,11 @@ contract. jj instead resolves paths through `root-file:"<path>"` filesets
 self-anchoring to the workspace root by construction — so the jj branch can
 pass the handle's `Cwd` through unchanged (it only needs to select which
 workspace the query runs against; the path itself is already root-anchored by
-the fileset syntax).
+the fileset syntax). Conflict paths follow the same facade contract: jj's
+`file list` conflict template renders `path.display()` relative to the process
+cwd, so `JjBackend.conflictedFiles` resolves `jj root` first and runs
+`Jj.ResolveList` from that root. This keeps `Repo.ConflictedFiles` complete and
+repo-relative when `Repo.At` points inside the workspace.
 
 **Submodule reads vs. submodule execution.** `VcsToolkit.Git`'s submodule
 surface is split deliberately by whether it can execute nested-repository
