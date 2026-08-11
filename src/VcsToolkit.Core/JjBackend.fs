@@ -452,9 +452,12 @@ module internal JjBackend =
                         match! jj.IsConflicted(dir, "@") with
                         | Error e -> return Error e
                         | Ok true ->
-                            match! jj.ResolveList(dir, "@") with
+                            match! jj.Root dir with
                             | Error e -> return Error e
-                            | Ok files -> return Ok(Some files)
+                            | Ok root ->
+                                match! jj.ResolveList(root, "@") with
+                                | Error e -> return Error e
+                                | Ok files -> return Ok(Some files)
                         | Ok false -> return Ok None
                     }
 
