@@ -4,6 +4,25 @@ open System
 open ProcessKit
 open VcsToolkit.CliSupport
 
+[<AutoOpen>]
+module internal PrListPagination =
+
+    [<Literal>]
+    let MaxPages = 200
+
+    let prListCommand (core: ManagedClient) (dir: string) (options: PrListOptions) (page: int option) =
+        let pageArgs =
+            match page with
+            | Some value -> [ "--page"; string value ]
+            | None -> []
+
+        core.CommandIn(
+            dir,
+            [ "pr"; "list"; "--state"; options.State.Flag; "--limit"; string options.Limit ]
+            @ pageArgs
+            @ [ "--fields"; PR_FIELDS; "--output"; "csv" ]
+        )
+
 /// The real Gitea (and Forgejo) client: typed async methods that run the real `tea`, ask it
 /// for its supported `--output csv` (tea 0.9.2 does not support `--output json`; see K-049 /
 /// `GiteaParse`), and parse the result. `Gitea.Create()` uses the job-backed runner;
@@ -133,24 +152,61 @@ type Gitea private (core: ManagedClient) =
     /// Pull requests for `dir` (`tea pr list --state <state> --limit <limit> --fields …
     /// --output csv`). `--fields` pins the exact columns the csv parser reads positionally.
     /// tea 0.9.2 does not support `--output json` on `pr list` (K-049), so this drives its
-    /// supported `--output csv` (`outputdsv`) format instead.
+    /// supported `--output csv` (`outputdsv`) format instead. `Closed` is the one state that
+    /// needs a page walk: Gitea's closed bucket can contain merged rows, so this method keeps
+    /// unique non-merged rows until `options.Limit`, an empty page, or the safety bound.
     member _.PrList(dir: string, options: PrListOptions) =
-        core.TryParse(
-            core.CommandIn(
-                dir,
-                [ "pr"
-                  "list"
-                  "--state"
-                  options.State.Flag
-                  "--limit"
-                  string options.Limit
-                  "--fields"
-                  PR_FIELDS
-                  "--output"
-                  "csv" ]
-            ),
-            GiteaParse.parsePrList
-        )
+        match options.State with
+        | PrListState.Open
+        | PrListState.All -> core.TryParse(prListCommand core dir options None, GiteaParse.parsePrList)
+        | PrListState.Closed ->
+            task {
+                let mutable page = 1
+                let mutable ended = false
+                let mutable failure: ProcessError option = None
+                let mutable seen = Set.empty<uint64>
+                let mutable collected: PullRequest list = []
+
+                while options.Limit > 0
+                      && collected.Length < options.Limit
+                      && not ended
+                      && Option.isNone failure
+                      && page <= PrListPagination.MaxPages do
+                    match! core.TryParse(prListCommand core dir options (Some page), GiteaParse.parsePrList) with
+                    | Error e -> failure <- Some e
+                    | Ok prs when List.isEmpty prs -> ended <- true
+                    | Ok prs ->
+                        for pr in prs do
+                            if
+                                not pr.Merged
+                                && collected.Length < options.Limit
+                                && not (Set.contains pr.Number seen)
+                            then
+                                seen <- Set.add pr.Number seen
+                                collected <- pr :: collected
+
+                        page <- page + 1
+
+                match failure with
+                | Some e -> return Error e
+                | None when
+                    options.Limit > 0
+                    && collected.Length < options.Limit
+                    && not ended
+                    && page > PrListPagination.MaxPages
+                    ->
+                    return
+                        Error(
+                            ProcessError.Parse(
+                                BINARY,
+                                sprintf
+                                    "closed pull request listing stopped after the %d-page safety bound before collecting %d unique non-merged pull requests"
+                                    PrListPagination.MaxPages
+                                    options.Limit
+                            )
+                        )
+                | None -> return Ok(List.rev collected)
+            }
 
     /// A single pull request by number. `tea` has no single-PR view, so this **lists** all
     /// states and **pages** (`tea pr list --state all --limit 50 --page N …`) until #number is

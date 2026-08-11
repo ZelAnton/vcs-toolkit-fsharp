@@ -37,6 +37,13 @@ let private assertArgs (expected: string list) (actual: ResizeArray<string>) =
     Assert.That(got.Length, Is.EqualTo expected.Length, $"argv length: expected %A{expected}, got %A{got}")
     List.iter2 (fun (e: string) (a: string) -> Assert.That(a, Is.EqualTo e)) expected got
 
+let private commandHasPage (page: int) (cmd: Command) =
+    let args = List.ofSeq cmd.Arguments
+
+    match args |> List.tryFindIndex ((=) "--page") with
+    | Some index -> index + 1 < args.Length && args[index + 1] = string page
+    | None -> false
+
 let private expectOk (r: Result<'T, string>) : 'T =
     match r with
     | Ok v -> v
@@ -312,6 +319,75 @@ type ClientTests() =
             | Ok [ pr ] -> Assert.That(pr.Number, Is.EqualTo 1UL)
             | Ok xs -> Assert.Fail $"expected one PR, got {xs.Length}"
             | Error e -> Assert.Fail $"pr list failed: {e}"
+        }
+
+    [<Test>]
+    member _.PrListClosedBuildsPagedArgv() : Task =
+        task {
+            let csv = teaCsv [ prHeader; [ "4"; "closed"; "closed"; "h"; "main"; "u4" ] ]
+            let tea, args = capturing (Reply.Ok csv)
+
+            let options =
+                PrListOptions.Default.WithState PrListState.Closed |> fun o -> o.WithLimit 1
+
+            match! tea.PrList(".", options) with
+            | Ok [ pr ] ->
+                Assert.That(pr.Number, Is.EqualTo 4UL)
+
+                assertArgs
+                    [ "pr"
+                      "list"
+                      "--state"
+                      "closed"
+                      "--limit"
+                      "1"
+                      "--page"
+                      "1"
+                      "--fields"
+                      "index,title,state,head,base,url"
+                      "--output"
+                      "csv" ]
+                    args
+            | Ok other -> Assert.Fail $"expected one PR, got {other.Length}"
+            | Error e -> Assert.Fail $"closed PR list failed: {e}"
+        }
+
+    [<Test>]
+    member _.PrListClosedPagesPastMergedRowsAndDeduplicates() : Task =
+        task {
+            let page1 =
+                teaCsv
+                    [ prHeader
+                      [ "1"; "merged one"; "merged"; "h1"; "main"; "u1" ]
+                      [ "2"; "merged two"; "merged"; "h2"; "main"; "u2" ] ]
+
+            let page2 =
+                teaCsv
+                    [ prHeader
+                      [ "3"; "closed one"; "closed"; "h3"; "main"; "u3" ]
+                      [ "3"; "closed one duplicate"; "closed"; "h3"; "main"; "u3-duplicate" ] ]
+
+            let page3 = teaCsv [ prHeader; [ "4"; "closed two"; "closed"; "h4"; "main"; "u4" ] ]
+
+            let runner =
+                ScriptedRunner()
+                    .When((commandHasPage 1), Reply.Ok page1)
+                    .When((commandHasPage 2), Reply.Ok page2)
+                    .When((commandHasPage 3), Reply.Ok page3)
+
+            let tea = Gitea.WithRunner runner
+
+            let options =
+                PrListOptions.Default.WithState PrListState.Closed |> fun o -> o.WithLimit 2
+
+            match! tea.PrList(".", options) with
+            | Ok [ first; second ] ->
+                Assert.That(first.Number, Is.EqualTo 3UL)
+                Assert.That(second.Number, Is.EqualTo 4UL)
+                Assert.That(first.Merged, Is.False)
+                Assert.That(second.Merged, Is.False)
+            | Ok other -> Assert.Fail $"expected two unique closed PRs, got {other.Length}"
+            | Error e -> Assert.Fail $"closed PR list failed: {e}"
         }
 
     [<Test>]

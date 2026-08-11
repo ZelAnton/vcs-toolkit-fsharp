@@ -167,13 +167,11 @@ module internal GiteaForge =
     /// --limit <n> --fields … --output csv`), narrowed to `options.State` here — see
     /// `teaPrState` for why the fetched bucket and the unified state are not the same thing.
     ///
-    /// **The narrowing runs over the fetched window.** `tea` caps the fetch at `--limit` first
-    /// (and the Gitea server clamps one page at ~50 rows regardless of a larger `--limit` —
-    /// see the wrapper's `PrView` note), and only then are the non-matching rows dropped, so a
-    /// `Closed`/`Merged` query can return fewer than `options.Limit` matches while older ones
-    /// exist further back; a fetch that came back full is the hint that it might have. Raising
-    /// `Limit` widens the window up to the server's page cap — to find one specific PR
-    /// regardless of depth, use `prView`, which pages instead.
+    /// `Closed` is paged by the low-level wrapper after `tea`'s merged rows are removed, so
+    /// it keeps requesting pages until `options.Limit` unique closed PRs are collected, an
+    /// empty page is returned, or the wrapper's safety bound is reached. `Merged` still narrows
+    /// the single `--state all` window returned by `tea`; to find one specific PR regardless of
+    /// depth, use `prView`, which has its own page walk.
     let prList (tea: VcsToolkit.Gitea.Gitea) (dir: string) (options: PrListOptions) =
         task {
             let teaOptions: VcsToolkit.Gitea.PrListOptions =

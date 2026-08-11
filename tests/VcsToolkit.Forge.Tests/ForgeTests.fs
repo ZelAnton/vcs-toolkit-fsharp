@@ -20,6 +20,13 @@ let private glForge (tokens: string list) (reply: Reply) =
 let private teaForge (tokens: string list) (reply: Reply) =
     Forge.FromGitea(".", VcsToolkit.Gitea.Gitea.WithRunner(ScriptedRunner().On(tokens, reply)))
 
+let private commandHasPage (page: int) (cmd: Command) =
+    let args = List.ofSeq cmd.Arguments
+
+    match args |> List.tryFindIndex ((=) "--page") with
+    | Some index -> index + 1 < args.Length && args[index + 1] = string page
+    | None -> false
+
 // Build tea 0.9.2's `--output csv` (`outputdsv`) text from rows of cells: `"c1","c2",...` per
 // row, header row first — the format the low-level Gitea client parses (T-115). tea has no
 // `--output json` on its list commands (K-049), so the Gitea-backed listing/view paths that
@@ -1414,9 +1421,10 @@ type PrListOptionsTests() =
         task {
             // Gitea has no merged state — merging *closes* a PR and sets a merged flag that tea
             // folds into its `state` column — so tea's `closed` bucket is a superset of the
-            // unified `Closed` ("closed WITHOUT merging"). The adapter fetches `--state closed`
-            // and drops the merged rows itself; without that narrowing a `Closed` listing would
-            // hand back PRs whose own `State` reads `Merged`.
+            // unified `Closed` ("closed WITHOUT merging"). The low-level wrapper pages the
+            // bucket and drops merged rows before the adapter applies its final state filter;
+            // without that narrowing a `Closed` listing would hand back PRs whose own `State`
+            // reads `Merged`.
             let csv =
                 teaCsv
                     [ prHeader
@@ -1424,15 +1432,62 @@ type PrListOptionsTests() =
                       [ "5"; "shipped"; "merged"; "f5"; "main"; "u5" ] ]
 
             let forge =
-                teaForge [ "pr"; "list"; "--state"; "closed"; "--limit"; "100"; "--fields" ] (Reply.Ok csv)
+                teaForge [ "pr"; "list"; "--state"; "closed"; "--limit"; "1"; "--page"; "1" ] (Reply.Ok csv)
 
-            match! forge.PrList PrListOptions.Closed with
+            match! forge.PrList(PrListOptions.Closed.WithLimit 1) with
             | Ok [ pr ] ->
                 Assert.That(pr.Number, Is.EqualTo 4UL, "only the genuinely closed PR belongs in a Closed listing")
                 Assert.That(pr.State, Is.EqualTo ForgePrState.Closed)
             | Ok other ->
                 Assert.Fail $"expected only the closed-not-merged PR, got {other |> List.map (fun pr -> pr.Number)}"
             | Error e -> Assert.Fail $"pr list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaPrListClosedPagesThroughMergedFirstPageAndStopsAtEmptyPage() : Task =
+        task {
+            let page1 =
+                teaCsv
+                    [ prHeader
+                      [ "1"; "merged one"; "merged"; "f1"; "main"; "u1" ]
+                      [ "2"; "merged two"; "merged"; "f2"; "main"; "u2" ] ]
+
+            let page2 =
+                teaCsv
+                    [ prHeader
+                      [ "3"; "closed one"; "closed"; "f3"; "main"; "u3" ]
+                      [ "3"; "closed duplicate"; "closed"; "f3"; "main"; "u3-duplicate" ] ]
+
+            let page3 = teaCsv [ prHeader ]
+
+            let runner =
+                ScriptedRunner()
+                    .When((commandHasPage 1), Reply.Ok page1)
+                    .When((commandHasPage 2), Reply.Ok page2)
+                    .When((commandHasPage 3), Reply.Ok page3)
+
+            let forge = Forge.FromGitea(".", VcsToolkit.Gitea.Gitea.WithRunner runner)
+
+            match! forge.PrList(PrListOptions.Closed.WithLimit 2) with
+            | Ok [ pr ] ->
+                Assert.That(pr.Number, Is.EqualTo 3UL)
+                Assert.That(pr.State, Is.EqualTo ForgePrState.Closed)
+            | Ok other -> Assert.Fail $"expected one unique closed PR before the empty page, got {other.Length}"
+            | Error e -> Assert.Fail $"closed PR list failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.GiteaPrListClosedReportsSafetyBound() : Task =
+        task {
+            let repeatedPage =
+                teaCsv [ prHeader; [ "7"; "same"; "closed"; "f7"; "main"; "u7" ] ]
+
+            let runner = ScriptedRunner().Fallback(Reply.Ok repeatedPage)
+            let forge = Forge.FromGitea(".", VcsToolkit.Gitea.Gitea.WithRunner runner)
+
+            match! forge.PrList(PrListOptions.Closed.WithLimit 2) with
+            | Error e -> Assert.That(e.Message, Does.Contain "safety bound")
+            | Ok prs -> Assert.Fail $"repeated non-empty pages must fail at the safety bound, got {prs.Length} PRs"
         }
 
     [<Test>]

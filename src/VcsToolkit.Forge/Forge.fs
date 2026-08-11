@@ -387,9 +387,11 @@ type Forge private (cwd: string, backend: Backend) =
     /// - **Gitea** — `tea`'s `--state` has only `open`/`closed`/`all` (Gitea has no merged
     ///   state: a merged PR is a *closed* one carrying a merged flag), so the adapter fetches
     ///   the narrowest `--state` bucket that is a superset of the requested state and narrows
-    ///   the rows itself. `Closed` ("closed without merging") and `Merged` are therefore
-    ///   filtered over the fetched window, and can report fewer than `Limit` matches while
-    ///   older ones exist beyond it — see `PrListState`.
+    ///   the rows itself. `Closed` ("closed without merging") is page-walked by the adapter: it
+    ///   removes merged rows, keeps the first occurrence of each PR number, and stops at `Limit`
+    ///   unique rows or an empty page. If the safety bound is reached first, the operation returns
+    ///   an explicit error. `Open` and `All` retain their one-listing semantics; `Merged` is still
+    ///   narrowed over the single fetched `--state all` window — see `PrListState`.
     member _.PrList(options: PrListOptions) =
         match backend with
         | Backend.GitHub(c, _) -> GitHubForge.prList c cwd options

@@ -156,9 +156,13 @@ match (exact host or a genuine `*.domain` subdomain) so a lookalike host like
 usable equivalent; `Forge.Supports` lets a caller branch on that before calling
 rather than discovering it via a runtime error. The listing operations
 (`prList`, `prForBranch`, `issueList`) *are* supported there, over `tea`'s
-`--output csv` listing — but `tea`'s `--state` has no merged value and no
-head-branch filter, so `prList`'s `Closed`/`Merged` and `prForBranch` are
-narrowed on our side, over the window the CLI fetched, rather than by the CLI.
+  `--output csv` listing — but `tea`'s `--state` has no merged value and no
+  head-branch filter. `prList`'s `Closed` path walks paginated `--state closed`
+  results, removes merged rows, and stably deduplicates PR numbers until the
+  requested limit or an empty page; reaching its safety bound returns an
+  explicit error. `prList`'s `Merged` path and `prForBranch` remain narrowed on
+  the single window the CLI fetched, while `Open`/`All` retain their one-listing
+  semantics.
 
 ### `VcsToolkit.TestKit` — throwaway sandboxes, intentionally dependency-free
 

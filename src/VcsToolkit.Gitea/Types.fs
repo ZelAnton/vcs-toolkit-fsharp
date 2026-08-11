@@ -78,15 +78,17 @@ type MergeStrategy =
         | MergeStrategy.Rebase -> "rebase"
 
 /// Which PR states `prList` returns (`tea pr list --state`). `tea`'s `--state` filter takes
-/// `open`/`closed`/`all`; whether its `closed` bucket reliably includes a merged PR is
-/// unconfirmed against the real CLI (`PrView`, above, deliberately does not rely on it —
-/// it walks `--state all` instead), so `Closed` here is a literal `--state closed` pass-through
-/// for a caller who wants exactly that CLI behaviour, not a claim about merged-PR coverage.
+/// `open`/`closed`/`all`. `Open` and `All` preserve the direct, single-listing behaviour of
+/// those CLI states. `Closed` walks the `closed` pages, removes merged rows, keeps the first
+/// occurrence of each PR number, and continues until the requested limit is reached or an empty
+/// page is returned; hitting the 200-page safety bound before that returns an explicit parse
+/// error.
 [<RequireQualifiedAccess>]
 type PrListState =
     /// Open PRs (`--state open`, tea's default).
     | Open
-    /// `--state closed` verbatim — see the type doc comment for the merged-PR caveat.
+    /// Closed PRs without merging; pages `--state closed`, removes merged rows, and keeps unique
+    /// PR numbers until the requested limit, an empty page, or the safety bound is reached.
     | Closed
     /// Every PR regardless of state (`--state all`).
     | All

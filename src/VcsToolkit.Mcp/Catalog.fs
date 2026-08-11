@@ -443,7 +443,7 @@ module internal Catalog =
           read "forge_info" "The forge's identity and flat capability map." []
           read
               "forge_pr_list"
-              "Pull/merge requests on the configured forge, open by default and capped at 100 by default. Optional state/limit filter and cap the results. On Gitea, `merged` and `closed` (closed without merging) are not tea `--state` values — Gitea has no merged state, only a merged flag on a closed PR — so they are filtered out of a wider listing over the fetched window and can report fewer than `limit` matches while older ones exist beyond it."
+              "Pull/merge requests on the configured forge, open by default and capped at 100 by default. Optional state/limit filter and cap the results. On Gitea, `merged` is not a tea `--state` value, so it remains filtered from a single `--state all` window; `closed` walks paginated `--state closed` results, removes merged rows, and deduplicates PR numbers in stable first-seen order until `limit` unique rows or an empty page. If the safety bound is reached first, the tool returns an explicit error. Gitea `open` and `all` remain single-listing paths."
               [ pPrListState; pListLimit ]
           read "forge_pr_view" "A single pull/merge request by number." [ pNumber ]
           read
