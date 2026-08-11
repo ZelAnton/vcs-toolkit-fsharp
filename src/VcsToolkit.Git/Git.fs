@@ -848,7 +848,10 @@ type Git private (core: ManagedClient) =
 
                     match! core.Output cmd with
                     | Error e -> return Error e
-                    | Ok res -> return Ok(res.Code = Some 0 && res.Stdout.Trim() <> "")
+                    | Ok res ->
+                        match ProcessResult.ensureSuccess res with
+                        | Error e -> return Error e
+                        | Ok ok -> return Ok(ok.Stdout.Trim() <> "")
         }
 
     // --- Branches ------------------------------------------------------------

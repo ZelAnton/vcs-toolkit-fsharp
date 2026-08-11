@@ -112,6 +112,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - `Repo.CurrentBranch()` on Jujutsu now chooses the nearest reachable bookmark by merge-graph distance, using the bookmark name only as an equal-distance tie-break.
+- `Git.RemoteBranchExists` now returns an error when `git ls-remote` fails, instead of reporting the operational failure as a missing remote branch.
 - `VcsToolkit.TestKit.TempDir` now sanitizes tags into a single filename component and verifies canonical containment under the OS temp root before creating the directory, preventing traversal input from creating paths outside the temp root.
 - `Git.ResolvedGitDir` now returns an absolute metadata-directory path when called with a relative directory and Git reports a relative `--git-dir`, including linked-worktree git dirs.
 - `Repo.ConflictedFiles` on Jujutsu now resolves conflicted paths from the workspace root, preserving every repo-relative path when a `Repo` handle is bound to a subdirectory.
