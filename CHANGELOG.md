@@ -112,6 +112,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - `VcsToolkit.TestKit`'s `GitSandbox` and `JjSandbox` now reject rooted or escaping paths before writing, keeping fixture files inside their sandbox roots.
+- `vcs-mcp` request cancellation now stops read and write tool execution, including per-repository lock waits, without starting another retry attempt or losing the configured server timeout.
+- Direct `Git.ListFiles` and `Jj.FileList` calls from a repository subdirectory now return repo-relative paths, matching their bound and facade counterparts.
+- `RepoWatcher.Dispose` now tears down filesystem watchers and cancellation resources atomically when called concurrently, preventing repeated-dispose races.
+- Lock-contention classification now retries whole-repository `index.lock` failures when the repository path contains a `refs/` segment, while continuing to exclude per-ref locks.
+- C-quoted binary and mode-only diff headers now preserve filenames containing an escaped quote before a `b/` segment.
 - `vcs-mcp --log-commands <unavailable-path>` now exits cleanly with code 1 and a one-line stderr diagnostic instead of crashing with an unhandled exception.
 - `Forge.PrReview` on GitLab no longer silently discards an approve review's optional body: a non-empty body is now posted as a follow-up merge-request note after the approval (if the note fails, the note error is returned and the approval remains applied), an empty/whitespace body is treated as absent and skips the note, and a body of exactly `-` is rejected as glab's stdin/editor sentinel before any CLI spawn (approval never applied).
 - `Jj.ConfigGet` now preserves significant leading/trailing spaces in a config value, stripping only the trailing line terminator — matching `Git.ConfigGet`'s behaviour instead of silently trimming a round-tripped value.

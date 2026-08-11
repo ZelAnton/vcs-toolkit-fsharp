@@ -740,11 +740,21 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
     /// Repo-relative tracked paths at `revset` (`jj file list -r <revset>`; `None` = `@`),
     /// lossless via `.escape_json()` template framing (`JjParse.FILE_LIST_TEMPLATE`/
     /// `parseFileList`) — see `ResolveList`'s doc comment for why a templated `file list`
-    /// beats parsing a human-readable jj listing command directly.
-    member _.FileList(dir: string, revset: string option) =
-        let r = revset |> Option.defaultValue "@"
+    /// beats parsing a human-readable jj listing command directly. The command runs from the
+    /// workspace root so `path.display()` renders repo-relative paths even when `dir` is nested.
+    member this.FileList(dir: string, revset: string option) =
+        task {
+            match! this.Root dir with
+            | Error e -> return Error e
+            | Ok root ->
+                let r = revset |> Option.defaultValue "@"
 
-        core.Parse(cmdInRead dir [ "file"; "list"; "-r"; r; "-T"; JjParse.FILE_LIST_TEMPLATE ], JjParse.parseFileList)
+                return!
+                    core.Parse(
+                        cmdInRead root [ "file"; "list"; "-r"; r; "-T"; JjParse.FILE_LIST_TEMPLATE ],
+                        JjParse.parseFileList
+                    )
+        }
 
     /// A file's content at a revision (`jj file show -r <revset> root-file:"<path>"` — the
     /// path is wrapped as an exact-path fileset, so metacharacters stay literal and the path is

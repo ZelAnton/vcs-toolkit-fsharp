@@ -68,6 +68,11 @@ Argument parsing stops at the first `-h`/`--help` it reaches, left-to-right, pri
 text and exiting `0` without validating anything after it; a bad flag placed *before* `--help`
 is still fatal, but the same bad flag placed *after* it is never reached.
 
+The MCP request cancellation token is honored by both read and write tools: it stops the
+underlying git/jj/forge command and an in-progress wait for the per-repository write lock. The
+request cancellation is independent of `--timeout`, so a command still receives the configured
+per-command deadline when the request itself has not been cancelled.
+
 ### Example invocations
 
 ```sh
