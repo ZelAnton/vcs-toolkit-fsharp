@@ -12,6 +12,32 @@ open VcsToolkit.CliSupport
 let private exit (program: string) (code: int) (stderr: string) =
     ProcessError.Exit(program, code, "", stderr)
 
+let private assertCredentialRejected (provider: ICredentialProvider) (field: string) : Task =
+    task {
+        let spawned = ref false
+
+        let runner =
+            ScriptedRunner()
+                .When(
+                    (fun _ ->
+                        spawned.Value <- true
+                        true),
+                    Reply.Ok ""
+                )
+
+        let client =
+            ManagedClient.WithRunner("gh", runner).WithTokenEnv(CredentialService.GitHub, "GH_TOKEN").WithCredentials
+                provider
+
+        match! client.Run(client.Command [ "auth"; "status" ]) with
+        | Error(ProcessError.Spawn(_, message)) ->
+            Assert.That(message, Does.Contain field)
+            Assert.That(message, Does.Not.Contain "bad")
+        | other -> Assert.Fail $"invalid credential {field} must fail before spawn, got {other}"
+
+        Assert.That(spawned.Value, Is.False, "invalid credential input must not invoke the runner")
+    }
+
 /// An `ICommandObserver` that records every start/finish notification for assertions.
 type private RecordingObserver() =
     let started = System.Collections.Generic.List<CommandEvent>()
@@ -414,6 +440,22 @@ type CredentialTests() =
         Assert.That(user.Expose(), Is.EqualTo "alice")
 
     [<Test>]
+    member _.GitCredentialHelperRejectsCRLFInBothCredentialFields() =
+        for credential in
+            [ Credential.Userpass("bad\nuser", "secret")
+              Credential.Userpass("user", "bad\rsecret") ] do
+            let error =
+                Assert.Throws<ArgumentException>(
+                    Action(fun () -> Credentials.gitCredentialHelper credential None |> ignore)
+                )
+
+            match error with
+            | null -> raise (InvalidOperationException "Assert.Throws returned null unexpectedly")
+            | nonNullError ->
+                Assert.That(nonNullError.Message, Does.Contain "CR/LF")
+                Assert.That(nonNullError.Message, Does.Not.Contain "bad")
+
+    [<Test>]
     member _.GitCredentialHelperScopesToHost() =
         // Unscoped: the host env is empty (the snippet's `test -z` gate passes).
         let unscoped = Credentials.gitCredentialHelper (Credential.Token "t0p-secret") None
@@ -489,13 +531,61 @@ type CredentialTests() =
     [<Test>]
     member _.ResolveCredentialTreatsEmptySecretAsAmbient() : Task =
         task {
-            for blank in [ ""; "   "; "\t\n" ] do
+            for blank in [ ""; "   "; "\t" ] do
                 let client =
                     (ManagedClient.Create "git").WithCredentials(StaticCredential.Token blank :> ICredentialProvider)
 
                 match! client.ResolveCredential(CredentialService.GitHub, None) with
                 | Ok None -> ()
                 | _ -> Assert.Fail $"blank secret {blank} -> ambient (None)"
+        }
+
+    [<Test>]
+    member _.StaticCredentialRejectsCRLFBeforeSpawn() : Task =
+        task {
+            for credential, field in
+                [ Credential.Userpass("bad\nuser", "secret"), "username"
+                  Credential.Userpass("user", "bad\rsecret"), "secret" ] do
+                do! assertCredentialRejected (StaticCredential credential :> ICredentialProvider) field
+        }
+
+    [<Test>]
+    member _.EnvTokenRejectsCRLFBeforeSpawn() : Task =
+        task {
+            let variable = "VCS_TOOLKIT_T182_CREDENTIAL"
+            let previous = Environment.GetEnvironmentVariable variable
+
+            try
+                for value, username, field in [ "bad\nsecret", None, "secret"; "secret", Some "bad\ruser", "username" ] do
+                    Environment.SetEnvironmentVariable(variable, value)
+
+                    let provider =
+                        match username with
+                        | Some user -> EnvToken(variable).WithUsername user :> ICredentialProvider
+                        | None -> EnvToken variable :> ICredentialProvider
+
+                    do! assertCredentialRejected provider field
+            finally
+                Environment.SetEnvironmentVariable(variable, previous)
+        }
+
+    [<Test>]
+    member _.EnvTokenAcceptsSafeValues() : Task =
+        task {
+            let variable = "VCS_TOOLKIT_T182_CREDENTIAL_VALID"
+            let previous = Environment.GetEnvironmentVariable variable
+
+            try
+                Environment.SetEnvironmentVariable(variable, "safe-secret")
+                let provider = EnvToken(variable).WithUsername "alice" :> ICredentialProvider
+
+                match! provider.Credential(CredentialRequest.Create CredentialService.Git) with
+                | Ok(Some credential) ->
+                    Assert.That(credential.Username, Is.EqualTo(Some "alice"))
+                    Assert.That(credential.Secret.Expose(), Is.EqualTo "safe-secret")
+                | other -> Assert.Fail $"safe environment credential must resolve, got {other}"
+            finally
+                Environment.SetEnvironmentVariable(variable, previous)
         }
 
     [<Test>]
@@ -514,6 +604,28 @@ type CredentialTests() =
             match! provider.Credential(CredentialRequest.Create CredentialService.GitLab) with
             | Ok None -> ()
             | _ -> Assert.Fail "GitLab defers to ambient"
+        }
+
+    [<Test>]
+    member _.FnProviderRejectsCRLFBeforeSpawn() : Task =
+        task {
+            for credential, field in
+                [ Credential.Userpass("bad\ruser", "secret"), "username"
+                  Credential.Userpass("user", "bad\nsecret"), "secret" ] do
+                let provider = Credentials.providerFn (fun _ -> Ok(Some credential))
+                do! assertCredentialRejected provider field
+        }
+
+    [<Test>]
+    member _.WithCredentialsRejectsInvalidCustomProviderBeforeSpawn() : Task =
+        task {
+            let credential = Credential.Userpass("user", "bad\rsecret")
+
+            let provider: ICredentialProvider =
+                { new ICredentialProvider with
+                    member _.Credential(_request) = Task.FromResult(Ok(Some credential)) }
+
+            do! assertCredentialRejected provider "secret"
         }
 
     [<Test>]

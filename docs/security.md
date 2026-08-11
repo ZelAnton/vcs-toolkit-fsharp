@@ -70,9 +70,10 @@ the value is still a managed string and is not scrubbed from RAM. See the
 
 `ICredentialProvider` resolves a `CredentialRequest` just in time. The request identifies the
 service and, when known, the remote host. `Ok None` means "use ambient CLI authentication"; an
-empty returned secret is treated the same way, while `Error` aborts the operation. Providers
-should therefore make an explicit service-and-host decision rather than return one powerful token
-for every request.
+empty returned secret is treated the same way, while `Error` aborts the operation. Username and
+secret values containing carriage-return or line-feed characters are rejected before a credential
+is returned, placed in a helper/environment, or any process starts. Providers should therefore
+make an explicit service-and-host decision rather than return one powerful token for every request.
 
 For GitHub and GitLab, `ManagedClient.WithTokenEnv` supplies the secret through `GH_TOKEN`,
 `GH_ENTERPRISE_TOKEN`, or `GITLAB_TOKEN` as appropriate. Tokens never appear in argv or command

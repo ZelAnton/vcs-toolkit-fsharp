@@ -290,6 +290,9 @@ point of use. `ICredentialProvider` resolves a `Credential` for a
 meaning "defer to the driven CLI's own ambient auth" — never an error — and an
 empty/whitespace secret is treated the same way, so a misconfigured provider
 degrades to ambient auth instead of overriding a working login with nothing.
+Credential usernames and secrets containing CR/LF are rejected at provider resolution and again
+at materialization boundaries, before helper/environment construction or process execution; the
+rejection is fail-closed and does not include the credential value in its diagnostic.
 Resolved secrets never touch argv: `ManagedClient.WithTokenEnv` injects a
 forge token as an environment variable (`GH_TOKEN`/`GITLAB_TOKEN`), and
 `Credentials.gitCredentialHelper` builds a git `credential.helper` snippet

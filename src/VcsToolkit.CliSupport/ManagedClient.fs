@@ -193,12 +193,15 @@ type ManagedClient private (cfg: ManagedConfig) =
                 | Error e -> return Error e
                 | Ok None -> return Ok None
                 | Ok(Some cred) ->
-                    // An empty (or whitespace-only) secret is not a usable credential:
-                    // injecting it would override the ambient login with nothing.
-                    if cred.Secret.Expose().Trim().Length = 0 then
-                        return Ok None
-                    else
-                        return Ok(Some cred)
+                    match CredentialValidation.validate cred with
+                    | Error e -> return Error e
+                    | Ok() ->
+                        // An empty (or whitespace-only) secret is not a usable credential:
+                        // injecting it would override the ambient login with nothing.
+                        if cred.Secret.Expose().Trim().Length = 0 then
+                            return Ok None
+                        else
+                            return Ok(Some cred)
         }
 
     /// Inject the forge token env (if a token-env binding and a provider are both set). The

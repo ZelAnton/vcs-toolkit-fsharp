@@ -37,6 +37,52 @@ type Credential private (username: string option, secret: Secret) =
         | Some u -> sprintf "Credential(username = %s, secret = ***)" u
         | None -> "Credential(secret = ***)"
 
+/// Shared credential-field validation. Keep this separate from `Credential`'s value constructors:
+/// callers can build a value without starting a process, while every provider and materialization
+/// boundary still rejects unsafe values with a pre-spawn error.
+module internal CredentialValidation =
+
+    [<Literal>]
+    let private ErrorProgram = "credential"
+
+    let private invalidArgumentMessage =
+        "credential username or secret contains CR/LF characters"
+
+    let validateField (field: string) (value: string) : Result<unit, ProcessError> =
+        if value.IndexOf('\r') >= 0 || value.IndexOf('\n') >= 0 then
+            Error(
+                ProcessError.Spawn(
+                    ErrorProgram,
+                    sprintf
+                        "credential %s contains a carriage return or line feed character — refusing to materialize it"
+                        field
+                )
+            )
+        else
+            Ok()
+
+    let validate (credential: Credential) : Result<unit, ProcessError> =
+        match credential.Username with
+        | Some username ->
+            match validateField "username" username with
+            | Error e -> Error e
+            | Ok() -> validateField "secret" (credential.Secret.Expose())
+        | None -> validateField "secret" (credential.Secret.Expose())
+
+    let validateResult (result: Result<Credential option, ProcessError>) : Result<Credential option, ProcessError> =
+        match result with
+        | Error e -> Error e
+        | Ok None -> Ok None
+        | Ok(Some credential) ->
+            match validate credential with
+            | Error e -> Error e
+            | Ok() -> Ok(Some credential)
+
+    let requireSafe credential =
+        match validate credential with
+        | Ok() -> ()
+        | Error _ -> invalidArg "cred" invalidArgumentMessage
+
 /// Which backend/tool is asking for a credential — lets a provider return different
 /// secrets per service.
 [<RequireQualifiedAccess>]
@@ -85,7 +131,8 @@ type StaticCredential(credential: Credential) =
         StaticCredential(Credential.Token secret)
 
     interface ICredentialProvider with
-        member _.Credential(_request) = Task.FromResult(Ok(Some credential))
+        member _.Credential(_request) =
+            Task.FromResult(CredentialValidation.validateResult (Ok(Some credential)))
 
 /// A provider that reads a bare token from a named environment variable, at request
 /// time. If the variable is unset/empty it yields `None` (fall back to ambient auth)
@@ -101,22 +148,34 @@ type EnvToken(var: string, username: string option) =
 
     interface ICredentialProvider with
         member _.Credential(_request) =
-            let result =
-                match Environment.GetEnvironmentVariable var with
-                | null -> None
-                | value when value.Trim().Length = 0 -> None
-                | value ->
-                    match username with
-                    | Some user -> Some(Credential.Userpass(user, value))
-                    | None -> Some(Credential.Token value)
+            let usernameResult =
+                match username with
+                | Some user -> CredentialValidation.validateField "username" user
+                | None -> Ok()
 
-            Task.FromResult(Ok result)
+            let result: Result<Credential option, ProcessError> =
+                match usernameResult with
+                | Error e -> Error e
+                | Ok() ->
+                    match Environment.GetEnvironmentVariable var with
+                    | null -> Ok None
+                    | value ->
+                        match CredentialValidation.validateField "secret" value with
+                        | Error e -> Error e
+                        | Ok() when value.Trim().Length = 0 -> Ok None
+                        | Ok() ->
+                            match username with
+                            | Some user -> Ok(Some(Credential.Userpass(user, value)))
+                            | None -> Ok(Some(Credential.Token value))
+
+            Task.FromResult result
 
 /// A `ICredentialProvider` backed by a synchronous closure (see `Credentials.providerFn`).
 [<Sealed>]
 type FnProvider(f: CredentialRequest -> Result<Credential option, ProcessError>) =
     interface ICredentialProvider with
-        member _.Credential(request) = Task.FromResult(f request)
+        member _.Credential(request) =
+            Task.FromResult(CredentialValidation.validateResult (f request))
 
 /// The pieces needed to authenticate a `git` HTTPS operation with a `Credential`
 /// without putting the secret in argv. See `Credentials.gitCredentialHelper`.
@@ -191,6 +250,7 @@ module Credentials =
     /// git's request matches, so a redirect/submodule to a **different** host during a clone
     /// never receives the secret. `expectHost = None` leaves it unscoped.
     let gitCredentialHelper (cred: Credential) (expectHost: string option) : GitCredentialHelper =
+        CredentialValidation.requireSafe cred
         let username = defaultArg cred.Username DefaultGitUsername
         // Reference the values by env-var NAME inside the snippet, so argv never carries the
         // secret. Read git's request (key=value lines, blank-line-terminated) to learn the host,
