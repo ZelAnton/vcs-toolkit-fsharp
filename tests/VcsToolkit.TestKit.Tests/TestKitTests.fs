@@ -1,6 +1,8 @@
 module VcsToolkit.TestKit.Tests
 
 open System
+open System.ComponentModel
+open System.Diagnostics
 open System.IO
 open NUnit.Framework
 open VcsToolkit.TestKit
@@ -31,6 +33,37 @@ let private assertPathArgumentException (path: string) (action: string -> unit) 
     match caughtException with
     | null -> raise (InvalidOperationException "Assert.Throws returned null unexpectedly")
     | caught -> Assert.That(caught.ParamName, Is.EqualTo "path")
+
+let private tryCreateDirectoryLink (link: string) (target: string) : bool =
+    try
+        if OperatingSystem.IsWindows() then
+            let psi =
+                ProcessStartInfo(FileName = "cmd.exe", UseShellExecute = false, CreateNoWindow = true)
+
+            psi.ArgumentList.Add "/c"
+            psi.ArgumentList.Add "mklink"
+            psi.ArgumentList.Add "/J"
+            psi.ArgumentList.Add link
+            psi.ArgumentList.Add target
+
+            match Process.Start psi |> Option.ofObj with
+            | None -> false
+            | Some childProcess ->
+                use childProcess = childProcess
+                childProcess.WaitForExit()
+                childProcess.ExitCode = 0 && Directory.Exists link
+        else
+            Directory.CreateSymbolicLink(link, target) |> ignore
+            Directory.Exists link
+    with
+    | :? UnauthorizedAccessException
+    | :? IOException
+    | :? PlatformNotSupportedException ->
+        // Link creation can be unavailable when the platform or test account disallows it.
+        false
+    | :? Win32Exception ->
+        // A missing Windows command processor means the junction probe cannot run.
+        false
 
 // ---------------------------------------------------------------------------
 // TempDir — hermetic (needs no binary)
@@ -153,6 +186,33 @@ type GitSandboxTests() =
             if File.Exists outside then
                 File.Delete outside
 
+    [<Test>]
+    member _.WriteAndCommitFileRejectExistingDirectoryLinks() =
+        requireBinary "git" (fun () -> Raw.git "." [ "--version" ])
+        use repo = GitSandbox.Init "link-boundary"
+
+        let outsideDir =
+            Path.Combine(Path.GetTempPath(), $"vcs-testkit-link-target-${Guid.NewGuid():N}")
+
+        let link = Path.Combine(repo.Path, "linked")
+        let linkedPath = Path.Combine("linked", "blocked.txt")
+        let outsideFile = Path.Combine(outsideDir, "blocked.txt")
+        Directory.CreateDirectory outsideDir |> ignore
+
+        try
+            if not (tryCreateDirectoryLink link outsideDir) then
+                Assert.Ignore "directory-link creation is unavailable on this platform or account"
+
+            assertPathArgumentException linkedPath (fun path -> repo.Write(path, "blocked\n"))
+            assertPathArgumentException linkedPath (fun path -> repo.CommitFile(path, "blocked\n", "blocked"))
+            Assert.That(File.Exists outsideFile, Is.False, "link traversal must not create an outside file")
+        finally
+            if File.Exists outsideFile then
+                File.Delete outsideFile
+
+            if Directory.Exists outsideDir then
+                Directory.Delete(outsideDir, true)
+
 // ---------------------------------------------------------------------------
 // JjSandbox — requires the jj binary (skipped locally when it is unavailable)
 // ---------------------------------------------------------------------------
@@ -197,6 +257,32 @@ type JjSandboxTests() =
         let relative = Path.Combine("nested", "allowed.txt")
         repo.Write(relative, "allowed\n")
         Assert.That(File.ReadAllText(Path.Combine(repo.Path, relative)), Is.EqualTo "allowed\n")
+
+    [<Test>]
+    member _.WriteRejectsExistingDirectoryLinks() =
+        requireBinary "jj" (fun () -> Raw.jj "." [ "--version" ])
+        use repo = JjSandbox.Init "link-boundary"
+
+        let outsideDir =
+            Path.Combine(Path.GetTempPath(), $"vcs-testkit-jj-link-target-${Guid.NewGuid():N}")
+
+        let link = Path.Combine(repo.Path, "linked")
+        let linkedPath = Path.Combine("linked", "blocked.txt")
+        let outsideFile = Path.Combine(outsideDir, "blocked.txt")
+        Directory.CreateDirectory outsideDir |> ignore
+
+        try
+            if not (tryCreateDirectoryLink link outsideDir) then
+                Assert.Ignore "directory-link creation is unavailable on this platform or account"
+
+            assertPathArgumentException linkedPath (fun path -> repo.Write(path, "blocked\n"))
+            Assert.That(File.Exists outsideFile, Is.False, "link traversal must not create an outside file")
+        finally
+            if File.Exists outsideFile then
+                File.Delete outsideFile
+
+            if Directory.Exists outsideDir then
+                Directory.Delete(outsideDir, true)
 
 // ---------------------------------------------------------------------------
 // Construction failure must not leak the temp dir (only forceable when jj is

@@ -135,9 +135,47 @@ module internal Internals =
               "core.autocrlf", "false" ] do
             run "git" dir [ "config"; key; value ]
 
+    let private rejectUnsafePathComponent (path: string) =
+        let fileSystemInfo = FileInfo(path) :> FileSystemInfo
+
+        let linkTarget =
+            try
+                fileSystemInfo.LinkTarget
+            with
+            | :? FileNotFoundException
+            | :? DirectoryNotFoundException -> null
+            | :? IOException
+            | :? UnauthorizedAccessException
+            | :? PlatformNotSupportedException ->
+                invalidArg "path" "path components must be inspectable without following links"
+
+        if not (isNull linkTarget) then
+            invalidArg "path" "path must not traverse symbolic links or reparse points"
+
+        let attributes =
+            try
+                Some(File.GetAttributes path)
+            with
+            | :? FileNotFoundException
+            | :? DirectoryNotFoundException -> None
+            | :? IOException
+            | :? UnauthorizedAccessException
+            | :? PlatformNotSupportedException ->
+                invalidArg "path" "path components must be inspectable without following links"
+
+        match attributes with
+        | None -> false
+        | Some attributes ->
+            if attributes.HasFlag FileAttributes.ReparsePoint then
+                invalidArg "path" "path must not traverse symbolic links or reparse points"
+
+            true
+
     /// Resolve a sandbox-relative path and reject rooted or escaping paths before any
     /// parent directory or file is created. `Path.GetRelativePath` provides the canonical
     /// lexical containment check while preserving platform-specific case and separators.
+    /// Existing symbolic links and reparse points are rejected so filesystem resolution
+    /// cannot redirect a write outside the lexical sandbox root.
     let resolveSandboxPath (root: string) (path: string) : string =
         if Path.IsPathRooted path then
             invalidArg "path" "path must be relative to the sandbox root"
@@ -154,6 +192,20 @@ module internal Internals =
             || relative.StartsWith(parentPrefix Path.AltDirectorySeparatorChar, StringComparison.Ordinal)
         then
             invalidArg "path" "path must remain within the sandbox root"
+
+        let components =
+            relative.Split(
+                [| Path.DirectorySeparatorChar; Path.AltDirectorySeparatorChar |],
+                StringSplitOptions.RemoveEmptyEntries
+            )
+
+        let mutable current = canonicalRoot
+        let mutable scanRemaining = rejectUnsafePathComponent current
+
+        for pathPart in components do
+            if scanRemaining then
+                current <- Path.Combine(current, pathPart)
+                scanRemaining <- rejectUnsafePathComponent current
 
         candidate
 
