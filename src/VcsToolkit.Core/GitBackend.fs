@@ -331,15 +331,27 @@ module internal GitBackend =
                         return Ok MergeProbe.Clean
             | Error err when isMergeConflict err ->
                 // Collect the conflicted paths BEFORE aborting (`merge --abort` clears
-                // the unmerged index entries). Abort first regardless, so a transient
-                // read failure can't leave the probe merge staged. Detached abort: see
-                // the comment on the success branch above.
+                // the unmerged index entries). Keep that result and attempt the detached
+                // abort regardless, so a transient read failure can't leave the probe merge
+                // staged. Detached abort: see the comment on the success branch above.
                 let! files = git.ConflictedFiles dir
+                let! aborted = git.MergeAbortDetached dir
 
-                match! git.MergeAbortDetached dir with
+                match files, aborted with
+                | Ok conflicts, Ok() -> return Ok(MergeProbe.Conflicts conflicts)
+                | Error filesError, Ok() -> return Error(RepoError.Vcs filesError)
                 // A failed abort breaks the guaranteed-rollback contract → propagate.
-                | Error e -> return Error(RepoError.Vcs e)
-                | Ok() -> return ofVcs (files |> Result.map MergeProbe.Conflicts)
+                | Ok _, Error abortError -> return Error(RepoError.Vcs abortError)
+                | Error filesError, Error abortError ->
+                    return
+                        Error(
+                            RepoError.Io(
+                                sprintf
+                                    "try_merge failed: ConflictedFiles failed (%s); rollback cleanup also failed: MergeAbortDetached failed (%s)"
+                                    filesError.Message
+                                    abortError.Message
+                            )
+                        )
             | Error err ->
                 // E.g. a dirty-tree refusal or an unknown ref — the merge usually never
                 // started, but clean up if it did. Detached probe/abort: see the comment
