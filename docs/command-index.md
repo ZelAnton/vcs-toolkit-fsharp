@@ -226,6 +226,7 @@ caller-supplied name can't fan a mutation out across every matching ref.
 | `Bookmarks` | `bookmark list -T <template>` | snapshots the WC first |
 | `BookmarksAll` | `bookmark list -a -T <template>` | local + remote-tracking |
 | `ReachableBookmarks` | `log -r 'heads(::@ & bookmarks())' --no-graph -T <template>` | local bookmarks nearest to `@` |
+| `ReachableBookmarksWithDistance` | composed: `log -r 'heads(::@ & bookmarks())' --no-graph -T <template>` → `log -r @ --no-graph --limit 1 -T commit_id` → `log -r '::@' --no-graph -T <commit-id-and-parents-template>` | returns `ReachableBookmark list` for the local candidate bookmarks, including each bookmark's `Name`, full `Target`, and shortest parent-edge graph `Distance` from `@`; merge parents are traversed independently, so `JjAt.ReachableBookmarksWithDistance()` is the same distance-aware query with `dir` bound |
 | `BookmarkTrack` | `bookmark track exact:<name>@<remote>` | remote also rejected if it contains a glob metacharacter |
 | `BookmarkSet` | `bookmark set <name> -r <revision>` | |
 | `BookmarkCreate` | `bookmark create <name> -r <revision>` | |
