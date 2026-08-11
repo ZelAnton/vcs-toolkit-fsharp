@@ -648,21 +648,27 @@ type Git private (core: ManagedClient) =
     /// recovers every UTF-8 path losslessly, unmangled by quoting or line-ending processing.
     member _.ListFiles(dir: string, rev: string option) =
         task {
-            let command =
+            let validation =
                 match rev with
-                | None -> Ok(core.CommandIn(dir, [ "ls-files"; "-z" ]))
-                | Some r ->
-                    checkFlags BINARY [ "revision", r ]
-                    |> Result.map (fun () -> core.CommandIn(dir, [ "ls-tree"; "-r"; "--name-only"; "-z"; r ]))
+                | Some r -> checkFlags BINARY [ "revision", r ]
+                | None -> Ok()
 
-            match command with
+            match validation with
             | Error e -> return Error e
-            | Ok cmd ->
-                match! runUntrimmedBytes core cmd with
+            | Ok() ->
+                match! core.Run(core.CommandIn(dir, [ "rev-parse"; "--show-toplevel" ])) with
                 | Error e -> return Error e
-                | Ok bytes ->
-                    let output = System.Text.Encoding.UTF8.GetString bytes
-                    return Ok(GitParse.parseNulPaths output)
+                | Ok root ->
+                    let command =
+                        match rev with
+                        | None -> core.CommandIn(root, [ "ls-files"; "-z" ])
+                        | Some r -> core.CommandIn(root, [ "ls-tree"; "-r"; "--name-only"; "-z"; r ])
+
+                    match! runUntrimmedBytes core command with
+                    | Error e -> return Error e
+                    | Ok bytes ->
+                        let output = System.Text.Encoding.UTF8.GetString bytes
+                        return Ok(GitParse.parseNulPaths output)
         }
 
     /// Whether `HEAD` is unborn — a fresh repo with no commits yet.

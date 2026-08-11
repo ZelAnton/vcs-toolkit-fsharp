@@ -218,6 +218,62 @@ type RetryTests() =
         }
 
     [<Test>]
+    member _.CancellationBeforeZeroBackoffRetryStopsRetryImmediately() : Task =
+        task {
+            // A zero backoff used to bypass the only cancellation observation and launch the
+            // next attempt. Cancel from the first operation to exercise that race deterministically.
+            let policy = RetryPolicy.None.WithAttempts(4)
+            let lockErr = exit "git" 128 "Unable to create '/r/.git/index.lock': File exists"
+            let mutable calls = 0
+            use cts = new CancellationTokenSource()
+
+            let! out =
+                Retry.retryAsync policy isLockContention cts.Token (fun () ->
+                    task {
+                        calls <- calls + 1
+                        cts.Cancel()
+                        return Error lockErr
+                    })
+
+            match out with
+            | Error(ProcessError.Cancelled program) -> Assert.That(program, Is.EqualTo "git")
+            | _ -> Assert.Fail $"expected a cancelled retry result, got {out}"
+
+            Assert.That(calls, Is.EqualTo 1, "request cancellation must not launch a second attempt")
+        }
+
+    [<Test>]
+    member _.CancellationAtRetryAttemptBoundaryStopsBeforeOperation() : Task =
+        task {
+            let policy = RetryPolicy.None.WithAttempts 4
+            let lockErr = exit "git" 128 "Unable to create '/r/.git/index.lock': File exists"
+            let mutable calls = 0
+            use cts = new CancellationTokenSource()
+
+            let! out =
+                Retry.retryAsyncWithBeforeAttempt
+                    (fun attempt ->
+                        if attempt = 2 then
+                            // Deterministically cancel after the first boundary guard and before
+                            // the next operation, reproducing the review finding's race window.
+                            cts.Cancel())
+                    policy
+                    isLockContention
+                    cts.Token
+                    (fun () ->
+                        task {
+                            calls <- calls + 1
+                            return Error lockErr
+                        })
+
+            match out with
+            | Error(ProcessError.Cancelled program) -> Assert.That(program, Is.EqualTo "git")
+            | _ -> Assert.Fail $"expected a cancelled retry result, got {out}"
+
+            Assert.That(calls, Is.EqualTo 1, "cancellation at the retry boundary must prevent the next operation")
+        }
+
+    [<Test>]
     member _.ParseRetriesLockContentionAndParsesOnlyTheSuccessfulOutput() : Task =
         task {
             let attempts = ref 0
