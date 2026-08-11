@@ -1922,6 +1922,99 @@ type CatalogTests() =
         }
 
     [<Test>]
+    member _.CallToolCancellationReachesBackendRead() : Task =
+        task {
+            use requestCts = new CancellationTokenSource()
+            requestCts.Cancel()
+
+            let runner = ScriptedRunner().On([ "symbolic-ref" ], Reply.Ok "must not run\n")
+
+            let server = gitServer runner WriteGate.None
+            let mutable cancelled = false
+
+            try
+                let! result =
+                    Catalog.callToolWithCancellation server "repo_current_branch" (argsOf "{}") requestCts.Token
+
+                match result with
+                | Error _ -> cancelled <- true
+                | Ok _ -> Assert.Fail "a cancelled request must not return a backend result"
+            with :? OperationCanceledException ->
+                cancelled <- true
+
+            Assert.That(cancelled, Is.True, "request cancellation must reach the backend operation")
+
+            Assert.That(
+                runner.CountReceived(fun invocation -> invocation.Program = "git"),
+                Is.EqualTo 1,
+                "a cancelled backend operation must not be retried"
+            )
+        }
+
+    [<Test>]
+    member _.CallToolCancellationStopsWaitingForRepoLockAndReleasesIt() : Task =
+        task {
+            use checkoutStarted = new SemaphoreSlim(0)
+            use releaseCheckout = new SemaphoreSlim(0)
+            let mutable firstCheckout = 1
+
+            let isCheckout (command: Command) =
+                command.Program :: List.ofSeq command.Arguments |> List.contains "checkout"
+
+            let runner =
+                ScriptedRunner()
+                    .When(
+                        (fun command ->
+                            if isCheckout command && Interlocked.Exchange(&firstCheckout, 0) = 1 then
+                                checkoutStarted.Release() |> ignore
+                                releaseCheckout.Wait(TimeSpan.FromSeconds 5.0) |> ignore
+                                true
+                            else
+                                false),
+                        Reply.Ok ""
+                    )
+                    .Fallback(Reply.Ok "")
+
+            let server = gitServer runner WriteGate.All
+
+            let firstTask =
+                Task.Run<Result<string, McpError>>(fun () -> server.RepoCheckout "first")
+
+            Assert.That(checkoutStarted.Wait(TimeSpan.FromSeconds 5.0), Is.True, "first checkout must hold the lock")
+
+            use requestCts = new CancellationTokenSource()
+
+            let waitingTask =
+                Catalog.callToolWithCancellation
+                    server
+                    "repo_checkout"
+                    (argsOf "{\"reference\":\"cancelled\"}")
+                    requestCts.Token
+
+            let waitingAsTask = waitingTask :> Task
+            requestCts.Cancel()
+            let! completed = Task.WhenAny(waitingAsTask, Task.Delay(TimeSpan.FromSeconds 5.0))
+
+            Assert.That(
+                Object.ReferenceEquals(completed, waitingAsTask),
+                Is.True,
+                "cancelling a request must stop its wait for the repo lock"
+            )
+
+            Assert.That(waitingTask.IsCanceled, Is.True, "a cancelled lock wait must propagate cancellation")
+
+            releaseCheckout.Release() |> ignore
+
+            match! firstTask with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"first checkout failed: {e.Message}"
+
+            match! Catalog.callTool server "repo_checkout" (argsOf "{\"reference\":\"after-cancel\"}") with
+            | Ok json -> Assert.That(json, Does.Contain "after-cancel")
+            | Error e -> Assert.Fail $"lock was not released after cancellation: {e.Message}"
+        }
+
+    [<Test>]
     member _.CallToolDispatchesRepoTags() : Task =
         task {
             let server =

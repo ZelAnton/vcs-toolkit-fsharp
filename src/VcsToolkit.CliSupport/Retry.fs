@@ -127,6 +127,10 @@ module Retry =
                 | Error err ->
                     if attempt >= attempts || not (shouldRetry err) then
                         return Error err
+                    elif ct.IsCancellationRequested then
+                        // The request was cancelled after this attempt failed; do not start a
+                        // later retry, even when the configured backoff is zero.
+                        return Error(ProcessError.Cancelled(err.Program |> Option.defaultValue ""))
                     else
                         let delay = backoffFor policy (attempt - 1)
 
