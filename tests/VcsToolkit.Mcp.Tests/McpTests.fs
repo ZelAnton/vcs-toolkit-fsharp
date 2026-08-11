@@ -24,6 +24,9 @@ let private gitServerWithBudget (runner: ScriptedRunner) (writes: WriteGate) (ou
 let private gitServer (runner: ScriptedRunner) (writes: WriteGate) =
     gitServerWithBudget runner writes Option.None
 
+let private rootedGitListFilesRunner (tokens: string list) (reply: Reply) =
+    ScriptedRunner().On([ "rev-parse"; "--show-toplevel" ], Reply.Ok "/repo").On(tokens, reply)
+
 /// A git-backed server with a GitHub forge, both wired to the same scripted runner (no real
 /// `git`/`gh` binaries), with an explicit output budget (`None` = unlimited).
 let private gitServerWithForgeAndBudget (runner: ScriptedRunner) (writes: WriteGate) (outputBudget: int option) =
@@ -488,7 +491,7 @@ type ToolTests() =
 
             let server =
                 gitServer
-                    (ScriptedRunner().On([ "ls-files"; "-z" ], Reply.Ok($"a.rs{nul}sub/b.rs{nul}")))
+                    (rootedGitListFilesRunner [ "ls-files"; "-z" ] (Reply.Ok($"a.rs{nul}sub/b.rs{nul}")))
                     WriteGate.None
 
             match! server.RepoListFiles Option.None with
@@ -505,7 +508,9 @@ type ToolTests() =
 
             let server =
                 gitServer
-                    (ScriptedRunner().On([ "ls-tree"; "-r"; "--name-only"; "-z"; "HEAD~1" ], Reply.Ok($"a.rs{nul}")))
+                    (rootedGitListFilesRunner
+                        [ "ls-tree"; "-r"; "--name-only"; "-z"; "HEAD~1" ]
+                        (Reply.Ok($"a.rs{nul}")))
                     WriteGate.None
 
             match! server.RepoListFiles(Some "HEAD~1") with
@@ -1730,7 +1735,7 @@ type OutputBudgetTests() =
 
             let server =
                 gitServerWithBudget
-                    (ScriptedRunner().On([ "ls-files"; "-z" ], Reply.Ok($"{pathA}{nul}{pathB}{nul}")))
+                    (rootedGitListFilesRunner [ "ls-files"; "-z" ] (Reply.Ok($"{pathA}{nul}{pathB}{nul}")))
                     WriteGate.None
                     (Some budget)
 
@@ -1755,7 +1760,7 @@ type OutputBudgetTests() =
 
             let unbounded =
                 gitServerWithBudget
-                    (ScriptedRunner().On([ "ls-files"; "-z" ], Reply.Ok($"a.rs{nul}b.rs{nul}")))
+                    (rootedGitListFilesRunner [ "ls-files"; "-z" ] (Reply.Ok($"a.rs{nul}b.rs{nul}")))
                     WriteGate.None
                     Option.None
 
@@ -1765,7 +1770,7 @@ type OutputBudgetTests() =
 
             let zero =
                 gitServerWithBudget
-                    (ScriptedRunner().On([ "ls-files"; "-z" ], Reply.Ok($"a.rs{nul}b.rs{nul}")))
+                    (rootedGitListFilesRunner [ "ls-files"; "-z" ] (Reply.Ok($"a.rs{nul}b.rs{nul}")))
                     WriteGate.None
                     (Some 0)
 
@@ -2656,7 +2661,7 @@ type CatalogTests() =
 
             let server =
                 gitServer
-                    (ScriptedRunner().On([ "ls-tree"; "-r"; "--name-only"; "-z"; "HEAD" ], Reply.Ok($"a.rs{nul}")))
+                    (rootedGitListFilesRunner [ "ls-tree"; "-r"; "--name-only"; "-z"; "HEAD" ] (Reply.Ok($"a.rs{nul}")))
                     WriteGate.None
 
             match! Catalog.callTool server "repo_list_files" (argsOf """{"rev":"HEAD"}""") with
@@ -2670,7 +2675,7 @@ type CatalogTests() =
             let nul = string (char 0)
 
             let server =
-                gitServer (ScriptedRunner().On([ "ls-files"; "-z" ], Reply.Ok($"a.rs{nul}"))) WriteGate.None
+                gitServer (rootedGitListFilesRunner [ "ls-files"; "-z" ] (Reply.Ok($"a.rs{nul}"))) WriteGate.None
 
             match! Catalog.callTool server "repo_list_files" (argsOf "{}") with
             | Ok json -> Assert.That(json, Does.Contain "a.rs")
