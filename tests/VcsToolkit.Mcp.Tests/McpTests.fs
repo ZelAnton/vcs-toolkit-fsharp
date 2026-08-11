@@ -24,6 +24,9 @@ let private gitServerWithBudget (runner: ScriptedRunner) (writes: WriteGate) (ou
 let private gitServer (runner: ScriptedRunner) (writes: WriteGate) =
     gitServerWithBudget runner writes Option.None
 
+let private rootedGitListFilesRunner (tokens: string list) (reply: Reply) =
+    ScriptedRunner().On([ "rev-parse"; "--show-toplevel" ], Reply.Ok "/repo").On(tokens, reply)
+
 /// A git-backed server with a GitHub forge, both wired to the same scripted runner (no real
 /// `git`/`gh` binaries), with an explicit output budget (`None` = unlimited).
 let private gitServerWithForgeAndBudget (runner: ScriptedRunner) (writes: WriteGate) (outputBudget: int option) =
@@ -488,7 +491,7 @@ type ToolTests() =
 
             let server =
                 gitServer
-                    (ScriptedRunner().On([ "ls-files"; "-z" ], Reply.Ok($"a.rs{nul}sub/b.rs{nul}")))
+                    (rootedGitListFilesRunner [ "ls-files"; "-z" ] (Reply.Ok($"a.rs{nul}sub/b.rs{nul}")))
                     WriteGate.None
 
             match! server.RepoListFiles Option.None with
@@ -505,7 +508,9 @@ type ToolTests() =
 
             let server =
                 gitServer
-                    (ScriptedRunner().On([ "ls-tree"; "-r"; "--name-only"; "-z"; "HEAD~1" ], Reply.Ok($"a.rs{nul}")))
+                    (rootedGitListFilesRunner
+                        [ "ls-tree"; "-r"; "--name-only"; "-z"; "HEAD~1" ]
+                        (Reply.Ok($"a.rs{nul}")))
                     WriteGate.None
 
             match! server.RepoListFiles(Some "HEAD~1") with
@@ -1730,7 +1735,7 @@ type OutputBudgetTests() =
 
             let server =
                 gitServerWithBudget
-                    (ScriptedRunner().On([ "ls-files"; "-z" ], Reply.Ok($"{pathA}{nul}{pathB}{nul}")))
+                    (rootedGitListFilesRunner [ "ls-files"; "-z" ] (Reply.Ok($"{pathA}{nul}{pathB}{nul}")))
                     WriteGate.None
                     (Some budget)
 
@@ -1755,7 +1760,7 @@ type OutputBudgetTests() =
 
             let unbounded =
                 gitServerWithBudget
-                    (ScriptedRunner().On([ "ls-files"; "-z" ], Reply.Ok($"a.rs{nul}b.rs{nul}")))
+                    (rootedGitListFilesRunner [ "ls-files"; "-z" ] (Reply.Ok($"a.rs{nul}b.rs{nul}")))
                     WriteGate.None
                     Option.None
 
@@ -1765,7 +1770,7 @@ type OutputBudgetTests() =
 
             let zero =
                 gitServerWithBudget
-                    (ScriptedRunner().On([ "ls-files"; "-z" ], Reply.Ok($"a.rs{nul}b.rs{nul}")))
+                    (rootedGitListFilesRunner [ "ls-files"; "-z" ] (Reply.Ok($"a.rs{nul}b.rs{nul}")))
                     WriteGate.None
                     (Some 0)
 
@@ -1919,6 +1924,99 @@ type CatalogTests() =
             match! Catalog.callTool server "repo_current_branch" (argsOf "{}") with
             | Ok json -> Assert.That(json, Does.Contain "main")
             | Error e -> Assert.Fail $"dispatch failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.CallToolCancellationReachesBackendRead() : Task =
+        task {
+            use requestCts = new CancellationTokenSource()
+            requestCts.Cancel()
+
+            let runner = ScriptedRunner().On([ "symbolic-ref" ], Reply.Ok "must not run\n")
+
+            let server = gitServer runner WriteGate.None
+            let mutable cancelled = false
+
+            try
+                let! result =
+                    Catalog.callToolWithCancellation server "repo_current_branch" (argsOf "{}") requestCts.Token
+
+                match result with
+                | Error _ -> cancelled <- true
+                | Ok _ -> Assert.Fail "a cancelled request must not return a backend result"
+            with :? OperationCanceledException ->
+                cancelled <- true
+
+            Assert.That(cancelled, Is.True, "request cancellation must reach the backend operation")
+
+            Assert.That(
+                runner.CountReceived(fun invocation -> invocation.Program = "git"),
+                Is.EqualTo 1,
+                "a cancelled backend operation must not be retried"
+            )
+        }
+
+    [<Test>]
+    member _.CallToolCancellationStopsWaitingForRepoLockAndReleasesIt() : Task =
+        task {
+            use checkoutStarted = new SemaphoreSlim(0)
+            use releaseCheckout = new SemaphoreSlim(0)
+            let mutable firstCheckout = 1
+
+            let isCheckout (command: Command) =
+                command.Program :: List.ofSeq command.Arguments |> List.contains "checkout"
+
+            let runner =
+                ScriptedRunner()
+                    .When(
+                        (fun command ->
+                            if isCheckout command && Interlocked.Exchange(&firstCheckout, 0) = 1 then
+                                checkoutStarted.Release() |> ignore
+                                releaseCheckout.Wait(TimeSpan.FromSeconds 5.0) |> ignore
+                                true
+                            else
+                                false),
+                        Reply.Ok ""
+                    )
+                    .Fallback(Reply.Ok "")
+
+            let server = gitServer runner WriteGate.All
+
+            let firstTask =
+                Task.Run<Result<string, McpError>>(fun () -> server.RepoCheckout "first")
+
+            Assert.That(checkoutStarted.Wait(TimeSpan.FromSeconds 5.0), Is.True, "first checkout must hold the lock")
+
+            use requestCts = new CancellationTokenSource()
+
+            let waitingTask =
+                Catalog.callToolWithCancellation
+                    server
+                    "repo_checkout"
+                    (argsOf "{\"reference\":\"cancelled\"}")
+                    requestCts.Token
+
+            let waitingAsTask = waitingTask :> Task
+            requestCts.Cancel()
+            let! completed = Task.WhenAny(waitingAsTask, Task.Delay(TimeSpan.FromSeconds 5.0))
+
+            Assert.That(
+                Object.ReferenceEquals(completed, waitingAsTask),
+                Is.True,
+                "cancelling a request must stop its wait for the repo lock"
+            )
+
+            Assert.That(waitingTask.IsCanceled, Is.True, "a cancelled lock wait must propagate cancellation")
+
+            releaseCheckout.Release() |> ignore
+
+            match! firstTask with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"first checkout failed: {e.Message}"
+
+            match! Catalog.callTool server "repo_checkout" (argsOf "{\"reference\":\"after-cancel\"}") with
+            | Ok json -> Assert.That(json, Does.Contain "after-cancel")
+            | Error e -> Assert.Fail $"lock was not released after cancellation: {e.Message}"
         }
 
     [<Test>]
@@ -2656,7 +2754,7 @@ type CatalogTests() =
 
             let server =
                 gitServer
-                    (ScriptedRunner().On([ "ls-tree"; "-r"; "--name-only"; "-z"; "HEAD" ], Reply.Ok($"a.rs{nul}")))
+                    (rootedGitListFilesRunner [ "ls-tree"; "-r"; "--name-only"; "-z"; "HEAD" ] (Reply.Ok($"a.rs{nul}")))
                     WriteGate.None
 
             match! Catalog.callTool server "repo_list_files" (argsOf """{"rev":"HEAD"}""") with
@@ -2670,7 +2768,7 @@ type CatalogTests() =
             let nul = string (char 0)
 
             let server =
-                gitServer (ScriptedRunner().On([ "ls-files"; "-z" ], Reply.Ok($"a.rs{nul}"))) WriteGate.None
+                gitServer (rootedGitListFilesRunner [ "ls-files"; "-z" ] (Reply.Ok($"a.rs{nul}"))) WriteGate.None
 
             match! Catalog.callTool server "repo_list_files" (argsOf "{}") with
             | Ok json -> Assert.That(json, Does.Contain "a.rs")

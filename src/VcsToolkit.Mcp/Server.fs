@@ -149,13 +149,22 @@ module internal ServerHelpers =
 /// always available; mutating tools are gated by the `writes` policy (and repo mutations
 /// serialize on a per-repo lock).
 [<Sealed>]
-type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudget: int option) =
+type VcsMcpServer
+    private
+    (
+        repo: Repo,
+        forge: Forge option,
+        writes: WriteGate,
+        outputBudget: int option,
+        writeLock: SemaphoreSlim,
+        ownsWriteLock: bool,
+        requestCancellation: CancellationToken
+    ) =
 
-    // Serializes the repo-mutating tools: an MCP host can dispatch tool calls concurrently,
-    // so without this two repo mutations (e.g. `repo_try_merge`'s materialize-then-rollback
-    // racing a `repo_commit`) could interleave. Forge tools are predominantly remote calls to
-    // a server that serializes on its side, so they aren't gated by this local lock.
-    let writeLock = new SemaphoreSlim(1, 1)
+    // Serializes repo-mutating tools, including request-scoped views, so concurrent calls cannot
+    // interleave operations on the same working copy.
+    new(repo: Repo, forge: Forge option, writes: WriteGate, outputBudget: int option) =
+        new VcsMcpServer(repo, forge, writes, outputBudget, new SemaphoreSlim(1, 1), true, CancellationToken.None)
 
     /// The repository this server serves.
     member _.Repo = repo
@@ -169,6 +178,31 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
     /// The output-size budget (bytes) applied to large-content read tools; `None` means
     /// no limit.
     member _.OutputBudget = outputBudget
+
+    /// Build request-scoped client handles while retaining this server's shared repo lock. The
+    /// command clients already compose their configured timeout and cancellation independently,
+    /// so binding the request token here preserves the server timeout as a separate deadline.
+    member internal this.WithCancellation(token: CancellationToken) : VcsMcpServer =
+        if not token.CanBeCanceled then
+            this
+        else
+            let requestRepo =
+                match repo.Git, repo.Jj with
+                | Some git, Option.None -> Repo.FromGit(repo.Root, repo.Cwd, git.DefaultCancelOn token)
+                | Option.None, Some jj -> Repo.FromJj(repo.Root, repo.Cwd, jj.DefaultCancelOn token)
+                | _ -> invalidOp "repository backend handle is inconsistent"
+
+            let requestForge =
+                forge
+                |> Option.map (fun f ->
+                    match f.GitHubClient, f.GitLabClient, f.GiteaClient with
+                    | Some client, Option.None, Option.None -> Forge.FromGitHub(f.Cwd, client.DefaultCancelOn token)
+                    | Option.None, Some client, Option.None -> Forge.FromGitLab(f.Cwd, client.DefaultCancelOn token)
+                    | Option.None, Option.None, Some client -> Forge.FromGitea(f.Cwd, client.DefaultCancelOn token)
+                    | Option.None, Option.None, Option.None -> Forge.FromUnknown f.Cwd
+                    | _ -> invalidOp "forge backend handles are inconsistent")
+
+            new VcsMcpServer(requestRepo, requestForge, writes, outputBudget, writeLock, false, token)
 
     // --- gating helpers ----------------------------------------------------
 
@@ -201,7 +235,7 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
             match this.RequireWrite tool with
             | Error e -> return Error e
             | Ok() ->
-                do! writeLock.WaitAsync()
+                do! writeLock.WaitAsync(requestCancellation)
 
                 try
                     return! action ()
@@ -237,7 +271,7 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
                 match this.Forge() with
                 | Error e -> return Error e
                 | Ok f ->
-                    do! writeLock.WaitAsync()
+                    do! writeLock.WaitAsync(requestCancellation)
 
                     try
                         return! action f
@@ -980,4 +1014,6 @@ type VcsMcpServer(repo: Repo, forge: Forge option, writes: WriteGate, outputBudg
             })
 
     interface IDisposable with
-        member _.Dispose() = writeLock.Dispose()
+        member _.Dispose() =
+            if ownsWriteLock then
+                writeLock.Dispose()

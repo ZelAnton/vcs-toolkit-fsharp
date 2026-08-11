@@ -219,7 +219,7 @@ let private runServer (server: VcsMcpServer) : Task =
             ValueTask<ListToolsResult>(ListToolsResult(Tools = tools)))
 
     let callHandler =
-        McpRequestHandler<CallToolRequestParams, CallToolResult>(fun ctx _ct ->
+        McpRequestHandler<CallToolRequestParams, CallToolResult>(fun ctx ct ->
             // `ctx.Params` is non-nullable in the SDK (a call-tool request always carries params).
             let p = ctx.Params
             let name = p.Name
@@ -231,7 +231,7 @@ let private runServer (server: VcsMcpServer) : Task =
 
             let work =
                 task {
-                    match! Catalog.callTool server name argsElem with
+                    match! Catalog.callToolWithCancellation server name argsElem ct with
                     | Ok json -> return textResult json false
                     | Error(McpError.InvalidParams message) ->
                         // A protocol-level "fix your call" error (unknown tool, bad/missing

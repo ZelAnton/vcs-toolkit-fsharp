@@ -808,6 +808,41 @@ type PipelineTests() =
         }
 
     [<Test>]
+    member _.ConcurrentDisposeDuringAPendingRecvIsRaceFree() : Task =
+        task {
+            // A pending Recv parked on an empty channel while several threads race to dispose:
+            // the teardown must run exactly once and the pending Recv must end with None — no
+            // ObjectDisposedException escaping, no hang.
+            let raw, out = channels ()
+            let stats = StatsInner()
+            let cts = new CancellationTokenSource()
+
+            let loopTask =
+                Loop.watchLoop (scriptedJj "aaaa") raw out (baseSnapshot, baseBranches) fastConfig stats cts.Token
+
+            let watcher =
+                new RepoWatcher(out, baseSnapshot, stats, ResizeArray<FileSystemWatcher>(), cts, loopTask)
+
+            let recvTask = watcher.Recv()
+
+            let disposals =
+                [| for _ in 1..4 -> Task.Run(Action(fun () -> (watcher :> IDisposable).Dispose())) |]
+
+            do! Task.WhenAll disposals
+
+            let! winner = Task.WhenAny(recvTask :> Task, Task.Delay(TimeSpan.FromSeconds 5.0))
+
+            Assert.That(
+                Object.ReferenceEquals(winner, recvTask),
+                Is.True,
+                "a concurrent dispose must release the pending Recv promptly"
+            )
+
+            let! change = recvTask
+            Assert.That(change, Is.EqualTo None, "a concurrent dispose ends a pending Recv with None, not an exception")
+        }
+
+    [<Test>]
     member _.ReadAllRethrowsTheTerminalWatcherFailure() : Task =
         task {
             let raw, out = channels ()

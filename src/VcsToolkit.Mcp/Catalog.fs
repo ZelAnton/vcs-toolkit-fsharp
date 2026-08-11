@@ -1,6 +1,7 @@
 namespace VcsToolkit.Mcp
 
 open System.Text.Json
+open System.Threading
 open System.Threading.Tasks
 
 /// One argument of a tool, for the advertised input schema.
@@ -711,7 +712,11 @@ module internal Catalog =
 
     /// Invoke the tool `name` on `server`, parsing `args` (the call's `arguments` object).
     /// An unknown tool or a bad/missing argument is an `InvalidParams` error.
-    let callTool (server: VcsMcpServer) (name: string) (args: JsonElement) : Task<Result<string, McpError>> =
+    let private callToolCore
+        (server: VcsMcpServer)
+        (name: string)
+        (args: JsonElement)
+        : Task<Result<string, McpError>> =
         match name with
         | "repo_snapshot" -> server.RepoSnapshot()
         | "repo_info" -> server.RepoInfo()
@@ -827,3 +832,18 @@ module internal Catalog =
                                 server.ForgeReleaseCreate(tag, title, notes, draft, prerelease))))))
         | "forge_release_delete" -> bind (reqStr args "tag") server.ForgeReleaseDelete
         | unknown -> task { return Error(McpError.InvalidParams(sprintf "unknown tool %A" unknown)) }
+
+    /// Invoke a tool using a request-scoped server view. The view binds the request token to
+    /// every repo/forge command and shares the original server's per-repository write lock.
+    let callToolWithCancellation
+        (server: VcsMcpServer)
+        (name: string)
+        (args: JsonElement)
+        (cancellationToken: CancellationToken)
+        : Task<Result<string, McpError>> =
+        callToolCore (server.WithCancellation cancellationToken) name args
+
+    /// Invoke a tool without an external request token. Kept as the hermetic/unit-test path and
+    /// preserves the pre-existing behaviour for callers that do not have request cancellation.
+    let callTool (server: VcsMcpServer) (name: string) (args: JsonElement) : Task<Result<string, McpError>> =
+        callToolWithCancellation server name args CancellationToken.None
