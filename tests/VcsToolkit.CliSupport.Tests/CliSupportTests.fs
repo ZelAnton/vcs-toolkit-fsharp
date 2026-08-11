@@ -87,6 +87,8 @@ type ClassifierTests() =
     member _.ClassifiesLockContention() =
         let lockFailures =
             [ exit "git" 128 "fatal: Unable to create '/r/.git/index.lock': File exists."
+              // `refs/` in the repository path is not git's per-ref directory.
+              exit "git" 128 "fatal: Unable to create '/work/refs/project/.git/index.lock': File exists."
               // jj's real wordings (no `the`; the full op-heads phrase).
               exit "jj" 1 "Error: Failed to lock working copy"
               exit "jj" 1 "Error: Failed to lock operation heads store" ]
@@ -101,7 +103,7 @@ type ClassifierTests() =
               // Per-ref locks are NOT classified (a multi-ref op can fail one mid-way).
               exit "git" 1 "error: cannot lock ref 'refs/heads/x': reference already exists"
               // A per-ref lock whose PATH contains `index.lock` (a branch literally named
-              // `index`) is excluded by the `refs/` guard — not the whole-repo index lock.
+              // `index`) is excluded by the `.git/refs/` path check — not the whole-repo index lock.
               exit "git" 128 "fatal: Unable to create '/r/.git/refs/heads/index.lock': File exists"
               ProcessError.Timeout("git", TimeSpan.FromSeconds 1.0, "", "") ]
 
@@ -125,7 +127,10 @@ type RetryTests() =
     member _.RetriesThenSucceeds() : Task =
         task {
             let policy = RetryPolicy.None.WithAttempts 4
-            let lockErr = exit "git" 128 "Unable to create '/r/.git/index.lock': File exists"
+
+            let lockErr =
+                exit "git" 128 "Unable to create '/work/refs/project/.git/index.lock': File exists"
+
             let calls = ref 0
 
             let! out =

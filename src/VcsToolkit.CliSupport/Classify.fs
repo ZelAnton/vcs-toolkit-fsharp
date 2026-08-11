@@ -47,9 +47,8 @@ module Classify =
     /// Lower-case substrings marking a whole-repository / working-copy lock contention
     /// failure — another process held the one repo-wide lock, so the command never
     /// started (clean, pre-execution) and touched nothing. Per-ref lock messages are
-    /// deliberately excluded by the `refs/` guard in `isLockContention`: a multi-ref
-    /// push/fetch can fail a ref lock after earlier refs already moved, where a retry
-    /// would not be idempotent.
+    /// deliberately excluded by `isLockContention`: a multi-ref push/fetch can fail a
+    /// ref lock after earlier refs already moved, where a retry would not be idempotent.
     ///
     /// git: match the **locale-stable path fragment** `index.lock`, not the translated
     /// `': File exists'` suffix (git localizes its messages, so a non-English runner would
@@ -126,18 +125,32 @@ module Classify =
     let isTransientFetchError (err: ProcessError) =
         ProcessError.isTransient err || exitOutputMatches err transientFetchMarkers
 
-    /// Whether `err` is a whole-repository lock-contention failure — another process
-    /// held git's index lock or jj's working-copy / op-heads lock, so the command
-    /// couldn't even start. Such a failure is pre-execution and therefore safe to
-    /// retry even on a mutating operation.
+    /// Whether an index lock path is under git's per-ref directory. A `refs/` segment in the
+    /// repository path itself must not make a whole-repository `.git/index.lock` non-retryable.
+    let private isPerRefIndexLock (err: ProcessError) =
+        match err with
+        | ProcessError.Exit(_, _, stdout, stderr) ->
+            [ stdout; stderr ]
+            |> List.exists (fun text ->
+                let normalized = asciiLower text
+                let normalized = normalized.Replace('\\', '/')
+                let lockIndex = normalized.IndexOf("index.lock", StringComparison.Ordinal)
+
+                if lockIndex < 0 then
+                    false
+                else
+                    let beforeLock = normalized.Substring(0, lockIndex)
+                    let gitDirIndex = beforeLock.LastIndexOf(".git/", StringComparison.Ordinal)
+                    let refsIndex = beforeLock.LastIndexOf("refs/", StringComparison.Ordinal)
+                    refsIndex > gitDirIndex)
+        | _ -> false
+
+    /// Whether `err` is a whole-repository lock-contention failure — another process held
+    /// git's index lock or jj's working-copy / op-heads lock, so the command couldn't even
+    /// start. Such a failure is pre-execution and therefore safe to retry even on a mutating
+    /// operation. Per-ref locks are excluded because an earlier ref may already have moved.
     let isLockContention (err: ProcessError) =
-        // Rule out a **per-ref** lock first (not safely retryable — a multi-ref push/fetch
-        // can fail one ref's lock after earlier refs already moved). git's per-ref lock lives
-        // under `refs/` and its message names `refs/…`, whereas the whole-repo `index.lock`
-        // never does — so a `refs/` mention excludes it locale-independently. This also stops a
-        // branch literally named `index`/`reindex` (whose `reindex.lock` contains `index.lock`)
-        // from matching the bare `index.lock` marker.
-        if exitOutputMatches err [ "refs/" ] then
+        if isPerRefIndexLock err then
             false
         else
             exitOutputMatches err lockContentionMarkers
