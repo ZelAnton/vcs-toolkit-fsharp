@@ -17,6 +17,9 @@ let private cr = string (char 13)
 let private scripted (tokens: string list) (reply: Reply) =
     Jj.WithRunner(ScriptedRunner().On(tokens, reply))
 
+let private scriptedRooted (tokens: string list) (reply: Reply) =
+    Jj.WithRunner(ScriptedRunner().On([ "root" ], Reply.Ok ".").On(tokens, reply))
+
 /// A runner that records the last `Command` it ran (argv + working directory), always replying
 /// `reply`. For asserting the `at(dir)` view's byte-identical argv + cwd binding.
 let private capturing (reply: Reply) : (Command option ref) * ScriptedRunner =
@@ -1257,7 +1260,7 @@ type ClientTests() =
     member _.FileListDefaultsToWorkingCopyRevset() : Task =
         task {
             let jj =
-                scripted [ "file"; "list"; "-r"; "@" ] (Reply.Ok "\"a.rs\"\n\"sub/b.rs\"\n")
+                scriptedRooted [ "file"; "list"; "-r"; "@" ] (Reply.Ok "\"a.rs\"\n\"sub/b.rs\"\n")
 
             match! jj.FileList(".", None) with
             | Ok paths ->
@@ -1270,7 +1273,7 @@ type ClientTests() =
     [<Test>]
     member _.FileListUsesTheGivenRevset() : Task =
         task {
-            let jj = scripted [ "file"; "list"; "-r"; "@-" ] (Reply.Ok "\"a.rs\"\n")
+            let jj = scriptedRooted [ "file"; "list"; "-r"; "@-" ] (Reply.Ok "\"a.rs\"\n")
 
             match! jj.FileList(".", Some "@-") with
             | Ok paths ->
@@ -1284,11 +1287,29 @@ type ClientTests() =
         task {
             // Mirrors ResolveList: `file list` on an empty tree is a normal, empty-output
             // success — never an error just because nothing matched.
-            let jj = scripted [ "file"; "list"; "-r"; "@" ] (Reply.Ok "")
+            let jj = scriptedRooted [ "file"; "list"; "-r"; "@" ] (Reply.Ok "")
 
             match! jj.FileList(".", None) with
             | Ok paths -> Assert.That(paths, Is.Empty)
             | Error e -> Assert.Fail $"file_list (empty) failed: {e}"
+        }
+
+    [<Test>]
+    member _.DirectFileListFromASubdirectoryReturnsRepoRelativePaths() : Task =
+        task {
+            requireJj ()
+            use repo = JjSandbox.Init "file-list-direct-subdirectory"
+            repo.Write("sub/a.txt", "a\n")
+            repo.Write("top.txt", "top\n")
+            let jj = Jj.Create()
+            let subdir = System.IO.Path.Combine(repo.Path, "sub")
+
+            match! jj.FileList(subdir, None) with
+            | Ok paths ->
+                Assert.That(paths, Does.Contain "sub/a.txt")
+                Assert.That(paths, Does.Contain "top.txt")
+                Assert.That(paths, Does.Not.Contain "a.txt")
+            | Error e -> Assert.Fail $"direct FileList from a subdirectory failed: {e}"
         }
 
     [<Test>]

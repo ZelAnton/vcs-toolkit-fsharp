@@ -19,6 +19,9 @@ let private tab = string (char 9)
 let private scripted (tokens: string list) (reply: Reply) =
     Git.WithRunner(ScriptedRunner().On(tokens, reply))
 
+let private scriptedRooted (tokens: string list) (reply: Reply) =
+    Git.WithRunner(ScriptedRunner().On([ "rev-parse"; "--show-toplevel" ], Reply.Ok ".").On(tokens, reply))
+
 /// A runner that records the last `Command` it was asked to run (its argv + working directory),
 /// always replying `reply`. For asserting the `at(dir)` view's byte-identical argv + cwd binding.
 let private capturing (reply: Reply) : (Command option ref) * ScriptedRunner =
@@ -235,7 +238,7 @@ type QueryTests() =
     member _.ListFilesOnWorkingCopyUsesLsFiles() : Task =
         task {
             let git =
-                scripted [ "ls-files"; "-z" ] (Reply.Ok($"a.rs{nul}sub/spaced name.rs{nul}"))
+                scriptedRooted [ "ls-files"; "-z" ] (Reply.Ok($"a.rs{nul}sub/spaced name.rs{nul}"))
 
             match! git.ListFiles(".", None) with
             | Ok paths ->
@@ -249,7 +252,7 @@ type QueryTests() =
     member _.ListFilesOnRevisionUsesLsTree() : Task =
         task {
             let git =
-                scripted [ "ls-tree"; "-r"; "--name-only"; "-z"; "HEAD~1" ] (Reply.Ok($"a.rs{nul}b.rs{nul}"))
+                scriptedRooted [ "ls-tree"; "-r"; "--name-only"; "-z"; "HEAD~1" ] (Reply.Ok($"a.rs{nul}b.rs{nul}"))
 
             match! git.ListFiles(".", Some "HEAD~1") with
             | Ok paths ->
@@ -263,7 +266,7 @@ type QueryTests() =
     member _.ListFilesPreservesLiteralCrLfThroughByteCapture() : Task =
         task {
             let path = "literal\r\nline-break.txt"
-            let git = scripted [ "ls-files"; "-z" ] (Reply.Ok($"{path}{nul}"))
+            let git = scriptedRooted [ "ls-files"; "-z" ] (Reply.Ok($"{path}{nul}"))
 
             match! git.ListFiles(".", None) with
             | Ok paths ->
