@@ -98,15 +98,66 @@ module Retry =
 
             if policy.Jitter then fullJitter delay else delay
 
+    /// Internal retry executor with a deterministic before-attempt seam for cancellation tests.
+    let internal retryAsyncWithBeforeAttempt
+        (beforeAttempt: int -> unit)
+        (policy: RetryPolicy)
+        (shouldRetry: ProcessError -> bool)
+        (ct: CancellationToken)
+        (op: unit -> Task<Result<'T, ProcessError>>)
+        : Task<Result<'T, ProcessError>> =
+        let attempts = max 1 policy.Attempts
+
+        let rec attemptLoop (attempt: int) (previousProgram: string option) =
+            task {
+                if attempt > 1 && ct.IsCancellationRequested then
+                    // Observe cancellation at the retry-to-operation boundary. The first attempt
+                    // intentionally remains unconditional, while a later attempt must not start
+                    // after cancellation wins the race with the preceding delay/check.
+                    return Error(ProcessError.Cancelled(previousProgram |> Option.defaultValue ""))
+                else
+                    beforeAttempt attempt
+
+                    if attempt > 1 && ct.IsCancellationRequested then
+                        // Re-check after the transition hook so cancellation that wins between the
+                        // first guard and the next operation cannot launch that operation.
+                        return Error(ProcessError.Cancelled(previousProgram |> Option.defaultValue ""))
+                    else
+                        match! op () with
+                        | Ok value -> return Ok value
+                        | Error err ->
+                            if attempt >= attempts || not (shouldRetry err) then
+                                return Error err
+                            elif ct.IsCancellationRequested then
+                                // The request was cancelled after this attempt failed; do not start a
+                                // later retry, even when the configured backoff is zero.
+                                return Error(ProcessError.Cancelled(err.Program |> Option.defaultValue ""))
+                            else
+                                let delay = backoffFor policy (attempt - 1)
+
+                                if delay > TimeSpan.Zero then
+                                    try
+                                        do! Task.Delay(delay, ct)
+                                        return! attemptLoop (attempt + 1) (err.Program)
+                                    with :? OperationCanceledException ->
+                                        // Cancelled mid-backoff: stop here rather than sleeping out the
+                                        // remainder or starting another attempt.
+                                        return Error(ProcessError.Cancelled(err.Program |> Option.defaultValue ""))
+                                else
+                                    return! attemptLoop (attempt + 1) (err.Program)
+            }
+
+        attemptLoop 1 Option.None
+
     /// Run `op`, retrying its result while `shouldRetry` says so and `policy` has
     /// attempts left, sleeping the (jittered, exponential) backoff between tries. The
     /// op is re-invoked from scratch each attempt, so it must be idempotent for the
     /// errors `shouldRetry` selects. Returns the first `Ok`, or the last `Error`.
     ///
     /// The first attempt always runs, regardless of `ct`'s state going in — `ct` is
-    /// only observed around the backoff sleep *between* attempts. A cancellation that
-    /// fires during that sleep aborts immediately (it does not wait out the rest of
-    /// the delay) and does NOT start another attempt; it is reported as
+    /// observed after the first operation fails and at the retry-to-operation boundary.
+    /// A cancellation that fires during the backoff aborts immediately (it does not wait
+    /// out the rest of the delay) and does NOT start another attempt; it is reported as
     /// `ProcessError.Cancelled`, mirroring the shape the ProcessKit runner itself uses
     /// for a cancelled run. `retryAsync` has no direct line to the program name being
     /// retried, so it reuses the `Program` carried by the last `ProcessError` seen
@@ -118,28 +169,4 @@ module Retry =
         (ct: CancellationToken)
         (op: unit -> Task<Result<'T, ProcessError>>)
         : Task<Result<'T, ProcessError>> =
-        let attempts = max 1 policy.Attempts
-
-        let rec attemptLoop (attempt: int) =
-            task {
-                match! op () with
-                | Ok value -> return Ok value
-                | Error err ->
-                    if attempt >= attempts || not (shouldRetry err) then
-                        return Error err
-                    else
-                        let delay = backoffFor policy (attempt - 1)
-
-                        if delay > TimeSpan.Zero then
-                            try
-                                do! Task.Delay(delay, ct)
-                                return! attemptLoop (attempt + 1)
-                            with :? OperationCanceledException ->
-                                // Cancelled mid-backoff: stop here rather than sleeping out the
-                                // remainder or starting another attempt.
-                                return Error(ProcessError.Cancelled(err.Program |> Option.defaultValue ""))
-                        else
-                            return! attemptLoop (attempt + 1)
-            }
-
-        attemptLoop 1
+        retryAsyncWithBeforeAttempt (fun _ -> ()) policy shouldRetry ct op

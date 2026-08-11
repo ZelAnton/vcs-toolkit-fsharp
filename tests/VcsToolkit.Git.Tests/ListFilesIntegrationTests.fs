@@ -38,6 +38,24 @@ type ListFilesTests() =
         }
 
     [<Test>]
+    member _.DirectListFilesFromASubdirectoryReturnsRepoRelativePaths() : Task =
+        task {
+            requireGit ()
+            use repo = GitSandbox.Init "list-files-direct-subdirectory"
+            repo.CommitFile("sub/a.txt", "a\n", "add nested file")
+            repo.CommitFile("top.txt", "top\n", "add root file")
+            let git = Git.Create()
+            let subdir = Path.Combine(repo.Path, "sub")
+
+            match! git.ListFiles(subdir, None) with
+            | Ok paths ->
+                Assert.That(paths, Does.Contain "sub/a.txt")
+                Assert.That(paths, Does.Contain "top.txt")
+                Assert.That(paths, Does.Not.Contain "a.txt")
+            | Error e -> Assert.Fail $"direct ListFiles from a subdirectory failed: {e}"
+        }
+
+    [<Test>]
     member _.GitAtListFilesMatchesTheRootListingWhenBoundToASubdirectory() : Task =
         task {
             requireGit ()

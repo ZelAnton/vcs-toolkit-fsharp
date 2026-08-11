@@ -724,7 +724,8 @@ and [<Sealed>] RepoWatcher
     ) =
 
     let mutable current = baseline
-    let mutable disposed = false
+    // 0 = live, 1 = disposed. `Interlocked` ensures concurrent callers run the teardown once.
+    let mutable disposed = 0
 
     /// The default per-re-query deadline (30 s) used unless overridden via the builder.
     static member DefaultRequeryTimeout = defaultRequeryTimeout
@@ -844,8 +845,7 @@ and [<Sealed>] RepoWatcher
 
     interface IDisposable with
         member _.Dispose() =
-            if not disposed then
-                disposed <- true
+            if Interlocked.Exchange(&disposed, 1) = 0 then
 
                 for w in watchers do
                     w.Dispose()
