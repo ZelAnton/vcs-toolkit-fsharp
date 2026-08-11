@@ -24,6 +24,14 @@ let private requireBinary (name: string) (probe: unit -> unit) =
         else
             Assert.Ignore message
 
+let private assertPathArgumentException (path: string) (action: string -> unit) =
+    let caughtException =
+        Assert.Throws<ArgumentException>(Action(fun () -> action path))
+
+    match caughtException with
+    | null -> raise (InvalidOperationException "Assert.Throws returned null unexpectedly")
+    | caught -> Assert.That(caught.ParamName, Is.EqualTo "path")
+
 // ---------------------------------------------------------------------------
 // TempDir — hermetic (needs no binary)
 // ---------------------------------------------------------------------------
@@ -102,6 +110,49 @@ type GitSandboxTests() =
         // The seed commit is now fetchable through the tracking ref.
         Assert.That((repo.RevParse "origin/main").Length, Is.EqualTo 40, "seed commit fetched")
 
+    [<Test>]
+    member _.WriteRejectsRootedAndTraversalPaths() =
+        requireBinary "git" (fun () -> Raw.git "." [ "--version" ])
+        use repo = GitSandbox.Init "write-boundary"
+        let outsideName = $"vcs-testkit-outside-{Guid.NewGuid():N}.txt"
+        let outside = Path.GetFullPath(Path.Combine(repo.Path, "..", outsideName))
+        let traversal = Path.Combine("..", outsideName)
+
+        try
+            assertPathArgumentException outside (fun path -> repo.Write(path, "blocked\n"))
+            assertPathArgumentException traversal (fun path -> repo.Write(path, "blocked\n"))
+            Assert.That(File.Exists outside, Is.False, "rejected writes must not create an outside file")
+        finally
+            if File.Exists outside then
+                File.Delete outside
+
+    [<Test>]
+    member _.WriteAllowsNestedRepoRelativePaths() =
+        requireBinary "git" (fun () -> Raw.git "." [ "--version" ])
+        use repo = GitSandbox.Init "write-relative"
+        let relative = Path.Combine("nested", "allowed.txt")
+        repo.Write(relative, "allowed\n")
+        Assert.That(File.ReadAllText(Path.Combine(repo.Path, relative)), Is.EqualTo "allowed\n")
+
+    [<Test>]
+    member _.CommitFileRejectsRootedAndTraversalPaths() =
+        requireBinary "git" (fun () -> Raw.git "." [ "--version" ])
+        use repo = GitSandbox.Init "commit-boundary"
+        let outsideName = $"vcs-testkit-commit-outside-{Guid.NewGuid():N}.txt"
+        let outside = Path.GetFullPath(Path.Combine(repo.Path, "..", outsideName))
+        let traversal = Path.Combine("..", outsideName)
+
+        try
+            let commitFile path =
+                repo.CommitFile(path, "blocked\n", "blocked")
+
+            assertPathArgumentException outside commitFile
+            assertPathArgumentException traversal commitFile
+            Assert.That(File.Exists outside, Is.False, "rejected commits must not create an outside file")
+        finally
+            if File.Exists outside then
+                File.Delete outside
+
 // ---------------------------------------------------------------------------
 // JjSandbox — requires the jj binary (skipped locally when it is unavailable)
 // ---------------------------------------------------------------------------
@@ -122,6 +173,30 @@ type JjSandboxTests() =
         repo.Bookmark "mark"
         repo.NewChange "next"
         Assert.Pass "jj scenario built without error"
+
+    [<Test>]
+    member _.WriteRejectsRootedAndTraversalPaths() =
+        requireBinary "jj" (fun () -> Raw.jj "." [ "--version" ])
+        use repo = JjSandbox.Init "write-boundary"
+        let outsideName = $"vcs-testkit-jj-outside-{Guid.NewGuid():N}.txt"
+        let outside = Path.GetFullPath(Path.Combine(repo.Path, "..", outsideName))
+        let traversal = Path.Combine("..", outsideName)
+
+        try
+            assertPathArgumentException outside (fun path -> repo.Write(path, "blocked\n"))
+            assertPathArgumentException traversal (fun path -> repo.Write(path, "blocked\n"))
+            Assert.That(File.Exists outside, Is.False, "rejected writes must not create an outside file")
+        finally
+            if File.Exists outside then
+                File.Delete outside
+
+    [<Test>]
+    member _.WriteAllowsNestedWorkspaceRelativePaths() =
+        requireBinary "jj" (fun () -> Raw.jj "." [ "--version" ])
+        use repo = JjSandbox.Init "write-relative"
+        let relative = Path.Combine("nested", "allowed.txt")
+        repo.Write(relative, "allowed\n")
+        Assert.That(File.ReadAllText(Path.Combine(repo.Path, relative)), Is.EqualTo "allowed\n")
 
 // ---------------------------------------------------------------------------
 // Construction failure must not leak the temp dir (only forceable when jj is

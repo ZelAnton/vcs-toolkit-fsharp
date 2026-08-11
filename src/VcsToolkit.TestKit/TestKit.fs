@@ -135,6 +135,28 @@ module internal Internals =
               "core.autocrlf", "false" ] do
             run "git" dir [ "config"; key; value ]
 
+    /// Resolve a sandbox-relative path and reject rooted or escaping paths before any
+    /// parent directory or file is created. `Path.GetRelativePath` provides the canonical
+    /// lexical containment check while preserving platform-specific case and separators.
+    let resolveSandboxPath (root: string) (path: string) : string =
+        if Path.IsPathRooted path then
+            invalidArg "path" "path must be relative to the sandbox root"
+
+        let canonicalRoot = Path.GetFullPath root
+        let candidate = Path.GetFullPath(path, canonicalRoot)
+        let relative = Path.GetRelativePath(canonicalRoot, candidate)
+        let parentPrefix separator = ".." + string separator
+
+        if
+            Path.IsPathRooted relative
+            || relative = ".."
+            || relative.StartsWith(parentPrefix Path.DirectorySeparatorChar, StringComparison.Ordinal)
+            || relative.StartsWith(parentPrefix Path.AltDirectorySeparatorChar, StringComparison.Ordinal)
+        then
+            invalidArg "path" "path must remain within the sandbox root"
+
+        candidate
+
 /// A unique temporary directory, removed on `Dispose`.
 ///
 /// Unique without a temp-dir library: process id + a process-wide monotonic counter, so
@@ -215,7 +237,7 @@ type GitSandbox private (dir: TempDir) =
 
     /// Write `content` to the repo-relative `path` (creating parent dirs).
     member _.Write(path: string, content: string) =
-        let full = Path.Combine(dir.Path, path)
+        let full = resolveSandboxPath dir.Path path
 
         match Path.GetDirectoryName full with
         | null -> ()
@@ -331,7 +353,7 @@ type JjSandbox private (dir: TempDir) =
 
     /// Write `content` to the workspace-relative `path` (creating parents).
     member _.Write(path: string, content: string) =
-        let full = Path.Combine(dir.Path, path)
+        let full = resolveSandboxPath dir.Path path
 
         match Path.GetDirectoryName full with
         | null -> ()
