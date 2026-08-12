@@ -187,9 +187,12 @@ The upstream [2.10.0](https://github.com/ZelAnton/ProcessKit-fSharp/blob/v2.10.0
 changelog was reviewed. Its retry-backoff, extra-file-descriptor, per-run signal, configurable
 soft-stop signal, CPU-time limit, and HTTP-client readiness APIs are additive and are not used by
 VcsToolkit. `ManagedClient` still constructs ordinary `Command` values and invokes the `JobRunner`
-through `IProcessRunner`'s capture verbs; its explicit stdin payloads remain byte-based. The
-explicit progress APIs use streamed output, and `ManagedClient.DefaultInactivityTimeout` is an
-opt-in resettable stdout/stderr watchdog for those runs; ordinary captures remain unchanged.
+through `IProcessRunner`'s capture verbs; its explicit stdin payloads remain byte-based. Progress
+APIs use streamed output, and `WithOutputBudget` retains the bounded diagnostic tail for those
+runs while still delivering every progress event. It does not use idle timeouts, PTY sessions,
+readiness probes, supervisors, or process-group profiles.
+`ManagedClient.DefaultInactivityTimeout` is an opt-in resettable stdout/stderr watchdog for
+progress runs; ordinary captures remain unchanged.
 
 The 2.10.0 fixes therefore require no source changes here. Consumers receive the corrected retry
 and readiness validation plus ProcessKit's platform runtime improvements transitively, while

@@ -401,11 +401,26 @@ type ManagedClient private (cfg: ManagedConfig) =
                             // its exception cannot strand the child or stop output draining.
                             callbackActive <- false
 
+                let outputCommand =
+                    match cfg.OutputBudget with
+                    | Some value ->
+                        let allowance = 65_536
+
+                        let captureLimit =
+                            if value > Int32.MaxValue - allowance then
+                                Int32.MaxValue
+                            else
+                                value + allowance
+
+                        let policy =
+                            OutputBufferPolicy.Default.WithMaxBytes(captureLimit).WithOverflow(OverflowMode.DropOldest)
+
+                        prepared.OutputBuffer policy
+                    | None -> prepared
                 let progressCommand =
                     match cfg.DefaultInactivityTimeout with
-                    | Some timeout -> prepared.IdleTimeout timeout
-                    | None -> prepared
-
+                    | Some timeout -> outputCommand.IdleTimeout timeout
+                    | None -> outputCommand
                 let streamed =
                     progressCommand
                         .OnStdoutLine(Action<string>(fun line -> report (ProcessEvent.Stdout line)))

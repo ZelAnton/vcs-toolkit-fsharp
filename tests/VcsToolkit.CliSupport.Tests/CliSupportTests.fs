@@ -213,6 +213,31 @@ type ProgressTests() =
             | other -> Assert.Fail $"silent progress run should hit its inactivity watchdog, got {other}"
         }
 
+    [<Test>]
+    member _.BudgetedProgressCaptureRetainsTheTail() : Task =
+        task {
+            let program, arguments =
+                if OperatingSystem.IsWindows() then
+                    "pwsh",
+                    [ "-NoLogo"
+                      "-NoProfile"
+                      "-Command"
+                      "1..12000 | ForEach-Object { [Console]::WriteLine(\"line-$_\") }; [Console]::WriteLine(\"tail-marker\"); exit 1" ]
+                else
+                    "sh",
+                    [ "-c"
+                      "i=0; while [ $i -lt 12000 ]; do printf 'line-%s\n' \"$i\"; i=$((i + 1)); done; printf 'tail-marker\n'; exit 1" ]
+
+            let client = ManagedClient.Create(program).WithOutputBudget(Some 1024)
+
+            match! client.RunWithProgress(client.Command arguments, ignore) with
+            | Error(ProcessError.Exit(_, code, stdout, _)) ->
+                Assert.That(code, Is.EqualTo 1)
+                Assert.That(stdout, Does.Contain "tail-marker")
+                Assert.That(stdout, Does.Not.Contain "line-0")
+                Assert.That(stdout.Length, Is.LessThan 120000)
+            | other -> Assert.Fail $"expected a non-zero progress exit, got {other}"
+        }
 [<TestFixture>]
 type ClassifierTests() =
 
