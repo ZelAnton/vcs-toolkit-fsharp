@@ -182,6 +182,7 @@ for this client's place in the layering.
 |---|---|---|
 | `Version` | `--version` | |
 | `Capabilities` | `--version`, parsed (`git ≥ 2.31` floor for the `Harden` config pins; unrelated to any other method) | |
+| `WithOutputBudget` | *(none — configures retained process output)* | |
 | `Run` | `git <args>` in the process cwd (client) or the bound `dir` (`GitAt`) | |
 | `RunRaw` | like `Run`, never errors on a non-zero exit | |
 
@@ -308,6 +309,7 @@ caller-supplied name can't fan a mutation out across every matching ref.
 | `Root` | `root` | |
 | `Version` | `--version` | |
 | `Capabilities` | `--version`, parsed | |
+| `WithOutputBudget` | *(none — configures retained process output)* | |
 | `Run` | `jj <args>` in the process cwd (client) or the bound `dir` (`JjAt`); **unguarded** | |
 | `RunRaw` | like `Run`, never errors on a non-zero exit; **unguarded** | |
 
@@ -364,6 +366,7 @@ Client: `GitHub` / `GitHubAt` (`src/VcsToolkit.GitHub/GitHub.fs`). See
 | `ReleaseDelete` | `release delete <tag> --yes` | confirmation is always supplied |
 | `Version` | `--version` | |
 | `Capabilities` | `--version`, parsed (`gh ≥ 2.0` floor) | |
+| `WithOutputBudget` | *(none — configures retained process output)* | |
 | `Run` | `gh <args>` in the process cwd (client) or the bound `dir` (`GitHubAt`); **unguarded** | |
 | `RunRaw` | like `Run`, never errors on a non-zero exit; **unguarded** | |
 
@@ -414,6 +417,7 @@ not its breadth. See
 | `ReleaseDelete` | `release delete <tag> --yes` | confirmation is always supplied |
 | `Version` | `--version` | |
 | `Capabilities` | `--version`, parsed | |
+| `WithOutputBudget` | *(none — configures retained process output)* | |
 | `Run` | `glab <args>` in the process cwd (client) or the bound `dir` (`GitLabAt`); **unguarded** | |
 | `RunRaw` | like `Run`, never errors on a non-zero exit; **unguarded** | |
 
@@ -458,6 +462,7 @@ hatch; authentication is **ambient only** (`tea login add`, out of band — ther
 | `ReleaseDelete` | *(none — refused before spawning)* | `tea` 0.9.2 has no `release delete` command |
 | `Version` | `--version` | |
 | `Capabilities` | `--version`, parsed (`tea ≥ 0.9` floor) | |
+| `WithOutputBudget` | *(none — configures retained process output)* | |
 | `Run` | `tea <args>` in the process cwd (client) or the bound `dir` (`GiteaAt`); **unguarded** | |
 | `RunRaw` | like `Run`, never errors on a non-zero exit; **unguarded** | |
 
