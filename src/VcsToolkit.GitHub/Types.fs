@@ -476,7 +476,8 @@ type RerunScope =
 /// key=value …]`). Build it through `WorkflowDispatch.Create` (the workflow name/id) and the
 /// chained `WithRef`/`WithInput` setters. The workflow name lands in a bare positional slot —
 /// `workflowDispatch` refuses an empty or flag-like value before spawning (the same guard
-/// `ReleaseView` applies to a release tag).
+/// `ReleaseView` applies to a release tag). Input keys are checked before spawning too: an input
+/// key must be non-empty and contain neither `=` nor NUL; input values are passed through as-is.
 type WorkflowDispatch =
     {
         /// The workflow file name or numeric id (a bare positional, guarded before spawning).
@@ -499,7 +500,8 @@ type WorkflowDispatch =
     /// Run the version of the workflow file at `gitRef` instead of the default branch (`--ref`).
     member this.WithRef(gitRef: string) = { this with Ref = Some gitRef }
 
-    /// Append a `workflow_dispatch` input (emitted as `--raw-field key=value`).
+    /// Append a `workflow_dispatch` input (emitted as `--raw-field key=value`). The key is
+    /// validated when `WorkflowDispatch` runs; values are not restricted by that key validation.
     member this.WithInput(key: string, value: string) =
         { this with
             Inputs = this.Inputs @ [ (key, value) ] }

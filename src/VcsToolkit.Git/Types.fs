@@ -25,6 +25,11 @@ module internal Constants =
     [<Literal>]
     let MIN_SUPPORTED_MAJOR = 2UL
 
+    /// The oldest git minor this wrapper is written against. Hardened config pins use the
+    /// GIT_CONFIG_COUNT environment mechanism, which Git added in 2.31.
+    [<Literal>]
+    let MIN_SUPPORTED_MINOR = 31UL
+
 /// What a `diff` / `diffText` call compares.
 [<RequireQualifiedAccess>]
 type DiffSpec =
@@ -435,8 +440,10 @@ type GitCapabilities =
         Version: VcsToolkit.Diff.Version
     }
 
-    /// Whether the binary meets the supported floor (major >= 2).
-    member this.IsSupported = this.Version.Major >= MIN_SUPPORTED_MAJOR
+    /// Whether the binary meets the supported floor (git >= 2.31).
+    member this.IsSupported =
+        (this.Version.Major, this.Version.Minor)
+        >= (MIN_SUPPORTED_MAJOR, MIN_SUPPORTED_MINOR)
 
     /// Error unless `IsSupported`.
     member this.EnsureSupported() : Result<unit, ProcessError> =
@@ -447,8 +454,9 @@ type GitCapabilities =
                 ProcessError.Spawn(
                     BINARY,
                     sprintf
-                        "VcsToolkit.Git requires git >= %d (validated on 2.54), found %O"
+                        "VcsToolkit.Git requires git >= %d.%d (validated on 2.54), found %O"
                         MIN_SUPPORTED_MAJOR
+                        MIN_SUPPORTED_MINOR
                         this.Version
                 )
             )

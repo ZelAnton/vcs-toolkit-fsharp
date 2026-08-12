@@ -19,6 +19,23 @@ open VcsToolkit.Diff
 [<Sealed>]
 type GitHub private (core: ManagedClient) =
 
+    static let validateWorkflowInputKey (key: string) : Result<unit, ProcessError> =
+        if String.IsNullOrEmpty key || key.IndexOf('=') >= 0 || key.IndexOf(char 0) >= 0 then
+            Error(ProcessError.Spawn(BINARY, "workflow input key must be non-empty and contain neither '=' nor NUL"))
+        else
+            Ok()
+
+    static let validateWorkflowInputKeys (inputs: (string * string) list) : Result<unit, ProcessError> =
+        match
+            inputs
+            |> List.tryPick (fun (key, _) ->
+                match validateWorkflowInputKey key with
+                | Error e -> Some e
+                | Ok() -> None)
+        with
+        | Some e -> Error e
+        | None -> Ok()
+
     /// Create a client driving the real job-backed runner.
     static member Create() =
         GitHub(ManagedClient.Create(BINARY).WithTokenEnv(CredentialService.GitHub, "GH_TOKEN"))
@@ -458,11 +475,12 @@ type GitHub private (core: ManagedClient) =
     /// GitHub answers a dispatch with `204 No Content` — there is no run id to hand back, so
     /// this returns `Result<unit, _>`; poll `RunList` for the newly queued run instead. The
     /// workflow name/id is a bare positional, so an empty or `-`-leading value is refused before
-    /// spawning (the same guard `ReleaseView` applies to a release tag). Input values are passed
-    /// as **`--raw-field`, never `--field`**: `--field`'s value is subject to gh's `@`-syntax (a
-    /// leading `@` reads a *local file* instead of taking the value literally), which would turn
-    /// an input value the caller doesn't fully control into a local-file-disclosure vector;
-    /// `--raw-field` always keeps the value a literal string.
+    /// spawning (the same guard `ReleaseView` applies to a release tag). Input keys are also
+    /// checked before spawning: they must be non-empty and contain neither `=` nor NUL. Input
+    /// values are passed as **`--raw-field`, never `--field`**: `--field`'s value is subject to
+    /// gh's `@`-syntax (a leading `@` reads a *local file* instead of taking the value literally),
+    /// which would turn an input value the caller doesn't fully control into a local-file-disclosure
+    /// vector; `--raw-field` always keeps the value a literal string.
     ///
     /// gh exit codes (checked against the installed gh 2.95.0 via `gh help exit-codes`, which
     /// documents these as the general codes across all commands, not dispatch-specific ones):
@@ -476,15 +494,18 @@ type GitHub private (core: ManagedClient) =
             match checkFlags BINARY [ "workflow", spec.Workflow ] with
             | Error e -> return Error e
             | Ok() ->
-                let args =
-                    [ "workflow"; "run"; spec.Workflow ]
-                    @ (match spec.Ref with
-                       | Some r -> [ "--ref"; r ]
-                       | None -> [])
-                    @ (spec.Inputs
-                       |> List.collect (fun (k, v) -> [ "--raw-field"; sprintf "%s=%s" k v ]))
+                match validateWorkflowInputKeys spec.Inputs with
+                | Error e -> return Error e
+                | Ok() ->
+                    let args =
+                        [ "workflow"; "run"; spec.Workflow ]
+                        @ (match spec.Ref with
+                           | Some r -> [ "--ref"; r ]
+                           | None -> [])
+                        @ (spec.Inputs
+                           |> List.collect (fun (k, v) -> [ "--raw-field"; sprintf "%s=%s" k v ]))
 
-                return! core.RunUnit(core.CommandIn(dir, args))
+                    return! core.RunUnit(core.CommandIn(dir, args))
         }
 
     /// Rerun a workflow run — the whole run, or only its failed jobs (`gh run rerun <id>
