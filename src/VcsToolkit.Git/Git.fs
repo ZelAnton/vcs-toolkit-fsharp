@@ -1909,20 +1909,22 @@ type Git private (core: ManagedClient) =
     /// branch). This is a pure config read: it parses the `.gitmodules` file and does NOT check
     /// out, fetch, or otherwise execute any nested-repository content (contrast `SubmoduleUpdate`).
     ///
-    /// A repository with no `.gitmodules` file yields an empty list, returned WITHOUT spawning
-    /// `git` at all — the file's presence is probed on disk (relative to `dir`, where the command
-    /// would run) before any process is started, so a submodule-less repository is not an error
-    /// and costs no subprocess.
+    /// A repository with no `.gitmodules` file yields an empty list after the repository root has
+    /// been resolved. The file's presence is probed on disk at that root before the config read,
+    /// so a submodule-less repository is not a config error and costs no config subprocess.
     member _.SubmoduleList(dir: string) =
         task {
-            if not (File.Exists(Path.Combine(dir, ".gitmodules"))) then
-                return Ok []
-            else
-                return!
-                    core.Parse(
-                        core.CommandIn(dir, [ "config"; "--file"; ".gitmodules"; "--list"; "-z" ]),
-                        GitParse.parseSubmoduleConfig
-                    )
+            match! core.Run(core.CommandIn(dir, [ "rev-parse"; "--show-toplevel" ])) with
+            | Error e -> return Error e
+            | Ok root ->
+                if not (File.Exists(Path.Combine(root, ".gitmodules"))) then
+                    return Ok []
+                else
+                    return!
+                        core.Parse(
+                            core.CommandIn(root, [ "config"; "--file"; ".gitmodules"; "--list"; "-z" ]),
+                            GitParse.parseSubmoduleConfig
+                        )
         }
 
     /// The status of each submodule (`git submodule status`), as `SubmoduleStatus` records with
@@ -2475,8 +2477,8 @@ and [<Sealed>] GitAt internal (git: Git, dir: string) =
     /// Per-line authorship of `path` (`blame --line-porcelain [<rev>] -- <path>`).
     member _.Blame(path: string, rev: string option) = git.Blame(dir, path, rev)
 
-    /// The submodules recorded in `.gitmodules` (a pure config read; empty and spawn-free when
-    /// there is no `.gitmodules`). See `Git.SubmoduleList`.
+    /// The submodules recorded in `.gitmodules`. The repository root is resolved first; when the
+    /// root has no `.gitmodules`, the config-read subprocess is skipped. See `Git.SubmoduleList`.
     member _.SubmoduleList() = git.SubmoduleList dir
 
     /// The status of each submodule (`git submodule status`) with a typed `SubmoduleState`. A

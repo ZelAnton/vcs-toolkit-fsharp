@@ -2392,8 +2392,8 @@ type ObserverWiringTests() =
 
 /// T-126: typed git submodule support — the exact argv each operation builds, the `-z`
 /// `.gitmodules` config parse (including a submodule whose NAME carries a space or a dot), every
-/// `git submodule status` prefix state, and the on-disk `.gitmodules` probe that makes a
-/// submodule-less repository an empty list WITHOUT spawning git at all.
+/// `git submodule status` prefix state, and the root-relative `.gitmodules` probe that skips the
+/// config read when a submodule-less repository has no file.
 [<TestFixture>]
 type SubmoduleTests() =
 
@@ -2425,7 +2425,18 @@ type SubmoduleTests() =
                     |> List.map (fun r -> r + nul)
                     |> String.concat ""
 
-                let captured, runner = capturing (Reply.Ok out)
+                let commands = ResizeArray<Command>()
+
+                let runner =
+                    ScriptedRunner()
+                        .On([ "rev-parse"; "--show-toplevel" ], Reply.Ok dir)
+                        .When(
+                            (fun cmd ->
+                                commands.Add cmd
+                                true),
+                            Reply.Ok out
+                        )
+
                 let git = Git.WithRunner runner
 
                 match! git.SubmoduleList dir with
@@ -2449,11 +2460,9 @@ type SubmoduleTests() =
                     Assert.That(subs.[2].Path, Is.EqualTo "nested/gsub")
 
                     // The exact argv and the cwd binding.
-                    match captured.Value with
-                    | Some cmd ->
-                        Assert.That(argv cmd, Is.EqualTo "config --file .gitmodules --list -z")
-                        Assert.That(cmd.WorkingDirectory, Is.EqualTo(Some dir))
-                    | None -> Assert.Fail "SubmoduleList did not spawn git"
+                    Assert.That(commands.Count, Is.EqualTo 1)
+                    Assert.That(argv commands.[0], Is.EqualTo "config --file .gitmodules --list -z")
+                    Assert.That(commands.[0].WorkingDirectory, Is.EqualTo(Some dir))
                 | Error e -> Assert.Fail $"SubmoduleList failed: {e}"
             })
 
@@ -2461,12 +2470,19 @@ type SubmoduleTests() =
     member _.SubmoduleListIsEmptyAndSpawnlessWithoutGitmodules() : Task =
         withTempDirAsync (fun dir ->
             task {
-                // No `.gitmodules` in `dir`: the result must be an empty list AND git must never
-                // be spawned. `capturing` records any spawn, so `captured` staying `None` proves
-                // the on-disk probe short-circuits before the runner is ever reached (the loud
-                // `Reply.Fail` a spawn would trigger is never invoked).
-                let captured, runner =
-                    capturing (Reply.Fail(1, "SubmoduleList must not spawn git without a .gitmodules"))
+                // No `.gitmodules` in the resolved root: the root probe is required, but the
+                // config read must remain spawnless (the loud fallback reply catches a mistake).
+                let configCommands = ResizeArray<Command>()
+
+                let runner =
+                    ScriptedRunner()
+                        .On([ "rev-parse"; "--show-toplevel" ], Reply.Ok dir)
+                        .When(
+                            (fun cmd ->
+                                configCommands.Add cmd
+                                true),
+                            Reply.Fail(1, "SubmoduleList must not read missing .gitmodules")
+                        )
 
                 let git = Git.WithRunner runner
 
@@ -2475,7 +2491,68 @@ type SubmoduleTests() =
                 | Ok other -> Assert.Fail $"expected an empty list, got {other}"
                 | Error e -> Assert.Fail $"SubmoduleList failed: {e}"
 
-                Assert.That(captured.Value.IsNone, "a missing `.gitmodules` must yield zero git spawns")
+                Assert.That(configCommands.Count, Is.EqualTo 0, "a missing `.gitmodules` must skip the config read")
+            })
+
+    [<Test>]
+    member _.SubmoduleListFromNestedDirectoryMatchesRootAndUsesRootForConfig() : Task =
+        withTempDirAsync (fun dir ->
+            task {
+                let nested = Path.Combine(dir, "src", "nested")
+                Directory.CreateDirectory nested |> ignore
+                File.WriteAllText(Path.Combine(dir, ".gitmodules"), "[submodule \"x\"]\n")
+
+                let out =
+                    [ "submodule.libs/foo.path\nlibs/foo"
+                      "submodule.libs/foo.url\nhttps://example.com/foo.git" ]
+                    |> List.map (fun record -> record + nul)
+                    |> String.concat ""
+
+                let commands = ResizeArray<Command>()
+
+                let runner =
+                    ScriptedRunner()
+                        .When(
+                            (fun cmd ->
+                                let matches = argv cmd = "rev-parse --show-toplevel"
+
+                                if matches then
+                                    commands.Add cmd
+
+                                matches),
+                            Reply.Ok dir
+                        )
+                        .When(
+                            (fun cmd ->
+                                let matches = argv cmd = "config --file .gitmodules --list -z"
+
+                                if matches then
+                                    commands.Add cmd
+
+                                matches),
+                            Reply.Ok out
+                        )
+
+                let git = Git.WithRunner runner
+                let! nestedResult = git.SubmoduleList nested
+                let! rootResult = git.SubmoduleList dir
+
+                match nestedResult, rootResult with
+                | Ok nestedSubs, Ok rootSubs ->
+                    Assert.That((nestedSubs = rootSubs), Is.True)
+                    Assert.That(nestedSubs.Length, Is.EqualTo 1)
+                | Error e, _ -> Assert.Fail $"nested SubmoduleList failed: {e}"
+                | _, Error e -> Assert.Fail $"root SubmoduleList failed: {e}"
+
+                Assert.That(commands.Count, Is.EqualTo 4)
+                Assert.That(argv commands.[0], Is.EqualTo "rev-parse --show-toplevel")
+                Assert.That(commands.[0].WorkingDirectory, Is.EqualTo(Some nested))
+                Assert.That(argv commands.[1], Is.EqualTo "config --file .gitmodules --list -z")
+                Assert.That(commands.[1].WorkingDirectory, Is.EqualTo(Some dir))
+                Assert.That(argv commands.[2], Is.EqualTo "rev-parse --show-toplevel")
+                Assert.That(commands.[2].WorkingDirectory, Is.EqualTo(Some dir))
+                Assert.That(argv commands.[3], Is.EqualTo "config --file .gitmodules --list -z")
+                Assert.That(commands.[3].WorkingDirectory, Is.EqualTo(Some dir))
             })
 
     [<Test>]
