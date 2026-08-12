@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `JjSandbox` now redirects jj's per-repository secure configuration store into the disposable sandbox, keeping `jj config set --repo` hermetic as well as the user configuration.
 - Git tag lifecycle support through `VcsToolkit.Core.Repo` and the `repo_tags`, `repo_tag_create`, and `repo_tag_delete` MCP tools, with structural `Unsupported` errors on jj.
 - Merge-base queries across Git and Jujutsu through `Git.MergeBase`/`Jj.MergeBase`, the backend-agnostic `Repo.MergeBase`, and the read-only MCP `repo_merge_base` tool, returning a full common-ancestor commit id or `None`/null for disconnected histories.
 - A container image of the `vcs-mcp` MCP server, published to `ghcr.io/zelanton/vcs-toolkit-fsharp/vcs-mcp` on every release under the release version and `latest`, with `git`, `jj`, `gh`, `glab` and `tea` preinstalled — mount a repository at `/repo` and point an MCP client at `docker run --rm -i` instead of installing the global tool (see the "Docker" section of `docs/mcp-server.md`).

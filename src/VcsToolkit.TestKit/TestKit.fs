@@ -33,6 +33,9 @@ module internal Internals =
 
         Path.Combine(baseP, "vcs-testkit-nonexistent-config")
 
+    let private jjConfigRoot (cwd: string) =
+        Path.Combine(cwd, ".vcs-toolkit-jj-config")
+
     /// Build an isolated `ProcessStartInfo` for `binary` in `cwd`. **Every** git/jj
     /// invocation routes through here so the sandbox is hermetic — it must not inherit the
     /// host user's VCS config. A host-global `init.templateDir`/`core.hooksPath` (git) or
@@ -67,11 +70,16 @@ module internal Internals =
                   "GIT_NAMESPACE" ] do
                 psi.Environment.Remove k |> ignore
         | "jj" ->
-            // Read config exclusively from a nonexistent file (no host config), and stamp
-            // a deterministic identity on *every* commit — including the working-copy
-            // commit `jj git init` creates, which a later `config set --repo user.*`
-            // cannot retroactively re-author.
+            // Read config exclusively from a nonexistent file (no host config), redirect jj's
+            // per-repository secure config store into the disposable sandbox, and stamp a
+            // deterministic identity on *every* commit — including the working-copy commit
+            // `jj git init` creates, which a later `config set --repo user.*` cannot retroactively
+            // re-author.
             psi.Environment.["JJ_CONFIG"] <- nonexistent
+            let configRoot = jjConfigRoot cwd
+            psi.Environment.["APPDATA"] <- configRoot
+            psi.Environment.["LOCALAPPDATA"] <- configRoot
+            psi.Environment.["XDG_CONFIG_HOME"] <- configRoot
             psi.Environment.["JJ_USER"] <- "test"
             psi.Environment.["JJ_EMAIL"] <- "test@example.com"
         | _ -> ()

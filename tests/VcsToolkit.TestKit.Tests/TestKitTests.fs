@@ -291,12 +291,68 @@ type GitSandboxTests() =
 [<TestFixture>]
 type JjSandboxTests() =
 
+    let realJjRepoStoreRoots () =
+        let env name =
+            match Environment.GetEnvironmentVariable name with
+            | value when String.IsNullOrWhiteSpace value -> None
+            | value -> Some(string value)
+
+        let userProfile = Environment.GetFolderPath Environment.SpecialFolder.UserProfile
+
+        let configRoots =
+            if OperatingSystem.IsWindows() then
+                [ env "APPDATA"
+                  env "LOCALAPPDATA"
+                  Some(string (Environment.GetFolderPath Environment.SpecialFolder.ApplicationData))
+                  Some(string (Environment.GetFolderPath Environment.SpecialFolder.LocalApplicationData)) ]
+            elif OperatingSystem.IsMacOS() then
+                [ env "XDG_CONFIG_HOME"
+                  Some(Path.Combine(string userProfile, "Library", "Application Support")) ]
+            else
+                [ env "XDG_CONFIG_HOME"; Some(Path.Combine(string userProfile, ".config")) ]
+
+        configRoots
+        |> List.choose id
+        |> List.choose (fun path -> if String.IsNullOrWhiteSpace path then None else Some path)
+        |> List.map (fun path -> Path.GetFullPath(Path.Combine(path, "jj", "repos")))
+        |> List.distinct
+
+    let storeFingerprint (roots: string list) =
+        roots
+        |> List.map (fun root ->
+            let entries =
+                if Directory.Exists root then
+                    Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
+                    |> Seq.map (fun path ->
+                        let info = FileInfo(path)
+                        let relative = Path.GetRelativePath(root, path)
+                        $"\${relative}|\${info.Length}|\${info.LastWriteTimeUtc.Ticks}")
+                    |> Seq.sort
+                    |> String.concat "\n"
+                else
+                    "<absent>"
+
+            $"{root}\n{entries}")
+        |> String.concat "\n---\n"
+
     [<Test>]
     member _.BuildsScenarios() =
         requireBinary "jj" (fun () -> Raw.jj "." [ "--version" ])
+        let realStoreRoots = realJjRepoStoreRoots ()
+        let realBefore = storeFingerprint realStoreRoots
         use repo = JjSandbox.Init "sandbox"
         // The colocated jj repo has its state dir.
         Assert.That(Directory.Exists(Path.Combine(repo.Path, ".jj")), Is.True, "jj init created .jj")
+
+        Assert.That(
+            Directory.Exists(Path.Combine(repo.Path, ".vcs-toolkit-jj-config", "jj", "repos")),
+            Is.True,
+            "repo-scoped jj config must stay inside the disposable sandbox"
+        )
+
+        repo.Jj [ "config"; "set"; "--repo"; "test.vcs-toolkit.hermetic"; "sandbox-only" ]
+        let realAfter = storeFingerprint realStoreRoots
+        Assert.That(realAfter, Is.EqualTo(realBefore), "real per-user jj repo config must not change")
 
         // A full scenario builds without raising (each step is a real jj command).
         repo.Write("a.txt", "one\n")
