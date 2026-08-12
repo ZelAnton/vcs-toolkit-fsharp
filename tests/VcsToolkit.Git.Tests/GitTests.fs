@@ -1712,6 +1712,16 @@ type GuardTests() =
             do! assertRefused "RemoteBranchExists" (fun git -> git.RemoteBranchExists(".", "feature/*"))
             do! assertRefused "FetchBranch" (fun git -> git.FetchBranch(".", "feature..name"))
             do! assertRefused "IsMerged branch" (fun git -> git.IsMerged(".", "feature/.hidden", "HEAD~1"))
+            do! assertRefused "MergeSquash branch" (fun git -> git.MergeSquash(".", "feature/.hidden"))
+
+            do!
+                assertRefused "MergeCommit branch" (fun git ->
+                    git.MergeCommit(".", MergeCommit.ForBranch("feature/.hidden")))
+
+            do!
+                assertRefused "MergeNoCommit branch" (fun git ->
+                    git.MergeNoCommit(".", MergeNoCommit.ForBranch("feature/.hidden")))
+
             do! assertRefused "SetUpstream branch" (fun git -> git.SetUpstream(".", "feature/.hidden", "origin/main"))
             do! assertRefused "SetUpstream upstream" (fun git -> git.SetUpstream(".", "feature", "origin/.hidden"))
             do! assertRefused "DeleteBranch" (fun git -> git.DeleteBranch(".", "feature/.hidden", false))
@@ -1743,6 +1753,7 @@ type GuardTests() =
                     ))
 
             do! assertRefused "Push refspec" (fun git -> git.Push(".", GitPush.Branch("feature/.hidden")))
+            do! assertRefused "SwitchWithStash branch" (fun git -> git.SwitchWithStash(".", "feature/.hidden"))
         }
 
     [<Test>]
@@ -1760,9 +1771,15 @@ type GuardTests() =
             | Ok() -> ()
             | Error e -> Assert.Fail $"valid tag/revision was rejected: {e}"
 
-            let merge = scripted [ "merge"; "--no-edit"; "main..feature" ] (Reply.Ok "")
+            let merge = scripted [ "merge"; "--no-edit"; "feature/release-1" ] (Reply.Ok "")
 
-            match! merge.MergeCommit(".", MergeCommit.ForBranch("main..feature")) with
+            match! merge.MergeCommit(".", MergeCommit.ForBranch("feature/release-1")) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"a valid branch name must remain supported: {e}"
+
+            let checkout = scripted [ "checkout"; "main..feature"; "--" ] (Reply.Ok "")
+
+            match! checkout.Checkout(".", "main..feature") with
             | Ok() -> ()
             | Error e -> Assert.Fail $"a valid revspec must remain permissive: {e}"
         }

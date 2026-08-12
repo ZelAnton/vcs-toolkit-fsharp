@@ -1423,7 +1423,7 @@ type Git private (core: ManagedClient) =
     /// conflicting squash-merge's `CONFLICT (...)` output stays classifiable by `isMergeConflict`.
     member _.MergeSquash(dir: string, branch: string) =
         task {
-            match checkFlags BINARY [ "branch", branch ] with
+            match checkRefName "branch name" branch with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(cLocale (core.CommandIn(dir, [ "merge"; "--squash"; branch ])))
         }
@@ -1431,7 +1431,7 @@ type Git private (core: ManagedClient) =
     /// Merge a branch (`merge [--no-ff] [-m <msg> | --no-edit] <branch>`).
     member _.MergeCommit(dir: string, spec: MergeCommit) =
         task {
-            match checkFlags BINARY [ "branch", spec.Branch ] with
+            match checkRefName "branch name" spec.Branch with
             | Error e -> return Error e
             | Ok() ->
                 let args =
@@ -1448,7 +1448,7 @@ type Git private (core: ManagedClient) =
     /// Merge a branch but stop before committing.
     member _.MergeNoCommit(dir: string, spec: MergeNoCommit) =
         task {
-            match checkFlags BINARY [ "branch", spec.Branch ] with
+            match checkRefName "branch name" spec.Branch with
             | Error e -> return Error e
             | Ok() ->
                 let middle =
@@ -2032,65 +2032,70 @@ type Git private (core: ManagedClient) =
 
     /// Switch to `branch`, carrying uncommitted changes across via the stash.
     member this.SwitchWithStash(dir: string, branch: string) =
-        task {
-            match! this.Status dir with
-            | Error e -> return Error e
-            | Ok entries ->
-                if List.isEmpty entries then
-                    return! this.Checkout(dir, branch)
-                else
-                    let marker = "vcs-toolkit-switch-with-stash-" + Guid.NewGuid().ToString("N")
+        let operation () =
+            task {
+                match! this.Status dir with
+                | Error e -> return Error e
+                | Ok entries ->
+                    if List.isEmpty entries then
+                        return! this.Checkout(dir, branch)
+                    else
+                        let marker = "vcs-toolkit-switch-with-stash-" + Guid.NewGuid().ToString("N")
 
-                    // `stash push` exits 0 having saved NOTHING when the only dirt is unstashable
-                    // (e.g. a submodule-only change that `status` still reports), so a bare `pop`
-                    // afterwards would splat an UNRELATED pre-existing stash — data loss. Bracket
-                    // the push with the stash-list depth and only restore/remove the created entry
-                    // when it actually saved.
-                    match! this.StashDepth dir with
-                    | Error e -> return Error e
-                    | Ok depthBefore ->
-                        match! this.StashPushForSwitch(dir, marker) with
+                        // `stash push` exits 0 having saved NOTHING when the only dirt is unstashable
+                        // (e.g. a submodule-only change that `status` still reports), so a bare `pop`
+                        // afterwards would splat an UNRELATED pre-existing stash — data loss. Bracket
+                        // the push with the stash-list depth and only restore/remove the created entry
+                        // when it actually saved.
+                        match! this.StashDepth dir with
                         | Error e -> return Error e
-                        | Ok() ->
-                            match! this.StashDepth dir with
+                        | Ok depthBefore ->
+                            match! this.StashPushForSwitch(dir, marker) with
                             | Error e -> return Error e
-                            | Ok depthAfter ->
-                                if depthAfter <= depthBefore then
-                                    // Nothing was stashed — switch as-is rather than pop someone
-                                    // else's entry.
-                                    return! this.Checkout(dir, branch)
-                                else
-                                    // Resolve the marker to Git's full stash commit id before the
-                                    // branch switch. `stash apply` accepts that stable object id;
-                                    // the helper takes Git's stash ref locks before re-listing and
-                                    // removes the exact reflog entry while those locks are held.
-                                    match! this.StashList dir with
-                                    | Error e -> return Error e
-                                    | Ok stashEntries ->
-                                        match
-                                            stashEntries
-                                            |> List.tryFind (fun entry ->
-                                                entry.Message.EndsWith(marker, StringComparison.Ordinal)
-                                                && ((entry.Hash.Length = 40 || entry.Hash.Length = 64)
-                                                    && (entry.Hash |> Seq.forall Char.IsAsciiHexDigit)))
-                                        with
-                                        | None ->
-                                            return
-                                                Error(
-                                                    ProcessError.Spawn(
-                                                        BINARY,
-                                                        "SwitchWithStash could not identify the stash entry it created"
+                            | Ok() ->
+                                match! this.StashDepth dir with
+                                | Error e -> return Error e
+                                | Ok depthAfter ->
+                                    if depthAfter <= depthBefore then
+                                        // Nothing was stashed — switch as-is rather than pop someone
+                                        // else's entry.
+                                        return! this.Checkout(dir, branch)
+                                    else
+                                        // Resolve the marker to Git's full stash commit id before the
+                                        // branch switch. `stash apply` accepts that stable object id;
+                                        // the helper takes Git's stash ref locks before re-listing and
+                                        // removes the exact reflog entry while those locks are held.
+                                        match! this.StashList dir with
+                                        | Error e -> return Error e
+                                        | Ok stashEntries ->
+                                            match
+                                                stashEntries
+                                                |> List.tryFind (fun entry ->
+                                                    entry.Message.EndsWith(marker, StringComparison.Ordinal)
+                                                    && ((entry.Hash.Length = 40 || entry.Hash.Length = 64)
+                                                        && (entry.Hash |> Seq.forall Char.IsAsciiHexDigit)))
+                                            with
+                                            | None ->
+                                                return
+                                                    Error(
+                                                        ProcessError.Spawn(
+                                                            BINARY,
+                                                            "SwitchWithStash could not identify the stash entry it created"
+                                                        )
                                                     )
-                                                )
-                                        | Some entry ->
-                                            match! this.Checkout(dir, branch) with
-                                            | Ok() -> return! this.StashRestoreExact(dir, entry.Hash)
-                                            | Error err ->
-                                                // Restore the caller's changes after a failed checkout;
-                                                // if cleanup fails too, the stash is preserved.
-                                                let! _ = this.StashRestoreExact(dir, entry.Hash)
-                                                return Error err
-        }
+                                            | Some entry ->
+                                                match! this.Checkout(dir, branch) with
+                                                | Ok() -> return! this.StashRestoreExact(dir, entry.Hash)
+                                                | Error err ->
+                                                    // Restore the caller's changes after a failed checkout;
+                                                    // if cleanup fails too, the stash is preserved.
+                                                    let! _ = this.StashRestoreExact(dir, entry.Hash)
+                                                    return Error err
+            }
+
+        match checkRefName "branch name" branch with
+        | Error e -> task { return Error e }
+        | Ok() -> operation ()
 
     /// Harden this client for driving repositories it didn't create: hooks off,
     /// `GIT_*` redirectors/command-hooks/code-execution vectors scrubbed, system config
