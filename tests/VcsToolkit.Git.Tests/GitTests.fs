@@ -1529,6 +1529,84 @@ type LogPathsTests() =
         }
 
     [<Test>]
+    member _.LogPathsPreservesRangeAndNegativeRevspecOnDirectPath() : Task =
+        task {
+            for revspec in [ "main..HEAD"; "^main" ] do
+                let captured, runner = capturing (Reply.Ok(commitRow "abc123" "matched"))
+                let git = Git.WithRunner runner
+
+                match! git.LogPaths(".", revspec, 5, [ "src/a.fs" ]) with
+                | Error e -> Assert.Fail $"LogPaths failed for {revspec}: {e}"
+                | Ok commits -> Assert.That(commits.Length, Is.EqualTo 1)
+
+                match captured.Value with
+                | Some command ->
+                    let args = command.Arguments |> Seq.toList
+                    Assert.That(args |> List.contains revspec, $"direct LogPaths must preserve {revspec}")
+                    Assert.That(args |> List.contains "--literal-pathspecs")
+                | None -> Assert.Fail $"LogPaths did not spawn for {revspec}"
+        }
+
+    [<Test>]
+    member _.LogPathsChunksPreserveResolvedRangeTokensAndNegativeRevspec() : Task =
+        task {
+            let pathA = "a" + String('*', 19999)
+            let pathB = String('b', 20000)
+            let calls = ResizeArray<Command>()
+
+            let runner =
+                ScriptedRunner()
+                    .On([ "rev-parse"; "main..HEAD" ], Reply.Ok "^main\nHEAD\n")
+                    .On([ "log"; "^main"; "HEAD"; "-z"; "--format=%H" ], Reply.Ok $"aaa1{nul}ccc1{nul}")
+                    .When(
+                        (fun command ->
+                            calls.Add command
+                            true),
+                        Reply.Ok(
+                            commitRow "aaa1" "matched"
+                            + commitRow "ccc1" "shared"
+                        )
+                    )
+
+            let git = Git.WithRunner runner
+
+            // The rev-parse response is a safe token sequence equivalent to `main..HEAD`.
+            // The fallback runner intentionally returns a valid row for every call; the assertion
+            // below is about the argv shape and the absence of the symbolic range in chunks.
+            match! git.LogPaths(".", "main..HEAD", 5, [ pathA; pathB ]) with
+            | Error e -> Assert.Fail $"chunked range LogPaths failed: {e}"
+            | Ok _ -> ()
+
+            for command in calls do
+                let args = command.Arguments |> Seq.toList
+
+                if List.contains "--literal-pathspecs" args then
+                    Assert.That(args |> List.contains "main..HEAD", Is.False, "symbolic range must not leak into a chunk")
+
+            let negativeCalls = ResizeArray<Command>()
+            let negativeRunner =
+                ScriptedRunner()
+                    .On([ "rev-parse"; "^main" ], Reply.Ok "^main\n")
+                    .On([ "log"; "^main"; "-z"; "--format=%H" ], Reply.Ok $"neg1{nul}")
+                    .When(
+                        (fun command ->
+                            negativeCalls.Add command
+                            true),
+                        Reply.Ok(commitRow "neg1" "negative")
+                    )
+
+            match! (Git.WithRunner negativeRunner).LogPaths(".", "^main", 5, [ pathA; pathB ]) with
+            | Error e -> Assert.Fail $"chunked negative-revspec LogPaths failed: {e}"
+            | Ok _ -> ()
+
+            for command in negativeCalls do
+                let args = command.Arguments |> Seq.toList
+
+                if List.contains "--literal-pathspecs" args then
+                    Assert.That(args |> List.contains "^main", Is.True, "negative revision token must reach every chunk")
+        }
+
+    [<Test>]
     member _.LogPathsSingleCallAndChunkedCallAgreeOnOrder() : Task =
         task {
             // The single-call fast path returns git's order directly; the chunked path must
