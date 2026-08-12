@@ -643,6 +643,25 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
             | Ok text -> return Ok(parseDiff text)
         }
 
+    /// Raw git-format unified diff comparing the tree at `fromRev` with the tree at `toRev`.
+    /// Explicit endpoint flags preserve the comparison direction and exclude unrecorded working
+    /// copy changes.
+    member _.DiffTextBetween(dir: string, fromRev: string, toRev: string) =
+        task {
+            match checkFlags BINARY [ "from revset", fromRev; "to revset", toRev ] with
+            | Error e -> return Error e
+            | Ok() -> return! runUntrimmed core (cmdInRead dir [ "diff"; "--from"; fromRev; "--to"; toRev; "--git" ])
+        }
+
+    /// Parsed per-file unified diff comparing the tree at `fromRev` with the tree at `toRev`,
+    /// layered on `DiffTextBetween`.
+    member this.DiffBetween(dir: string, fromRev: string, toRev: string) =
+        task {
+            match! this.DiffTextBetween(dir, fromRev, toRev) with
+            | Error e -> return Error e
+            | Ok text -> return Ok(parseDiff text)
+        }
+
     /// Count commits in a revset (`log -r <revset> --no-graph`, one id per line).
     member _.CommitCount(dir: string, revset: string) =
         core.Parse(
@@ -1484,6 +1503,12 @@ and [<Sealed>] JjAt internal (jj: Jj, dir: string) =
 
     /// Parsed per-file unified diff for `spec`.
     member _.Diff(spec: DiffSpec) = jj.Diff(dir, spec)
+
+    /// Raw git-format unified diff comparing the tree at `fromRev` with the tree at `toRev`.
+    member _.DiffTextBetween(fromRev: string, toRev: string) = jj.DiffTextBetween(dir, fromRev, toRev)
+
+    /// Parsed per-file unified diff comparing the tree at `fromRev` with the tree at `toRev`.
+    member _.DiffBetween(fromRev: string, toRev: string) = jj.DiffBetween(dir, fromRev, toRev)
 
     /// Count commits in a revset (`log -r <revset> --no-graph`).
     member _.CommitCount(revset: string) = jj.CommitCount(dir, revset)

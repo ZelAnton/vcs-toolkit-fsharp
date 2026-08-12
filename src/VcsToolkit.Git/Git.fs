@@ -1180,6 +1180,41 @@ type Git private (core: ManagedClient) =
             | Ok text -> return Ok(parseDiff text)
         }
 
+    /// Raw git-format unified diff comparing the committed tree at `fromRev` with the tree at
+    /// `toRev`. The endpoints occupy separate argv slots, so the direction is explicit and the
+    /// working tree is never included implicitly.
+    member _.DiffTextBetween(dir: string, fromRev: string, toRev: string) =
+        task {
+            match checkFlags BINARY [ "from revision", fromRev; "to revision", toRev ] with
+            | Error e -> return Error e
+            | Ok() ->
+                return!
+                    runUntrimmed
+                        core
+                        (core.CommandIn(
+                            dir,
+                            [ "diff"
+                              "--no-relative"
+                              fromRev
+                              toRev
+                              "--no-color"
+                              "--no-ext-diff"
+                              "-M"
+                              "--src-prefix=a/"
+                              "--dst-prefix=b/"
+                              "--" ]
+                        ))
+        }
+
+    /// Parsed per-file unified diff comparing the committed tree at `fromRev` with the tree at
+    /// `toRev`, layered on `DiffTextBetween`.
+    member this.DiffBetween(dir: string, fromRev: string, toRev: string) =
+        task {
+            match! this.DiffTextBetween(dir, fromRev, toRev) with
+            | Error e -> return Error e
+            | Ok text -> return Ok(parseDiff text)
+        }
+
     // --- In-progress state ---------------------------------------------------
 
     /// Whether the index has no staged changes (`diff --no-relative --cached --quiet`).
@@ -2341,6 +2376,13 @@ and [<Sealed>] GitAt internal (git: Git, dir: string) =
 
     /// Parsed per-file unified diff for `spec`.
     member _.Diff(spec: DiffSpec) = git.Diff(dir, spec)
+
+    /// Raw git-format unified diff comparing the tree at `fromRev` with the tree at `toRev`.
+    member _.DiffTextBetween(fromRev: string, toRev: string) =
+        git.DiffTextBetween(dir, fromRev, toRev)
+
+    /// Parsed per-file unified diff comparing the tree at `fromRev` with the tree at `toRev`.
+    member _.DiffBetween(fromRev: string, toRev: string) = git.DiffBetween(dir, fromRev, toRev)
 
     /// Whether the index has no staged changes (`diff --cached --quiet`).
     member _.StagedIsEmpty() = git.StagedIsEmpty dir

@@ -1829,6 +1829,78 @@ type GuardTests() =
         rejects "/leading" // empty component (leading `/`)
 
 [<TestFixture>]
+type DiffBetweenTests() =
+
+    [<Test>]
+    member _.DiffBetweenUsesIndependentEndpointsAndBoundView() : Task =
+        task {
+            let expected =
+                [ "diff"
+                  "--no-relative"
+                  "main | release"
+                  "feature | hotfix"
+                  "--no-color"
+                  "--no-ext-diff"
+                  "-M"
+                  "--src-prefix=a/"
+                  "--dst-prefix=b/"
+                  "--" ]
+
+            let captured, runner = capturing (Reply.Ok "")
+            let git = Git.WithRunner runner
+
+            match! git.DiffBetween("/repo", "main | release", "feature | hotfix") with
+            | Ok files -> Assert.That(files, Is.Empty)
+            | Error e -> Assert.Fail $"diff_between failed: {e}"
+
+            match captured.Value with
+            | Some command ->
+                Assert.That(command.Arguments |> Seq.toList = expected, Is.True)
+                Assert.That(command.WorkingDirectory, Is.EqualTo(Some "/repo"))
+            | None -> Assert.Fail "diff_between did not spawn git"
+
+            let boundCaptured, boundRunner = capturing (Reply.Ok "")
+            let bound = Git.WithRunner boundRunner
+
+            let expectedBound =
+                [ "diff"
+                  "--no-relative"
+                  "main"
+                  "feature"
+                  "--no-color"
+                  "--no-ext-diff"
+                  "-M"
+                  "--src-prefix=a/"
+                  "--dst-prefix=b/"
+                  "--" ]
+
+            match! bound.At("/repo").DiffTextBetween("main", "feature") with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"GitAt.diff_text_between failed: {e}"
+
+            match boundCaptured.Value with
+            | Some command ->
+                Assert.That((command.Arguments |> Seq.toList) = expectedBound, Is.True)
+
+                Assert.That(command.WorkingDirectory, Is.EqualTo(Some "/repo"))
+            | None -> Assert.Fail "GitAt.diff_text_between did not spawn git"
+        }
+
+    [<Test>]
+    member _.DiffBetweenRejectsFlagLikeEndpointBeforeSpawn() : Task =
+        task {
+            let captured, runner = capturing (Reply.Ok "unexpected")
+            let git = Git.WithRunner runner
+
+            match! git.DiffTextBetween("/repo", "--from", "HEAD") with
+            | Error(ProcessError.Spawn(program, _)) -> Assert.That(program, Is.EqualTo "git")
+            | Error e -> Assert.Fail $"expected a pre-spawn endpoint refusal, got: {e}"
+            | Ok _ -> Assert.Fail "a flag-like endpoint must be refused"
+
+            Assert.That(captured.Value.IsNone, "invalid endpoints must refuse before spawning")
+        }
+
+[<TestFixture>]
 type AtViewTests() =
 
     [<Test>]

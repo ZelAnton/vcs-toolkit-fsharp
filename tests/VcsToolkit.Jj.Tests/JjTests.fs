@@ -1848,6 +1848,64 @@ type ClientTests() =
             | Error e -> Assert.Fail $"current_bookmark failed: {e}"
         }
 
+    [<Test>]
+    member _.DiffBetweenUsesExplicitEndpointsAndBoundView() : Task =
+        task {
+            let expected =
+                [ "diff"
+                  "--from"
+                  "main | release"
+                  "--to"
+                  "feature | hotfix"
+                  "--git"
+                  "--color"
+                  "never" ]
+
+            let captured, runner = capturing (Reply.Ok "")
+            let jj = Jj.WithRunner runner
+
+            match! jj.DiffBetween("/repo", "main | release", "feature | hotfix") with
+            | Ok files -> Assert.That(files, Is.Empty)
+            | Error e -> Assert.Fail $"diff_between failed: {e}"
+
+            match captured.Value with
+            | Some command ->
+                Assert.That(argsOf command = expected, Is.True)
+                Assert.That(command.WorkingDirectory, Is.EqualTo(Some "/repo"))
+            | None -> Assert.Fail "diff_between did not spawn jj"
+
+            let boundCaptured, boundRunner = capturing (Reply.Ok "")
+            let bound = Jj.WithRunner boundRunner
+
+            match! bound.At("/repo").DiffTextBetween("main", "feature") with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"JjAt.diff_text_between failed: {e}"
+
+            match boundCaptured.Value with
+            | Some command ->
+                Assert.That(
+                    argsOf command = [ "diff"; "--from"; "main"; "--to"; "feature"; "--git"; "--color"; "never" ],
+                    Is.True
+                )
+
+                Assert.That(command.WorkingDirectory, Is.EqualTo(Some "/repo"))
+            | None -> Assert.Fail "JjAt.diff_text_between did not spawn jj"
+        }
+
+    [<Test>]
+    member _.DiffBetweenRejectsFlagLikeEndpointBeforeSpawn() : Task =
+        task {
+            let captured, runner = capturing (Reply.Ok "unexpected")
+            let jj = Jj.WithRunner runner
+
+            match! jj.DiffTextBetween("/repo", "--from", "@") with
+            | Error(ProcessError.Spawn(program, _)) -> Assert.That(program, Is.EqualTo "jj")
+            | Error e -> Assert.Fail $"expected a pre-spawn endpoint refusal, got: {e}"
+            | Ok _ -> Assert.Fail "a flag-like endpoint must be refused"
+
+            Assert.That(captured.Value.IsNone, "invalid endpoints must refuse before spawning")
+        }
+
 // ---------------------------------------------------------------------------
 // resolve_list, capabilities, transactions, and the injection guard
 // ---------------------------------------------------------------------------

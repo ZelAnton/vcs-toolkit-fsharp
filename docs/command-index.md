@@ -131,6 +131,8 @@ for this client's place in the layering.
 |---|---|---|
 | `Diff` | layered on `DiffText` | parsed `FileDiff list`; working-copy form is reachable as `Repo.Diff()` |
 | `DiffText` | `diff <target> --no-color --no-ext-diff -M --src-prefix=a/ --dst-prefix=b/` | untrimmed; `WorkingTree` diffs against `HEAD` (or the empty tree on an unborn repo); reachable as `Repo.DiffText()` |
+| `DiffBetween` | layered on `DiffTextBetween` | parsed `FileDiff list`; explicit `from` → `to` trees |
+| `DiffTextBetween` | `diff <from> <to> --no-relative --no-color --no-ext-diff -M --src-prefix=a/ --dst-prefix=b/ --` | untrimmed; endpoint selectors are independently validated |
 
 ### Fetch, push, merge, rebase, sequencer, stash
 
@@ -243,6 +245,8 @@ caller-supplied name can't fan a mutation out across every matching ref.
 |---|---|---|
 | `Diff` | layered on `DiffText` | parsed `FileDiff list`; working-copy form is reachable as `Repo.Diff()` |
 | `DiffText` | `diff -r <spec> --git` | verbatim; working-copy form is reachable as `Repo.DiffText()` |
+| `DiffBetween` | layered on `DiffTextBetween` | parsed `FileDiff list`; explicit `from` → `to` trees |
+| `DiffTextBetween` | `diff --from <from> --to <to> --git` | verbatim; endpoint selectors are independently validated |
 | `DiffSummary` | `diff -r (<from>)..(<to>) --summary` | per-file, resolves the workspace root first |
 | `DiffStat` | `diff -r <revset> --stat` | |
 | `CommitCount` | `log -r <revset> --no-graph -T <count-template>` | one id per line |
