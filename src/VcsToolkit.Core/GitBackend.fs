@@ -38,6 +38,18 @@ module internal GitBackend =
             return ofVcs r
         }
 
+    let cloneRepoWithProgress
+        (git: Git)
+        (url: string)
+        (dest: string)
+        (spec: VcsToolkit.Git.CloneSpec)
+        (progress: ProgressCallback)
+        =
+        task {
+            let! r = git.CloneRepoWithProgress(url, dest, spec, progress)
+            return ofVcs r
+        }
+
     let currentBranch (git: Git) (dir: string) =
         task {
             let! r = git.CurrentBranch dir
@@ -262,6 +274,12 @@ module internal GitBackend =
             return ofVcs r
         }
 
+    let fetchWithProgress (git: Git) (dir: string) (progress: ProgressCallback) =
+        task {
+            let! r = git.FetchWithProgress(dir, progress)
+            return ofVcs r
+        }
+
     let fetchFrom (git: Git) (dir: string) (remote: string) =
         task {
             let! r = git.FetchFrom(dir, remote)
@@ -278,6 +296,12 @@ module internal GitBackend =
         task {
             // `-u` so the first facade push also records the upstream; idempotent on later pushes.
             let! r = git.Push(dir, GitPush.Branch(branch).WithUpstream())
+            return ofVcs r
+        }
+
+    let pushWithProgress (git: Git) (dir: string) (branch: string) (progress: ProgressCallback) =
+        task {
+            let! r = git.PushWithProgress(dir, GitPush.Branch(branch).WithUpstream(), progress)
             return ofVcs r
         }
 

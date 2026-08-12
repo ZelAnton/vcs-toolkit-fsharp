@@ -2950,3 +2950,36 @@ type CloneTests() =
         | Error(RepoError.Vcs _ as e) -> Assert.That(e.Message, Does.Contain "url")
         | Error e -> Assert.Fail $"expected RepoError.Vcs, got: {e.Message}"
         | Ok _ -> Assert.Fail "a guard-rejected url must be refused"
+
+[<TestFixture>]
+type ProgressTests() =
+
+    [<Test>]
+    member _.FetchAndPushForwardTheBackendProgressStream() : Task =
+        task {
+            let git = gitRepo [ "fetch"; "--progress" ] (Reply.Ok("out\n").WithStderr("err\n"))
+            let gitEvents = ResizeArray<ProcessEvent>()
+
+            match! git.FetchWithProgress(fun event -> gitEvents.Add event) with
+            | Error error -> Assert.Fail $"git fetch failed: {error}"
+            | Ok() ->
+                Assert.That(
+                    gitEvents |> Seq.map (fun event -> event.Name) |> String.concat "|",
+                    Is.EqualTo "started|stdout|stderr|exited"
+                )
+
+            let jj =
+                jjRepo
+                    [ "git"; "push"; "-b"; "exact:feature"; "--color"; "never" ]
+                    (Reply.Ok("out\n").WithStderr("err\n"))
+
+            let jjEvents = ResizeArray<ProcessEvent>()
+
+            match! jj.PushWithProgress("feature", fun event -> jjEvents.Add event) with
+            | Error error -> Assert.Fail $"jj push failed: {error}"
+            | Ok() ->
+                Assert.That(
+                    jjEvents |> Seq.map (fun event -> event.Name) |> String.concat "|",
+                    Is.EqualTo "started|stdout|stderr|exited"
+                )
+        }

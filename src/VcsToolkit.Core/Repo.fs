@@ -1,6 +1,7 @@
 namespace VcsToolkit.Core
 
 open System.IO
+open VcsToolkit.CliSupport
 open VcsToolkit.Git
 open VcsToolkit.Jj
 
@@ -86,6 +87,10 @@ type Repo private (root: string, cwd: string, backend: Backend) =
     static member Clone(url: string, dest: string, spec: CloneOptions) =
         Repo.CloneWith(url, dest, spec, (fun () -> Git.Create()), (fun () -> Jj.Create()))
 
+    /// Like `Clone`, while forwarding the selected backend's process lifecycle and output.
+    static member CloneWithProgress(url: string, dest: string, spec: CloneOptions, progress: ProgressCallback) =
+        Repo.CloneWithProgress(url, dest, spec, progress, (fun () -> Git.Create()), (fun () -> Jj.Create()))
+
     /// Like `Clone`, but the client that drives the clone — and, on success, the handle's
     /// client — is built by an injected factory instead of the plain `Git.Create()`/
     /// `Jj.Create()` default, mirroring `OpenWith`'s rationale. Only the factory for
@@ -108,6 +113,32 @@ type Repo private (root: string, cwd: string, backend: Backend) =
                     | CloneKind.Git -> GitBackend.cloneRepo (git ()) url absDest (VcsToolkit.Git.CloneSpec.Create())
                     | CloneKind.JjColocated -> JjBackend.gitClone (jj ()) url absDest true
                     | CloneKind.JjNonColocated -> JjBackend.gitClone (jj ()) url absDest false
+
+                match cloned with
+                | Error e -> return Error e
+                | Ok() -> return Repo.OpenWith(absDest, git, jj)
+        }
+
+    /// Like `CloneWith`, while forwarding the selected backend's process lifecycle and output.
+    /// The clone remains a single observed attempt and keeps the ordinary cleanup contract.
+    static member CloneWithProgress
+        (url: string, dest: string, spec: CloneOptions, progress: ProgressCallback, git: unit -> Git, jj: unit -> Jj)
+        =
+        task {
+            match Repo.NormalizePath("dest", dest) with
+            | Error e -> return Error e
+            | Ok absDest ->
+                let! cloned =
+                    match spec.Kind with
+                    | CloneKind.Git ->
+                        GitBackend.cloneRepoWithProgress
+                            (git ())
+                            url
+                            absDest
+                            (VcsToolkit.Git.CloneSpec.Create())
+                            progress
+                    | CloneKind.JjColocated -> JjBackend.gitCloneWithProgress (jj ()) url absDest true progress
+                    | CloneKind.JjNonColocated -> JjBackend.gitCloneWithProgress (jj ()) url absDest false progress
 
                 match cloned with
                 | Error e -> return Error e
@@ -417,6 +448,13 @@ type Repo private (root: string, cwd: string, backend: Backend) =
         | Backend.Git g -> GitBackend.fetch g cwd
         | Backend.Jj j -> JjBackend.fetch j cwd
 
+    /// Fetch while forwarding the backend's process lifecycle and output. This is one observed
+    /// attempt; callers choose whether to replay it after the terminal event.
+    member _.FetchWithProgress(progress: ProgressCallback) =
+        match backend with
+        | Backend.Git g -> GitBackend.fetchWithProgress g cwd progress
+        | Backend.Jj j -> JjBackend.fetchWithProgress j cwd progress
+
     /// Fetch from a *named* remote. Transient network failures are retried by the client.
     member _.FetchFrom(remote: string) =
         match backend with
@@ -436,6 +474,12 @@ type Repo private (root: string, cwd: string, backend: Backend) =
         match backend with
         | Backend.Git g -> GitBackend.push g cwd branch
         | Backend.Jj j -> JjBackend.push j cwd branch
+
+    /// Push while forwarding the backend's process lifecycle and output.
+    member _.PushWithProgress(branch: string, progress: ProgressCallback) =
+        match backend with
+        | Backend.Git g -> GitBackend.pushWithProgress g cwd branch progress
+        | Backend.Jj j -> JjBackend.pushWithProgress j cwd branch progress
 
     /// Switch the working copy to `reference` (git `checkout` / jj `edit`).
     ///

@@ -1074,6 +1074,14 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
 
         core.RunUnit cmd
 
+    /// Fetch from the git remote while forwarding jj's process output. This is one observed
+    /// attempt; unlike `GitFetch`, it deliberately does not replay after a partial stream.
+    member _.GitFetchWithProgress(dir: string, progress: ProgressCallback) =
+        let cmd =
+            (cmdIn dir [ "git"; "fetch" ]).Env("LC_ALL", "C").TimeoutGrace(FetchTimeoutGrace)
+
+        core.RunWithProgress(cmd, progress)
+
     /// Fetch from a *named* git remote (`jj git fetch --remote <remote>`); transient
     /// failures are retried like `GitFetch`.
     member _.GitFetchFrom(dir: string, remote: string) =
@@ -1104,6 +1112,18 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
         // doesn't leave the remote ref half-updated.
         let cmd = (cmdIn dir args).TimeoutGrace(FetchTimeoutGrace)
         core.RunUnit cmd
+
+    /// Push to the git remote while forwarding jj's process output. The process is observed as
+    /// one attempt, so callers retain control over any replay policy after `Exited`.
+    member _.GitPushWithProgress(dir: string, bookmark: string option, progress: ProgressCallback) =
+        let args =
+            [ "git"; "push" ]
+            @ (match bookmark with
+               | Some name -> [ "-b"; exact name ]
+               | None -> [])
+
+        let cmd = (cmdIn dir args).TimeoutGrace(FetchTimeoutGrace)
+        core.RunWithProgress(cmd, progress)
 
     /// Import git refs into jj (`jj git import`) — colocated-repo sync.
     member _.GitImport(dir: string) =
@@ -1186,6 +1206,28 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
                         .TimeoutGrace(FetchTimeoutGrace)
 
                 let! result = core.RunUnit cmd
+                return cloneCleanupOnError dest cleanable result
+        }
+
+    /// Clone a git repository while forwarding jj's process output. Failed clones retain the
+    /// same cleanup contract as `GitClone`, and the process is observed as one attempt.
+    member _.GitCloneWithProgress(url: string, dest: string, colocate: bool, progress: ProgressCallback) =
+        task {
+            match checkFlags BINARY [ "url", url; "destination", dest ] with
+            | Error e -> return Error e
+            | Ok() ->
+                let colocateFlag = if colocate then "--colocate" else "--no-colocate"
+                let cleanable = cloneDestCleanable dest
+
+                let cmd =
+                    (core.Command [ "git"; "clone"; url ])
+                        .Arg(dest)
+                        .Arg(colocateFlag)
+                        .Arg("--color")
+                        .Arg("never")
+                        .TimeoutGrace(FetchTimeoutGrace)
+
+                let! result = core.RunWithProgress(cmd, progress)
                 return cloneCleanupOnError dest cleanable result
         }
 
@@ -1410,6 +1452,10 @@ and [<Sealed>] JjAt internal (jj: Jj, dir: string) =
     /// Clone a git repository into `dest`. Independent of the bound `dir`.
     member _.GitClone(url: string, dest: string, colocate: bool) = jj.GitClone(url, dest, colocate)
 
+    /// Clone a git repository into `dest` while forwarding jj's process output.
+    member _.GitCloneWithProgress(url: string, dest: string, colocate: bool, progress: ProgressCallback) =
+        jj.GitCloneWithProgress(url, dest, colocate, progress)
+
     // --- dir forwarders (the bound `dir` is injected as the first argument) ---
 
     /// Parsed working-copy changes (`jj diff -r @ --summary`).
@@ -1457,11 +1503,18 @@ and [<Sealed>] JjAt internal (jj: Jj, dir: string) =
     /// Fetch from the git remote (`jj git fetch`); transient failures are retried.
     member _.GitFetch() = jj.GitFetch dir
 
+    /// Fetch from the git remote while forwarding jj's process output.
+    member _.GitFetchWithProgress(progress: ProgressCallback) = jj.GitFetchWithProgress(dir, progress)
+
     /// Fetch from a *named* git remote (`jj git fetch --remote <remote>`).
     member _.GitFetchFrom(remote: string) = jj.GitFetchFrom(dir, remote)
 
     /// Push to the git remote (`jj git push`, optionally `-b exact:<bookmark>`).
     member _.GitPush(bookmark: string option) = jj.GitPush(dir, bookmark)
+
+    /// Push to the git remote while forwarding jj's process output.
+    member _.GitPushWithProgress(bookmark: string option, progress: ProgressCallback) =
+        jj.GitPushWithProgress(dir, bookmark, progress)
 
     /// Working-copy root of the current workspace (`jj root`).
     member _.Root() = jj.Root dir

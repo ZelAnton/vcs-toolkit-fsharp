@@ -208,6 +208,7 @@ namespace VcsToolkit.CliSupport
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.FSharpOption<VcsToolkit.CliSupport.Credential>?, ProcessKit.ProcessError>> ResolveCredential(VcsToolkit.CliSupport.CredentialService service, Microsoft.FSharp.Core.FSharpOption<string>? host) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> Run(ProcessKit.Command cmd) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> RunUnit(ProcessKit.Command cmd) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> RunWithProgress(ProcessKit.Command cmd, Microsoft.FSharp.Core.FSharpFunc<VcsToolkit.CliSupport.ProcessEvent, Microsoft.FSharp.Core.Unit> progress) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<T, ProcessKit.ProcessError>> TryParse<T>(ProcessKit.Command cmd, Microsoft.FSharp.Core.FSharpFunc<string, Microsoft.FSharp.Core.FSharpResult<T, string>> parser) { }
         public VcsToolkit.CliSupport.ManagedClient WithCredentials(VcsToolkit.CliSupport.ICredentialProvider provider) { }
         public VcsToolkit.CliSupport.ManagedClient WithExpectedHost(string host) { }
@@ -217,6 +218,38 @@ namespace VcsToolkit.CliSupport
         public VcsToolkit.CliSupport.ManagedClient WithTokenEnv(VcsToolkit.CliSupport.CredentialService service, string var) { }
         public static VcsToolkit.CliSupport.ManagedClient Create(string program) { }
         public static VcsToolkit.CliSupport.ManagedClient WithRunner(string program, ProcessKit.IProcessRunner runner) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+    [System.Serializable]
+    public abstract class ProcessEvent : System.Collections.IStructuralEquatable, System.IEquatable<VcsToolkit.CliSupport.ProcessEvent>
+    {
+        public string Name { get; }
+        public Microsoft.FSharp.Core.FSharpOption<string>? Text { get; }
+        [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+        [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.CliSupport.ProcessEvent.Exited@DebugTypeProxy))]
+        [System.Serializable]
+        public class Exited : VcsToolkit.CliSupport.ProcessEvent { }
+        [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+        [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.CliSupport.ProcessEvent.Started@DebugTypeProxy))]
+        [System.Serializable]
+        public class Started : VcsToolkit.CliSupport.ProcessEvent { }
+        [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+        [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.CliSupport.ProcessEvent.Stderr@DebugTypeProxy))]
+        [System.Serializable]
+        public class Stderr : VcsToolkit.CliSupport.ProcessEvent { }
+        [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+        [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.CliSupport.ProcessEvent.Stdout@DebugTypeProxy))]
+        [System.Serializable]
+        public class Stdout : VcsToolkit.CliSupport.ProcessEvent { }
+        public static class Tags
+        {
+            public const int Exited = 3;
+            public const int Started = 0;
+            public const int Stderr = 2;
+            public const int Stdout = 1;
+        }
     }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Module)]
     [Microsoft.FSharp.Core.RequireQualifiedAccess]

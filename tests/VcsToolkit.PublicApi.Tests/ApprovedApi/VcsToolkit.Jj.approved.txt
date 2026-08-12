@@ -146,11 +146,14 @@ namespace VcsToolkit.Jj
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> FileShow(string dir, string revset, string path) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<byte[], ProcessKit.ProcessError>> FileShowBytes(string dir, string revset, string path) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitClone(string url, string dest, bool colocate) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitCloneWithProgress(string url, string dest, bool colocate, Microsoft.FSharp.Core.FSharpFunc<VcsToolkit.CliSupport.ProcessEvent, Microsoft.FSharp.Core.Unit> progress) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitFetch(string dir) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitFetchBranch(string dir, string branch) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitFetchFrom(string dir, string remote) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitFetchWithProgress(string dir, Microsoft.FSharp.Core.FSharpFunc<VcsToolkit.CliSupport.ProcessEvent, Microsoft.FSharp.Core.Unit> progress) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitImport(string dir) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitPush(string dir, Microsoft.FSharp.Core.FSharpOption<string>? bookmark) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitPushWithProgress(string dir, Microsoft.FSharp.Core.FSharpOption<string>? bookmark, Microsoft.FSharp.Core.FSharpFunc<VcsToolkit.CliSupport.ProcessEvent, Microsoft.FSharp.Core.Unit> progress) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitRemoteAdd(string dir, string name, string url) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Jj.Remote>, ProcessKit.ProcessError>> GitRemoteList(string dir) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitRemoteRemove(string dir, string name) { }
@@ -243,11 +246,14 @@ namespace VcsToolkit.Jj
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> FileShow(string revset, string path) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<byte[], ProcessKit.ProcessError>> FileShowBytes(string revset, string path) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitClone(string url, string dest, bool colocate) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitCloneWithProgress(string url, string dest, bool colocate, Microsoft.FSharp.Core.FSharpFunc<VcsToolkit.CliSupport.ProcessEvent, Microsoft.FSharp.Core.Unit> progress) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitFetch() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitFetchBranch(string branch) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitFetchFrom(string remote) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitFetchWithProgress(Microsoft.FSharp.Core.FSharpFunc<VcsToolkit.CliSupport.ProcessEvent, Microsoft.FSharp.Core.Unit> progress) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitImport() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitPush(Microsoft.FSharp.Core.FSharpOption<string>? bookmark) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitPushWithProgress(Microsoft.FSharp.Core.FSharpOption<string>? bookmark, Microsoft.FSharp.Core.FSharpFunc<VcsToolkit.CliSupport.ProcessEvent, Microsoft.FSharp.Core.Unit> progress) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitRemoteAdd(string name, string url) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Jj.Remote>, ProcessKit.ProcessError>> GitRemoteList() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> GitRemoteRemove(string name) { }

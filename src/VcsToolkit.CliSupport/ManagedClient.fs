@@ -5,6 +5,29 @@ open System.Threading
 open System.Threading.Tasks
 open ProcessKit
 
+[<RequireQualifiedAccess>]
+type ProcessEvent =
+    | Started of pid: int option
+    | Stdout of line: string
+    | Stderr of line: string
+    | Exited of outcome: Outcome
+
+    member this.Name =
+        match this with
+        | ProcessEvent.Started _ -> "started"
+        | ProcessEvent.Stdout _ -> "stdout"
+        | ProcessEvent.Stderr _ -> "stderr"
+        | ProcessEvent.Exited _ -> "exited"
+
+    member this.Text =
+        match this with
+        | ProcessEvent.Stdout line
+        | ProcessEvent.Stderr line -> Some line
+        | ProcessEvent.Started _
+        | ProcessEvent.Exited _ -> None
+
+type ProgressCallback = ProcessEvent -> unit
+
 [<NoEquality; NoComparison>]
 type private ManagedConfig =
     { Program: string
@@ -348,6 +371,50 @@ type ManagedClient private (cfg: ManagedConfig) =
                         cfg.Cancel
                         (this.Wrap prepared hasSecret (fun _ -> 0) (fun () ->
                             Runner.runUnit cfg.Runner cfg.Cancel prepared))
+        }
+
+    /// Run one command while forwarding a best-effort lifecycle and output stream to `progress`.
+    /// The command is executed exactly once: replaying a partially observed network operation
+    /// would make the event stream ambiguous, so callers decide whether to retry after `Exited`.
+    member this.RunWithProgress(cmd: Command, progress: ProgressCallback) : Task<Result<unit, ProcessError>> =
+        task {
+            match! this.Prepare cmd with
+            | Error e -> return Error e
+            | Ok(prepared, hasSecret) ->
+                let mutable callbackActive = true
+
+                let report event =
+                    if callbackActive then
+                        try
+                            progress event
+                        with _ ->
+                            // A progress consumer is observational; disable a failing callback so
+                            // its exception cannot strand the child or stop output draining.
+                            callbackActive <- false
+
+                let streamed =
+                    prepared
+                        .OnStdoutLine(Action<string>(fun line -> report (ProcessEvent.Stdout line)))
+                        .OnStderrLine(Action<string>(fun line -> report (ProcessEvent.Stderr line)))
+
+                report (ProcessEvent.Started None)
+
+                let! result =
+                    this.Wrap
+                        prepared
+                        hasSecret
+                        (fun (r: ProcessResult<string>) -> r.Code |> Option.defaultValue 0)
+                        (fun () -> Runner.outputString cfg.Runner cfg.Cancel streamed)
+                        ()
+
+                match result with
+                | Error e -> return Error e
+                | Ok processResult ->
+                    report (ProcessEvent.Exited processResult.Outcome)
+
+                    match ProcessResult.ensureSuccess processResult with
+                    | Error e -> return Error e
+                    | Ok _ -> return Ok()
         }
 
     /// Capture the full `ProcessResult` (a non-zero exit is data). Credential injection

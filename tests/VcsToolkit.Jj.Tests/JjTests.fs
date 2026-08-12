@@ -2537,3 +2537,60 @@ type ObserverWiringTests() =
             Assert.That(events.Count, Is.EqualTo 1, "the observer is threaded through the Jj client")
             Assert.That(events[0].Program, Is.EqualTo "jj")
         }
+
+[<TestFixture>]
+type ProgressTests() =
+
+    [<Test>]
+    member _.NetworkVariantsForwardEventsWithoutRetryFlags() : Task =
+        task {
+            let runner = ScriptedRunner().Fallback(Reply.Ok("out\n").WithStderr("err\n"))
+            let jj = Jj.WithRunner runner
+
+            let capture () =
+                let events = ResizeArray<ProcessEvent>()
+                events, (fun event -> events.Add event)
+
+            let fetchEvents, fetch = capture ()
+
+            match! jj.GitFetchWithProgress(".", fetch) with
+            | Error error -> Assert.Fail $"fetch failed: {error}"
+            | Ok() ->
+                Assert.That(
+                    fetchEvents |> Seq.map (fun event -> event.Name) |> String.concat "|",
+                    Is.EqualTo "started|stdout|stderr|exited"
+                )
+
+            let pushEvents, push = capture ()
+
+            match! jj.GitPushWithProgress(".", Some "feature", push) with
+            | Error error -> Assert.Fail $"push failed: {error}"
+            | Ok() ->
+                Assert.That(
+                    pushEvents |> Seq.map (fun event -> event.Name) |> String.concat "|",
+                    Is.EqualTo "started|stdout|stderr|exited"
+                )
+
+            let cloneEvents, clone = capture ()
+
+            match! jj.GitCloneWithProgress("https://example.test/repo", "/dest", false, clone) with
+            | Error error -> Assert.Fail $"clone failed: {error}"
+            | Ok() ->
+                Assert.That(
+                    cloneEvents |> Seq.map (fun event -> event.Name) |> String.concat "|",
+                    Is.EqualTo "started|stdout|stderr|exited"
+                )
+
+            let calls =
+                runner.Received
+                |> Seq.map (fun invocation -> invocation.Args |> Seq.toList)
+                |> Seq.toList
+
+            Assert.That(String.concat " " calls[0], Is.EqualTo "git fetch --color never")
+            Assert.That(String.concat " " calls[1], Is.EqualTo "git push -b exact:feature --color never")
+
+            Assert.That(
+                String.concat " " calls[2],
+                Is.EqualTo "git clone https://example.test/repo /dest --no-colocate --color never"
+            )
+        }

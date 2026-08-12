@@ -172,6 +172,27 @@ type OutputBudgetTests() =
         }
 
 [<TestFixture>]
+type ProgressTests() =
+
+    [<Test>]
+    member _.RunWithProgressForwardsOneLifecycleAndBothOutputStreams() : Task =
+        task {
+            let runner = ScriptedRunner().Fallback(Reply.Ok("out\n").WithStderr("err\n"))
+            let client = ManagedClient.WithRunner("tool", runner)
+            let events = ResizeArray<ProcessEvent>()
+
+            match! client.RunWithProgress(client.Command [ "network" ], events.Add) with
+            | Error error -> Assert.Fail $"progress run failed: {error}"
+            | Ok() ->
+                Assert.That(
+                    events |> Seq.map (fun event -> event.Name) |> String.concat "|",
+                    Is.EqualTo "started|stdout|stderr|exited"
+                )
+
+                Assert.That(events |> Seq.choose (fun event -> event.Text) |> String.concat "|", Is.EqualTo "out|err")
+        }
+
+[<TestFixture>]
 type ClassifierTests() =
 
     [<Test>]

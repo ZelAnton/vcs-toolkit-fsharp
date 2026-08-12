@@ -186,6 +186,7 @@ namespace VcsToolkit.Core
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> Fetch() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> FetchBranch(string branch) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> FetchFrom(string remote) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> FetchWithProgress(Microsoft.FSharp.Core.FSharpFunc<VcsToolkit.CliSupport.ProcessEvent, Microsoft.FSharp.Core.Unit> progress) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<bool, VcsToolkit.Core.RepoError>> HasTrackedChanges() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<bool, VcsToolkit.Core.RepoError>> HasUncommittedChanges() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Core.OperationState, VcsToolkit.Core.RepoError>> InProgressState() { }
@@ -197,6 +198,7 @@ namespace VcsToolkit.Core
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.FSharpOption<string>?, VcsToolkit.Core.RepoError>> MergeBase(string a, string b) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> NewChild(string reference) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> Push(string branch) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> PushWithProgress(string branch, Microsoft.FSharp.Core.FSharpFunc<VcsToolkit.CliSupport.ProcessEvent, Microsoft.FSharp.Core.Unit> progress) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> Rebase(string onto) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Core.Remote>, VcsToolkit.Core.RepoError>> Remotes() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> RemoveWorktree(string path, bool force) { }
@@ -211,6 +213,8 @@ namespace VcsToolkit.Core
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Core.MergeProbe, VcsToolkit.Core.RepoError>> TryMerge(string source) { }
         public static System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Core.Repo, VcsToolkit.Core.RepoError>> Clone(string url, string dest, VcsToolkit.Core.CloneOptions spec) { }
         public static System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Core.Repo, VcsToolkit.Core.RepoError>> CloneWith(string url, string dest, VcsToolkit.Core.CloneOptions spec, Microsoft.FSharp.Core.FSharpFunc<Microsoft.FSharp.Core.Unit, VcsToolkit.Git.Git> git, Microsoft.FSharp.Core.FSharpFunc<Microsoft.FSharp.Core.Unit, VcsToolkit.Jj.Jj> jj) { }
+        public static System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Core.Repo, VcsToolkit.Core.RepoError>> CloneWithProgress(string url, string dest, VcsToolkit.Core.CloneOptions spec, Microsoft.FSharp.Core.FSharpFunc<VcsToolkit.CliSupport.ProcessEvent, Microsoft.FSharp.Core.Unit> progress) { }
+        public static System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Core.Repo, VcsToolkit.Core.RepoError>> CloneWithProgress(string url, string dest, VcsToolkit.Core.CloneOptions spec, Microsoft.FSharp.Core.FSharpFunc<VcsToolkit.CliSupport.ProcessEvent, Microsoft.FSharp.Core.Unit> progress, Microsoft.FSharp.Core.FSharpFunc<Microsoft.FSharp.Core.Unit, VcsToolkit.Git.Git> git, Microsoft.FSharp.Core.FSharpFunc<Microsoft.FSharp.Core.Unit, VcsToolkit.Jj.Jj> jj) { }
         public static VcsToolkit.Core.Repo FromGit(string root, string cwd, VcsToolkit.Git.Git client) { }
         public static VcsToolkit.Core.Repo FromJj(string root, string cwd, VcsToolkit.Jj.Jj client) { }
         public static Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Core.Repo, VcsToolkit.Core.RepoError> Open(string dir) { }

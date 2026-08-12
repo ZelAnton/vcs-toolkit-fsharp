@@ -3,6 +3,7 @@ namespace VcsToolkit.Core
 open System.IO
 open System.Threading.Tasks
 open ProcessKit
+open VcsToolkit.CliSupport
 open VcsToolkit.Diff
 open VcsToolkit.Jj
 
@@ -150,6 +151,12 @@ module internal JjBackend =
     let gitClone (jj: Jj) (url: string) (dest: string) (colocate: bool) =
         task {
             let! r = jj.GitClone(url, dest, colocate)
+            return ofVcs r
+        }
+
+    let gitCloneWithProgress (jj: Jj) (url: string) (dest: string) (colocate: bool) (progress: ProgressCallback) =
+        task {
+            let! r = jj.GitCloneWithProgress(url, dest, colocate, progress)
             return ofVcs r
         }
 
@@ -361,6 +368,12 @@ module internal JjBackend =
             return ofVcs r
         }
 
+    let fetchWithProgress (jj: Jj) (dir: string) (progress: ProgressCallback) =
+        task {
+            let! r = jj.GitFetchWithProgress(dir, progress)
+            return ofVcs r
+        }
+
     let fetchFrom (jj: Jj) (dir: string) (remote: string) =
         task {
             let! r = jj.GitFetchFrom(dir, remote)
@@ -377,6 +390,12 @@ module internal JjBackend =
         task {
             // jj pushes *bookmark state* (`git push -b <name>`); no `-u` analogue.
             let! r = jj.GitPush(dir, Some branch)
+            return ofVcs r
+        }
+
+    let pushWithProgress (jj: Jj) (dir: string) (branch: string) (progress: ProgressCallback) =
+        task {
+            let! r = jj.GitPushWithProgress(dir, Some branch, progress)
             return ofVcs r
         }
 

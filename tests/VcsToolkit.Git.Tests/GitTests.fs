@@ -2953,3 +2953,61 @@ type SubmoduleTests() =
             | Some cmd -> Assert.That(argv cmd, Is.EqualTo "submodule update -- only/path")
             | None -> Assert.Fail "no command captured"
         }
+
+[<TestFixture>]
+type ProgressTests() =
+
+    [<Test>]
+    member _.NetworkVariantsAddProgressAndForwardEvents() : Task =
+        task {
+            let runner = ScriptedRunner().Fallback(Reply.Ok("out\n").WithStderr("err\n"))
+            let git = Git.WithRunner runner
+
+            let capture () =
+                let events = ResizeArray<ProcessEvent>()
+                events, (fun event -> events.Add event)
+
+            let fetchEvents, fetch = capture ()
+
+            match! git.FetchWithProgress(".", fetch) with
+            | Error error -> Assert.Fail $"fetch failed: {error}"
+            | Ok() ->
+                Assert.That(
+                    fetchEvents |> Seq.map (fun event -> event.Name) |> String.concat "|",
+                    Is.EqualTo "started|stdout|stderr|exited"
+                )
+
+            let pushEvents, push = capture ()
+
+            match! git.PushWithProgress(".", GitPush.Branch("feature").WithUpstream(), push) with
+            | Error error -> Assert.Fail $"push failed: {error}"
+            | Ok() ->
+                Assert.That(
+                    pushEvents |> Seq.map (fun event -> event.Name) |> String.concat "|",
+                    Is.EqualTo "started|stdout|stderr|exited"
+                )
+
+            let cloneEvents, clone = capture ()
+            let destination = cloneDest ()
+
+            match! git.CloneRepoWithProgress("https://example.test/repo", destination, CloneSpec.Create(), clone) with
+            | Error error -> Assert.Fail $"clone failed: {error}"
+            | Ok() ->
+                Assert.That(
+                    cloneEvents |> Seq.map (fun event -> event.Name) |> String.concat "|",
+                    Is.EqualTo "started|stdout|stderr|exited"
+                )
+
+            let calls =
+                runner.Received
+                |> Seq.map (fun invocation -> invocation.Args |> Seq.toList)
+                |> Seq.toList
+
+            Assert.That(String.concat " " calls[0], Is.EqualTo "fetch --progress")
+            Assert.That(String.concat " " calls[1], Is.EqualTo "push --progress -u origin feature")
+
+            Assert.That(
+                String.concat " " calls[2],
+                Is.EqualTo $"clone --progress https://example.test/repo {destination}"
+            )
+        }

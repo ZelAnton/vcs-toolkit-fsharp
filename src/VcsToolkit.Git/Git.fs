@@ -1324,8 +1324,29 @@ type Git private (core: ManagedClient) =
                 return! core.RunUnit cmd
         }
 
+    member private this.RunFetchWithProgress(dir: string, tail: string list, progress: ProgressCallback) =
+        task {
+            match! this.RemoteCredentials None with
+            | Error e -> return Error e
+            | Ok(pre, envs) ->
+                let args = pre @ [ "fetch"; "--progress" ] @ tail
+
+                let cmd =
+                    (cLocale (core.CommandIn(dir, args)))
+                        .Env("GIT_TERMINAL_PROMPT", "0")
+                        .TimeoutGrace(FetchTimeoutGrace)
+                    |> applySecretEnv envs
+
+                return! core.RunWithProgress(cmd, progress)
+        }
+
     /// Fetch from the default remote, retrying transient failures.
     member this.Fetch(dir: string) = this.RunFetch(dir, [])
+
+    /// Fetch from the default remote while forwarding Git's progress output. The process is
+    /// observed as one attempt; callers choose whether to replay it after the terminal event.
+    member this.FetchWithProgress(dir: string, progress: ProgressCallback) =
+        this.RunFetchWithProgress(dir, [], progress)
 
     /// Fetch from a named remote.
     member this.FetchFrom(dir: string, remote: string) =
@@ -1404,6 +1425,54 @@ type Git private (core: ManagedClient) =
                                 |> applySecretEnv envs
 
                             return! core.RunUnit cmd
+
+        }
+
+    /// Push while forwarding Git's progress output. Unlike `Push`, this is a single observed
+    /// attempt so a callback receives one lifecycle ending in `Exited`.
+    member this.PushWithProgress(dir: string, spec: GitPush, progress: ProgressCallback) =
+        task {
+            match checkFlags BINARY [ "remote", spec.Remote; "refspec", spec.Refspec ] with
+            | Error e -> return Error e
+            | Ok() ->
+                let sides = spec.Refspec.Split ':'
+
+                if
+                    sides.Length > 2
+                    || sides |> Array.exists (fun s -> s.StartsWith '+' || s.Length = 0)
+                then
+                    return
+                        Error(
+                            ProcessError.Spawn(
+                                BINARY,
+                                sprintf
+                                    "push refspec %A contains a force (`+`), multi-ref (`:`), or empty-side (delete/all-matching) metacharacter — pass a plain branch or `local:remote`, or use `Run [ \"push\"; … ]` for a force-push/delete"
+                                    spec.Refspec
+                            )
+                        )
+                else
+                    match
+                        sides
+                        |> Array.tryPick (fun s ->
+                            match checkRefName "push refspec side" s with
+                            | Error e -> Some e
+                            | Ok() -> None)
+                    with
+                    | Some e -> return Error e
+                    | None ->
+                        match! this.RemoteCredentials None with
+                        | Error e -> return Error e
+                        | Ok(pre, envs) ->
+                            let upstream = if spec.SetUpstream then [ "-u" ] else []
+                            let args = pre @ [ "push"; "--progress" ] @ upstream @ [ spec.Remote; spec.Refspec ]
+
+                            let cmd =
+                                (core.CommandIn(dir, args))
+                                    .Env("GIT_TERMINAL_PROMPT", "0")
+                                    .TimeoutGrace(FetchTimeoutGrace)
+                                |> applySecretEnv envs
+
+                            return! core.RunWithProgress(cmd, progress)
         }
 
     /// Clone `url` into `dest` (pass an absolute `dest`). Both `url` and `dest` are bare
@@ -1449,6 +1518,47 @@ type Git private (core: ManagedClient) =
                             |> applySecretEnv envs
 
                         let! result = core.RunUnit cmd
+                        return cloneCleanupOnError dest cleanable result
+
+        }
+
+    /// Clone while forwarding Git's progress output. Failed clones retain the same cleanup
+    /// contract as `CloneRepo`, and the process is observed as one non-retried attempt.
+    member this.CloneRepoWithProgress(url: string, dest: string, spec: CloneSpec, progress: ProgressCallback) =
+        task {
+            match checkFlags BINARY [ "url", url; "destination", dest ] with
+            | Error e -> return Error e
+            | Ok() ->
+                let branchValidation =
+                    match spec.Branch with
+                    | Some branch -> checkRefName "clone branch" branch
+                    | None -> Ok()
+
+                match branchValidation with
+                | Error e -> return Error e
+                | Ok() ->
+                    match! this.RemoteCredentials(Credentials.httpsHost url) with
+                    | Error e -> return Error e
+                    | Ok(pre, envs) ->
+                        let cleanable = cloneDestCleanable dest
+                        let mutable cmd = core.Command(pre @ [ "clone"; "--progress" ])
+
+                        match spec.Branch with
+                        | Some b -> cmd <- cmd.Arg("--branch").Arg b
+                        | None -> ()
+
+                        match spec.Depth with
+                        | Some d -> cmd <- cmd.Arg("--depth").Arg(string d)
+                        | None -> ()
+
+                        if spec.Bare then
+                            cmd <- cmd.Arg "--bare"
+
+                        let cmd =
+                            cmd.Arg(url).Arg(dest).Env("GIT_TERMINAL_PROMPT", "0").TimeoutGrace(FetchTimeoutGrace)
+                            |> applySecretEnv envs
+
+                        let! result = core.RunWithProgress(cmd, progress)
                         return cloneCleanupOnError dest cleanable result
         }
 
@@ -2236,6 +2346,10 @@ and [<Sealed>] GitAt internal (git: Git, dir: string) =
     /// Clone `url` into `dest` (pass an absolute `dest`). Independent of the bound `dir`.
     member _.CloneRepo(url: string, dest: string, spec: CloneSpec) = git.CloneRepo(url, dest, spec)
 
+    /// Clone `url` into `dest` while forwarding Git's progress output.
+    member _.CloneRepoWithProgress(url: string, dest: string, spec: CloneSpec, progress: ProgressCallback) =
+        git.CloneRepoWithProgress(url, dest, spec, progress)
+
     // --- dir forwarders (the bound `dir` is injected as the first argument) ---
 
     /// Working-tree status (`git status --porcelain=v1 -z`).
@@ -2412,6 +2526,9 @@ and [<Sealed>] GitAt internal (git: Git, dir: string) =
     /// Fetch from the default remote, retrying transient failures.
     member _.Fetch() = git.Fetch dir
 
+    /// Fetch from the default remote while forwarding Git's progress output.
+    member _.FetchWithProgress(progress: ProgressCallback) = git.FetchWithProgress(dir, progress)
+
     /// Fetch from a named remote.
     member _.FetchFrom(remote: string) = git.FetchFrom(dir, remote)
 
@@ -2420,6 +2537,10 @@ and [<Sealed>] GitAt internal (git: Git, dir: string) =
 
     /// Push to a remote (`push [-u] <remote> <refspec>`).
     member _.Push(spec: GitPush) = git.Push(dir, spec)
+
+    /// Push to a remote while forwarding Git's progress output.
+    member _.PushWithProgress(spec: GitPush, progress: ProgressCallback) =
+        git.PushWithProgress(dir, spec, progress)
 
     /// Stage a branch's changes without committing (`merge --squash <branch>`).
     member _.MergeSquash(branch: string) = git.MergeSquash(dir, branch)
