@@ -1347,6 +1347,55 @@ type AssemblyTests() =
             | Ok result -> Assert.Fail $"expected composed merge/rollback error, got {result}")
 
     [<Test>]
+    member _.GitTryMergeAbortsAfterConflictedFilesProbeFails() =
+        withTempDir (fun dir ->
+            let gitDir = Path.Combine(dir, ".git")
+            Directory.CreateDirectory gitDir |> ignore
+            let mergeHeadPath = Path.Combine(gitDir, "MERGE_HEAD")
+            File.WriteAllText(mergeHeadPath, "x\n")
+
+            let conflictedFilesProbeRan = ref false
+            let abortRan = ref false
+            let abortRanAfterConflictedFilesProbe = ref false
+
+            let runner =
+                ScriptedRunner()
+                    .On(
+                        [ "merge"; "--no-commit"; "--no-ff"; "feature" ],
+                        Reply.Fail(1, "CONFLICT (content): merge conflict marker")
+                    )
+                    .When(
+                        (fun (cmd: Command) ->
+                            if cmd.Arguments |> Seq.contains "--diff-filter=U" then
+                                conflictedFilesProbeRan.Value <- true
+                                true
+                            else
+                                false),
+                        Reply.Fail(1, "conflicted-files probe failed")
+                    )
+                    .On([ "rev-parse"; "--git-dir" ], Reply.Ok(gitDir + "\n"))
+                    .When(
+                        (fun (cmd: Command) ->
+                            if cmd.Arguments |> Seq.contains "--abort" then
+                                abortRan.Value <- true
+                                abortRanAfterConflictedFilesProbe.Value <- conflictedFilesProbeRan.Value
+                                true
+                            else
+                                false),
+                        Reply.Fail(1, "abort failed")
+                    )
+
+            let repo = Repo.FromGit(dir, dir, Git.WithRunner runner)
+
+            match repo.TryMerge("feature").GetAwaiter().GetResult() with
+            | Error e ->
+                Assert.That(abortRan.Value, Is.True, "merge --abort must run after the conflicted-files probe fails")
+                Assert.That(abortRanAfterConflictedFilesProbe.Value, Is.True)
+                Assert.That(e.Message, Does.Contain "conflicted-files probe failed")
+                Assert.That(e.Message, Does.Contain "abort failed")
+            | Ok result -> Assert.Fail $"expected the conflicted-files probe error, got {result}")
+
+    [<Test>]
     member _.GitTryMergeProbeMasksFailureAfterMergeFailure() =
         let runner =
             ScriptedRunner()

@@ -139,7 +139,13 @@ type ManagedClient private (cfg: ManagedConfig) =
     member _.DefaultEnv(key: string, value: string) =
         ManagedClient
             { cfg with
-                DefaultEnv = cfg.DefaultEnv @ [ (key, value) ] }
+                DefaultEnv = cfg.DefaultEnv @ [ (key, value) ]
+                // A later explicit default wins over an earlier removal for the same
+                // environment key; DefaultEnvRemove still wins when it is called later.
+                EnvRemove =
+                    cfg.EnvRemove
+                    |> List.filter (fun removed ->
+                        not (String.Equals(removed, key, StringComparison.OrdinalIgnoreCase))) }
 
     /// Remove an inherited environment variable on every command this client builds.
     member _.DefaultEnvRemove(key: string) =

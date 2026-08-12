@@ -112,6 +112,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - `GitHub.WorkflowDispatch` now rejects empty, `=`-containing, and NUL-containing input keys before spawning `gh`, while preserving unrestricted input values.
+- `Git.Harden()` now probes Git before selecting its hook/fsmonitor/sshCommand pins, using the legacy command-scope config channel on Git 2.30 and older instead of returning a client whose `GIT_CONFIG_COUNT` pins are ignored.
+- `ManagedClient.DefaultEnv` now preserves a later explicit environment default over an earlier removal of the same key, while a later `DefaultEnvRemove` still wins; this keeps mandatory `Git.Harden()` pins effective when callers preconfigure environment removals.
 - Credential providers now reject CR/LF in usernames and secrets before helper/environment materialization or process spawn, preventing line-oriented credential injection while preserving ambient fallback for safe empty values.
 - `Repo.CurrentBranch()` on Jujutsu now chooses the nearest reachable bookmark by merge-graph distance, using the bookmark name only as an equal-distance tie-break.
 - `Git.RemoteBranchExists` now returns an error when `git ls-remote` fails, instead of reporting the operational failure as a missing remote branch.
@@ -141,6 +143,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `RepoWatcher.ReadAll`'s `await foreach` now honours cancellation of the `[EnumeratorCancellation]` token supplied via `WithCancellation(...)`, not just the `ReadAll(cancellationToken)` argument — previously, when both were cancelable, only the argument token was checked and the enumerator token was silently ignored, leaving the enumeration hanging past its own cancellation.
 - `Gitea.PrMerge` (and `Forge.PrMerge` on the Gitea backend) no longer fails against a real `tea` 0.9.2 with `Error: Must specify a PR index`: `--style` now precedes the positional PR index in the argv, matching `tea`'s `urfave/cli`-based flag parser, which stops recognising `--flag` tokens once it hits the first bare positional.
 - Repo.TryMerge no longer silently drops the original merge failure (or the rollback failure) when both a merge/probe step and its cleanup/rollback step fail on the same call, on either backend.
+- Git-backed `Repo.TryMerge` now always aborts a conflict probe even when reading conflicted paths fails, preserving the probe error and composing it with any abort error.
 - `vcs-mcp` tool calls no longer reject an explicit JSON `null` on an optional argument (e.g. `forge_pr_list`'s `state`, `repo_annotate`'s `rev`, `forge_pr_review`'s `body`) as an invalid-params type error; `null` is now treated the same as the argument being absent, matching how many MCP clients serialize an omitted nullable field. Required arguments are unaffected — `null` there remains `InvalidParams`.
 - forge auto-detection on jj repositories no longer fails silently when `ui.color = "always"` is set in the user's jj config.
 - `Jj.ResolveList` (and consequently `Repo.ConflictedFiles` and jj merge probes) now preserves internal double-or-more spaces in conflicted paths instead of truncating the path at the first such run.

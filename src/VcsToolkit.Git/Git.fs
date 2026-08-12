@@ -10,6 +10,15 @@ open VcsToolkit.Diff
 [<AutoOpen>]
 module private GitHelpers =
 
+    /// Git versions before 2.31 ignore GIT_CONFIG_COUNT. They do understand the older
+    /// command-scope parameter channel, whose single-quoted tokens are parsed by Git itself.
+    [<Literal>]
+    let LegacyHardenedConfigParameters =
+        "'core.hooksPath=/dev/null' 'core.fsmonitor=false' 'core.sshCommand='"
+
+    let supportsHardenedConfig (version: Version) =
+        (version.Major, version.Minor) >= (MIN_SUPPORTED_MAJOR, MIN_SUPPORTED_MINOR)
+
     /// Force the C locale on a command whose output feeds the error classifiers
     /// (`isMergeConflict`, `isNothingToCommit`, `isTransientFetchError`): they match
     /// untranslated English substrings.
@@ -238,6 +247,9 @@ type Git private (core: ManagedClient) =
           "GIT_ALTERNATE_OBJECT_DIRECTORIES"
           "GIT_NAMESPACE" ]
         |> List.fold (fun (c: ManagedClient) key -> c.DefaultEnvRemove key) core
+        // Keep this as an explicit empty default rather than EnvRemove: Harden can replace it
+        // with the legacy command-config channel after probing an older Git binary.
+        |> fun c -> c.DefaultEnv("GIT_CONFIG_PARAMETERS", "")
 
     /// Create a client driving the real job-backed runner.
     static member Create() =
@@ -1824,8 +1836,9 @@ type Git private (core: ManagedClient) =
     /// skipped, repo-local `core.hooksPath`/`fsmonitor`/`sshCommand` pinned via env-config.
     ///
     /// The config pins use the `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n`
-    /// environment mechanism, which requires **git ≥ 2.31**; on an older git those pins are
-    /// silently ignored (the env-var scrubbing still applies).
+    /// environment mechanism on Git ≥ 2.31. Older Git versions are detected first and use the
+    /// compatible `GIT_CONFIG_PARAMETERS` command-scope channel instead, so Harden never
+    /// returns a client whose hook pin is silently ignored.
     member this.Harden() =
         let removed =
             [ "GIT_DIR"
@@ -1836,7 +1849,6 @@ type Git private (core: ManagedClient) =
               "GIT_ALTERNATE_OBJECT_DIRECTORIES"
               "GIT_NAMESPACE"
               "GIT_CEILING_DIRECTORIES"
-              "GIT_CONFIG_PARAMETERS"
               "GIT_CONFIG_GLOBAL"
               "GIT_CONFIG_SYSTEM"
               "GIT_SSH_COMMAND"
@@ -1861,16 +1873,31 @@ type Git private (core: ManagedClient) =
         let scrubbed =
             removed |> List.fold (fun (g: Git) key -> g.DefaultEnvRemove key) this
 
-        scrubbed
-            .DefaultEnv("GIT_CONFIG_NOSYSTEM", "1")
-            .DefaultEnv("GIT_TERMINAL_PROMPT", "0")
-            .DefaultEnv("GIT_CONFIG_COUNT", "3")
-            .DefaultEnv("GIT_CONFIG_KEY_0", "core.hooksPath")
-            .DefaultEnv("GIT_CONFIG_VALUE_0", "/dev/null")
-            .DefaultEnv("GIT_CONFIG_KEY_1", "core.fsmonitor")
-            .DefaultEnv("GIT_CONFIG_VALUE_1", "false")
-            .DefaultEnv("GIT_CONFIG_KEY_2", "core.sshCommand")
-            .DefaultEnv("GIT_CONFIG_VALUE_2", "")
+        let hardened =
+            match this.Capabilities().GetAwaiter().GetResult() with
+            | Ok capabilities when supportsHardenedConfig capabilities.Version ->
+                // DefaultEnv values are applied in order. Override the caller's legacy channel
+                // here instead of removing it, because the legacy branch needs to set this same
+                // key after the common hardening defaults have been prepared.
+                scrubbed
+                    .DefaultEnv("GIT_CONFIG_PARAMETERS", "")
+                    .DefaultEnv("GIT_CONFIG_COUNT", "3")
+                    .DefaultEnv("GIT_CONFIG_KEY_0", "core.hooksPath")
+                    .DefaultEnv("GIT_CONFIG_VALUE_0", "/dev/null")
+                    .DefaultEnv("GIT_CONFIG_KEY_1", "core.fsmonitor")
+                    .DefaultEnv("GIT_CONFIG_VALUE_1", "false")
+                    .DefaultEnv("GIT_CONFIG_KEY_2", "core.sshCommand")
+                    .DefaultEnv("GIT_CONFIG_VALUE_2", "")
+            | Ok _
+            | Error _ ->
+                // GIT_CONFIG_PARAMETERS predates the count/key/value channel. Use it when the
+                // probe identifies an older Git, and also when probing fails, so an unavailable
+                // banner cannot silently downgrade Harden to an unpinned client.
+                scrubbed
+                    .DefaultEnv("GIT_CONFIG_COUNT", "")
+                    .DefaultEnv("GIT_CONFIG_PARAMETERS", LegacyHardenedConfigParameters)
+
+        hardened.DefaultEnv("GIT_CONFIG_NOSYSTEM", "1").DefaultEnv("GIT_TERMINAL_PROMPT", "0")
 
     /// A hardened real (job-backed) client — `Git.Create().Harden()`.
     static member Hardened() = Git.Create().Harden()

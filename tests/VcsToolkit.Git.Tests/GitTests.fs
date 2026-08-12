@@ -695,6 +695,285 @@ type QueryTests() =
         }
 
 [<TestFixture>]
+type CapabilityTests() =
+
+    let hardenedRun versionBanner =
+        let commands = ResizeArray<Command>()
+
+        let runner =
+            ScriptedRunner()
+                .When(
+                    (fun cmd ->
+                        commands.Add cmd
+                        true),
+                    Reply.Ok versionBanner
+                )
+
+        let hardened = Git.WithRunner runner |> fun git -> git.Harden()
+        let result = hardened.Run [ "status" ]
+        runner, commands, result
+
+    [<Test>]
+    member _.HardenedConfigFloorRejectsGit230AndAcceptsGit231() : Task =
+        task {
+            let oldGit =
+                Git.WithRunner(ScriptedRunner().On([ "--version" ], Reply.Ok "git version 2.30.9\n"))
+
+            match! oldGit.Capabilities() with
+            | Error e -> Assert.Fail $"old Git capability probe failed: {e}"
+            | Ok caps ->
+                Assert.That(caps.IsSupported, Is.False, "Git 2.30 must not pass the Hardened config floor")
+
+                match caps.EnsureSupported() with
+                | Ok() -> Assert.Fail "Git 2.30 must fail closed before Hardened config pins are used"
+                | Error e ->
+                    Assert.That(e.ToString(), Does.Contain(">= 2.31"))
+                    Assert.That(e.ToString(), Does.Contain("2.30.9"))
+
+            let supportedGit =
+                Git.WithRunner(ScriptedRunner().On([ "--version" ], Reply.Ok "git version 2.31.0\n"))
+
+            match! supportedGit.Capabilities() with
+            | Error e -> Assert.Fail $"supported Git capability probe failed: {e}"
+            | Ok caps ->
+                Assert.That(caps.IsSupported, Is.True, "Git 2.31 is the inclusive Hardened config floor")
+
+                match caps.EnsureSupported() with
+                | Ok() -> ()
+                | Error e -> Assert.Fail $"Git 2.31 should be supported: {e}"
+        }
+
+    [<Test>]
+    member _.HardenUsesLegacyPinsForGit230() : Task =
+        task {
+            let runner, commands, result = hardenedRun "git version 2.30.9\n"
+
+            match! result with
+            | Error e -> Assert.Fail $"Hardened Git 2.30 command failed: {e}"
+            | Ok _ -> ()
+
+            Assert.That(commands.Count, Is.EqualTo 2, "Harden must probe the version before the command")
+            Assert.That(String.concat " " commands.[0].Arguments, Is.EqualTo "--version")
+            Assert.That(String.concat " " commands.[1].Arguments, Is.EqualTo "status")
+
+            let envNames = runner.Received.[1].EnvNames |> Seq.toList
+            Assert.That(envNames |> List.contains "GIT_CONFIG_PARAMETERS", Is.True)
+            Assert.That(envNames |> List.contains "GIT_CONFIG_KEY_0", Is.False)
+            Assert.That(envNames |> List.contains "GIT_CONFIG_KEY_1", Is.False)
+            Assert.That(envNames |> List.contains "GIT_CONFIG_KEY_2", Is.False)
+        }
+
+    [<Test>]
+    member _.HardenKeepsCountPinsForGit231() : Task =
+        task {
+            let runner, commands, result = hardenedRun "git version 2.31.0\n"
+
+            match! result with
+            | Error e -> Assert.Fail $"Hardened Git 2.31 command failed: {e}"
+            | Ok _ -> ()
+
+            Assert.That(commands.Count, Is.EqualTo 2, "Harden must probe the version before the command")
+            Assert.That(String.concat " " commands.[0].Arguments, Is.EqualTo "--version")
+            Assert.That(String.concat " " commands.[1].Arguments, Is.EqualTo "status")
+
+            let envNames = runner.Received.[1].EnvNames |> Seq.toList
+
+            for name in
+                [ "GIT_CONFIG_COUNT"
+                  "GIT_CONFIG_KEY_0"
+                  "GIT_CONFIG_VALUE_0"
+                  "GIT_CONFIG_KEY_1"
+                  "GIT_CONFIG_VALUE_1"
+                  "GIT_CONFIG_KEY_2"
+                  "GIT_CONFIG_VALUE_2" ] do
+                Assert.That(envNames |> List.contains name, Is.True, $"supported Git must receive {name}")
+        }
+
+    [<Test>]
+    member _.HardenRemovesCallerConfigParametersForGit231() : Task =
+        task {
+            let capturedCommands = ResizeArray<Command>()
+
+            let captureFingerprint (versionBanner: string) (configure: Git -> Git) : Task<string> =
+                task {
+                    let path =
+                        Path.Combine(Path.GetTempPath(), "vcs-git-harden-" + Guid.NewGuid().ToString("N") + ".json")
+
+                    try
+                        let commands = ResizeArray<Command>()
+
+                        let inner =
+                            ScriptedRunner()
+                                .When(
+                                    (fun cmd ->
+                                        commands.Add cmd
+                                        true),
+                                    Reply.Ok versionBanner
+                                )
+
+                        let recording = RecordReplayRunner.Record(path, inner)
+
+                        let git = Git.WithRunner recording |> configure |> (fun git -> git.Harden())
+
+                        match! git.Run [ "status" ] with
+                        | Error e -> Assert.Fail $"Hardened Git 2.31 command failed: {e}"
+                        | Ok _ -> ()
+
+                        Assert.That(commands.Count, Is.EqualTo 2, "Harden must probe the version before the command")
+
+                        match recording.Save() with
+                        | Ok() -> ()
+                        | Error e -> Assert.Fail $"Recording Harden environment failed: {e}"
+
+                        use cassette = System.Text.Json.JsonDocument.Parse(File.ReadAllText path)
+                        capturedCommands.Add commands.[1]
+
+                        match
+                            cassette.RootElement.GetProperty("Entries").[1].GetProperty("EnvFingerprint").GetString()
+                        with
+                        | null ->
+                            Assert.Fail "Harden recording did not include an environment fingerprint"
+                            return ""
+                        | fingerprint -> return fingerprint
+                    finally
+                        if File.Exists path then
+                            File.Delete path
+                }
+
+            let! baseline = captureFingerprint "git version 2.31.0\n" id
+
+            let! callerOverride =
+                captureFingerprint "git version 2.31.0\n" (fun git ->
+                    git.DefaultEnv("GIT_CONFIG_PARAMETERS", "core.hooksPath=/tmp/caller-controlled"))
+
+            let! legacy = captureFingerprint "git version 2.30.9\n" id
+
+            let removeHardenPins (git: Git) =
+                [ "GIT_CONFIG_PARAMETERS"
+                  "GIT_CONFIG_COUNT"
+                  "GIT_CONFIG_KEY_0"
+                  "GIT_CONFIG_VALUE_0"
+                  "GIT_CONFIG_KEY_1"
+                  "GIT_CONFIG_VALUE_1"
+                  "GIT_CONFIG_KEY_2"
+                  "GIT_CONFIG_VALUE_2" ]
+                |> List.fold (fun (configured: Git) key -> configured.DefaultEnvRemove key) git
+
+            let! _ = captureFingerprint "git version 2.31.0\n" removeHardenPins
+
+            let! _ = captureFingerprint "git version 2.30.9\n" removeHardenPins
+
+            // RecordReplayRunner intentionally redacts environment values, so inspect the test command directly.
+            let environmentOverrides (command: Command) : string list =
+                let flags = BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic
+
+                let configProperty =
+                    typeof<Command>.GetProperties(flags)
+                    |> Array.find (fun propertyInfo -> propertyInfo.Name = "Config")
+
+                match configProperty.GetValue(command) with
+                | null ->
+                    Assert.Fail "Harden command did not expose command configuration"
+                    []
+                | config ->
+                    let envProperty =
+                        config.GetType().GetProperties(flags)
+                        |> Array.find (fun propertyInfo -> propertyInfo.Name = "EnvOverrides")
+
+                    match envProperty.GetValue(config) with
+                    | null ->
+                        Assert.Fail "Harden command did not expose environment overrides"
+                        []
+                    | value ->
+                        (value :?> System.Collections.IEnumerable)
+                        |> Seq.cast<obj>
+                        |> Seq.map string
+                        |> Seq.toList
+
+            let supported = environmentOverrides capturedCommands.[0]
+            let legacyPins = environmentOverrides capturedCommands.[2]
+            let supportedAfterRemove = environmentOverrides capturedCommands.[3]
+            let legacyAfterRemove = environmentOverrides capturedCommands.[4]
+
+            for expected in
+                [ "(GIT_CONFIG_PARAMETERS, Some())"
+                  "(GIT_CONFIG_COUNT, Some(3))"
+                  "(GIT_CONFIG_KEY_0, Some(core.hooksPath))"
+                  "(GIT_CONFIG_VALUE_0, Some(/dev/null))"
+                  "(GIT_CONFIG_KEY_1, Some(core.fsmonitor))"
+                  "(GIT_CONFIG_VALUE_1, Some(false))"
+                  "(GIT_CONFIG_KEY_2, Some(core.sshCommand))"
+                  "(GIT_CONFIG_VALUE_2, Some())" ] do
+                Assert.That(supported |> List.contains expected, Is.True, $"supported Harden must emit {expected}")
+
+            Assert.That(
+                supported |> List.exists (fun value -> value.Contains("caller-controlled")),
+                Is.False,
+                "supported Harden must not retain caller-controlled config"
+            )
+
+            Assert.That(
+                legacyPins |> List.contains "(GIT_CONFIG_COUNT, Some())",
+                Is.True,
+                "legacy Harden must clear count-channel"
+            )
+
+            Assert.That(
+                legacyPins
+                |> List.contains
+                    "(GIT_CONFIG_PARAMETERS, Some('core.hooksPath=/dev/null' 'core.fsmonitor=false' 'core.sshCommand='))",
+                Is.True,
+                "legacy Harden must emit exact command-scope pins"
+            )
+
+            Assert.That(
+                legacyPins
+                |> List.exists (fun value -> value.Contains("GIT_CONFIG_KEY_0, Some")),
+                Is.False,
+                "legacy Harden must not emit count-channel keys"
+            )
+
+            for expected in
+                [ "(GIT_CONFIG_PARAMETERS, Some())"
+                  "(GIT_CONFIG_COUNT, Some(3))"
+                  "(GIT_CONFIG_KEY_0, Some(core.hooksPath))"
+                  "(GIT_CONFIG_VALUE_0, Some(/dev/null))"
+                  "(GIT_CONFIG_KEY_1, Some(core.fsmonitor))"
+                  "(GIT_CONFIG_VALUE_1, Some(false))"
+                  "(GIT_CONFIG_KEY_2, Some(core.sshCommand))"
+                  "(GIT_CONFIG_VALUE_2, Some())" ] do
+                Assert.That(
+                    supportedAfterRemove |> List.contains expected,
+                    Is.True,
+                    $"supported Harden pins must survive caller removal of {expected}"
+                )
+
+            Assert.That(
+                legacyAfterRemove |> List.contains "(GIT_CONFIG_COUNT, Some())",
+                Is.True,
+                "legacy Harden count-channel clearing must survive caller removal"
+            )
+
+            Assert.That(
+                legacyAfterRemove
+                |> List.contains
+                    "(GIT_CONFIG_PARAMETERS, Some('core.hooksPath=/dev/null' 'core.fsmonitor=false' 'core.sshCommand='))",
+                Is.True,
+                "legacy Harden pins must survive caller removal"
+            )
+
+            Assert.That(
+                callerOverride,
+                Is.EqualTo baseline,
+                "Harden must remove a caller-provided legacy config channel before applying supported pins"
+            )
+
+            Assert.That(baseline, Is.Not.Null, "supported Harden must produce a recorded environment fingerprint")
+
+            Assert.That(legacy, Is.Not.Null, "legacy Harden must produce a recorded environment fingerprint")
+        }
+
+[<TestFixture>]
 type MutationTests() =
 
     [<Test>]
