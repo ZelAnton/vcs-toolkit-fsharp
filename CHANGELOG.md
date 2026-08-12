@@ -112,6 +112,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - `Git.SwitchWithStash` now restores its exact stash entry by object id and serializes reflog cleanup with Git's stash ref lock, preserving concurrent processes' stash entries during branch switching.
+- `Repo.ListWorktrees()` on Jujutsu now propagates workspace-root resolution failures instead of returning an incomplete successful list.
 - Gitea-backed `Forge.PrList(PrListOptions.Closed)` now advances through `tea pr list` pages, deduplicates closed non-merged PRs, and stops with an explicit safety-bound error instead of returning a short first-page result or looping indefinitely.
 - `GitHub.WorkflowDispatch` now rejects empty, `=`-containing, and NUL-containing input keys before spawning `gh`, while preserving unrestricted input values.
 - `Git.Harden()` now probes Git before selecting its hook/fsmonitor/sshCommand pins, using the legacy command-scope config channel on Git 2.30 and older instead of returning a client whose `GIT_CONFIG_COUNT` pins are ignored.

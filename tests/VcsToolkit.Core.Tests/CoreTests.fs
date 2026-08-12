@@ -1435,6 +1435,23 @@ type AssemblyTests() =
         }
 
     [<Test>]
+    member _.JjListWorktreesPropagatesWorkspaceRootFailure() : Task =
+        task {
+            let runner =
+                ScriptedRunner()
+                    .On([ "workspace"; "list" ], Reply.Ok "default\te2aa3420\tmain\nws1\t12345678\t\n")
+                    .On([ "workspace"; "root"; "--name"; "default" ], Reply.Ok "/repo\n")
+                    .On([ "workspace"; "root"; "--name"; "ws1" ], Reply.Fail(1, "workspace ws1 root probe failed"))
+
+            let repo = Repo.FromJj("/repo", "/repo", Jj.WithRunner runner)
+
+            match! repo.ListWorktrees() with
+            | Error(RepoError.Vcs e) -> Assert.That(e.Message, Does.Contain "workspace ws1 root probe failed")
+            | Error e -> Assert.Fail $"expected the workspace root VCS error, got {e.Message}"
+            | Ok worktrees -> Assert.Fail $"expected root probe failure, got {worktrees.Length} worktrees"
+        }
+
+    [<Test>]
     member _.JjHeadAndWorktreeCommitAreTheSameFullId() : Task =
         task {
             // For one commit, `RepoSnapshot.Head` and `WorktreeInfo.Commit` are the SAME
