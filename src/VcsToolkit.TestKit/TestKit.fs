@@ -4,6 +4,7 @@ open System
 open System.Diagnostics
 open System.IO
 open System.Threading
+open System.Text.Json
 
 // Throwaway git/jj sandboxes (and a bare remote) for integration tests. Hands a test a
 // real repository to drive: a unique self-cleaning `TempDir`, a configured `GitSandbox` /
@@ -482,3 +483,352 @@ module Raw =
     /// (`user.*`, `commit.gpgsign=false`, `core.autocrlf=false`). Standalone, for tests
     /// whose *subject* is repository initialisation itself.
     let configureIdentity (dir: string) = configureIdentityAt dir
+
+/// Canonical parser-shaped forge fixtures for tests that need representative CLI output without
+/// duplicating large JSON/table literals. The builders intentionally depend only on the field
+/// contracts consumed by the three parser projects; they do not reference those projects, so
+/// TestKit remains safe to use as a dependency of any of them.
+[<RequireQualifiedAccess>]
+module ForgeFixtures =
+
+    let private json value = JsonSerializer.Serialize value
+
+    let private csvCell (value: string) =
+        if value.Contains("\r") || value.Contains("\n") || value.Contains("\",\"") then
+            invalidArg "value" "fixture CSV cells must not contain line breaks or the tea delimiter"
+
+        value
+
+    let private csvRow (cells: string list) =
+        cells
+        |> List.map csvCell
+        |> String.concat "\",\""
+        |> fun row -> "\"" + row + "\""
+
+    /// Minimal GitHub `gh pr list/view --json` output.
+    type GitHubPullRequestFixture =
+        { Number: uint64
+          Title: string
+          State: string
+          HeadRefName: string
+          BaseRefName: string
+          Url: string
+          Labels: string list
+          Assignees: string list
+          Author: string
+          CreatedAt: string
+          UpdatedAt: string
+          Milestone: string }
+
+        static member Minimal() =
+            { Number = 1UL
+              Title = "Example pull request"
+              State = "OPEN"
+              HeadRefName = "feature/example"
+              BaseRefName = "main"
+              Url = "https://github.example/pr/1"
+              Labels = []
+              Assignees = []
+              Author = "octocat"
+              CreatedAt = "2026-01-01T00:00:00Z"
+              UpdatedAt = "2026-01-01T00:00:00Z"
+              Milestone = "" }
+
+        member this.WithLabels(labels: string list) = { this with Labels = labels }
+        member this.WithAssignees(assignees: string list) = { this with Assignees = assignees }
+        member this.WithMilestone(milestone: string) = { this with Milestone = milestone }
+
+        /// Serialize as the object accepted by `GitHubParse.parsePr`.
+        member this.Build() =
+            json
+                {| number = this.Number
+                   title = this.Title
+                   state = this.State
+                   headRefName = this.HeadRefName
+                   baseRefName = this.BaseRefName
+                   url = this.Url
+                   labels = this.Labels |> List.map (fun name -> {| name = name |})
+                   assignees = this.Assignees |> List.map (fun login -> {| login = login |})
+                   author = {| login = this.Author |}
+                   createdAt = this.CreatedAt
+                   updatedAt = this.UpdatedAt
+                   milestone = {| title = this.Milestone |} |}
+
+    /// Minimal GitHub `gh issue list/view --json` output.
+    type GitHubIssueFixture =
+        { Number: uint64
+          Title: string
+          State: string
+          Body: string
+          Url: string
+          Labels: string list
+          Assignees: string list
+          Author: string
+          CreatedAt: string
+          UpdatedAt: string
+          Milestone: string }
+
+        static member Minimal() =
+            { Number = 1UL
+              Title = "Example issue"
+              State = "OPEN"
+              Body = "Issue body"
+              Url = "https://github.example/issues/1"
+              Labels = []
+              Assignees = []
+              Author = "octocat"
+              CreatedAt = "2026-01-01T00:00:00Z"
+              UpdatedAt = "2026-01-01T00:00:00Z"
+              Milestone = "" }
+
+        member this.WithLabels(labels: string list) = { this with Labels = labels }
+        member this.WithAssignees(assignees: string list) = { this with Assignees = assignees }
+
+        /// Serialize as the object accepted by `GitHubParse.parseIssue`.
+        member this.Build() =
+            json
+                {| number = this.Number
+                   title = this.Title
+                   state = this.State
+                   body = this.Body
+                   url = this.Url
+                   labels = this.Labels |> List.map (fun name -> {| name = name |})
+                   assignees = this.Assignees |> List.map (fun login -> {| login = login |})
+                   author = {| login = this.Author |}
+                   createdAt = this.CreatedAt
+                   updatedAt = this.UpdatedAt
+                   milestone = {| title = this.Milestone |} |}
+
+    /// Minimal GitHub `gh release list/view --json` output.
+    type GitHubReleaseFixture =
+        { TagName: string
+          Name: string
+          Body: string
+          Url: string
+          PublishedAt: string
+          IsDraft: bool
+          IsPrerelease: bool
+          IsLatest: bool
+          Author: string }
+
+        static member Minimal() =
+            { TagName = "v1.0.0"
+              Name = "Example release"
+              Body = "Release notes"
+              Url = "https://github.example/releases/v1.0.0"
+              PublishedAt = "2026-01-01T00:00:00Z"
+              IsDraft = false
+              IsPrerelease = false
+              IsLatest = true
+              Author = "octocat" }
+
+        /// Serialize as the object accepted by `GitHubParse.parseRelease`.
+        member this.Build() =
+            json
+                {| tagName = this.TagName
+                   name = this.Name
+                   body = this.Body
+                   url = this.Url
+                   publishedAt = this.PublishedAt
+                   isDraft = this.IsDraft
+                   isPrerelease = this.IsPrerelease
+                   isLatest = this.IsLatest
+                   author = {| login = this.Author |} |}
+
+    /// Minimal GitLab `glab mr list/view --output json` output.
+    type GitLabMergeRequestFixture =
+        { Iid: uint64
+          Title: string
+          State: string
+          SourceBranch: string
+          TargetBranch: string
+          Url: string
+          Draft: bool
+          Labels: string list
+          Assignees: string list
+          Author: string
+          CreatedAt: string
+          UpdatedAt: string
+          Milestone: string }
+
+        static member Minimal() =
+            { Iid = 1UL
+              Title = "Example merge request"
+              State = "opened"
+              SourceBranch = "feature/example"
+              TargetBranch = "main"
+              Url = "https://gitlab.example/merge_requests/1"
+              Draft = false
+              Labels = []
+              Assignees = []
+              Author = "octocat"
+              CreatedAt = "2026-01-01T00:00:00Z"
+              UpdatedAt = "2026-01-01T00:00:00Z"
+              Milestone = "" }
+
+        member this.WithLabels(labels: string list) = { this with Labels = labels }
+        member this.WithAssignees(assignees: string list) = { this with Assignees = assignees }
+
+        /// Serialize as the object accepted by `GitLabParse.parseMr`.
+        member this.Build() =
+            json
+                {| iid = this.Iid
+                   title = this.Title
+                   state = this.State
+                   source_branch = this.SourceBranch
+                   target_branch = this.TargetBranch
+                   web_url = this.Url
+                   draft = this.Draft
+                   labels = this.Labels
+                   assignees = this.Assignees |> List.map (fun username -> {| username = username |})
+                   author = {| username = this.Author |}
+                   created_at = this.CreatedAt
+                   updated_at = this.UpdatedAt
+                   milestone = {| title = this.Milestone |} |}
+
+    /// Minimal GitLab `glab issue list/view --output json` output.
+    type GitLabIssueFixture =
+        { Iid: uint64
+          Title: string
+          State: string
+          Body: string
+          Url: string
+          Labels: string list
+          Assignees: string list
+          Author: string
+          CreatedAt: string
+          UpdatedAt: string
+          Milestone: string }
+
+        static member Minimal() =
+            { Iid = 1UL
+              Title = "Example issue"
+              State = "opened"
+              Body = "Issue body"
+              Url = "https://gitlab.example/issues/1"
+              Labels = []
+              Assignees = []
+              Author = "octocat"
+              CreatedAt = "2026-01-01T00:00:00Z"
+              UpdatedAt = "2026-01-01T00:00:00Z"
+              Milestone = "" }
+
+        member this.WithLabels(labels: string list) = { this with Labels = labels }
+        member this.WithAssignees(assignees: string list) = { this with Assignees = assignees }
+
+        /// Serialize as the object accepted by `GitLabParse.parseIssue`.
+        member this.Build() =
+            json
+                {| iid = this.Iid
+                   title = this.Title
+                   state = this.State
+                   description = this.Body
+                   web_url = this.Url
+                   labels = this.Labels
+                   assignees = this.Assignees |> List.map (fun username -> {| username = username |})
+                   author = {| username = this.Author |}
+                   created_at = this.CreatedAt
+                   updated_at = this.UpdatedAt
+                   milestone =
+                    if this.Milestone = "" then
+                        null
+                    else
+                        box {| title = this.Milestone |} |}
+
+    /// Minimal GitLab `glab release list/view --output json` output.
+    type GitLabReleaseFixture =
+        { TagName: string
+          Name: string
+          Url: string
+          PublishedAt: string
+          Description: string
+          Author: string }
+
+        static member Minimal() =
+            { TagName = "v1.0.0"
+              Name = "Example release"
+              Url = "https://gitlab.example/-/releases/v1.0.0"
+              PublishedAt = "2026-01-01T00:00:00Z"
+              Description = "Release notes"
+              Author = "octocat" }
+
+        /// Serialize as the object accepted by `GitLabParse.parseRelease`.
+        member this.Build() =
+            json
+                {| tag_name = this.TagName
+                   name = this.Name
+                   released_at = this.PublishedAt
+                   description = this.Description
+                   author = {| username = this.Author |}
+                   _links = {| self = this.Url |} |}
+
+    /// Minimal Gitea `tea pr list --output csv` output, including its pinned header.
+    type GiteaPullRequestFixture =
+        { Number: uint64
+          Title: string
+          State: string
+          HeadBranch: string
+          BaseBranch: string
+          Url: string }
+
+        static member Minimal() =
+            { Number = 1UL
+              Title = "Example pull request"
+              State = "open"
+              HeadBranch = "feature/example"
+              BaseBranch = "main"
+              Url = "https://gitea.example/pulls/1" }
+
+        /// Serialize as the table accepted by `GiteaParse.parsePrList`.
+        member this.Build() =
+            [ csvRow [ "index"; "title"; "state"; "head"; "base"; "url" ]
+              csvRow
+                  [ string this.Number
+                    this.Title
+                    this.State
+                    this.HeadBranch
+                    this.BaseBranch
+                    this.Url ] ]
+            |> String.concat "\n"
+
+    /// Minimal Gitea `tea issues list --output csv` output, including its pinned header.
+    type GiteaIssueFixture =
+        { Number: uint64
+          Title: string
+          State: string
+          Body: string
+          Url: string }
+
+        static member Minimal() =
+            { Number = 1UL
+              Title = "Example issue"
+              State = "open"
+              Body = "Issue body"
+              Url = "https://gitea.example/issues/1" }
+
+        /// Serialize as the table accepted by `GiteaParse.parseIssueList`.
+        member this.Build() =
+            [ csvRow [ "index"; "title"; "state"; "body"; "url" ]
+              csvRow [ string this.Number; this.Title; this.State; this.Body; this.Url ] ]
+            |> String.concat "\n"
+
+    /// Minimal Gitea `tea releases list --output csv` output.
+    type GiteaReleaseFixture =
+        { Tag: string
+          Title: string
+          PublishedAt: string
+          Status: string
+          TarUrl: string }
+
+        static member Minimal() =
+            { Tag = "v1.0.0"
+              Title = "Example release"
+              PublishedAt = "2026-01-01T00:00:00Z"
+              Status = "published"
+              TarUrl = "https://gitea.example/archive/v1.0.0.tar.gz" }
+
+        /// Serialize as the table accepted by `GiteaParse.parseReleaseList`.
+        member this.Build() =
+            [ csvRow [ "Tag-Name"; "Title"; "Published At"; "Status"; "Tar URL" ]
+              csvRow [ this.Tag; this.Title; this.PublishedAt; this.Status; this.TarUrl ] ]
+            |> String.concat "\n"

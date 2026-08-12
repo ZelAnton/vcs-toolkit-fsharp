@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `VcsToolkit.TestKit.ForgeFixtures` provides canonical minimal GitHub, GitLab, and Gitea PR, issue, and release payload builders pinned to the parser field contracts.
 - `JjSandbox` now redirects jj's per-repository secure configuration store into the disposable sandbox, keeping `jj config set --repo` hermetic as well as the user configuration.
 - Git tag lifecycle support through `VcsToolkit.Core.Repo` and the `repo_tags`, `repo_tag_create`, and `repo_tag_delete` MCP tools, with structural `Unsupported` errors on jj.
 - Merge-base queries across Git and Jujutsu through `Git.MergeBase`/`Jj.MergeBase`, the backend-agnostic `Repo.MergeBase`, and the read-only MCP `repo_merge_base` tool, returning a full common-ancestor commit id or `None`/null for disconnected histories.
