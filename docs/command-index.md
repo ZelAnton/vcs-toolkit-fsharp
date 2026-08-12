@@ -292,7 +292,7 @@ caller-supplied name can't fan a mutation out across every matching ref.
 | `OpHead` | `op log --no-graph --limit 1 -T id.short()` | capture before a risky sequence |
 | `OpLog` | `op log --no-graph --limit <n> -T <template>` | newest first |
 | `OpRestore` | `op restore <id>` | |
-| `OpUndo` | `op undo` | |
+| `OpUndo` | `undo` | |
 | `WorkspaceList` | `workspace list -T <template>` | |
 | `WorkspaceRoot` | `workspace root [--name <name>]` | |
 | `WorkspaceAdd` | `workspace add --name <name> -r <base> [--sparse-patterns <mode>] <path>` | via `WorkspaceAdd` spec |

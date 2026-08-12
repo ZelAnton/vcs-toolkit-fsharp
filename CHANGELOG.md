@@ -114,6 +114,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - `Git.SubmoduleList` now resolves the repository root before probing `.gitmodules`, so calls from nested directories return the configured superproject submodules.
+- `Jj.OpUndo` and `JjAt.OpUndo` now invoke the supported top-level `jj undo` command on jj 0.39 and newer.
 - `Git.SwitchWithStash` now restores its exact stash entry by object id and serializes reflog cleanup with Git's stash ref lock, preserving concurrent processes' stash entries during branch switching.
 - `Repo.ListWorktrees()` on Jujutsu now propagates workspace-root resolution failures instead of returning an incomplete successful list.
 - Gitea-backed `Forge.PrList(PrListOptions.Closed)` now advances through `tea pr list` pages, deduplicates closed non-merged PRs, and stops with an explicit safety-bound error instead of returning a short first-page result or looping indefinitely.

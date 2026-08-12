@@ -1197,9 +1197,8 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
             | Ok() -> return! core.RunUnit(cmdIn dir [ "op"; "restore"; opId ])
         }
 
-    /// Undo the latest operation (`op undo`).
-    member _.OpUndo(dir: string) =
-        core.RunUnit(cmdIn dir [ "op"; "undo" ])
+    /// Undo the latest operation (`undo`).
+    member _.OpUndo(dir: string) = core.RunUnit(cmdIn dir [ "undo" ])
 
     // --- Workspaces ----------------------------------------------------------
 
@@ -1608,7 +1607,7 @@ and [<Sealed>] JjAt internal (jj: Jj, dir: string) =
     /// divergence guard (bound form of `Jj.RollbackTo`).
     member _.RollbackTo(capturedOpHead: string) = jj.RollbackTo(dir, capturedOpHead)
 
-    /// Undo the latest operation (`op undo`).
+    /// Undo the latest operation (`undo`).
     member _.OpUndo() = jj.OpUndo dir
 
     /// List workspaces (`workspace list`).
