@@ -1077,7 +1077,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
         // terminate-then-kill on a per-client timeout so a timed-out fetch closes cleanly.
         let cmd = fetchCommand dir [ "git"; "fetch" ]
 
-        core.RunUnit cmd
+        core.RunUnitWithCancellationGrace(cmd, FetchTimeoutGrace)
 
     /// Fetch from the git remote while forwarding jj's process output. This is one observed
     /// attempt; unlike `GitFetch`, it deliberately does not replay after a partial stream.
@@ -1085,7 +1085,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
         let cmd =
             (cmdIn dir [ "git"; "fetch" ]).Env("LC_ALL", "C").TimeoutGrace(FetchTimeoutGrace)
 
-        core.RunWithProgress(cmd, progress)
+        core.RunWithProgressWithCancellationGrace(cmd, progress, FetchTimeoutGrace)
 
     /// Fetch from a *named* git remote (`jj git fetch --remote <remote>`); transient
     /// failures are retried like `GitFetch`.
@@ -1093,7 +1093,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
         // `--remote` is glob-matched too, so `exact:` keeps a `*` remote from fetching every one.
         let cmd = fetchCommand dir [ "git"; "fetch"; "--remote"; exact remote ]
 
-        core.RunUnit cmd
+        core.RunUnitWithCancellationGrace(cmd, FetchTimeoutGrace)
 
     /// Fetch a single bookmark from origin (`git fetch --remote origin -b <branch>`);
     /// transient failures are retried (3×, 500 ms).
@@ -1102,7 +1102,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
         let cmd =
             fetchCommand dir [ "git"; "fetch"; "--remote"; "origin"; "-b"; exact branch ]
 
-        core.RunUnit cmd
+        core.RunUnitWithCancellationGrace(cmd, FetchTimeoutGrace)
 
     /// Push to the git remote (`jj git push`, optionally `-b exact:<bookmark>`).
     member _.GitPush(dir: string, bookmark: string option) =
@@ -1116,7 +1116,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
         // Graceful terminate-then-kill on a per-client timeout so a timed-out push
         // doesn't leave the remote ref half-updated.
         let cmd = (cmdIn dir args).TimeoutGrace(FetchTimeoutGrace)
-        core.RunUnit cmd
+        core.RunUnitWithCancellationGrace(cmd, FetchTimeoutGrace)
 
     /// Push to the git remote while forwarding jj's process output. The process is observed as
     /// one attempt, so callers retain control over any replay policy after `Exited`.
@@ -1128,7 +1128,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
                | None -> [])
 
         let cmd = (cmdIn dir args).TimeoutGrace(FetchTimeoutGrace)
-        core.RunWithProgress(cmd, progress)
+        core.RunWithProgressWithCancellationGrace(cmd, progress, FetchTimeoutGrace)
 
     /// Import git refs into jj (`jj git import`) — colocated-repo sync.
     member _.GitImport(dir: string) =
@@ -1210,7 +1210,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
                         .Arg("never")
                         .TimeoutGrace(FetchTimeoutGrace)
 
-                let! result = core.RunUnit cmd
+                let! result = core.RunUnitWithCancellationGrace(cmd, FetchTimeoutGrace)
                 return cloneCleanupOnError dest cleanable result
         }
 
@@ -1232,7 +1232,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
                         .Arg("never")
                         .TimeoutGrace(FetchTimeoutGrace)
 
-                let! result = core.RunWithProgress(cmd, progress)
+                let! result = core.RunWithProgressWithCancellationGrace(cmd, progress, FetchTimeoutGrace)
                 return cloneCleanupOnError dest cleanable result
         }
 

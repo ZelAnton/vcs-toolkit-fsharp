@@ -112,7 +112,7 @@ for this client's place in the layering.
 | `WorktreeMove` | `worktree move <from> <to>` | |
 | `WorktreePrune` | `worktree prune` | |
 | `CloneRepo` | `clone [--branch b] [--depth d] [--bare] <url> <dest>` | via `CloneSpec`; dirless, absolute `dest` |
-| `CloneRepoWithProgress` | `clone --progress [--branch b] [--depth d] [--bare] <url> <dest>` | same cleanup contract; forwards one process lifecycle and output stream; `WithOutputBudget` retains the diagnostic tail |
+| `CloneRepoWithProgress` | `clone --progress [--branch b] [--depth d] [--bare] <url> <dest>` | same cleanup contract; forwards one process lifecycle and output stream; `WithOutputBudget` retains the diagnostic tail; cancellation stops gracefully before escalation |
 | `TagCreate` | `tag <name> [<rev>]` | lightweight; `<name>` is a strict `RefName`, `<rev>` remains permissive |
 | `TagCreateAnnotated` | `tag -a <name> -m <message> [<rev>]` | via `AnnotatedTag`; name is strict, revision remains permissive |
 | `TagList` | `tag --list --no-column` | |
@@ -140,11 +140,11 @@ for this client's place in the layering.
 | Method | Runs | Notes |
 |---|---|---|
 | `Fetch` | `fetch --quiet` | prompt-off, retried 3× on transient failure |
-| `FetchWithProgress` | `fetch --progress` | prompt-off; forwards one process lifecycle and output stream without replay; `WithOutputBudget` retains the diagnostic tail; optional `DefaultInactivityTimeout` watchdog |
+| `FetchWithProgress` | `fetch --progress` | prompt-off; forwards one process lifecycle and output stream without replay; `WithOutputBudget` retains the diagnostic tail; cancellation stops gracefully before escalation |
 | `FetchFrom` | `fetch --quiet <remote>` | same retry |
 | `FetchBranch` | `fetch --quiet origin refs/heads/<b>:refs/remotes/origin/<b>` | same retry; `<b>` is a strict `RefName` |
 | `Push` | `push [-u] <remote> <refspec>` | via `GitPush`; each refspec side is a strict `RefName`, while force/delete/multi-ref and wildcard semantics remain rejected by the typed guard |
-| `PushWithProgress` | `push --progress [-u] <remote> <refspec>` | same typed validation; forwards one process lifecycle and output stream; `WithOutputBudget` retains the diagnostic tail; optional `DefaultInactivityTimeout` watchdog |
+| `PushWithProgress` | `push --progress [-u] <remote> <refspec>` | same typed validation; forwards one process lifecycle and output stream; `WithOutputBudget` retains the diagnostic tail; cancellation stops gracefully before escalation |
 | `MergeSquash` | `merge --squash <branch>` | `<branch>` is validated as a strict `RefName` before spawn |
 | `MergeCommit` | `merge [--no-ff] [-m <msg> \| --no-edit] <branch>` | via `MergeCommit` spec; `<branch>` is a strict `RefName` |
 | `MergeNoCommit` | `merge --no-commit [--squash \| --no-ff] <branch>` | via `MergeNoCommit` spec; `<branch>` is a strict `RefName` |
@@ -287,14 +287,14 @@ caller-supplied name can't fan a mutation out across every matching ref.
 | Method | Runs | Notes |
 |---|---|---|
 | `GitFetch` | `git fetch` | retried 3× |
-| `GitFetchWithProgress` | `git fetch` | forwards one process lifecycle and output stream without replay; `WithOutputBudget` retains the diagnostic tail; optional `DefaultInactivityTimeout` watchdog |
+| `GitFetchWithProgress` | `git fetch` | forwards one process lifecycle and output stream without replay; `WithOutputBudget` retains the diagnostic tail; cancellation stops gracefully before escalation |
 | `GitFetchFrom` | `git fetch --remote exact:<remote>` | same retry |
 | `GitFetchBranch` | `git fetch --remote origin -b exact:<branch>` | same retry |
 | `GitPush` | `git push [-b exact:<bookmark>]` | |
-| `GitPushWithProgress` | `git push [-b exact:<bookmark>]` | forwards one process lifecycle and output stream without replay; `WithOutputBudget` retains the diagnostic tail; optional `DefaultInactivityTimeout` watchdog |
+| `GitPushWithProgress` | `git push [-b exact:<bookmark>]` | forwards one process lifecycle and output stream without replay; `WithOutputBudget` retains the diagnostic tail; cancellation stops gracefully before escalation |
 | `GitImport` | `git import` | colocated-repo sync |
 | `GitClone` | `git clone <url> <dest> --colocate\|--no-colocate` | dirless, absolute `dest` |
-| `GitCloneWithProgress` | `git clone <url> <dest> --colocate\|--no-colocate` | same cleanup contract; forwards one process lifecycle and output stream; `WithOutputBudget` retains the diagnostic tail; optional `DefaultInactivityTimeout` watchdog |
+| `GitCloneWithProgress` | `git clone <url> <dest> --colocate\|--no-colocate` | same cleanup contract; forwards one process lifecycle and output stream; `WithOutputBudget` retains the diagnostic tail; cancellation stops gracefully before escalation |
 | `GitRemoteList` | `git remote list --ignore-working-copy` | parsed `Remote list`; always ignores the WC, regardless of `ReadOnly` |
 | `GitRemoteAdd` | `git remote add <name> <url>` | mutates jj's remote configuration |
 | `GitRemoteRemove` | `git remote remove <name>` | mutates jj's remote configuration |

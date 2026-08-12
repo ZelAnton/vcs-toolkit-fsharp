@@ -45,6 +45,71 @@ type private ManagedConfig =
       OutputBuffer: OutputBufferPolicy
       OutputBudget: int option }
 
+module private GracefulCancellation =
+
+    let private complete
+        (program: string)
+        (grace: TimeSpan)
+        (cancellationToken: CancellationToken)
+        (running: RunningProcess)
+        (capture: unit -> Task<Result<'T, ProcessError>>)
+        : Task<Result<'T, ProcessError>> =
+        task {
+            use _registration =
+                cancellationToken.Register(
+                    Action(fun () ->
+                        let stop = running.StopAsync grace
+
+                        stop.ContinueWith(
+                            Action<Task<Outcome>>(fun completed ->
+                                if completed.IsFaulted then
+                                    completed.Exception |> ignore),
+                            CancellationToken.None,
+                            TaskContinuationOptions.ExecuteSynchronously,
+                            TaskScheduler.Default
+                        )
+                        |> ignore)
+                )
+
+            let! result = capture ()
+
+            if cancellationToken.IsCancellationRequested then
+                return Error(ProcessError.Cancelled program)
+            else
+                return result
+        }
+
+    let private capture
+        (inner: IProcessRunner)
+        (grace: TimeSpan)
+        (command: Command)
+        (cancellationToken: CancellationToken)
+        (capture: RunningProcess -> Task<Result<'T, ProcessError>>)
+        : Task<Result<'T, ProcessError>> =
+        task {
+            if cancellationToken.IsCancellationRequested then
+                return Error(ProcessError.Cancelled command.Program)
+            else
+                match! inner.SpawnAsync(command, CancellationToken.None) with
+                | Error error -> return Error error
+                | Ok running ->
+                    use running = running
+                    return! complete command.Program grace cancellationToken running (fun () -> capture running)
+        }
+
+    let runner (inner: IProcessRunner) (grace: TimeSpan) : IProcessRunner =
+        ArgumentOutOfRangeException.ThrowIfLessThan(grace, TimeSpan.Zero, nameof grace)
+
+        { new IProcessRunner with
+            member _.CaptureStringAsync(command, cancellationToken) =
+                capture inner grace command cancellationToken (fun runningProcess -> runningProcess.OutputStringAsync())
+
+            member _.CaptureBytesAsync(command, cancellationToken) =
+                capture inner grace command cancellationToken (fun runningProcess -> runningProcess.OutputBytesAsync())
+
+            member _.SpawnAsync(command, cancellationToken) =
+                inner.SpawnAsync(command, cancellationToken) }
+
 module private ManagedParsing =
 
     let parse
@@ -382,10 +447,29 @@ type ManagedClient private (cfg: ManagedConfig) =
                             Runner.runUnit cfg.Runner cfg.Cancel prepared))
         }
 
+    /// Like `RunUnit`, but cancellation asks the running process to stop gracefully before escalation.
+    member this.RunUnitWithCancellationGrace(cmd: Command, grace: TimeSpan) : Task<Result<unit, ProcessError>> =
+        task {
+            match! this.Prepare cmd with
+            | Error e -> return Error e
+            | Ok(prepared, hasSecret) ->
+                let gracefulRunner = GracefulCancellation.runner cfg.Runner grace
+
+                return!
+                    Retry.retryAsync
+                        cfg.Retry
+                        isLockContention
+                        cfg.Cancel
+                        (this.Wrap prepared hasSecret (fun _ -> 0) (fun () ->
+                            Runner.runUnit gracefulRunner cfg.Cancel prepared))
+        }
+
     /// Run one command while forwarding a best-effort lifecycle and output stream to `progress`.
     /// The command is executed exactly once: replaying a partially observed network operation
     /// would make the event stream ambiguous, so callers decide whether to retry after `Exited`.
-    member this.RunWithProgress(cmd: Command, progress: ProgressCallback) : Task<Result<unit, ProcessError>> =
+    member private this.RunWithProgressCore
+        (cmd: Command, progress: ProgressCallback, cancellationGrace: TimeSpan option)
+        : Task<Result<unit, ProcessError>> =
         task {
             match! this.Prepare cmd with
             | Error e -> return Error e
@@ -428,12 +512,17 @@ type ManagedClient private (cfg: ManagedConfig) =
 
                 report (ProcessEvent.Started None)
 
+                let runner =
+                    match cancellationGrace with
+                    | Some grace -> GracefulCancellation.runner cfg.Runner grace
+                    | None -> cfg.Runner
+
                 let! result =
                     this.Wrap
                         progressCommand
                         hasSecret
                         (fun (r: ProcessResult<string>) -> r.Code |> Option.defaultValue 0)
-                        (fun () -> Runner.outputString cfg.Runner cfg.Cancel streamed)
+                        (fun () -> Runner.outputString runner cfg.Cancel streamed)
                         ()
 
                 match result with
@@ -445,6 +534,17 @@ type ManagedClient private (cfg: ManagedConfig) =
                     | Error e -> return Error e
                     | Ok _ -> return Ok()
         }
+
+    /// Run one command while forwarding a progress stream and allowing cancellation to stop it
+    /// gracefully before a hard kill.
+    member this.RunWithProgressWithCancellationGrace
+        (cmd: Command, progress: ProgressCallback, grace: TimeSpan)
+        : Task<Result<unit, ProcessError>> =
+        this.RunWithProgressCore(cmd, progress, Some grace)
+
+    /// Run one command while forwarding a best-effort lifecycle and output stream to `progress`.
+    member this.RunWithProgress(cmd: Command, progress: ProgressCallback) : Task<Result<unit, ProcessError>> =
+        this.RunWithProgressCore(cmd, progress, None)
 
     /// Capture the full `ProcessResult` (a non-zero exit is data). Credential injection
     /// applied; no lock-retry (a lock failure surfaces as an `Ok` here, not an error).

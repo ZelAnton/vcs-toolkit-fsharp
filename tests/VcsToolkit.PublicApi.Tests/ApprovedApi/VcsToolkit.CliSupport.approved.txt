@@ -209,7 +209,9 @@ namespace VcsToolkit.CliSupport
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.FSharpOption<VcsToolkit.CliSupport.Credential>?, ProcessKit.ProcessError>> ResolveCredential(VcsToolkit.CliSupport.CredentialService service, Microsoft.FSharp.Core.FSharpOption<string>? host) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> Run(ProcessKit.Command cmd) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> RunUnit(ProcessKit.Command cmd) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> RunUnitWithCancellationGrace(ProcessKit.Command cmd, System.TimeSpan grace) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> RunWithProgress(ProcessKit.Command cmd, Microsoft.FSharp.Core.FSharpFunc<VcsToolkit.CliSupport.ProcessEvent, Microsoft.FSharp.Core.Unit> progress) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> RunWithProgressWithCancellationGrace(ProcessKit.Command cmd, Microsoft.FSharp.Core.FSharpFunc<VcsToolkit.CliSupport.ProcessEvent, Microsoft.FSharp.Core.Unit> progress, System.TimeSpan grace) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<T, ProcessKit.ProcessError>> TryParse<T>(ProcessKit.Command cmd, Microsoft.FSharp.Core.FSharpFunc<string, Microsoft.FSharp.Core.FSharpResult<T, string>> parser) { }
         public VcsToolkit.CliSupport.ManagedClient WithCredentials(VcsToolkit.CliSupport.ICredentialProvider provider) { }
         public VcsToolkit.CliSupport.ManagedClient WithExpectedHost(string host) { }
