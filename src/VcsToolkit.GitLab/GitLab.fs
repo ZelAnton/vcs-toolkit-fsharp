@@ -71,6 +71,9 @@ type GitLab private (core: ManagedClient) =
     /// (opt-in, off by default). See `ICommandObserver`.
     member _.WithObserver(observer: ICommandObserver) = GitLab(core.WithObserver observer)
 
+    /// Bound retained process output for callers such as MCP that impose a response budget.
+    member _.WithOutputBudget(bytes: int option) = GitLab(core.WithOutputBudget bytes)
+
     /// Supply credentials per operation via a provider — opt-in, off by default
     /// (ambient `glab` auth). The resolved token is injected as `GITLAB_TOKEN`.
     member _.WithCredentials(provider: ICredentialProvider) = GitLab(core.WithCredentials provider)

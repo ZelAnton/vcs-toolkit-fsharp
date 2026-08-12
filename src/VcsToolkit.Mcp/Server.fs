@@ -161,6 +161,24 @@ type VcsMcpServer
         requestCancellation: CancellationToken
     ) =
 
+    // Keep the ordinary facade unbounded: its typed parsers cannot generally consume a partial
+    // result. Only the read tools with an explicit response envelope use these bounded views.
+    let boundedRepo =
+        match repo.Git, repo.Jj with
+        | Some git, Option.None -> Repo.FromGit(repo.Root, repo.Cwd, git.WithOutputBudget outputBudget)
+        | Option.None, Some jj -> Repo.FromJj(repo.Root, repo.Cwd, jj.WithOutputBudget outputBudget)
+        | _ -> invalidOp "repository backend handle is inconsistent"
+
+    let boundedForge =
+        forge
+        |> Option.map (fun f ->
+            match f.GitHubClient, f.GitLabClient, f.GiteaClient with
+            | Some client, Option.None, Option.None -> Forge.FromGitHub(f.Cwd, client.WithOutputBudget outputBudget)
+            | Option.None, Some client, Option.None -> Forge.FromGitLab(f.Cwd, client.WithOutputBudget outputBudget)
+            | Option.None, Option.None, Some client -> Forge.FromGitea(f.Cwd, client.WithOutputBudget outputBudget)
+            | Option.None, Option.None, Option.None -> Forge.FromUnknown f.Cwd
+            | _ -> invalidOp "forge backend handles are inconsistent")
+
     // Serializes repo-mutating tools, including request-scoped views, so concurrent calls cannot
     // interleave operations on the same working copy.
     new(repo: Repo, forge: Forge option, writes: WriteGate, outputBudget: int option) =
@@ -329,7 +347,7 @@ type VcsMcpServer
     /// and a valid JSON envelope reports `items`, `truncated`, `shown`, and `total`.
     member _.RepoDiff() : Task<Result<string, McpError>> =
         task {
-            match! repo.Diff() with
+            match! boundedRepo.Diff() with
             | Error e -> return Error(coreErr e)
             | Ok files -> return Ok(applyJsonArrayOutputBudget outputBudget files)
         }
@@ -372,7 +390,7 @@ type VcsMcpServer
     member this.RepoShowFile(rev: string, path: string) =
         this.ReadRepo(fun () ->
             task {
-                match! repo.ShowFile(rev, path) with
+                match! boundedRepo.ShowFile(rev, path) with
                 | Error e -> return Error e
                 | Ok content -> return Ok(applyOutputBudget outputBudget content)
             })
@@ -398,7 +416,7 @@ type VcsMcpServer
     /// `None` annotates the working copy / `@`.
     member this.RepoAnnotate(path: string, rev: string option) : Task<Result<string, McpError>> =
         task {
-            match! repo.Annotate(path, rev) with
+            match! boundedRepo.Annotate(path, rev) with
             | Error e -> return Error(coreErr e)
             | Ok lines -> return Ok(applyJsonArrayOutputBudget outputBudget lines)
         }
@@ -411,7 +429,7 @@ type VcsMcpServer
     /// working copy / `@`.
     member this.RepoListFiles(rev: string option) : Task<Result<string, McpError>> =
         task {
-            match! repo.ListFiles rev with
+            match! boundedRepo.ListFiles rev with
             | Error e -> return Error(coreErr e)
             | Ok files -> return Ok(applyJsonArrayOutputBudget outputBudget files)
         }
@@ -641,9 +659,14 @@ type VcsMcpServer
     /// (`tea` has no diff command).
     member this.ForgePrDiff(number: uint64) : Task<Result<string, McpError>> =
         task {
-            match this.Forge() with
-            | Error e -> return Error e
-            | Ok f ->
+            match boundedForge with
+            | None ->
+                return
+                    Error(
+                        McpError.InvalidParams
+                            "no forge is configured for this repository (pass --forge github|gitlab|gitea)"
+                    )
+            | Some f ->
                 match! f.PrDiff number with
                 | Error e -> return Error(forgeErr e)
                 | Ok files -> return Ok(applyJsonArrayOutputBudget outputBudget files)

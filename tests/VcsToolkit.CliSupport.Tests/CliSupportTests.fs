@@ -38,6 +38,28 @@ let private assertCredentialRejected (provider: ICredentialProvider) (field: str
         Assert.That(spawned.Value, Is.False, "invalid credential input must not invoke the runner")
     }
 
+/// Records which ProcessKit capture API a wrapper selects while delegating the actual reply to a
+/// scripted runner. Bounded MCP captures must use the policy-aware string path; the default path
+/// keeps the byte-exact capture used by blob APIs.
+type private CaptureRecordingRunner(inner: IProcessRunner) =
+    let stringCaptures = ref 0
+    let byteCaptures = ref 0
+
+    member _.StringCaptures = stringCaptures.Value
+    member _.ByteCaptures = byteCaptures.Value
+
+    interface IProcessRunner with
+        member _.CaptureStringAsync(command, cancellationToken) =
+            stringCaptures.Value <- stringCaptures.Value + 1
+            inner.CaptureStringAsync(command, cancellationToken)
+
+        member _.CaptureBytesAsync(command, cancellationToken) =
+            byteCaptures.Value <- byteCaptures.Value + 1
+            inner.CaptureBytesAsync(command, cancellationToken)
+
+        member _.SpawnAsync(command, cancellationToken) =
+            inner.SpawnAsync(command, cancellationToken)
+
 /// An `ICommandObserver` that records every start/finish notification for assertions.
 type private RecordingObserver() =
     let started = System.Collections.Generic.List<CommandEvent>()
@@ -75,6 +97,79 @@ type GuardTests() =
         match rejectFlagLike "jj" "revset" "--remote" with
         | Error(ProcessError.Spawn(program, _)) -> Assert.That(program, Is.EqualTo "jj")
         | _ -> Assert.Fail "expected a Spawn error naming jj"
+
+[<TestFixture>]
+type OutputBudgetTests() =
+
+    [<Test>]
+    member _.RealProcessCaptureReportsBoundedOutput() : Task =
+        task {
+            let program, arguments =
+                if OperatingSystem.IsWindows() then
+                    "pwsh", [ "-NoLogo"; "-NoProfile"; "-Command"; "Write-Output ('x' * 100000)" ]
+                else
+                    "sh", [ "-c"; "printf '%100000s' x" ]
+
+            let client = ManagedClient.Create(program).WithOutputBudget(Some 1024)
+
+            match! client.Output(client.Command arguments) with
+            | Error error -> Assert.Fail $"real bounded capture failed: {error}"
+            | Ok result ->
+                Assert.That(result.Truncated, Is.True)
+                Assert.That(result.Stdout.Length, Is.LessThan 100000)
+        }
+
+    [<Test>]
+    member _.TruncatedUntrimmedCaptureIsRejectedBeforeParsing() : Task =
+        task {
+            let program, arguments =
+                if OperatingSystem.IsWindows() then
+                    "pwsh", [ "-NoLogo"; "-NoProfile"; "-Command"; "Write-Output ('x' * 100000)" ]
+                else
+                    "sh", [ "-c"; "printf '%100000s' x" ]
+
+            let client = ManagedClient.Create(program).WithOutputBudget(Some 1024)
+
+            match! runUntrimmedBytes client (client.Command arguments) with
+            | Error(ProcessError.Parse(_, message)) ->
+                Assert.That(message, Does.Contain "output budget exceeded before parsing")
+            | other -> Assert.Fail $"truncated bounded output must not reach a parser, got {other}"
+        }
+
+    [<Test>]
+    member _.BoundedUntrimmedCaptureUsesPolicyAwareProcessKitPath() : Task =
+        task {
+            let boundedRunner =
+                CaptureRecordingRunner(ScriptedRunner().Fallback(Reply.Ok "bounded"))
+
+            let boundedClient =
+                ManagedClient.WithRunner("git", boundedRunner).WithOutputBudget(Some 32)
+
+            match! runUntrimmedBytes boundedClient (boundedClient.Command [ "show" ]) with
+            | Error error -> Assert.Fail $"bounded capture failed: {error}"
+            | Ok bytes -> Assert.That(bytes, Is.EqualTo(System.Text.Encoding.UTF8.GetBytes "bounded" :> obj))
+
+            Assert.That(boundedRunner.StringCaptures, Is.EqualTo 1)
+            Assert.That(boundedRunner.ByteCaptures, Is.EqualTo 0)
+
+            match! boundedClient.OutputBytes(boundedClient.Command [ "show" ]) with
+            | Error(ProcessError.Spawn(_, message)) ->
+                Assert.That(message, Does.Contain "raw-byte capture cannot be combined with an output budget")
+            | other -> Assert.Fail $"budgeted raw capture must be refused before spawn, got {other}"
+
+            Assert.That(boundedRunner.StringCaptures, Is.EqualTo 1)
+            Assert.That(boundedRunner.ByteCaptures, Is.EqualTo 0)
+
+            let rawRunner = CaptureRecordingRunner(ScriptedRunner().Fallback(Reply.Ok "raw"))
+            let rawClient = ManagedClient.WithRunner("git", rawRunner)
+
+            match! runUntrimmedBytes rawClient (rawClient.Command [ "show" ]) with
+            | Error error -> Assert.Fail $"raw capture failed: {error}"
+            | Ok bytes -> Assert.That(bytes, Is.EqualTo(System.Text.Encoding.UTF8.GetBytes "raw" :> obj))
+
+            Assert.That(rawRunner.StringCaptures, Is.EqualTo 0)
+            Assert.That(rawRunner.ByteCaptures, Is.EqualTo 1)
+        }
 
 [<TestFixture>]
 type ClassifierTests() =

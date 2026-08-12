@@ -58,7 +58,7 @@ MCP client, not run interactively. `vcs-mcp --help` prints the same reference be
 | `--allow-write` | (flag, no argument) | off | Enable **every** mutating tool. Takes precedence over `--allow-tools` when both are given. |
 | `--allow-tools <name,...>` | a comma-separated list of tool names (repeatable — later occurrences add to the allowed set) | empty (no mutating tool allowed) | Enable only the named mutating tools. Read tools are unaffected — they are always available regardless of this flag. Names are validated up front, at parse time, against the fixed list of mutating tool names (`WriteTools.all`, the same names used for `Destructive`/`ReadOnly` hints below); an unrecognized name is a fatal startup error rather than a silently-inert entry — **this validation runs regardless of `--allow-write`**, so an invalid name in `--allow-tools` still fails startup even when `--allow-write` is also given. Only the *effective write policy* ignores a syntactically-valid `--allow-tools` list once `--allow-write` is present (which grants every mutating tool outright). |
 | `--timeout <seconds>` | a whole, non-negative number of seconds | `120` | Per-command deadline applied to every git/jj/forge-CLI subprocess the server spawns. `--timeout 0` disables the deadline entirely (no per-command timeout). An absurdly large value is clamped to `Int32.MaxValue` seconds rather than overflowing — for all practical purposes equivalent to "no timeout". A non-numeric or negative value is a fatal startup error. |
-| `--output-budget <bytes>` | a whole, non-negative number of bytes | `200000` | Truncates the large-content read tools (`repo_show_file`, `repo_annotate`, `repo_diff`, `forge_pr_diff`) past this many UTF-8 bytes. `repo_show_file` snaps plain text to a full character boundary and appends `[truncated: showing N of M bytes]`; the JSON-array tools drop whole trailing items and return a valid JSON envelope with truncation metadata. Content within the budget passes through unchanged. `--output-budget 0` disables the cap entirely. Clamped the same way `--timeout` is for an absurdly large value. A non-numeric or negative value is a fatal startup error. |
+| `--output-budget <bytes>` | a whole, non-negative number of bytes | `200000` | Truncates the large-content read tools (`repo_show_file`, `repo_annotate`, `repo_list_files`, `repo_diff`, `forge_pr_diff`) before parsing and serialization. `repo_show_file` snaps plain text to a full character boundary and appends `[truncated: showing N of M bytes]`; the JSON-array tools drop whole trailing items and return a valid JSON envelope with truncation metadata. Other typed read tools keep an unbounded capture so a partial CLI result is never parsed as complete data. Content within the budget passes through unchanged. `--output-budget 0` disables the cap entirely. Clamped the same way `--timeout` is for an absurdly large value. A non-numeric or negative value is a fatal startup error. |
 | `-h`, `--help` | (flag, no argument) | — | Print the usage text and exit `0` without opening a repository or starting the server. |
 
 An unrecognized flag, or a flag missing its required value, is a fatal startup error (the
@@ -458,7 +458,9 @@ retained items, and `total` is the original item count. The envelope is always v
 budget cannot fit even the minimum envelope with zero items, the complete empty envelope is still
 returned: valid JSON and explicit truncation metadata take precedence over exact adherence to an
 impossibly small budget. Consumers of any JSON-array tool can therefore safely parse both the
-full array and the truncated envelope as JSON.
+full array and the truncated envelope as JSON. A process that exceeds the bounded pre-parse
+safety allowance is refused before partial data reaches a typed parser and is returned as an
+explicit internal output-budget error; it is never reported as a complete successful result.
 
 ## Errors
 

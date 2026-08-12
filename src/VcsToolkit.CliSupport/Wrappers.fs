@@ -101,16 +101,45 @@ module Wrappers =
     /// Use it for a byte-exact read-modify-write of blob content that may not be UTF-8 text; for
     /// git/jj *text* output (diffs, templates, blame porcelain) `runUntrimmed` is more convenient.
     let runUntrimmedBytes (core: ManagedClient) (cmd: Command) : Task<Result<byte[], ProcessError>> =
-        // Capture via `OutputBytes`, not the string verb: the latter reconstructs stdout from lines
-        // and drops the trailing newline, which would defeat the verbatim capture.
-        task {
-            match! core.OutputBytes cmd with
-            | Error e -> return Error e
-            | Ok res ->
-                match ProcessResult.ensureSuccess res with
+        if core.HasOutputBudget then
+            // ProcessKit's raw-byte capture intentionally bypasses its bounded OutputBufferPolicy.
+            // MCP opts into text capture for its bounded path, which keeps the child pipe drained
+            // while retaining only the configured prefix before any wrapper parser sees it.
+            task {
+                match! core.Output cmd with
                 | Error e -> return Error e
-                | Ok ok -> return Ok ok.Stdout
-        }
+                | Ok res ->
+                    match ProcessResult.ensureSuccess res with
+                    | Error e -> return Error e
+                    | Ok _ when res.Truncated ->
+                        return
+                            Error(
+                                ProcessError.Parse(
+                                    res.Program,
+                                    "output budget exceeded before parsing: bounded process output was truncated"
+                                )
+                            )
+                    | Ok ok -> return Ok(Encoding.UTF8.GetBytes ok.Stdout)
+            }
+        else
+            // The unbudgeted path remains byte-exact: Output reconstructs stdout from lines and
+            // drops the trailing newline, which would defeat verbatim blob capture.
+            task {
+                match! core.OutputBytes cmd with
+                | Error e -> return Error e
+                | Ok res ->
+                    match ProcessResult.ensureSuccess res with
+                    | Error e -> return Error e
+                    | Ok _ when res.Truncated ->
+                        return
+                            Error(
+                                ProcessError.Parse(
+                                    res.Program,
+                                    "output budget exceeded before parsing: bounded process output was truncated"
+                                )
+                            )
+                    | Ok ok -> return Ok ok.Stdout
+            }
 
     /// Run `cmd` on `core` returning **untrimmed** stdout as a `string` (unlike `core.Run`, which
     /// trims the trailing newline) — for git/jj text output where a trailing newline is

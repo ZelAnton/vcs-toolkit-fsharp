@@ -17,7 +17,9 @@ type private ManagedConfig =
       Credentials: ICredentialProvider option
       TokenEnv: (CredentialService * string) option
       ExpectedHost: string option
-      Observer: ICommandObserver option }
+      Observer: ICommandObserver option
+      OutputBuffer: OutputBufferPolicy
+      OutputBudget: int option }
 
 module private ManagedParsing =
 
@@ -75,7 +77,9 @@ type ManagedClient private (cfg: ManagedConfig) =
           Credentials = None
           TokenEnv = None
           ExpectedHost = None
-          Observer = None }
+          Observer = None
+          OutputBuffer = OutputBufferPolicy.Default
+          OutputBudget = None }
 
     /// A client driving `program` on the real job-backed runner (no retry until `WithRetry`).
     static member Create(program: string) =
@@ -129,6 +133,43 @@ type ManagedClient private (cfg: ManagedConfig) =
     member _.WithObserver(observer: ICommandObserver) =
         ManagedClient { cfg with Observer = Some observer }
 
+    /// Bound the in-memory output retained by every command this client builds. The process
+    /// pump still drains the child pipe, so a chatty child cannot deadlock; the policy keeps the
+    /// prefix because MCP response budgets are prefix-oriented. `None` and non-positive values
+    /// restore the unbounded default.
+    member _.WithOutputBudget(bytes: int option) =
+        let budget =
+            match bytes with
+            | Some value when value > 0 -> Some value
+            | _ -> None
+
+        let policy =
+            match budget with
+            | Some value when value > 0 ->
+                // Keep a bounded diagnostic framing allowance so the MCP layer can still see
+                // enough complete text/JSON to add its response envelope and truncation marker.
+                // The child pipe is drained; this is a retained-capture ceiling, not backpressure.
+                let allowance = 65_536
+
+                let captureLimit =
+                    if value > Int32.MaxValue - allowance then
+                        Int32.MaxValue
+                    else
+                        value + allowance
+
+                OutputBufferPolicy.Default.WithMaxBytes(captureLimit).WithOverflow(OverflowMode.DropNewest)
+            | _ -> OutputBufferPolicy.Default
+
+        ManagedClient
+            { cfg with
+                OutputBuffer = policy
+                OutputBudget = budget }
+
+    /// Whether this client has opted into the bounded text-capture path used by MCP.
+    /// This stays internal because it only selects an implementation detail of the shared
+    /// untrimmed-output plumbing; the public client surface remains `WithOutputBudget`.
+    member internal _.HasOutputBudget = cfg.OutputBudget.IsSome
+
     /// Apply a default timeout to every command this client builds.
     member _.DefaultTimeout(timeout: TimeSpan) =
         ManagedClient
@@ -169,6 +210,8 @@ type ManagedClient private (cfg: ManagedConfig) =
 
         for k in cfg.EnvRemove do
             c <- c.EnvRemove k
+
+        c <- c.OutputBuffer cfg.OutputBuffer
 
         c.CancelOn cfg.Cancel
 
@@ -325,20 +368,33 @@ type ManagedClient private (cfg: ManagedConfig) =
 
     /// Capture the full `ProcessResult` with stdout as **raw bytes** — byte-exact, unlike `Output`,
     /// whose string capture reconstructs from lines and drops the trailing newline. For blob/diff
-    /// content that must round-trip verbatim. Credential injection applied; no lock-retry.
+    /// content that must round-trip verbatim. Credential injection applied; no lock-retry. A
+    /// budgeted client refuses this escape hatch because ProcessKit's raw-byte capture bypasses
+    /// `OutputBufferPolicy`; the shared untrimmed wrapper selects bounded text capture instead.
     member this.OutputBytes(cmd: Command) : Task<Result<ProcessResult<byte[]>, ProcessError>> =
-        task {
-            match! this.Prepare cmd with
-            | Error e -> return Error e
-            | Ok(prepared, hasSecret) ->
-                return!
-                    this.Wrap
-                        prepared
-                        hasSecret
-                        (fun (r: ProcessResult<byte[]>) -> r.Code |> Option.defaultValue 0)
-                        (fun () -> Runner.outputBytes cfg.Runner cfg.Cancel prepared)
-                        ()
-        }
+        if cfg.OutputBudget.IsSome then
+            task {
+                return
+                    Error(
+                        ProcessError.Spawn(
+                            cfg.Program,
+                            "raw-byte capture cannot be combined with an output budget; use bounded text capture"
+                        )
+                    )
+            }
+        else
+            task {
+                match! this.Prepare cmd with
+                | Error e -> return Error e
+                | Ok(prepared, hasSecret) ->
+                    return!
+                        this.Wrap
+                            prepared
+                            hasSecret
+                            (fun (r: ProcessResult<byte[]>) -> r.Code |> Option.defaultValue 0)
+                            (fun () -> Runner.outputBytes cfg.Runner cfg.Cancel prepared)
+                            ()
+            }
 
     /// Read the exit code as a yes/no (0 -> true, 1 -> false), with credential injection and lock-retry.
     member this.Probe(cmd: Command) : Task<Result<bool, ProcessError>> =

@@ -65,6 +65,9 @@ type GitHub private (core: ManagedClient) =
     /// (opt-in, off by default). See `ICommandObserver`.
     member _.WithObserver(observer: ICommandObserver) = GitHub(core.WithObserver observer)
 
+    /// Bound retained process output for callers such as MCP that impose a response budget.
+    member _.WithOutputBudget(bytes: int option) = GitHub(core.WithOutputBudget bytes)
+
     /// Supply credentials per operation via a provider — opt-in, off by default
     /// (ambient `gh` auth). The resolved token is injected as `GH_TOKEN`.
     member _.WithCredentials(provider: ICredentialProvider) = GitHub(core.WithCredentials provider)
