@@ -111,6 +111,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The pinned `ProcessKit`/`ProcessKit.Testing` dependency floor moves from 2.7.0 to 2.8.0, a purely additive upstream release with no breaking changes. VcsToolkit does not adopt any of the new surface (`Command.ConsoleEncoding()`, `Command.LaunchDetached()`/`Exec.detach`, `PtySession`, the Windows privilege/UI-restriction/CPU-affinity controls) — each conflicts with or is out of scope for this toolkit's UTF-8 decoding contract, `JobRunner` containment guarantee, or non-interactive credential design — so VcsToolkit's own source and tests are unaffected. Consumers still receive 2.8.0's fixes (a tee-sink error-masking fix during cancellation, safer PTY buffer-range handling, and a cleaner supervision-stop lifecycle) transitively.
 
 ### Fixed
+- Fixed `Jj.OpUndo` and `JjAt.OpUndo` to invoke the supported top-level `jj undo` command on jj 0.39 and newer.
 - `Git.SwitchWithStash` now restores its exact stash entry by object id and serializes reflog cleanup with Git's stash ref lock, preserving concurrent processes' stash entries during branch switching.
 - `Repo.ListWorktrees()` on Jujutsu now propagates workspace-root resolution failures instead of returning an incomplete successful list.
 - Gitea-backed `Forge.PrList(PrListOptions.Closed)` now advances through `tea pr list` pages, deduplicates closed non-merged PRs, and stops with an explicit safety-bound error instead of returning a short first-page result or looping indefinitely.

@@ -1624,6 +1624,40 @@ type ClientTests() =
             | Error e -> Assert.Fail $"op_log failed: {e}"
         }
 
+    [<Test>]
+    member _.OpUndoUsesSupportedTopLevelCommandAndBoundForwarder() : Task =
+        task {
+            let expected = [ "undo"; "--color"; "never" ]
+
+            let directCaptured, directRunner = capturing (Reply.Ok "")
+
+            match! (Jj.WithRunner directRunner).OpUndo "/repo" with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"direct op_undo failed: {e}"
+
+            match directCaptured.Value with
+            | Some command ->
+                Assert.That(argsOf command = expected, Is.True, "Jj.OpUndo must invoke top-level jj undo exactly")
+            | None -> Assert.Fail "Jj.OpUndo did not spawn jj"
+
+            let boundCaptured, boundRunner = capturing (Reply.Ok "")
+
+            match! (Jj.WithRunner boundRunner).At("/repo").OpUndo() with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"bound op_undo failed: {e}"
+
+            match boundCaptured.Value with
+            | Some command ->
+                Assert.That(argsOf command = expected, Is.True, "JjAt.OpUndo must invoke top-level jj undo exactly")
+
+                Assert.That(
+                    command.WorkingDirectory,
+                    Is.EqualTo(Some "/repo"),
+                    "bound OpUndo must preserve its directory"
+                )
+            | None -> Assert.Fail "JjAt.OpUndo did not spawn jj"
+        }
+
     [<TestCase("main", "\"main\"\n")>]
     [<TestCase("main,test", "\"main,test\"\n")>]
     [<TestCase("my\"quote", "\"my\\\"quote\"\n")>]
