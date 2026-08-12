@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Git branch, tag, remote-ref, push-refspec, clone-branch, and worktree branch-name slots now reject malformed `RefName` values before spawning while revision and commit-ish inputs retain their permissive Git syntax.
+
 ### Added
 - Typed GitHub Actions workflow discovery through `GitHub.WorkflowList`/`WorkflowListOptions` and `GitHub.WorkflowView`, including disabled workflows, validated limits, and deterministic id/name/filename/path resolution without scraping human-readable CLI output.
 - Typed label creation and add/remove operations across GitHub, GitLab, Gitea, the Forge facade, and write-gated MCP tools; Gitea reports unsupported for label mutation.

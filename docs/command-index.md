@@ -64,9 +64,9 @@ for this client's place in the layering.
 | `GitDir` | `rev-parse --git-dir` | this worktree's git dir |
 | `ResolvedGitDir` | `GitDir`, resolved to an absolute path | absolute even when `dir` and Git's `--git-dir` output are relative; preserves linked-worktree git dirs |
 | `RemoteHeadBranch` | `symbolic-ref --quiet refs/remotes/origin/HEAD` | `None` when unset |
-| `BranchExists` | `show-ref --verify --quiet refs/heads/<name>` | |
-| `RemoteBranchExists` | `ls-remote origin refs/heads/<name>` | fully-qualified ref |
-| `RemoteUrl` | `remote get-url <remote>` | |
+| `BranchExists` | `show-ref --verify --quiet refs/heads/<name>` | `<name>` is validated as a strict `RefName` before spawn |
+| `RemoteBranchExists` | `ls-remote origin refs/heads/<name>` | fully-qualified ref; `<name>` is validated as a strict `RefName` before spawn |
+| `RemoteUrl` | `remote get-url <remote>` | remote name uses the positional argv guard |
 | `Remotes` | `remote -v` | parsed `Remote list`; one entry per remote |
 | `Upstream` | `symbolic-ref --quiet --short HEAD` then `rev-parse --abbrev-ref --symbolic-full-name @{u}` | `None` on no upstream; error on detached HEAD |
 | `RemoteBranches` | `ls-remote --heads <remote>` | no fetch |
@@ -105,15 +105,15 @@ for this client's place in the layering.
 |---|---|---|
 | `Checkout` | `checkout <reference> --` | trailing `--` keeps a would-be pathspec from silently restoring a file |
 | `CheckoutDetach` | `checkout --detach <commit>` | |
-| `CreateBranch` | `branch <name>` | no switch |
+| `CreateBranch` | `branch <name>` | no switch; `<name>` is validated as a strict `RefName` before spawn |
 | `WorktreeList` | `worktree list --porcelain` | |
-| `WorktreeAdd` | `worktree add [-b <branch>] [--no-checkout] <path> [<commit-ish>]` | via `WorktreeAdd` spec |
+| `WorktreeAdd` | `worktree add [-b <branch>] [--no-checkout] <path> [<commit-ish>]` | via `WorktreeAdd` spec; `-b <branch>` is a strict `RefName`, `<commit-ish>` remains permissive |
 | `WorktreeRemove` | `worktree remove [--force] <path>` | |
 | `WorktreeMove` | `worktree move <from> <to>` | |
 | `WorktreePrune` | `worktree prune` | |
 | `CloneRepo` | `clone [--branch b] [--depth d] [--bare] <url> <dest>` | via `CloneSpec`; dirless, absolute `dest` |
-| `TagCreate` | `tag <name> [<rev>]` | lightweight |
-| `TagCreateAnnotated` | `tag -a <name> -m <message> [<rev>]` | via `AnnotatedTag` |
+| `TagCreate` | `tag <name> [<rev>]` | lightweight; `<name>` is a strict `RefName`, `<rev>` remains permissive |
+| `TagCreateAnnotated` | `tag -a <name> -m <message> [<rev>]` | via `AnnotatedTag`; name is strict, revision remains permissive |
 | `TagList` | `tag --list --no-column` | |
 | `TagDelete` | `tag -d <name>` | |
 | Core / MCP tag facade | `Repo.Tags()` / `Repo.TagCreate(name, message, rev)` / `Repo.TagDelete(name)`; `repo_tags` / `repo_tag_create` / `repo_tag_delete` | Git-only; Core returns `RepoError.Unsupported` on jj before spawning; MCP create/delete are write-gated |
@@ -138,8 +138,8 @@ for this client's place in the layering.
 |---|---|---|
 | `Fetch` | `fetch --quiet` | prompt-off, retried 3× on transient failure |
 | `FetchFrom` | `fetch --quiet <remote>` | same retry |
-| `FetchBranch` | `fetch --quiet origin refs/heads/<b>:refs/remotes/origin/<b>` | same retry |
-| `Push` | `push [-u] <remote> <refspec>` | via `GitPush`; refspec restricted to a plain branch or `local:remote` (no force/delete/multi-ref) |
+| `FetchBranch` | `fetch --quiet origin refs/heads/<b>:refs/remotes/origin/<b>` | same retry; `<b>` is a strict `RefName` |
+| `Push` | `push [-u] <remote> <refspec>` | via `GitPush`; each refspec side is a strict `RefName`, while force/delete/multi-ref and wildcard semantics remain rejected by the typed guard |
 | `MergeSquash` | `merge --squash <branch>` | |
 | `MergeCommit` | `merge [--no-ff] [-m <msg> \| --no-edit] <branch>` | via `MergeCommit` spec |
 | `MergeNoCommit` | `merge --no-commit [--squash \| --no-ff] <branch>` | via `MergeNoCommit` spec; dry-run pattern |

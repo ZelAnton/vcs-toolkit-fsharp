@@ -1691,6 +1691,83 @@ type GuardTests() =
         }
 
     [<Test>]
+    member _.StrictRefNameSlotsRejectBeforeSpawning() : Task =
+        task {
+            let assertRefused label operation =
+                task {
+                    let captured, runner = capturing (Reply.Ok "unexpected")
+                    let! result = operation (Git.WithRunner runner)
+
+                    match result with
+                    | Error(ProcessError.Spawn(program, _)) ->
+                        Assert.That(program, Is.EqualTo "git", $"{label} must report a Git refusal")
+                    | Error e -> Assert.Fail $"{label} returned the wrong error: {e}"
+                    | Ok _ -> Assert.Fail $"{label} accepted an invalid RefName"
+
+                    Assert.That(captured.Value.IsNone, $"{label} must refuse before spawning")
+                }
+
+            do! assertRefused "CreateBranch" (fun git -> git.CreateBranch(".", "feature/.hidden"))
+            do! assertRefused "BranchExists" (fun git -> git.BranchExists(".", "feature//name"))
+            do! assertRefused "RemoteBranchExists" (fun git -> git.RemoteBranchExists(".", "feature/*"))
+            do! assertRefused "FetchBranch" (fun git -> git.FetchBranch(".", "feature..name"))
+            do! assertRefused "IsMerged branch" (fun git -> git.IsMerged(".", "feature/.hidden", "HEAD~1"))
+            do! assertRefused "SetUpstream branch" (fun git -> git.SetUpstream(".", "feature/.hidden", "origin/main"))
+            do! assertRefused "SetUpstream upstream" (fun git -> git.SetUpstream(".", "feature", "origin/.hidden"))
+            do! assertRefused "DeleteBranch" (fun git -> git.DeleteBranch(".", "feature/.hidden", false))
+            do! assertRefused "RenameBranch" (fun git -> git.RenameBranch(".", "feature", "feature/.hidden"))
+            do! assertRefused "TagCreate" (fun git -> git.TagCreate(".", "v1..bad", None))
+
+            do!
+                assertRefused "TagCreateAnnotated" (fun git ->
+                    git.TagCreateAnnotated(".", AnnotatedTag.Create("v1/.hidden", "notes")))
+
+            do! assertRefused "TagDelete" (fun git -> git.TagDelete(".", "v1/.hidden"))
+
+            do!
+                assertRefused "WorktreeAdd new branch" (fun git ->
+                    git.WorktreeAdd(
+                        ".",
+                        { Path = "/tmp/worktree"
+                          NewBranch = Some "feature/.hidden"
+                          Commitish = Some "HEAD~1"
+                          NoCheckout = false }
+                    ))
+
+            do!
+                assertRefused "CloneRepo branch" (fun git ->
+                    git.CloneRepo(
+                        "https://example.test/repo.git",
+                        cloneDest (),
+                        CloneSpec.Create().WithBranch("v1..bad")
+                    ))
+
+            do! assertRefused "Push refspec" (fun git -> git.Push(".", GitPush.Branch("feature/.hidden")))
+        }
+
+    [<Test>]
+    member _.StrictNamesAcceptValidValuesAndRevisionsRemainPermissive() : Task =
+        task {
+            let create = scripted [ "branch"; "feature/release-1" ] (Reply.Ok "")
+
+            match! create.CreateBranch(".", "feature/release-1") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"valid branch name was rejected: {e}"
+
+            let tag = scripted [ "tag"; "v1.2.3"; "HEAD~2" ] (Reply.Ok "")
+
+            match! tag.TagCreate(".", "v1.2.3", Some "HEAD~2") with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"valid tag/revision was rejected: {e}"
+
+            let merge = scripted [ "merge"; "--no-edit"; "main..feature" ] (Reply.Ok "")
+
+            match! merge.MergeCommit(".", MergeCommit.ForBranch("main..feature")) with
+            | Ok() -> ()
+            | Error e -> Assert.Fail $"a valid revspec must remain permissive: {e}"
+        }
+
+    [<Test>]
     member _.RefNameValidates() =
         let rejects (name: string) =
             Assert.That(RefName.Create name |> Result.isError, $"expected '{name}' to be rejected")

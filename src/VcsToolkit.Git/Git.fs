@@ -273,30 +273,13 @@ module private GitHelpers =
         |> String.concat ""
         |> System.Text.Encoding.UTF8.GetBytes
 
-    /// A branch/ref name interpolated into a refspec (`FetchBranch`, `RemoteBranchExists`)
-    /// without going through `checkFlags`. Empty, or a name containing a control character or
-    /// any of the refspec/glob metacharacters `" *?[:"`, is refused before git spawns: any of
-    /// them either breaks the refspec outright or turns it into a glob — an `ls-remote`/fetch
-    /// fan-out across every matching ref instead of the single named one.
-    let checkRefspecName (what: string) (name: string) : Result<unit, ProcessError> =
-        let forbidden = set [ ' '; '*'; '?'; '['; ':' ]
-
-        let bad =
-            name.Length = 0
-            || name |> Seq.exists (fun c -> Char.IsControl c || Set.contains c forbidden)
-
-        if bad then
-            Error(
-                ProcessError.Spawn(
-                    BINARY,
-                    sprintf
-                        "%s \"%s\" is empty or contains a glob/control metacharacter — refusing to build a refspec from it"
-                        what
-                        name
-                )
-            )
-        else
-            Ok()
+    /// Validate a caller-supplied Git ref-name slot before constructing argv. The public API
+    /// keeps string parameters for compatibility, so convert through `RefName` at the execution
+    /// boundary instead of widening the accepted input at individual call sites.
+    let checkRefName (what: string) (name: string) : Result<unit, ProcessError> =
+        match RefName.Create name with
+        | Ok _ -> Ok()
+        | Error _ -> Error(ProcessError.Spawn(BINARY, sprintf "%s %A is not a valid Git reference name" what name))
 
     /// The self-contained time budget `Git.MergeAbortDetached`/`IsMergeInProgressDetached` give
     /// their cleanup (the merge-in-progress probe + `merge --abort`). It runs on a *fresh*
@@ -767,7 +750,7 @@ type Git private (core: ManagedClient) =
     /// Create a branch without switching to it (`git branch <name>`).
     member _.CreateBranch(dir: string, name: string) =
         task {
-            match checkFlags BINARY [ "branch name", name ] with
+            match checkRefName "branch name" name with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(core.CommandIn(dir, [ "branch"; name ]))
         }
@@ -922,8 +905,11 @@ type Git private (core: ManagedClient) =
 
     /// Whether a local branch exists.
     member _.BranchExists(dir: string, name: string) =
-        let refname = sprintf "refs/heads/%s" name
-        core.Probe(core.CommandIn(dir, [ "show-ref"; "--verify"; "--quiet"; refname ]))
+        match checkRefName "branch name" name with
+        | Error e -> task { return Error e }
+        | Ok() ->
+            let refname = sprintf "refs/heads/%s" name
+            core.Probe(core.CommandIn(dir, [ "show-ref"; "--verify"; "--quiet"; refname ]))
 
     /// A remote's URL (`remote get-url <remote>`).
     member _.RemoteUrl(dir: string, remote: string) =
@@ -1014,7 +1000,7 @@ type Git private (core: ManagedClient) =
     /// Whether `origin` has `name`, without fetching.
     member this.RemoteBranchExists(dir: string, name: string) =
         task {
-            match checkRefspecName "branch name" name with
+            match checkRefName "branch name" name with
             | Error e -> return Error e
             | Ok() ->
                 let refname = sprintf "refs/heads/%s" name
@@ -1041,7 +1027,12 @@ type Git private (core: ManagedClient) =
     /// Whether `branch` is fully merged into `target`.
     member _.IsMerged(dir: string, branch: string, target: string) =
         task {
-            match checkFlags BINARY [ "branch", branch; "target", target ] with
+            let validation =
+                match checkRefName "branch name" branch with
+                | Error e -> Error e
+                | Ok() -> checkFlags BINARY [ "target", target ]
+
+            match validation with
             | Error e -> return Error e
             | Ok() ->
                 match! core.Run(core.CommandIn(dir, [ "branch"; "--merged"; target; "--no-column"; "--no-color" ])) with
@@ -1058,7 +1049,12 @@ type Git private (core: ManagedClient) =
     /// Set `branch`'s upstream to `upstream`.
     member _.SetUpstream(dir: string, branch: string, upstream: string) =
         task {
-            match checkFlags BINARY [ "branch name", branch ] with
+            let validation =
+                match checkRefName "branch name" branch with
+                | Error e -> Error e
+                | Ok() -> checkRefName "upstream ref" upstream
+
+            match validation with
             | Error e -> return Error e
             | Ok() ->
                 let flag = sprintf "--set-upstream-to=%s" upstream
@@ -1068,7 +1064,7 @@ type Git private (core: ManagedClient) =
     /// Delete a local branch (`branch -d`, or `-D` when `force`).
     member _.DeleteBranch(dir: string, name: string, force: bool) =
         task {
-            match checkFlags BINARY [ "branch name", name ] with
+            match checkRefName "branch name" name with
             | Error e -> return Error e
             | Ok() ->
                 let flag = if force then "-D" else "-d"
@@ -1078,7 +1074,12 @@ type Git private (core: ManagedClient) =
     /// Rename a local branch (`branch -m <old> <new>`).
     member _.RenameBranch(dir: string, oldName: string, newName: string) =
         task {
-            match checkFlags BINARY [ "branch name", oldName; "branch name", newName ] with
+            let validation =
+                match checkRefName "branch name" oldName with
+                | Error e -> Error e
+                | Ok() -> checkRefName "branch name" newName
+
+            match validation with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(core.CommandIn(dir, [ "branch"; "-m"; oldName; newName ]))
         }
@@ -1301,7 +1302,7 @@ type Git private (core: ManagedClient) =
 
     /// Fetch a single branch from `origin` into its remote-tracking ref.
     member this.FetchBranch(dir: string, branch: string) =
-        match checkRefspecName "branch name" branch with
+        match checkRefName "branch name" branch with
         | Error e -> task { return Error e }
         | Ok() ->
             let refspec = sprintf "refs/heads/%s:refs/remotes/origin/%s" branch branch
@@ -1348,7 +1349,7 @@ type Git private (core: ManagedClient) =
                     match
                         sides
                         |> Array.tryPick (fun s ->
-                            match checkRefspecName "push refspec side" s with
+                            match checkRefName "push refspec side" s with
                             | Error e -> Some e
                             | Ok() -> None)
                     with
@@ -1379,33 +1380,41 @@ type Git private (core: ManagedClient) =
             match checkFlags BINARY [ "url", url; "destination", dest ] with
             | Error e -> return Error e
             | Ok() ->
-                // Scope the credential helper to the clone URL's host, so a cross-host
-                // redirect/submodule during the clone can't extract the token (the URL is often
-                // externally supplied).
-                match! this.RemoteCredentials(Credentials.httpsHost url) with
-                | Error e -> return Error e
-                | Ok(pre, envs) ->
-                    // Capture whether `dest` is ours to clean BEFORE the clone populates it.
-                    let cleanable = cloneDestCleanable dest
-                    let mutable cmd = core.Command(pre @ [ "clone" ])
-
+                let branchValidation =
                     match spec.Branch with
-                    | Some b -> cmd <- cmd.Arg("--branch").Arg b
-                    | None -> ()
+                    | Some branch -> checkRefName "clone branch" branch
+                    | None -> Ok()
 
-                    match spec.Depth with
-                    | Some d -> cmd <- cmd.Arg("--depth").Arg(string d)
-                    | None -> ()
+                match branchValidation with
+                | Error e -> return Error e
+                | Ok() ->
+                    // Scope the credential helper to the clone URL's host, so a cross-host
+                    // redirect/submodule during the clone can't extract the token (the URL is
+                    // often externally supplied).
+                    match! this.RemoteCredentials(Credentials.httpsHost url) with
+                    | Error e -> return Error e
+                    | Ok(pre, envs) ->
+                        // Capture whether `dest` is ours to clean BEFORE the clone populates it.
+                        let cleanable = cloneDestCleanable dest
+                        let mutable cmd = core.Command(pre @ [ "clone" ])
 
-                    if spec.Bare then
-                        cmd <- cmd.Arg "--bare"
+                        match spec.Branch with
+                        | Some b -> cmd <- cmd.Arg("--branch").Arg b
+                        | None -> ()
 
-                    let cmd =
-                        cmd.Arg(url).Arg(dest).Env("GIT_TERMINAL_PROMPT", "0").TimeoutGrace(FetchTimeoutGrace)
-                        |> applySecretEnv envs
+                        match spec.Depth with
+                        | Some d -> cmd <- cmd.Arg("--depth").Arg(string d)
+                        | None -> ()
 
-                    let! result = core.RunUnit cmd
-                    return cloneCleanupOnError dest cleanable result
+                        if spec.Bare then
+                            cmd <- cmd.Arg "--bare"
+
+                        let cmd =
+                            cmd.Arg(url).Arg(dest).Env("GIT_TERMINAL_PROMPT", "0").TimeoutGrace(FetchTimeoutGrace)
+                            |> applySecretEnv envs
+
+                        let! result = core.RunUnit cmd
+                        return cloneCleanupOnError dest cleanable result
         }
 
     // --- Mutations: merge / rebase / reset / stash ---------------------------
@@ -1687,10 +1696,17 @@ type Git private (core: ManagedClient) =
         task {
             let checks =
                 [ "worktree path", spec.Path ]
-                @ (spec.NewBranch |> Option.map (fun n -> "branch name", n) |> Option.toList)
                 @ (spec.Commitish |> Option.map (fun c -> "commit-ish", c) |> Option.toList)
 
-            match checkFlags BINARY checks with
+            let validation =
+                match checkFlags BINARY checks with
+                | Error e -> Error e
+                | Ok() ->
+                    match spec.NewBranch with
+                    | Some name -> checkRefName "branch name" name
+                    | None -> Ok()
+
+            match validation with
             | Error e -> return Error e
             | Ok() ->
                 let mutable cmd = core.CommandIn(dir, [ "worktree"; "add" ])
@@ -1742,11 +1758,15 @@ type Git private (core: ManagedClient) =
     /// Create a lightweight tag at `rev` (`tag <name> [<rev>]`).
     member _.TagCreate(dir: string, name: string, rev: string option) =
         task {
-            let checks =
-                ("tag name", name)
-                :: (rev |> Option.map (fun r -> "revision", r) |> Option.toList)
+            let validation =
+                match checkRefName "tag name" name with
+                | Error e -> Error e
+                | Ok() ->
+                    match rev with
+                    | Some r -> checkFlags BINARY [ "revision", r ]
+                    | None -> Ok()
 
-            match checkFlags BINARY checks with
+            match validation with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(core.CommandIn(dir, [ "tag"; name ] @ Option.toList rev))
         }
@@ -1754,11 +1774,15 @@ type Git private (core: ManagedClient) =
     /// Create an annotated tag (`tag -a <name> -m <message> [<rev>]`).
     member _.TagCreateAnnotated(dir: string, spec: AnnotatedTag) =
         task {
-            let checks =
-                ("tag name", spec.Name)
-                :: (spec.Rev |> Option.map (fun r -> "revision", r) |> Option.toList)
+            let validation =
+                match checkRefName "tag name" spec.Name with
+                | Error e -> Error e
+                | Ok() ->
+                    match spec.Rev with
+                    | Some r -> checkFlags BINARY [ "revision", r ]
+                    | None -> Ok()
 
-            match checkFlags BINARY checks with
+            match validation with
             | Error e -> return Error e
             | Ok() ->
                 return!
@@ -1785,7 +1809,7 @@ type Git private (core: ManagedClient) =
     /// Delete a tag (`tag -d <name>`).
     member _.TagDelete(dir: string, name: string) =
         task {
-            match checkFlags BINARY [ "tag name", name ] with
+            match checkRefName "tag name" name with
             | Error e -> return Error e
             | Ok() -> return! core.RunUnit(core.CommandIn(dir, [ "tag"; "-d"; name ]))
         }
