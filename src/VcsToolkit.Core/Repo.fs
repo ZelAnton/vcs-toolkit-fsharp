@@ -375,6 +375,28 @@ type Repo private (root: string, cwd: string, backend: Backend) =
         | Backend.Git g -> GitBackend.log g cwd revspecOrRevset max
         | Backend.Jj j -> JjBackend.log j cwd revspecOrRevset max
 
+    /// Recent Jujutsu operation history, newest first. Operation history is a Jujutsu
+    /// concept; the git backend returns Unsupported before spawning a process.
+    member _.OpLog(limit: int) =
+        match backend with
+        | Backend.Git _ -> task { return Error(RepoError.Unsupported "operation log on the git backend") }
+        | Backend.Jj j ->
+            task {
+                let! result = j.OpLog(cwd, limit)
+                return ofVcs result
+            }
+
+    /// Undo the latest Jujutsu operation. This is a Jujutsu concept; the git backend returns
+    /// Unsupported before spawning a process.
+    member _.OpUndo() =
+        match backend with
+        | Backend.Git _ -> task { return Error(RepoError.Unsupported "operation undo on the git backend") }
+        | Backend.Jj j ->
+            task {
+                let! result = j.OpUndo(cwd)
+                return ofVcs result
+            }
+
     /// The full commit id of a best common ancestor of `a` and `b`, or `None` when the histories
     /// are disconnected. Inputs are backend-specific revision expressions: git commit-ish values
     /// or jj revsets. Git uses `git merge-base <a> <b>`; jj selects a non-root head of

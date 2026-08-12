@@ -197,6 +197,8 @@ namespace VcsToolkit.Core
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Core.Commit>, VcsToolkit.Core.RepoError>> LogPaths(string revspecOrRevset, int max, Microsoft.FSharp.Collections.FSharpList<string> paths) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.FSharpOption<string>?, VcsToolkit.Core.RepoError>> MergeBase(string a, string b) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> NewChild(string reference) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Jj.Operation>, VcsToolkit.Core.RepoError>> OpLog(int limit) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> OpUndo() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> Push(string branch) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> PushWithProgress(string branch, Microsoft.FSharp.Core.FSharpFunc<VcsToolkit.CliSupport.ProcessEvent, Microsoft.FSharp.Core.Unit> progress) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Core.RepoError>> Rebase(string onto) { }

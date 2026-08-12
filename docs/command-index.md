@@ -532,6 +532,9 @@ A facade operation marked `Unsupported` on a given backend (e.g. a Gitea release
 has **no** wrapper method to drop to either — the CLI itself can't do it; go through the
 forge's REST API (`Api`) or your own HTTP client, as the forge table above notes.
 
+The Jujutsu-only Core methods OpLog and OpUndo expose typed operation recovery and return
+structural Unsupported on Git.
+
 ## Keeping this index current
 
 A new typed method changes what a row in this index should say. When adding one to a

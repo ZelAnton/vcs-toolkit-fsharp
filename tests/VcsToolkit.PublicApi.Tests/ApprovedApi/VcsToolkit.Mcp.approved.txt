@@ -86,6 +86,7 @@ namespace VcsToolkit.Mcp
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoLog(string revspecOrRevset, ulong max) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoMergeBase(string a, string b) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoNewChild(string reference) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoOpLog(ulong limit) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoPush(string branch) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoRebase(string onto) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoRemotes() { }
@@ -99,6 +100,7 @@ namespace VcsToolkit.Mcp
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoTagDelete(string name) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoTags() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoTryMerge(string source) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoUndo() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> RepoWorktrees() { }
         public Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, VcsToolkit.Mcp.McpError> RequireWrite(string tool) { }
     }

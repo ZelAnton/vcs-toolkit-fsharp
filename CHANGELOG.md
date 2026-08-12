@@ -10,11 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Git branch, tag, remote-ref, push-refspec, clone-branch, and worktree branch-name slots now reject malformed `RefName` values before spawning while revision and commit-ish inputs retain their permissive Git syntax.
 - Progress-streaming commands now retain only the bounded diagnostic tail when `WithOutputBudget` is configured, while every progress event continues to reach its callback.
-\\\\\\\        to: ullyoyoq be2c3679 "Add graceful cancellation for network commands"
-+- External cancellation of Git/Jujutsu fetch, push and clone operations now gives the process a graceful two-second stop window before escalation.
+- External cancellation of Git/Jujutsu fetch, push and clone operations now gives the process a graceful two-second stop window before escalation.
 
 ### Added
 - Structured materialized conflict-region inspection and write-gated resolution through the MCP `repo_conflict_regions` and `repo_resolve_conflict` tools, with backend-specific Git/Jujutsu semantics and path confinement.
+- Typed Jujutsu-only Repo.OpLog/Repo.OpUndo recovery with structural Git Unsupported results, plus write-gated MCP repo_op_log and repo_undo tools.
 - Progress variants for Git/Jujutsu fetch, push, and clone operations, plus the Core `Repo` facade, forward one process lifecycle and output stream without replaying a partially observed network operation.
 - `ManagedClient.DefaultInactivityTimeout`, with Git/Jujutsu forwarders, adds an opt-in resettable stdout/stderr watchdog to progress-streaming network operations while leaving ordinary captures unchanged.
 - Explicit two-endpoint `Git.DiffTextBetween`/`DiffBetween` and `Jj.DiffTextBetween`/`DiffBetween` APIs, plus their bound views, compare committed trees in a declared `from` → `to` direction without implicitly including working-copy edits.

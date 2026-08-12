@@ -366,6 +366,10 @@ tool additionally requires `--allow-write`, or `--allow-tools` naming it.
 
 #### Writes (gated)
 
+The read-only repo_op_log tool returns recent Jujutsu operations, newest first, and is
+unsupported on Git. The write-gated repo_undo tool undoes the latest Jujutsu operation and is
+destructive; both tools preserve the backend-specific Unsupported contract.
+
 `repo_try_merge` is write-gated but not destructive: it spawns a **real** trial merge that
 materializes content in order to detect conflicts, then attempts to roll itself back — like
 `repo_checkout`, materializing content is why it needs write access. The rollback is not

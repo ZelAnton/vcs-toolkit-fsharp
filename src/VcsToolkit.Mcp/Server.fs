@@ -745,6 +745,17 @@ type VcsMcpServer
 
         this.ReadRepo(fun () -> repo.Log(revspecOrRevset, capped))
 
+    /// Recent Jujutsu operation history, newest first. Git returns a structural Unsupported
+    /// error from the Core facade without spawning a process.
+    member this.RepoOpLog(limit: uint64) =
+        let capped =
+            if limit > uint64 Int32.MaxValue then
+                Int32.MaxValue
+            else
+                int limit
+
+        this.ReadRepo(fun () -> repo.OpLog capped)
+
     /// Per-line authorship of `path` at `rev` (git `blame --line-porcelain` / jj `file
     /// annotate`) — "who last touched this line, and when". Normally serialized as the original
     /// JSON array. When the server's output budget truncates it, whole trailing entries are
@@ -772,6 +783,16 @@ type VcsMcpServer
         }
 
     // --- repo: mutations (gated) -------------------------------------------
+
+    /// Undo the latest Jujutsu operation. This rewrites repository state and is write-gated;
+    /// Git returns a structural Unsupported error from the Core facade.
+    member this.RepoUndo() =
+        this.WithRepoWrite "repo_undo" (fun () ->
+            task {
+                match! repo.OpUndo() with
+                | Error e -> return Error(coreErr e)
+                | Ok() -> return Ok(Json.ok {| undone = true |})
+            })
 
     /// Probe whether merging `source` into the current work would conflict (rolled back).
     /// Write-gated — it spawns a real trial merge that materializes working-tree content.

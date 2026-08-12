@@ -31,6 +31,7 @@ module WriteTools =
           "repo_tag_create"
           "repo_tag_delete"
           "repo_new_child"
+          "repo_undo"
           "forge_issue_create"
           "forge_issue_close"
           "forge_issue_reopen"
