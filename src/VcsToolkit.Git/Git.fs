@@ -2,6 +2,7 @@ namespace VcsToolkit.Git
 
 open System
 open System.IO
+open System.Text
 open ProcessKit
 open VcsToolkit.CliSupport
 open VcsToolkit.Diff
@@ -28,6 +29,172 @@ module private GitHelpers =
     /// non-interactively instead of hanging a headless caller.
     let noEditor (cmd: Command) =
         cmd.Env("GIT_EDITOR", "true").Env("GIT_SEQUENCE_EDITOR", "true")
+
+    type StashLocks =
+        { RefPath: string
+          LogPath: string
+          RefLockPath: string
+          LogLockPath: string
+          RefLock: FileStream
+          LogLock: FileStream }
+
+    type ReflogFields =
+        { OldOid: string
+          NewOid: string
+          Suffix: string }
+
+    let tryParseReflogLine (line: string) =
+        let firstSpace = line.IndexOf ' '
+
+        let secondSpace =
+            if firstSpace >= 0 then
+                line.IndexOf(' ', firstSpace + 1)
+            else
+                -1
+
+        if secondSpace > firstSpace then
+            Some
+                { OldOid = line.Substring(0, firstSpace)
+                  NewOid = line.Substring(firstSpace + 1, secondSpace - firstSpace - 1)
+                  Suffix = line.Substring(secondSpace) }
+        else
+            None
+
+    let lockError (path: string) (ex: exn) =
+        ProcessError.Spawn(BINARY, sprintf "could not acquire Git stash lock \"%s\": %s" path ex.Message)
+
+    let openStashLock (path: string) =
+        try
+            Ok(File.Open(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
+        with
+        | :? IOException as ex -> Error(lockError path ex)
+        | :? UnauthorizedAccessException as ex -> Error(lockError path ex)
+
+    let deleteStashLock (path: string) =
+        try
+            File.Delete path
+        with
+        | :? IOException ->
+            // The lock was released, but another process may have replaced it; do not delete a new owner's lock.
+            ()
+        | :? UnauthorizedAccessException ->
+            // The lock was released, but filesystem permissions can prevent best-effort cleanup during teardown.
+            ()
+
+    let acquireStashLocks (refPath: string) (logPath: string) =
+        let refLockPath = refPath + ".lock"
+        let logLockPath = logPath + ".lock"
+
+        match openStashLock refLockPath with
+        | Error e -> Error e
+        | Ok refLock ->
+            match openStashLock logLockPath with
+            | Ok logLock ->
+                Ok
+                    { RefPath = refPath
+                      LogPath = logPath
+                      RefLockPath = refLockPath
+                      LogLockPath = logLockPath
+                      RefLock = refLock
+                      LogLock = logLock }
+            | Error e ->
+                refLock.Dispose()
+                deleteStashLock refLockPath
+                Error e
+
+    let releaseStashLocks (locks: StashLocks) =
+        locks.LogLock.Dispose()
+        locks.RefLock.Dispose()
+        deleteStashLock locks.LogLockPath
+        deleteStashLock locks.RefLockPath
+
+    let resolveGitPath (dir: string) (path: string) =
+        Path.GetFullPath(Path.Combine(dir, path.Trim()))
+
+    let removeExactStashEntry (locks: StashLocks) (hash: string) =
+        let original = File.ReadAllText locks.LogPath
+        let lines = original.Split([| '\n' |], StringSplitOptions.None)
+
+        let matchingIndexes =
+            lines
+            |> Array.mapi (fun index line -> index, tryParseReflogLine line)
+            |> Array.choose (fun (index, fields) ->
+                match fields with
+                | Some fields when fields.NewOid = hash -> Some index
+                | _ -> None)
+
+        if matchingIndexes.Length <> 1 then
+            Error(
+                ProcessError.Spawn(
+                    BINARY,
+                    sprintf
+                        "SwitchWithStash found %d reflog entries for its stash object %s; refusing cleanup"
+                        matchingIndexes.Length
+                        hash
+                )
+            )
+        else
+            let targetIndex = matchingIndexes[0]
+
+            let targetOldOid =
+                match tryParseReflogLine lines[targetIndex] with
+                | Some fields -> fields.OldOid
+                | None -> ""
+
+            let remaining =
+                lines
+                |> Array.mapi (fun index line -> index, line, tryParseReflogLine line)
+                |> Array.fold
+                    (fun (previousNewOid: string option, output: ResizeArray<string>) (index, line, fields) ->
+                        if index = targetIndex then
+                            previousNewOid, output
+                        else
+                            match fields with
+                            | None ->
+                                output.Add line
+                                previousNewOid, output
+                            | Some fields ->
+                                let oldOid =
+                                    if index < targetIndex then
+                                        fields.OldOid
+                                    else
+                                        match previousNewOid with
+                                        | Some oid -> oid
+                                        | None -> targetOldOid
+
+                                output.Add(oldOid + " " + fields.NewOid + fields.Suffix)
+                                Some fields.NewOid, output)
+                    (None, ResizeArray<string>())
+                |> snd
+                |> Seq.toArray
+
+            let rewrittenLog = String.Join("\n", remaining)
+            let encoding = UTF8Encoding(false)
+            let logBytes = encoding.GetBytes rewrittenLog
+            locks.LogLock.SetLength 0L
+            locks.LogLock.Write(logBytes, 0, logBytes.Length)
+            locks.LogLock.Flush(true)
+            locks.LogLock.Dispose()
+            File.Move(locks.LogLockPath, locks.LogPath, true)
+
+            let nextRef =
+                remaining
+                |> Array.tryPick (fun line -> tryParseReflogLine line |> Option.map (fun fields -> fields.NewOid))
+
+            if targetIndex = 0 then
+                match nextRef with
+                | Some refValue ->
+                    let refBytes = encoding.GetBytes(refValue + "\n")
+                    locks.RefLock.SetLength 0L
+                    locks.RefLock.Write(refBytes, 0, refBytes.Length)
+                    locks.RefLock.Flush(true)
+                    locks.RefLock.Dispose()
+                    File.Move(locks.RefLockPath, locks.RefPath, true)
+                | None ->
+                    locks.RefLock.Dispose()
+                    File.Delete locks.RefPath
+
+            Ok()
 
     /// Set each secret environment variable on `cmd`. A no-op when `envs` is empty.
     let applySecretEnv (envs: (string * Secret) list) (cmd: Command) =
@@ -1382,6 +1549,11 @@ type Git private (core: ManagedClient) =
 
         core.RunUnit cmd
 
+    /// Push the working tree with a unique marker so `SwitchWithStash` can resolve this exact
+    /// entry to its stable object id and exact reflog entry.
+    member private _.StashPushForSwitch(dir: string, marker: string) =
+        core.RunUnit(core.CommandIn(dir, [ "stash"; "push"; "--include-untracked"; "--message"; marker ]))
+
     /// Restore the most recent stash and drop it (`stash pop`). C-locale so a conflicting pop's
     /// merge-machinery `CONFLICT (...)` output stays classifiable by `isMergeConflict`.
     member _.StashPop(dir: string) =
@@ -1430,11 +1602,47 @@ type Git private (core: ManagedClient) =
             | Ok out -> return Ok(out.Split('\n') |> Array.filter (fun l -> l.TrimEnd('\r') <> "") |> Array.length)
         }
 
-    /// `git stash pop --index` — restore the top stash **preserving** the staged/unstaged split
-    /// (a bare `pop` returns everything unstaged). C-locale so a conflicting pop's `CONFLICT (...)`
-    /// output still feeds `isMergeConflict`. Internal helper of `SwitchWithStash` (private in Rust).
-    member private _.StashPopIndex(dir: string) =
-        core.RunUnit(cLocale (core.CommandIn(dir, [ "stash"; "pop"; "--index" ])))
+    /// Restore and remove the exact stash commit identified by `StashPushForSwitch`. Git accepts
+    /// an object id for `stash apply`, but its public stash cleanup commands only accept a
+    /// position-based selector. The Git ref locks serialize the final list and exact reflog edit
+    /// against concurrent stash writers, so the caller's object id is the only entry removed.
+    /// `--index` preserves the staged/unstaged split (a bare apply returns everything unstaged).
+    /// C-locale keeps a conflicting apply's `CONFLICT (...)` output classifiable by
+    /// `isMergeConflict`. Internal helper of `SwitchWithStash` (private in Rust).
+    member private this.StashRestoreExact(dir: string, hash: string) =
+        task {
+            match! core.RunUnit(cLocale (core.CommandIn(dir, [ "stash"; "apply"; "--index"; hash ]))) with
+            | Error e -> return Error e
+            | Ok() ->
+                match! core.Run(core.CommandIn(dir, [ "rev-parse"; "--git-path"; "refs/stash" ])) with
+                | Error e -> return Error e
+                | Ok refPath ->
+                    match! core.Run(core.CommandIn(dir, [ "rev-parse"; "--git-path"; "logs/refs/stash" ])) with
+                    | Error e -> return Error e
+                    | Ok logPath ->
+                        let refPath = resolveGitPath dir refPath
+                        let logPath = resolveGitPath dir logPath
+
+                        match acquireStashLocks (refPath) (logPath) with
+                        | Error e -> return Error e
+                        | Ok locks ->
+                            try
+                                match! this.StashList dir with
+                                | Error e -> return Error e
+                                | Ok entries ->
+                                    match entries |> List.tryFind (fun entry -> entry.Hash = hash) with
+                                    | None ->
+                                        return
+                                            Error(
+                                                ProcessError.Spawn(
+                                                    BINARY,
+                                                    "SwitchWithStash could not revalidate the stash entry after applying it"
+                                                )
+                                            )
+                                    | Some _ -> return removeExactStashEntry locks hash
+                            finally
+                                releaseStashLocks locks
+        }
 
     // --- Clean -----------------------------------------------------------------
 
@@ -1802,14 +2010,17 @@ type Git private (core: ManagedClient) =
                 if List.isEmpty entries then
                     return! this.Checkout(dir, branch)
                 else
+                    let marker = "vcs-toolkit-switch-with-stash-" + Guid.NewGuid().ToString("N")
+
                     // `stash push` exits 0 having saved NOTHING when the only dirt is unstashable
                     // (e.g. a submodule-only change that `status` still reports), so a bare `pop`
                     // afterwards would splat an UNRELATED pre-existing stash — data loss. Bracket
-                    // the push with the stash-list depth and only pop when it actually saved.
+                    // the push with the stash-list depth and only restore/remove the created entry
+                    // when it actually saved.
                     match! this.StashDepth dir with
                     | Error e -> return Error e
                     | Ok depthBefore ->
-                        match! this.StashPush(dir, true) with
+                        match! this.StashPushForSwitch(dir, marker) with
                         | Error e -> return Error e
                         | Ok() ->
                             match! this.StashDepth dir with
@@ -1820,15 +2031,36 @@ type Git private (core: ManagedClient) =
                                     // else's entry.
                                     return! this.Checkout(dir, branch)
                                 else
-                                    // `--index` restores the staged/unstaged split faithfully; a
-                                    // bare `pop` would bring everything back UNSTAGED.
-                                    match! this.Checkout(dir, branch) with
-                                    | Ok() -> return! this.StashPopIndex dir
-                                    | Error err ->
-                                        // A failed checkout is atomic — pop restores the pre-call
-                                        // state. If the pop fails too, the stash is preserved.
-                                        let! _ = this.StashPopIndex dir
-                                        return Error err
+                                    // Resolve the marker to Git's full stash commit id before the
+                                    // branch switch. `stash apply` accepts that stable object id;
+                                    // the helper takes Git's stash ref locks before re-listing and
+                                    // removes the exact reflog entry while those locks are held.
+                                    match! this.StashList dir with
+                                    | Error e -> return Error e
+                                    | Ok stashEntries ->
+                                        match
+                                            stashEntries
+                                            |> List.tryFind (fun entry ->
+                                                entry.Message.EndsWith(marker, StringComparison.Ordinal)
+                                                && ((entry.Hash.Length = 40 || entry.Hash.Length = 64)
+                                                    && (entry.Hash |> Seq.forall Char.IsAsciiHexDigit)))
+                                        with
+                                        | None ->
+                                            return
+                                                Error(
+                                                    ProcessError.Spawn(
+                                                        BINARY,
+                                                        "SwitchWithStash could not identify the stash entry it created"
+                                                    )
+                                                )
+                                        | Some entry ->
+                                            match! this.Checkout(dir, branch) with
+                                            | Ok() -> return! this.StashRestoreExact(dir, entry.Hash)
+                                            | Error err ->
+                                                // Restore the caller's changes after a failed checkout;
+                                                // if cleanup fails too, the stash is preserved.
+                                                let! _ = this.StashRestoreExact(dir, entry.Hash)
+                                                return Error err
         }
 
     /// Harden this client for driving repositories it didn't create: hooks off,

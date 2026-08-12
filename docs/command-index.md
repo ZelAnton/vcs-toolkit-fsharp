@@ -165,7 +165,7 @@ for this client's place in the layering.
 | `StashList` | `stash list -z --format=%gd%x1f%H%x1f%gs` | parsed `StashEntry list`, newest first |
 | `StashApply` | `stash apply stash@{<index>}` | applies without dropping; index resolved at operation time |
 | `StashDrop` | `stash drop stash@{<index>}` | drops without applying; index resolved at operation time |
-| `SwitchWithStash` | composed: `stash push -u` → `checkout` → `stash pop --index` (or a bare `checkout` when nothing to save) | data-loss-safe: brackets the push with a stash-depth check so a bare pop never grabs an unrelated entry |
+| `SwitchWithStash` | composed: `stash push --include-untracked --message <unique-marker>` → `stash list -z --format=%gd%x1f%H%x1f%gs` → `checkout` → `stash apply --index <created-stash-hash>` → Git stash ref-lock + exact reflog cleanup (or a bare `checkout` when nothing to save) | data-loss-safe: restores by stable object id and serializes the final re-list/cleanup against Git stash writers, removing only the caller's reflog entry |
 | `Clean` | `clean [-d] [-x] [-X] [-n] [-f]` | via `Clean` spec; parsed `CleanEntry list`; refuses to spawn without `DryRun`/`Force` set |
 
 ### Submodules
