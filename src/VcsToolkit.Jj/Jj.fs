@@ -218,6 +218,11 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
     member _.DefaultTimeout(timeout: TimeSpan) =
         Jj(core.DefaultTimeout timeout, ignoreWorkingCopy)
 
+    /// Set the resettable output-inactivity window for progress-streaming git fetch, push and
+    /// clone operations. Disabled by default; enable it only when jj emits useful progress.
+    member _.DefaultInactivityTimeout(timeout: TimeSpan) =
+        Jj(core.DefaultInactivityTimeout timeout, ignoreWorkingCopy)
+
     /// Set an environment variable on every command this client builds.
     member _.DefaultEnv(key: string, value: string) =
         Jj(core.DefaultEnv(key, value), ignoreWorkingCopy)

@@ -414,6 +414,11 @@ type Git private (core: ManagedClient) =
     /// Apply a default timeout to every command this client builds.
     member _.DefaultTimeout(timeout: TimeSpan) = Git(core.DefaultTimeout timeout)
 
+    /// Set the resettable output-inactivity window for progress-streaming fetch, push and clone
+    /// operations. Disabled by default; output on either stream resets the window.
+    member _.DefaultInactivityTimeout(timeout: TimeSpan) =
+        Git(core.DefaultInactivityTimeout timeout)
+
     /// Set an environment variable on every command this client builds.
     member _.DefaultEnv(key: string, value: string) = Git(core.DefaultEnv(key, value))
 

@@ -33,6 +33,7 @@ type private ManagedConfig =
     { Program: string
       Runner: IProcessRunner
       DefaultTimeout: TimeSpan option
+      DefaultInactivityTimeout: TimeSpan option
       DefaultEnv: (string * string) list
       EnvRemove: string list
       Cancel: CancellationToken
@@ -93,6 +94,7 @@ type ManagedClient private (cfg: ManagedConfig) =
         { Program = program
           Runner = runner
           DefaultTimeout = None
+          DefaultInactivityTimeout = None
           DefaultEnv = []
           EnvRemove = []
           Cancel = CancellationToken.None
@@ -198,6 +200,13 @@ type ManagedClient private (cfg: ManagedConfig) =
         ManagedClient
             { cfg with
                 DefaultTimeout = Some timeout }
+
+    /// Set the resettable output-inactivity window for streamed commands. The default is disabled;
+    /// output on either stdout or stderr resets the window while a progress run is active.
+    member _.DefaultInactivityTimeout(timeout: TimeSpan) =
+        ManagedClient
+            { cfg with
+                DefaultInactivityTimeout = Some timeout }
 
     /// Set an environment variable on every command this client builds.
     member _.DefaultEnv(key: string, value: string) =
@@ -392,8 +401,13 @@ type ManagedClient private (cfg: ManagedConfig) =
                             // its exception cannot strand the child or stop output draining.
                             callbackActive <- false
 
+                let progressCommand =
+                    match cfg.DefaultInactivityTimeout with
+                    | Some timeout -> prepared.IdleTimeout timeout
+                    | None -> prepared
+
                 let streamed =
-                    prepared
+                    progressCommand
                         .OnStdoutLine(Action<string>(fun line -> report (ProcessEvent.Stdout line)))
                         .OnStderrLine(Action<string>(fun line -> report (ProcessEvent.Stderr line)))
 
@@ -401,7 +415,7 @@ type ManagedClient private (cfg: ManagedConfig) =
 
                 let! result =
                     this.Wrap
-                        prepared
+                        progressCommand
                         hasSecret
                         (fun (r: ProcessResult<string>) -> r.Code |> Option.defaultValue 0)
                         (fun () -> Runner.outputString cfg.Runner cfg.Cancel streamed)
