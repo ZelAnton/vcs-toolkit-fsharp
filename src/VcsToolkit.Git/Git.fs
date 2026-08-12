@@ -1321,7 +1321,7 @@ type Git private (core: ManagedClient) =
                         .Retry(FetchAttempts, FetchBackoff, (fun e -> isTransientFetchError e))
                     |> applySecretEnv envs
 
-                return! core.RunUnit cmd
+                return! core.RunUnitWithCancellationGrace(cmd, FetchTimeoutGrace)
         }
 
     member private this.RunFetchWithProgress(dir: string, tail: string list, progress: ProgressCallback) =
@@ -1337,7 +1337,7 @@ type Git private (core: ManagedClient) =
                         .TimeoutGrace(FetchTimeoutGrace)
                     |> applySecretEnv envs
 
-                return! core.RunWithProgress(cmd, progress)
+                return! core.RunWithProgressWithCancellationGrace(cmd, progress, FetchTimeoutGrace)
         }
 
     /// Fetch from the default remote, retrying transient failures.
@@ -1424,7 +1424,7 @@ type Git private (core: ManagedClient) =
                                     .TimeoutGrace(FetchTimeoutGrace)
                                 |> applySecretEnv envs
 
-                            return! core.RunUnit cmd
+                            return! core.RunUnitWithCancellationGrace(cmd, FetchTimeoutGrace)
 
         }
 
@@ -1472,7 +1472,7 @@ type Git private (core: ManagedClient) =
                                     .TimeoutGrace(FetchTimeoutGrace)
                                 |> applySecretEnv envs
 
-                            return! core.RunWithProgress(cmd, progress)
+                            return! core.RunWithProgressWithCancellationGrace(cmd, progress, FetchTimeoutGrace)
         }
 
     /// Clone `url` into `dest` (pass an absolute `dest`). Both `url` and `dest` are bare
@@ -1517,7 +1517,7 @@ type Git private (core: ManagedClient) =
                             cmd.Arg(url).Arg(dest).Env("GIT_TERMINAL_PROMPT", "0").TimeoutGrace(FetchTimeoutGrace)
                             |> applySecretEnv envs
 
-                        let! result = core.RunUnit cmd
+                        let! result = core.RunUnitWithCancellationGrace(cmd, FetchTimeoutGrace)
                         return cloneCleanupOnError dest cleanable result
 
         }
@@ -1558,7 +1558,7 @@ type Git private (core: ManagedClient) =
                             cmd.Arg(url).Arg(dest).Env("GIT_TERMINAL_PROMPT", "0").TimeoutGrace(FetchTimeoutGrace)
                             |> applySecretEnv envs
 
-                        let! result = core.RunWithProgress(cmd, progress)
+                        let! result = core.RunWithProgressWithCancellationGrace(cmd, progress, FetchTimeoutGrace)
                         return cloneCleanupOnError dest cleanable result
         }
 
