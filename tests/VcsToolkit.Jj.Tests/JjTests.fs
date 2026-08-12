@@ -61,6 +61,35 @@ let private recording (reply: Reply) : ResizeArray<Command> * ScriptedRunner =
 /// The argv (program excluded), in order, of a captured command.
 let private argsOf (cmd: Command) = cmd.Arguments |> Seq.toList
 
+let private environmentOverridesOf (cmd: Command) : string list =
+    let flags =
+        System.Reflection.BindingFlags.Instance
+        ||| System.Reflection.BindingFlags.Public
+        ||| System.Reflection.BindingFlags.NonPublic
+
+    let configProperty =
+        typeof<Command>.GetProperties(flags)
+        |> Array.find (fun propertyInfo -> propertyInfo.Name = "Config")
+
+    match configProperty.GetValue(cmd) with
+    | null ->
+        Assert.Fail "command did not expose command configuration"
+        []
+    | config ->
+        let envProperty =
+            config.GetType().GetProperties(flags)
+            |> Array.find (fun propertyInfo -> propertyInfo.Name = "EnvOverrides")
+
+        match envProperty.GetValue(config) with
+        | null ->
+            Assert.Fail "command did not expose environment overrides"
+            []
+        | value ->
+            (value :?> System.Collections.IEnumerable)
+            |> Seq.cast<obj>
+            |> Seq.map string
+            |> Seq.toList
+
 let private requireJj () =
     try
         Raw.jj "." [ "--version" ]
@@ -802,6 +831,47 @@ type ClientTests() =
             match! fetchBranch.GitFetchBranch(".", "feat") with
             | Ok() -> ()
             | Error e -> Assert.Fail $"git_fetch_branch failed: {e}"
+        }
+
+    [<Test>]
+    member _.GitFetchVariantsPinCLocaleOnlyForFetch() : Task =
+        task {
+            let operations: (string * (Jj -> Task<Result<unit, ProcessError>>)) list =
+                [ "default", fun client -> client.GitFetch "."
+                  "remote", fun client -> client.GitFetchFrom(".", "upstream")
+                  "branch", fun client -> client.GitFetchBranch(".", "feat") ]
+
+            for name, operation in operations do
+                let captured, runner = capturing (Reply.Ok "")
+                let jj = Jj.WithRunner runner
+
+                match! operation jj with
+                | Error e -> Assert.Fail $"{name} fetch failed: {e}"
+                | Ok() ->
+                    match captured.Value with
+                    | None -> Assert.Fail $"{name} fetch did not spawn"
+                    | Some command ->
+                        Assert.That(
+                            environmentOverridesOf command,
+                            Does.Contain("(LC_ALL, Some(C))"),
+                            $"{name} fetch must force the C locale"
+                        )
+
+            let captured, runner = capturing (Reply.Ok "")
+            let jj = Jj.WithRunner runner
+
+            match! jj.GitPush(".", None) with
+            | Error e -> Assert.Fail $"git push failed: {e}"
+            | Ok() ->
+                match captured.Value with
+                | None -> Assert.Fail "git push did not spawn"
+                | Some command ->
+                    Assert.That(
+                        environmentOverridesOf command
+                        |> List.exists (fun value -> value.StartsWith("(LC_ALL,")),
+                        Is.False,
+                        "the C locale override must remain scoped to fetch operations"
+                    )
         }
 
     [<Test>]

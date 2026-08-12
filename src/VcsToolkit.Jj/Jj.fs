@@ -192,6 +192,12 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
         else
             cmdIn dir args
 
+    let fetchCommand (dir: string) (args: string list) : Command =
+        (cmdIn dir args)
+            .Env("LC_ALL", "C")
+            .TimeoutGrace(FetchTimeoutGrace)
+            .Retry(FetchAttempts, FetchBackoff, (fun e -> isTransientFetchError e))
+
     let runRoot (cmd: Command) : Task<Result<string, ProcessError>> =
         task {
             match! runUntrimmed core cmd with
@@ -1045,10 +1051,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
     member _.GitFetch(dir: string) =
         // Idempotent → retry replays it on a transient failure; graceful
         // terminate-then-kill on a per-client timeout so a timed-out fetch closes cleanly.
-        let cmd =
-            (cmdIn dir [ "git"; "fetch" ])
-                .TimeoutGrace(FetchTimeoutGrace)
-                .Retry(FetchAttempts, FetchBackoff, (fun e -> isTransientFetchError e))
+        let cmd = fetchCommand dir [ "git"; "fetch" ]
 
         core.RunUnit cmd
 
@@ -1056,10 +1059,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
     /// failures are retried like `GitFetch`.
     member _.GitFetchFrom(dir: string, remote: string) =
         // `--remote` is glob-matched too, so `exact:` keeps a `*` remote from fetching every one.
-        let cmd =
-            (cmdIn dir [ "git"; "fetch"; "--remote"; exact remote ])
-                .TimeoutGrace(FetchTimeoutGrace)
-                .Retry(FetchAttempts, FetchBackoff, (fun e -> isTransientFetchError e))
+        let cmd = fetchCommand dir [ "git"; "fetch"; "--remote"; exact remote ]
 
         core.RunUnit cmd
 
@@ -1068,9 +1068,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
     member _.GitFetchBranch(dir: string, branch: string) =
         // `-b` is glob-matched, so `exact:` keeps a `*` branch from fetching every branch.
         let cmd =
-            (cmdIn dir [ "git"; "fetch"; "--remote"; "origin"; "-b"; exact branch ])
-                .TimeoutGrace(FetchTimeoutGrace)
-                .Retry(FetchAttempts, FetchBackoff, (fun e -> isTransientFetchError e))
+            fetchCommand dir [ "git"; "fetch"; "--remote"; "origin"; "-b"; exact branch ]
 
         core.RunUnit cmd
 
