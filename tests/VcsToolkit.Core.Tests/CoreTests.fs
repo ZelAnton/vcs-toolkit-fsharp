@@ -837,6 +837,36 @@ type DispatchTests() =
         }
 
     [<Test>]
+    member _.JjOperationLogIsTypedAndGitOperationRecoveryIsUnsupported() : Task =
+        task {
+            let repo =
+                jjRepo
+                    [ "--ignore-working-copy"; "op"; "log"; "--at-op=@" ]
+                    (Reply.Ok $"op123{tab}Ada{tab}2026-06-01T10:00:00+00:00{tab}describe change\n")
+
+            match! repo.OpLog 10 with
+            | Ok operations ->
+                Assert.That(operations.Length, Is.EqualTo 1)
+                Assert.That(operations.[0].Id, Is.EqualTo "op123")
+                Assert.That(operations.[0].User, Is.EqualTo "Ada")
+                Assert.That(operations.[0].Description, Is.EqualTo "describe change")
+            | Error e -> Assert.Fail $"OpLog failed: {e.Message}"
+
+            let git =
+                Repo.FromGit("/repo", "/repo", Git.WithRunner(ScriptedRunner().Fallback(Reply.Ok "")))
+
+            match! git.OpLog 10 with
+            | Error(RepoError.Unsupported message) -> Assert.That(message, Does.Contain "operation log")
+            | Error e -> Assert.Fail $"expected Unsupported from git OpLog, got: {e.Message}"
+            | Ok _ -> Assert.Fail "git OpLog must be unsupported"
+
+            match! git.OpUndo() with
+            | Error(RepoError.Unsupported message) -> Assert.That(message, Does.Contain "operation undo")
+            | Error e -> Assert.Fail $"expected Unsupported from git OpUndo, got: {e.Message}"
+            | Ok() -> Assert.Fail "git OpUndo must be unsupported"
+        }
+
+    [<Test>]
     member _.JjLogPathsScopesToFilesets() : Task =
         task {
             // A jj-backed path-scoped log converts the plain path to an exact-path `root-file:"…"`

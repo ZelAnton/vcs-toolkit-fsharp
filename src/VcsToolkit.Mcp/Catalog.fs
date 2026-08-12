@@ -275,6 +275,13 @@ module internal Catalog =
                   Description = "Maximum number of commits to return."
                   Required = true } ]
           read
+              "repo_op_log"
+              "Recent Jujutsu operations, newest first. Unsupported on Git. The limit is capped at Int32.MaxValue by the server."
+              [ { Name = "limit"
+                  JsonType = "integer"
+                  Description = "Maximum number of operations to return."
+                  Required = true } ]
+          read
               "repo_annotate"
               "Per-line authorship of a file at a revision — who last touched each line, and when (git blame --line-porcelain / jj file annotate). `path` is anchored at the repository root on both backends, not relative to the server's working directory. Normally returns the original JSON array. If the server's output budget truncates it (--output-budget; default 200000 bytes, 0 disables), whole trailing entries are dropped and the result is a valid JSON envelope with `items`, `truncated: true`, `shown`, and `total`. `rev` is passed through as-is to the backend — a git commit-ish or a jj revset; the two syntaxes are NOT cross-backend portable."
               [ { Name = "path"
@@ -328,6 +335,12 @@ module internal Catalog =
               true
               [ pReference ]
           write "repo_fetch" "Fetch from the default remote (git fetch / jj git fetch)." false true []
+          write
+              "repo_undo"
+              "Undo the latest Jujutsu operation. Unsupported on Git. This rewrites repository state."
+              true
+              false
+              []
           // Non-destructive: fast-forward-only (no `force` param, so a diverged remote is
           // refused rather than overwritten); idempotent: re-pushing an already-up-to-date
           // branch is a no-op.
@@ -793,9 +806,11 @@ module internal Catalog =
         | "repo_log" ->
             bind (reqStr args "revspec_or_revset") (fun rev ->
                 bind (reqU64 args "max") (fun max -> server.RepoLog(rev, max)))
+        | "repo_op_log" -> bind (reqU64 args "limit") server.RepoOpLog
         | "repo_annotate" ->
             bind (reqStr args "path") (fun path -> bind (optStr args "rev") (fun rev -> server.RepoAnnotate(path, rev)))
         | "repo_list_files" -> bind (optStr args "rev") server.RepoListFiles
+        | "repo_undo" -> server.RepoUndo()
         | "repo_try_merge" -> bind (reqStr args "source") server.RepoTryMerge
         | "repo_commit" ->
             bind (reqStrArray args "paths") (fun paths ->

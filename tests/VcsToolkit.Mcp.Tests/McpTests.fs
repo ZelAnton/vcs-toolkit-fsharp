@@ -70,7 +70,7 @@ type WriteGateTests() =
 
     [<Test>]
     member _.WriteToolsCoversTheGatedTools() =
-        Assert.That(List.length WriteTools.all, Is.EqualTo 34)
+        Assert.That(List.length WriteTools.all, Is.EqualTo 35)
         Assert.That(WriteTools.asSet.Contains "repo_commit", Is.True)
         Assert.That(WriteTools.asSet.Contains "repo_rebase", Is.True, "the new rebase tool is write-gated")
         Assert.That(WriteTools.asSet.Contains "forge_pr_checkout", Is.True, "the local-checkout tool is write-gated")
@@ -79,6 +79,7 @@ type WriteGateTests() =
         Assert.That(WriteTools.asSet.Contains "forge_issue_reopen", Is.True, "the new issue-reopen tool is write-gated")
         Assert.That(WriteTools.asSet.Contains "repo_tag_create", Is.True, "tag creation is write-gated")
         Assert.That(WriteTools.asSet.Contains "repo_tag_delete", Is.True, "tag deletion is write-gated")
+        Assert.That(WriteTools.asSet.Contains "repo_undo", Is.True, "operation undo is write-gated")
 
         Assert.That(
             WriteTools.asSet.Contains "forge_issue_comment",
@@ -438,6 +439,28 @@ type ToolTests() =
                 Assert.That(json, Does.Contain "Fix bug")
                 Assert.That(json, Does.Contain "Jane")
             | Error e -> Assert.Fail $"repo_log failed: {e.Message}"
+        }
+
+    [<Test>]
+    member _.RepoOperationLogIsReadOnlyAndUndoIsWriteGated() : Task =
+        task {
+            let server = gitServer (ScriptedRunner().Fallback(Reply.Ok "")) WriteGate.None
+
+            match! server.RepoOpLog 10UL with
+            | Error e -> Assert.That(e.Message, Does.Contain "operation log")
+            | Ok _ -> Assert.Fail "git repo_op_log must return Unsupported"
+
+            match! server.RepoUndo() with
+            | Error e ->
+                Assert.That(e.Message, Does.Contain "repo_undo")
+                Assert.That(e.Message, Does.Contain "disabled")
+            | Ok _ -> Assert.Fail "repo_undo must be refused by the default write gate"
+
+            let writeServer = gitServer (ScriptedRunner().Fallback(Reply.Ok "")) WriteGate.All
+
+            match! writeServer.RepoUndo() with
+            | Error e -> Assert.That(e.Message, Does.Contain "operation undo")
+            | Ok _ -> Assert.Fail "git repo_undo must return Unsupported"
         }
 
     [<Test>]
@@ -1824,8 +1847,8 @@ type CatalogTests() =
 
     [<Test>]
     member _.CatalogCoversEveryTool() =
-        // 16 repo-read + repo_try_merge + 14 repo-write + 12 forge-read + 19 forge-write = 62.
-        Assert.That(List.length Catalog.all, Is.EqualTo 62)
+        // 17 repo-read + repo_try_merge + 15 repo-write + 12 forge-read + 19 forge-write = 64.
+        Assert.That(List.length Catalog.all, Is.EqualTo 64)
         // Every write-gated tool name appears in the catalogue.
         let names = Catalog.all |> List.map (fun t -> t.Name) |> Set.ofList
         Assert.That(WriteTools.all |> List.forall names.Contains, Is.True, "every write tool is catalogued")
@@ -1853,6 +1876,7 @@ type CatalogTests() =
               "repo_tag_create", false, false
               "repo_tag_delete", true, false
               "repo_new_child", false, false
+              "repo_undo", true, false
               "forge_issue_create", false, false
               "forge_issue_close", false, true
               "forge_issue_reopen", false, true

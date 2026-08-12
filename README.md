@@ -114,6 +114,9 @@ credential-provider examples.
 
 ## Architecture
 
+The Core facade also exposes typed Jujutsu-only operation recovery through OpLog and OpUndo;
+the Git backend reports Unsupported without spawning a process.
+
 For the end-to-end trust model, typed-surface guarantees, raw-command escape hatches,
 credential handling, Git/submodule hardening, and a deployment checklist for libraries and
 `vcs-mcp`, see [docs/security.md](docs/security.md).
