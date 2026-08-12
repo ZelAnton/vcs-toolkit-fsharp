@@ -506,6 +506,30 @@ module internal JjBackend =
     let abortInProgress (jj: Jj) (dir: string) = inProgressState jj dir
     let continueInProgress (jj: Jj) (dir: string) = inProgressState jj dir
 
+    let private collectWorktrees
+        (pairs: (Workspace * Result<string, ProcessError>) list)
+        : Result<WorktreeInfo list, RepoError> =
+        let collected =
+            pairs
+            |> List.fold
+                (fun state (ws, root) ->
+                    match state with
+                    | Error _ -> state
+                    | Ok acc ->
+                        match root with
+                        | Error e -> Error(RepoError.Vcs e)
+                        | Ok rootPath ->
+                            Ok(
+                                { Path = rootPath
+                                  Branch = ws.Bookmarks |> List.tryHead
+                                  Commit = (if ws.Commit <> "" then Some ws.Commit else None)
+                                  IsBare = false }
+                                :: acc
+                            ))
+                (Ok [])
+
+        collected |> Result.map List.rev
+
     let listWorktrees (jj: Jj) (dir: string) =
         task {
             // jj's `Workspace` carries no path, so resolve each via `workspace root` —
@@ -517,19 +541,7 @@ module internal JjBackend =
                 let names = workspaces |> List.map (fun ws -> ws.Name)
                 let! roots = jj.WorkspaceRoots(dir, names)
 
-                let out =
-                    zipTruncating workspaces roots
-                    |> List.choose (fun (ws, root) ->
-                        match root with
-                        | Error _ -> None // No useful entry without a path.
-                        | Ok rootPath ->
-                            Some
-                                { Path = rootPath
-                                  Branch = ws.Bookmarks |> List.tryHead
-                                  Commit = (if ws.Commit <> "" then Some ws.Commit else None)
-                                  IsBare = false })
-
-                return Ok out
+                return collectWorktrees (zipTruncating workspaces roots)
         }
 
     // Short, stable, deterministic hex digest of the *original* branch name — used to
