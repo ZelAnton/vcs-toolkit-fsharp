@@ -291,7 +291,7 @@ caller-supplied name can't fan a mutation out across every matching ref.
 | `GitRemoteRename` | `git remote rename <old> <new>` | mutates jj's remote configuration |
 | `GitRemoteSetUrl` | `git remote set-url <name> <url>` | mutates jj's remote configuration |
 | `OpHead` | `op log --no-graph --limit 1 -T id.short()` | capture before a risky sequence |
-| `OpLog` | `op log --no-graph --limit <n> -T <template>` | newest first |
+| `OpLog` | `--ignore-working-copy op log --at-op=@ --no-graph --limit <n> -T <template>` | newest first; always pinned to the current operation |
 | `OpRestore` | `op restore <id>` | |
 | `OpUndo` | `undo` | |
 | `WorkspaceList` | `workspace list -T <template>` | |

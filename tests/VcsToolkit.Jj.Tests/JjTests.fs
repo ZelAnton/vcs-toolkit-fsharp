@@ -1614,7 +1614,9 @@ type ClientTests() =
     member _.OpLogParsesRows() : Task =
         task {
             let jj =
-                scripted [ "op"; "log" ] (Reply.Ok $"abc{tab}u@h{tab}2026-06-05T10:00:00+02:00{tab}new empty commit\n")
+                scripted
+                    [ "--ignore-working-copy"; "op"; "log"; "--at-op=@" ]
+                    (Reply.Ok $"abc{tab}u@h{tab}2026-06-05T10:00:00+02:00{tab}new empty commit\n")
 
             match! jj.OpLog(".", 5) with
             | Ok ops ->
@@ -1622,6 +1624,65 @@ type ClientTests() =
                 Assert.That(ops.[0].Id, Is.EqualTo "abc")
                 Assert.That(ops.[0].Description, Is.EqualTo "new empty commit")
             | Error e -> Assert.Fail $"op_log failed: {e}"
+        }
+
+    [<Test>]
+    member _.OpLogAlwaysPinsCurrentOperationAndIgnoresWorkingCopy() : Task =
+        task {
+            let expected: string list =
+                [ "--ignore-working-copy"
+                  "op"
+                  "log"
+                  "--at-op=@"
+                  "--no-graph"
+                  "--limit"
+                  "5"
+                  "-T"
+                  JjParse.OP_TEMPLATE
+                  "--color"
+                  "never" ]
+
+            let directCaptured, directRunner = capturing (Reply.Ok "")
+
+            match! (Jj.WithRunner directRunner).OpLog("/repo", 5) with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"direct op_log failed: {e}"
+
+            match directCaptured.Value with
+            | Some command ->
+                Assert.That(
+                    argsOf command = expected,
+                    Is.True,
+                    "Jj.OpLog must use the non-mutating current-operation query"
+                )
+            | None -> Assert.Fail "Jj.OpLog did not spawn jj"
+
+            let boundCaptured, boundRunner = capturing (Reply.Ok "")
+
+            match! (Jj.WithRunner boundRunner).At("/repo").OpLog(5) with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"bound op_log failed: {e}"
+
+            match boundCaptured.Value with
+            | Some command ->
+                Assert.That(argsOf command = expected, Is.True, "JjAt.OpLog must preserve Jj.OpLog argv")
+                Assert.That(command.WorkingDirectory, Is.EqualTo(Some "/repo"))
+            | None -> Assert.Fail "JjAt.OpLog did not spawn jj"
+
+            let readOnlyCaptured, readOnlyRunner = capturing (Reply.Ok "")
+
+            match! (Jj.WithRunner readOnlyRunner).ReadOnly().OpLog("/repo", 5) with
+            | Ok _ -> ()
+            | Error e -> Assert.Fail $"read-only op_log failed: {e}"
+
+            match readOnlyCaptured.Value with
+            | Some command ->
+                Assert.That(
+                    argsOf command = expected,
+                    Is.True,
+                    "ReadOnly().OpLog must not duplicate the global read-only flag"
+                )
+            | None -> Assert.Fail "ReadOnly().OpLog did not spawn jj"
         }
 
     [<Test>]
@@ -2240,10 +2301,9 @@ type ReadOnlyModeTests() =
 
             let! _ = jj.Bookmarks "."
             let! _ = jj.Log(".", "@", 5)
-            let! _ = jj.OpLog(".", 10)
             let! _ = jj.Status "/repo"
 
-            Assert.That(calls.Count >= 4, Is.True)
+            Assert.That(calls.Count >= 3, Is.True)
 
             for cmd in calls do
                 let args = argsOf cmd
