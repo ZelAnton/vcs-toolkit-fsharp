@@ -68,6 +68,10 @@ tools (`repo_*` / `forge_*` queries) are always available; the mutating tools st
 you opt in, either with `--allow-write` (enable all of them) or `--allow-tools name,...` (a named
 subset):
 
+Conflict-aware sessions can inspect materialized Git/Jujutsu conflict regions with
+`repo_conflict_regions` and, when explicitly enabled, resolve them with
+`repo_resolve_conflict` (Git resolutions are staged automatically).
+
 ```sh
 # Serve the repository at ./my-repo with every mutating tool enabled
 vcs-mcp --repo ./my-repo --allow-write

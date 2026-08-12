@@ -235,6 +235,13 @@ module internal Catalog =
               "Git tag names, sorted by git's default ordering. Unsupported on jj, where the Core facade refuses the operation before spawning a command."
               []
           read "repo_conflicts" "Paths with unresolved merge conflicts (repo-relative, '/'-separated)." []
+          read
+              "repo_conflict_regions"
+              "Structured conflict regions read from the materialized working-copy file. The path is repo-relative; output is refused when the file exceeds --output-budget rather than truncated."
+              [ { Name = "path"
+                  JsonType = "string"
+                  Description = "Repo-relative path of the materialized conflicted file."
+                  Required = true } ]
           read "repo_worktrees" "Attached worktrees (git) / workspaces (jj)." []
           read
               "repo_remotes"
@@ -328,6 +335,23 @@ module internal Catalog =
               true
               [ pReference ]
           write "repo_fetch" "Fetch from the default remote (git fetch / jj git fetch)." false true []
+          write
+              "repo_resolve_conflict"
+              "Resolve every conflict region in a materialized file to ours, theirs, base, or a numbered Jujutsu side; Git stages the resolved path."
+              false
+              true
+              [ { Name = "path"
+                  JsonType = "string"
+                  Description = "Repo-relative path of the currently conflicted file."
+                  Required = true }
+                { Name = "side"
+                  JsonType = "string"
+                  Description = "Resolution: ours, theirs, base, or side (Jujutsu only)."
+                  Required = true }
+                { Name = "index"
+                  JsonType = "integer"
+                  Description = "Zero-based Jujutsu side index; required when side is side."
+                  Required = false } ]
           // Non-destructive: fast-forward-only (no `force` param, so a diverged remote is
           // refused rather than overwritten); idempotent: re-pushing an already-up-to-date
           // branch is a no-op.
@@ -784,6 +808,7 @@ module internal Catalog =
         | "repo_current_branch" -> server.RepoCurrentBranch()
         | "repo_tags" -> server.RepoTags()
         | "repo_conflicts" -> server.RepoConflicts()
+        | "repo_conflict_regions" -> bind (reqStr args "path") server.RepoConflictRegions
         | "repo_worktrees" -> server.RepoWorktrees()
         | "repo_remotes" -> server.RepoRemotes()
         | "repo_merge_base" ->
@@ -802,6 +827,10 @@ module internal Catalog =
                 bind (reqStr args "message") (fun message -> server.RepoCommit(paths, message)))
         | "repo_checkout" -> bind (reqStr args "reference") server.RepoCheckout
         | "repo_fetch" -> server.RepoFetch()
+        | "repo_resolve_conflict" ->
+            bind (reqStr args "path") (fun path ->
+                bind (reqStr args "side") (fun side ->
+                    bind (optInt args "index") (fun index -> server.RepoResolveConflict(path, side, index))))
         | "repo_push" -> bind (reqStr args "branch") server.RepoPush
         | "repo_create_worktree" ->
             bind (reqStr args "path") (fun path ->
