@@ -1,6 +1,7 @@
 module VcsToolkit.Mcp.Tests
 
 open System
+open System.IO
 open System.Threading
 open System.Threading.Tasks
 open NUnit.Framework
@@ -70,7 +71,7 @@ type WriteGateTests() =
 
     [<Test>]
     member _.WriteToolsCoversTheGatedTools() =
-        Assert.That(List.length WriteTools.all, Is.EqualTo 34)
+        Assert.That(List.length WriteTools.all, Is.EqualTo 35)
         Assert.That(WriteTools.asSet.Contains "repo_commit", Is.True)
         Assert.That(WriteTools.asSet.Contains "repo_rebase", Is.True, "the new rebase tool is write-gated")
         Assert.That(WriteTools.asSet.Contains "forge_pr_checkout", Is.True, "the local-checkout tool is write-gated")
@@ -1493,6 +1494,30 @@ type RepoOperationStateIntegrationTests() =
             | Error e -> Assert.Fail $"repo_conflicts failed: {e.Message}"
         }
 
+    [<Test>]
+    member _.ConflictRegionsReadAndResolveMaterializedFile() : Task =
+        task {
+            requireGit ()
+            use sandbox = conflictedMerge "mcp-conflict-regions"
+            use server = realServer sandbox.Path
+
+            match! server.RepoConflictRegions("a.txt") with
+            | Ok json ->
+                Assert.That(json, Does.Contain "oursLabel")
+                Assert.That(json, Does.Contain "theirs")
+            | Error e -> Assert.Fail $"repo_conflict_regions failed: {e.Message}"
+
+            match! server.RepoResolveConflict("a.txt", "ours", Option.None) with
+            | Ok json -> Assert.That(json, Does.Contain "\"backend\": \"git\"")
+            | Error e -> Assert.Fail $"repo_resolve_conflict failed: {e.Message}"
+
+            Assert.That(File.ReadAllText(Path.Combine(sandbox.Path, "a.txt")), Is.EqualTo "main change\n")
+
+            match! server.RepoConflicts() with
+            | Ok json -> Assert.That(json, Does.Not.Contain "a.txt")
+            | Error e -> Assert.Fail $"repo_conflicts failed after resolution: {e.Message}"
+        }
+
 // ---------------------------------------------------------------------------
 // Large-content output-budget truncation
 // ---------------------------------------------------------------------------
@@ -1825,7 +1850,7 @@ type CatalogTests() =
     [<Test>]
     member _.CatalogCoversEveryTool() =
         // 16 repo-read + repo_try_merge + 14 repo-write + 12 forge-read + 19 forge-write = 62.
-        Assert.That(List.length Catalog.all, Is.EqualTo 62)
+        Assert.That(List.length Catalog.all, Is.EqualTo 64)
         // Every write-gated tool name appears in the catalogue.
         let names = Catalog.all |> List.map (fun t -> t.Name) |> Set.ofList
         Assert.That(WriteTools.all |> List.forall names.Contains, Is.True, "every write tool is catalogued")
@@ -1842,6 +1867,7 @@ type CatalogTests() =
               "repo_commit", false, false
               "repo_checkout", false, true
               "repo_fetch", false, true
+              "repo_resolve_conflict", false, true
               "repo_push", false, true
               "repo_create_worktree", false, false
               "repo_remove_worktree", true, false

@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git branch, tag, remote-ref, push-refspec, clone-branch, and worktree branch-name slots now reject malformed `RefName` values before spawning while revision and commit-ish inputs retain their permissive Git syntax.
 
 ### Added
+- Structured materialized conflict-region inspection and write-gated resolution through the MCP `repo_conflict_regions` and `repo_resolve_conflict` tools, with backend-specific Git/Jujutsu semantics and path confinement.
 - Progress variants for Git/Jujutsu fetch, push, and clone operations, plus the Core `Repo` facade, forward one process lifecycle and output stream without replaying a partially observed network operation.
 - Explicit two-endpoint `Git.DiffTextBetween`/`DiffBetween` and `Jj.DiffTextBetween`/`DiffBetween` APIs, plus their bound views, compare committed trees in a declared `from` → `to` direction without implicitly including working-copy edits.
 - Typed GitHub Actions workflow discovery through `GitHub.WorkflowList`/`WorkflowListOptions` and `GitHub.WorkflowView`, including disabled workflows, validated limits, and deterministic id/name/filename/path resolution without scraping human-readable CLI output.

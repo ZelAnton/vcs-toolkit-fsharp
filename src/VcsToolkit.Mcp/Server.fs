@@ -1,6 +1,7 @@
 namespace VcsToolkit.Mcp
 
 open System
+open System.IO
 open System.Text
 open System.Threading
 open System.Threading.Tasks
@@ -10,6 +11,241 @@ open VcsToolkit.Forge
 /// Server-internal helpers.
 [<AutoOpen>]
 module internal ServerHelpers =
+
+    type internal MaterializedPath = { Relative: string; Full: string }
+
+    let private invalidPath (message: string) = Error(McpError.InvalidParams message)
+
+    let private isWindows = OperatingSystem.IsWindows()
+
+    let private isReservedDeviceName (part: string) =
+        let stem = part.TrimEnd(' ', '.').Split('.').[0].ToUpperInvariant()
+
+        [ "CON"; "PRN"; "AUX"; "NUL" ] |> List.exists (fun name -> name = stem)
+        || (stem.Length = 4
+            && (stem.StartsWith("COM", StringComparison.Ordinal)
+                || stem.StartsWith("LPT", StringComparison.Ordinal))
+            && Char.IsDigit stem.[3]
+            && stem.[3] <> '0')
+
+    let private hasReparsePoint (path: string) =
+        try
+            if File.Exists path || Directory.Exists path then
+                (File.GetAttributes path).HasFlag FileAttributes.ReparsePoint
+            else
+                false
+        with ex ->
+            raise (IOException(sprintf "could not inspect path %A: %s" path ex.Message))
+
+    /// Resolve a caller path to an existing repo-relative materialized file without accepting
+    /// traversal, rooted paths, Windows device names, or symlink/reparse-point components.
+    let materializedPath (root: string) (path: string) : Result<MaterializedPath, McpError> =
+        if String.IsNullOrWhiteSpace path then
+            invalidPath "path must be a non-empty repository-relative file path"
+        elif path.IndexOf('\u0000') >= 0 then
+            invalidPath "path must not contain NUL"
+        elif Path.IsPathRooted path || path.Contains(':') then
+            invalidPath (sprintf "path %A must be repository-relative" path)
+        else
+            let components = path.Split([| '/'; '\\' |], StringSplitOptions.None)
+
+            if components |> Array.exists (fun c -> c.Length = 0 || c = "." || c = "..") then
+                invalidPath (sprintf "path %A must use normal repository-relative components" path)
+            elif components |> Array.exists isReservedDeviceName then
+                invalidPath (sprintf "path %A contains a reserved device name" path)
+            else
+                try
+                    let rootFull = Path.GetFullPath root
+                    let relative = String.Join(Path.DirectorySeparatorChar, components)
+                    let full = Path.GetFullPath(Path.Combine(rootFull, relative))
+
+                    let comparison =
+                        if isWindows then
+                            StringComparison.OrdinalIgnoreCase
+                        else
+                            StringComparison.Ordinal
+
+                    let prefix =
+                        rootFull.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                        + string Path.DirectorySeparatorChar
+
+                    if not (full.StartsWith(prefix, comparison)) then
+                        invalidPath (sprintf "path %A escapes the repository root" path)
+                    elif hasReparsePoint rootFull then
+                        invalidPath "repository root must not be a symlink or reparse point"
+                    else
+                        let mutable current = rootFull
+                        let mutable unsafeComponent: string option = None
+
+                        for part in components do
+                            if unsafeComponent.IsNone then
+                                current <- Path.Combine(current, part)
+
+                                if hasReparsePoint current then
+                                    unsafeComponent <- Some part
+
+                        match unsafeComponent with
+                        | Some part -> invalidPath (sprintf "path component %A is a symlink or reparse point" part)
+                        | None ->
+                            Ok
+                                { Relative = String.Join('/', components)
+                                  Full = full }
+                with
+                | :? IOException as ex -> Error(McpError.Internal ex.Message)
+                | :? UnauthorizedAccessException as ex -> Error(McpError.Internal ex.Message)
+                | :? ArgumentException as ex -> invalidPath ex.Message
+
+    let readMaterialized (outputBudget: int option) (file: MaterializedPath) : Result<string, McpError> =
+        try
+            let bytes = File.ReadAllBytes file.Full
+
+            match outputBudget with
+            | Some budget when budget > 0 && bytes.LongLength > int64 budget ->
+                Error(
+                    McpError.InvalidParams(
+                        sprintf
+                            "materialized conflict file %A is %d bytes, above the %d-byte output budget"
+                            file.Relative
+                            bytes.LongLength
+                            budget
+                    )
+                )
+            | _ -> Ok((UTF8Encoding(false, true)).GetString bytes)
+        with ex ->
+            // Reading the materialized file is a local filesystem operation; expose its precise
+            // failure instead of silently returning an incomplete conflict document.
+            Error(
+                McpError.Internal(sprintf "could not read materialized conflict file %A: %s" file.Relative ex.Message)
+            )
+
+    let writeMaterialized (file: MaterializedPath) (content: string) : Result<unit, McpError> =
+        try
+            File.WriteAllBytes(file.Full, (UTF8Encoding(false)).GetBytes content)
+            Ok()
+        with ex ->
+            // The write is deliberately performed after all backend and resolution validation;
+            // report an I/O failure rather than claiming that the conflict was resolved.
+            Error(
+                McpError.Internal(sprintf "could not write materialized conflict file %A: %s" file.Relative ex.Message)
+            )
+
+    let private normalizedRepoPath (path: string) = path.Replace('\\', '/')
+
+    let isConflictedPath (relative: string) (conflicted: string list) =
+        let expected = normalizedRepoPath relative
+        conflicted |> List.exists (fun path -> normalizedRepoPath path = expected)
+
+    let gitRegions content =
+        match VcsToolkit.Git.Conflict.parseConflicts content with
+        | Error e -> Error(McpError.Internal(sprintf "could not parse Git conflict markers: %s" e.Message))
+        | Ok segments ->
+            let regions =
+                segments
+                |> List.choose (function
+                    | VcsToolkit.Git.ConflictSegment.Conflict region ->
+                        Some(
+                            {| oursLabel = region.OursLabel
+                               baseLabel = region.BaseLabel
+                               theirsLabel = region.TheirsLabel
+                               ours = region.Ours
+                               baseLines = region.Base
+                               theirs = region.Theirs
+                               markerLen = region.MarkerLen |}
+                        )
+                    | VcsToolkit.Git.ConflictSegment.Text _ -> None)
+
+            Ok(segments, regions)
+
+    let jjRegions content =
+        match VcsToolkit.Jj.Conflict.parseConflicts content with
+        | Error e -> Error(McpError.Internal(sprintf "could not parse Jujutsu conflict markers: %s" e.Message))
+        | Ok segments ->
+            let regions =
+                segments
+                |> List.choose (function
+                    | VcsToolkit.Jj.JjConflictSegment.Conflict region ->
+                        let sections =
+                            region.Sections
+                            |> List.map (function
+                                | VcsToolkit.Jj.JjConflictSection.Diff(fromLabel, toLabel, lines) ->
+                                    {| kind = "diff"
+                                       fromLabel = Some fromLabel
+                                       toLabel = Some toLabel
+                                       label = Option.None
+                                       lines = lines |}
+                                | VcsToolkit.Jj.JjConflictSection.Snapshot(label, lines) ->
+                                    {| kind = "snapshot"
+                                       fromLabel = Option.None
+                                       toLabel = Option.None
+                                       label = Some label
+                                       lines = lines |}
+                                | VcsToolkit.Jj.JjConflictSection.Base(label, lines) ->
+                                    {| kind = "base"
+                                       fromLabel = Option.None
+                                       toLabel = Option.None
+                                       label = Some label
+                                       lines = lines |})
+
+                        Some(
+                            {| number = region.Number
+                               total = region.Total
+                               sections = sections
+                               sides = region.Sides()
+                               baseLines = region.Base() |}
+                        )
+                    | VcsToolkit.Jj.JjConflictSegment.Text _ -> None)
+
+            Ok(segments, regions)
+
+    let gitResolution (side: string) (index: int option) : Result<VcsToolkit.Git.ResolutionSide, McpError> =
+        match index with
+        | Some _ -> invalidPath "index is only valid with side=side on Jujutsu"
+        | None ->
+            match side.ToLowerInvariant() with
+            | "ours" -> Ok VcsToolkit.Git.ResolutionSide.Ours
+            | "theirs" -> Ok VcsToolkit.Git.ResolutionSide.Theirs
+            | "base" -> Ok VcsToolkit.Git.ResolutionSide.Base
+            | "side" -> invalidPath "side=side is only supported by Jujutsu"
+            | other -> invalidPath (sprintf "unknown conflict side %A (expected ours, theirs, or base)" other)
+
+    let jjResolution
+        (segments: VcsToolkit.Jj.JjConflictSegment list)
+        (side: string)
+        (index: int option)
+        : Result<VcsToolkit.Jj.JjResolution, McpError> =
+        let regions =
+            segments
+            |> List.choose (function
+                | VcsToolkit.Jj.JjConflictSegment.Conflict region -> Some region
+                | VcsToolkit.Jj.JjConflictSegment.Text _ -> None)
+
+        let rejectIndex () =
+            match index with
+            | Some _ -> invalidPath "index is only valid with side=side on Jujutsu"
+            | None -> Ok()
+
+        match side.ToLowerInvariant() with
+        | "ours" ->
+            match rejectIndex () with
+            | Error e -> Error e
+            | Ok() -> Ok(VcsToolkit.Jj.JjResolution.Side 0)
+        | "theirs" ->
+            match rejectIndex () with
+            | Error e -> Error e
+            | Ok() when regions |> List.forall (fun region -> region.Sides().Length = 2) ->
+                Ok(VcsToolkit.Jj.JjResolution.Side 1)
+            | Ok() -> invalidPath "side=theirs requires every Jujutsu conflict to have exactly two sides"
+        | "base" ->
+            match rejectIndex () with
+            | Error e -> Error e
+            | Ok() -> Ok VcsToolkit.Jj.JjResolution.Base
+        | "side" ->
+            match index with
+            | Some i when i >= 0 && regions |> List.forall (fun region -> i < region.Sides().Length) ->
+                Ok(VcsToolkit.Jj.JjResolution.Side i)
+            | Some i -> invalidPath (sprintf "conflict side index %d is not present in every region" i)
+            | None -> invalidPath "side=side requires a non-negative integer index"
+        | other -> invalidPath (sprintf "unknown conflict side %A (expected ours, theirs, base, or side)" other)
 
     /// Parse the `forge_pr_merge` strategy argument (`merge`/`squash`/`rebase`).
     let parseStrategy (s: string) : Result<MergeStrategy, McpError> =
@@ -367,6 +603,107 @@ type VcsMcpServer
     /// Paths with unresolved merge conflicts.
     member this.RepoConflicts() =
         this.ReadRepo(fun () -> repo.ConflictedFiles())
+
+    /// Parse structured conflict regions from the materialized working-copy file. The file is
+    /// read directly because Git's markers are not present in `show` output; the same path also
+    /// gives Jujutsu's native materialization and keeps the response bounded before parsing.
+    member _.RepoConflictRegions(path: string) : Task<Result<string, McpError>> =
+        task {
+            match materializedPath repo.Root path with
+            | Error e -> return Error e
+            | Ok file ->
+                match readMaterialized outputBudget file with
+                | Error e -> return Error e
+                | Ok content ->
+                    match repo.Kind with
+                    | BackendKind.Git ->
+                        match gitRegions content with
+                        | Error e -> return Error e
+                        | Ok(_, regions) ->
+                            return
+                                Ok(
+                                    Json.ok
+                                        {| path = file.Relative
+                                           backend = "git"
+                                           regions = regions |}
+                                )
+                    | BackendKind.Jj ->
+                        match jjRegions content with
+                        | Error e -> return Error e
+                        | Ok(_, regions) ->
+                            return
+                                Ok(
+                                    Json.ok
+                                        {| path = file.Relative
+                                           backend = "jj"
+                                           regions = regions |}
+                                )
+        }
+
+    /// Resolve every region in a materialized conflict file and, for Git, stage the resolved
+    /// path. The conflict list is checked first so a clean or unrelated path cannot be written.
+    member this.RepoResolveConflict(path: string, side: string, index: int option) : Task<Result<string, McpError>> =
+        this.WithRepoWrite "repo_resolve_conflict" (fun () ->
+            task {
+                match materializedPath repo.Root path with
+                | Error e -> return Error e
+                | Ok file ->
+                    match! repo.ConflictedFiles() with
+                    | Error e -> return Error(coreErr e)
+                    | Ok conflicted when not (isConflictedPath file.Relative conflicted) ->
+                        return
+                            Error(McpError.InvalidParams(sprintf "path %A is not currently conflicted" file.Relative))
+                    | Ok _ ->
+                        match readMaterialized outputBudget file with
+                        | Error e -> return Error e
+                        | Ok content ->
+                            match repo.Kind with
+                            | BackendKind.Git ->
+                                match gitRegions content, gitResolution side index with
+                                | Ok(segments, _), Ok resolution ->
+                                    match VcsToolkit.Git.Conflict.resolve segments resolution with
+                                    | Error e -> return Error(McpError.InvalidParams e.Message)
+                                    | Ok resolved ->
+                                        match writeMaterialized file resolved with
+                                        | Error e -> return Error e
+                                        | Ok() ->
+                                            match repo.Git with
+                                            | None ->
+                                                return Error(McpError.Internal "Git backend handle is unavailable")
+                                            | Some git ->
+                                                match! git.Run(repo.Root, [ "add"; "--"; file.Relative ]) with
+                                                | Error e -> return Error(McpError.Internal e.Message)
+                                                | Ok _ ->
+                                                    return
+                                                        Ok(
+                                                            Json.ok
+                                                                {| path = file.Relative
+                                                                   backend = "git"
+                                                                   side = side |}
+                                                        )
+                                | Error e, _
+                                | _, Error e -> return Error e
+                            | BackendKind.Jj ->
+                                match jjRegions content with
+                                | Error e -> return Error e
+                                | Ok(segments, _) ->
+                                    match jjResolution segments side index with
+                                    | Error e -> return Error e
+                                    | Ok resolution ->
+                                        match VcsToolkit.Jj.Conflict.resolve segments resolution with
+                                        | Error e -> return Error(McpError.InvalidParams e.Message)
+                                        | Ok resolved ->
+                                            match writeMaterialized file resolved with
+                                            | Error e -> return Error e
+                                            | Ok() ->
+                                                return
+                                                    Ok(
+                                                        Json.ok
+                                                            {| path = file.Relative
+                                                               backend = "jj"
+                                                               side = side |}
+                                                    )
+            })
 
     /// Attached worktrees (git) / workspaces (jj).
     member this.RepoWorktrees() =

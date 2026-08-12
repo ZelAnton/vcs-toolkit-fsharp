@@ -19,6 +19,7 @@ module WriteTools =
           "repo_commit"
           "repo_checkout"
           "repo_fetch"
+          "repo_resolve_conflict"
           "repo_push"
           "repo_create_worktree"
           "repo_remove_worktree"

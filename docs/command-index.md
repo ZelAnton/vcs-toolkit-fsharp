@@ -519,6 +519,9 @@ so dropping to a wrapper-level method (any row above) never needs an extra depen
   `Jj.GitClone` under a unified `CloneOptions` (`CloneKind.Git`/`JjColocated`/
   `JjNonColocated`). `Repo.FetchWithProgress` and `Repo.PushWithProgress` forward the selected
   backend's single process lifecycle and output stream without replay.
+- The MCP-only `repo_conflict_regions` / `repo_resolve_conflict` tools read and resolve
+  materialized working-copy conflict markers through the typed Git/Jujutsu conflict parsers;
+  they are path-confined and budget-bounded, and Git resolution stages the file.
 - **`VcsToolkit.Forge`** (`src/VcsToolkit.Forge/Forge.fs`) — `Forge.GitHubClient` /
   `Forge.GitLabClient` / `Forge.GiteaClient` (`Some` only for the handle's own backend), or the
   wrapper client's own `Api`/`Run` for anything beyond that. Its portable

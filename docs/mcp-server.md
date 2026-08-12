@@ -355,6 +355,7 @@ tool additionally requires `--allow-write`, or `--allow-tools` naming it.
 | `repo_current_branch` | The current branch/bookmark (null when detached/unset). | — |
 | `repo_tags` | Git tag names, sorted by git's default ordering. Unsupported on jj before any command is spawned. | — |
 | `repo_conflicts` | Paths with unresolved merge conflicts (repo-relative, `/`-separated). | — |
+| `repo_conflict_regions` | Structured regions from the materialized working-copy file, including each side/base and Git marker metadata or Jujutsu sections. The file is refused when it exceeds `--output-budget`; it is never truncated into a partial parse. | `path` (string, required) |
 | `repo_worktrees` | Attached worktrees (git) / workspaces (jj). | — |
 | `repo_remotes` | Configured remotes (name and URL): git remotes are deduplicated to one entry carrying the fetch URL; jj uses `jj git remote list`. | — |
 | `repo_merge_base` | The full commit id of a best common ancestor of `a` and `b`, or null when the histories are disconnected. Inputs are backend-specific revision expressions (git commit-ish values or jj revsets); jj excludes its all-zero virtual root. | `a` (string, required), `b` (string, required) |
@@ -383,6 +384,7 @@ it is safe to retry or clean up manually.
 | Tool | Purpose | Arguments | Destructive | Idempotent |
 |---|---|---|---|---|
 | `repo_try_merge` | Probe whether merging `source` into the current work would conflict, without leaving a trace when the rollback succeeds (see the rollback-failure caveat above). | `source` (string, required) | no | yes (assumes rollback succeeded — see caveat above) |
+| `repo_resolve_conflict` | Resolve every region in a materialized file to `ours`, `theirs`, `base`, or a numbered Jujutsu `side`; Git stages the resolved path. | `path` (string, required), `side` (string, required), `index` (integer, optional for Jujutsu `side`) | no | yes |
 | `repo_commit` | Commit exactly the given paths with a message. | `paths` (array of strings, required), `message` (string, required) | no | no |
 | `repo_checkout` | Switch the working copy to a branch/bookmark/revision (git checkout / jj edit). | `reference` (string, required) | no | yes |
 | `repo_fetch` | Fetch from the default remote (git fetch / jj git fetch). | — | no | yes |
@@ -453,6 +455,12 @@ arbitrarily large output (a full file, a full per-line annotation, a full workin
 full pull-request diff, or a full path listing). All five are subject to
 `--output-budget` (default 200000 bytes; `0` disables it), but plain text and JSON arrays use
 different truncation policies. Content within the budget passes through unchanged.
+
+`repo_conflict_regions` uses the same budget as a refusal ceiling: a materialized conflict file
+above the ceiling fails before parsing, because a partial file cannot be safely interpreted. The
+path must be a normal repository-relative path with no traversal or symlink/reparse-point
+component. `repo_resolve_conflict` additionally requires that the backend still reports the path
+as conflicted while holding the repository write lock.
 
 **Structured JSON and validity.** `repo_show_file` returns plain text, so it continues to
 truncate the raw file content at a full UTF-8 character boundary and append a
