@@ -19,6 +19,12 @@ open VcsToolkit.Diff
 [<Sealed>]
 type GitHub private (core: ManagedClient) =
 
+    static let validateLabels (operation: string) (labels: string list) : Result<unit, ProcessError> =
+        if List.isEmpty labels || labels |> List.exists String.IsNullOrWhiteSpace then
+            Error(ProcessError.Spawn(BINARY, sprintf "%s requires at least one non-empty label" operation))
+        else
+            Ok()
+
     static let validateWorkflowInputKey (key: string) : Result<unit, ProcessError> =
         if String.IsNullOrEmpty key || key.IndexOf('=') >= 0 || key.IndexOf(char 0) >= 0 then
             Error(ProcessError.Spawn(BINARY, "workflow input key must be non-empty and contain neither '=' nor NUL"))
@@ -312,16 +318,29 @@ type GitHub private (core: ManagedClient) =
 
     /// Open a pull request, returning its URL (`gh pr create`). See `PrCreate`.
     member _.PrCreate(dir: string, spec: PrCreate) =
-        let args =
-            [ "pr"; "create"; "--title"; spec.Title; "--body"; spec.Body ]
-            @ (match spec.Head with
-               | Some h -> [ "--head"; h ]
-               | None -> [])
-            @ (match spec.Base with
-               | Some b -> [ "--base"; b ]
-               | None -> [])
+        task {
+            let labelCheck =
+                if List.isEmpty spec.Labels then
+                    Ok()
+                else
+                    validateLabels "pr create" spec.Labels
 
-        core.Run(core.CommandIn(dir, args))
+            match labelCheck with
+            | Error e -> return Error e
+            | Ok() ->
+                let args =
+                    [ "pr"; "create"; "--title"; spec.Title; "--body"; spec.Body ]
+                    @ (match spec.Head with
+                       | Some h -> [ "--head"; h ]
+                       | None -> [])
+                    @ (match spec.Base with
+                       | Some b -> [ "--base"; b ]
+                       | None -> [])
+                    @ (spec.Labels |> List.collect (fun label -> [ "--label"; label ]))
+
+                return! core.Run(core.CommandIn(dir, args))
+
+        }
 
     // --- PR lifecycle --------------------------------------------------------
 
@@ -417,6 +436,32 @@ type GitHub private (core: ManagedClient) =
                     @ (match edit.Body with
                        | Some b -> [ "--body"; b ]
                        | None -> [])
+
+                return! core.RunUnit(core.CommandIn(dir, args))
+        }
+
+    /// Add labels to an existing pull request (`gh pr edit <n> --add-label <name>`).
+    member _.PrAddLabels(dir: string, number: uint64, labels: string list) =
+        task {
+            match validateLabels "pr add labels" labels with
+            | Error e -> return Error e
+            | Ok() ->
+                let args =
+                    [ "pr"; "edit"; string number ]
+                    @ (labels |> List.collect (fun label -> [ "--add-label"; label ]))
+
+                return! core.RunUnit(core.CommandIn(dir, args))
+        }
+
+    /// Remove labels from an existing pull request (`gh pr edit <n> --remove-label <name>`).
+    member _.PrRemoveLabels(dir: string, number: uint64, labels: string list) =
+        task {
+            match validateLabels "pr remove labels" labels with
+            | Error e -> return Error e
+            | Ok() ->
+                let args =
+                    [ "pr"; "edit"; string number ]
+                    @ (labels |> List.collect (fun label -> [ "--remove-label"; label ]))
 
                 return! core.RunUnit(core.CommandIn(dir, args))
         }
@@ -540,8 +585,27 @@ type GitHub private (core: ManagedClient) =
     // --- Issues / releases ---------------------------------------------------
 
     /// Open an issue, returning its URL (`gh issue create --title <title> --body <body>`).
-    member _.IssueCreate(dir: string, title: string, body: string) =
-        core.Run(core.CommandIn(dir, [ "issue"; "create"; "--title"; title; "--body"; body ]))
+    member this.IssueCreate(dir: string, title: string, body: string) =
+        this.IssueCreate(dir, IssueCreate.Create(title, body))
+
+    /// Open an issue with optional labels (`gh issue create --label …`).
+    member _.IssueCreate(dir: string, spec: IssueCreate) =
+        task {
+            let labelCheck =
+                if List.isEmpty spec.Labels then
+                    Ok()
+                else
+                    validateLabels "issue create" spec.Labels
+
+            match labelCheck with
+            | Error e -> return Error e
+            | Ok() ->
+                let args =
+                    [ "issue"; "create"; "--title"; spec.Title; "--body"; spec.Body ]
+                    @ (spec.Labels |> List.collect (fun label -> [ "--label"; label ]))
+
+                return! core.Run(core.CommandIn(dir, args))
+        }
 
     /// A single issue by number, with `Body`/`Url` filled (`gh issue view <n> --json …`).
     member _.IssueView(dir: string, number: uint64) =
@@ -582,6 +646,32 @@ type GitHub private (core: ManagedClient) =
                     @ (match body with
                        | Some b -> [ "--body"; b ]
                        | None -> [])
+
+                return! core.RunUnit(core.CommandIn(dir, args))
+        }
+
+    /// Add labels to an existing issue (`gh issue edit <n> --add-label <name>`).
+    member _.IssueAddLabels(dir: string, number: uint64, labels: string list) =
+        task {
+            match validateLabels "issue add labels" labels with
+            | Error e -> return Error e
+            | Ok() ->
+                let args =
+                    [ "issue"; "edit"; string number ]
+                    @ (labels |> List.collect (fun label -> [ "--add-label"; label ]))
+
+                return! core.RunUnit(core.CommandIn(dir, args))
+        }
+
+    /// Remove labels from an existing issue (`gh issue edit <n> --remove-label <name>`).
+    member _.IssueRemoveLabels(dir: string, number: uint64, labels: string list) =
+        task {
+            match validateLabels "issue remove labels" labels with
+            | Error e -> return Error e
+            | Ok() ->
+                let args =
+                    [ "issue"; "edit"; string number ]
+                    @ (labels |> List.collect (fun label -> [ "--remove-label"; label ]))
 
                 return! core.RunUnit(core.CommandIn(dir, args))
         }
@@ -739,6 +829,13 @@ and [<Sealed>] GitHubAt internal (github: GitHub, dir: string) =
     /// Edit a pull request's title and/or body (`gh pr edit <n> …`).
     member _.PrEdit(number: uint64, edit: PrEdit) = github.PrEdit(dir, number, edit)
 
+    /// Add labels to an existing pull request (`gh pr edit <n> --add-label …`).
+    member _.PrAddLabels(number: uint64, labels: string list) = github.PrAddLabels(dir, number, labels)
+
+    /// Remove labels from an existing pull request (`gh pr edit <n> --remove-label …`).
+    member _.PrRemoveLabels(number: uint64, labels: string list) =
+        github.PrRemoveLabels(dir, number, labels)
+
     /// The PR's submitted reviews and conversation comments (`gh pr view <n> …`).
     member _.PrFeedback(number: uint64) = github.PrFeedback(dir, number)
 
@@ -763,6 +860,9 @@ and [<Sealed>] GitHubAt internal (github: GitHub, dir: string) =
     /// Open an issue, returning its URL (`gh issue create …`).
     member _.IssueCreate(title: string, body: string) = github.IssueCreate(dir, title, body)
 
+    /// Open an issue with optional labels (`gh issue create --label …`).
+    member _.IssueCreate(spec: IssueCreate) = github.IssueCreate(dir, spec)
+
     /// A single issue by number (`gh issue view <n> --json …`).
     member _.IssueView(number: uint64) = github.IssueView(dir, number)
 
@@ -778,6 +878,14 @@ and [<Sealed>] GitHubAt internal (github: GitHub, dir: string) =
     /// Edit an issue's title and/or body (`gh issue edit <n> …`).
     member _.IssueEdit(number: uint64, title: string option, body: string option) =
         github.IssueEdit(dir, number, title, body)
+
+    /// Add labels to an existing issue (`gh issue edit <n> --add-label …`).
+    member _.IssueAddLabels(number: uint64, labels: string list) =
+        github.IssueAddLabels(dir, number, labels)
+
+    /// Remove labels from an existing issue (`gh issue edit <n> --remove-label …`).
+    member _.IssueRemoveLabels(number: uint64, labels: string list) =
+        github.IssueRemoveLabels(dir, number, labels)
 
     /// Releases, newest first (`gh release list …`).
     member _.ReleaseList() = github.ReleaseList dir

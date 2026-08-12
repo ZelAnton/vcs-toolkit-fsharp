@@ -224,8 +224,21 @@ module internal GitHubForge =
                     match spec.Target with
                     | Some t -> c.WithBase t
                     | None -> c
+                |> fun c -> c.WithLabels spec.Labels
 
             let! r = gh.PrCreate(dir, create)
+            return ofForge r
+        }
+
+    let prAddLabels (gh: VcsToolkit.GitHub.GitHub) (dir: string) (number: uint64) (labels: string list) =
+        task {
+            let! r = gh.PrAddLabels(dir, number, labels)
+            return ofForge r
+        }
+
+    let prRemoveLabels (gh: VcsToolkit.GitHub.GitHub) (dir: string) (number: uint64) (labels: string list) =
+        task {
+            let! r = gh.PrRemoveLabels(dir, number, labels)
             return ofForge r
         }
 
@@ -338,9 +351,24 @@ module internal GitHubForge =
             | Ok issue -> return Ok(mapIssue issue)
         }
 
-    let issueCreate (gh: VcsToolkit.GitHub.GitHub) (dir: string) (title: string) (body: string) =
+    let issueCreate (gh: VcsToolkit.GitHub.GitHub) (dir: string) (spec: IssueCreate) =
         task {
-            let! r = gh.IssueCreate(dir, title, body)
+            let create =
+                VcsToolkit.GitHub.IssueCreate.Create(spec.Title, spec.Body).WithLabels spec.Labels
+
+            let! r = gh.IssueCreate(dir, create)
+            return ofForge r
+        }
+
+    let issueAddLabels (gh: VcsToolkit.GitHub.GitHub) (dir: string) (number: uint64) (labels: string list) =
+        task {
+            let! r = gh.IssueAddLabels(dir, number, labels)
+            return ofForge r
+        }
+
+    let issueRemoveLabels (gh: VcsToolkit.GitHub.GitHub) (dir: string) (number: uint64) (labels: string list) =
+        task {
+            let! r = gh.IssueRemoveLabels(dir, number, labels)
             return ofForge r
         }
 

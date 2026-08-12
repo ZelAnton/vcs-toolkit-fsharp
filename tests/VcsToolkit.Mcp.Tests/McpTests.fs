@@ -70,7 +70,7 @@ type WriteGateTests() =
 
     [<Test>]
     member _.WriteToolsCoversTheGatedTools() =
-        Assert.That(List.length WriteTools.all, Is.EqualTo 30)
+        Assert.That(List.length WriteTools.all, Is.EqualTo 34)
         Assert.That(WriteTools.asSet.Contains "repo_commit", Is.True)
         Assert.That(WriteTools.asSet.Contains "repo_rebase", Is.True, "the new rebase tool is write-gated")
         Assert.That(WriteTools.asSet.Contains "forge_pr_checkout", Is.True, "the local-checkout tool is write-gated")
@@ -87,6 +87,16 @@ type WriteGateTests() =
         )
 
         Assert.That(WriteTools.asSet.Contains "forge_issue_edit", Is.True, "the issue-edit tool is write-gated")
+        Assert.That(WriteTools.asSet.Contains "forge_issue_add_labels", Is.True, "issue label addition is write-gated")
+
+        Assert.That(
+            WriteTools.asSet.Contains "forge_issue_remove_labels",
+            Is.True,
+            "issue label removal is write-gated"
+        )
+
+        Assert.That(WriteTools.asSet.Contains "forge_pr_add_labels", Is.True, "PR label addition is write-gated")
+        Assert.That(WriteTools.asSet.Contains "forge_pr_remove_labels", Is.True, "PR label removal is write-gated")
 
         Assert.That(WriteTools.asSet.Contains "repo_status", Is.False, "a read tool is not a write tool")
 
@@ -1814,8 +1824,8 @@ type CatalogTests() =
 
     [<Test>]
     member _.CatalogCoversEveryTool() =
-        // 16 repo-read + repo_try_merge + 14 repo-write + 12 forge-read + 15 forge-write = 58.
-        Assert.That(List.length Catalog.all, Is.EqualTo 58)
+        // 16 repo-read + repo_try_merge + 14 repo-write + 12 forge-read + 19 forge-write = 62.
+        Assert.That(List.length Catalog.all, Is.EqualTo 62)
         // Every write-gated tool name appears in the catalogue.
         let names = Catalog.all |> List.map (fun t -> t.Name) |> Set.ofList
         Assert.That(WriteTools.all |> List.forall names.Contains, Is.True, "every write tool is catalogued")
@@ -1848,6 +1858,8 @@ type CatalogTests() =
               "forge_issue_reopen", false, true
               "forge_issue_comment", false, false
               "forge_issue_edit", false, true
+              "forge_issue_add_labels", false, true
+              "forge_issue_remove_labels", false, true
               "forge_pr_create", false, false
               "forge_pr_merge", true, false
               "forge_pr_close", true, true
@@ -1856,6 +1868,8 @@ type CatalogTests() =
               "forge_pr_edit", false, true
               "forge_pr_checkout", false, true
               "forge_pr_review", false, false
+              "forge_pr_add_labels", false, true
+              "forge_pr_remove_labels", false, true
               "forge_release_create", false, false
               "forge_release_delete", true, false ]
 

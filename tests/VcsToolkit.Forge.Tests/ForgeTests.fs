@@ -256,7 +256,7 @@ type ForgeKindTests() =
 
     [<Test>]
     member _.ForgeOpAllEnumeratesTheVaryingOps() =
-        Assert.That(ForgeOp.All.Length, Is.EqualTo 9)
+        Assert.That(ForgeOp.All.Length, Is.EqualTo 11)
         Assert.That(List.contains ForgeOp.PrChecks ForgeOp.All, Is.True)
         Assert.That(List.contains ForgeOp.PrDiff ForgeOp.All, Is.True)
         Assert.That(List.contains ForgeOp.IssueReopen ForgeOp.All, Is.True)
@@ -349,6 +349,8 @@ type DispatchTests() =
         Assert.That(gh.Supports ForgeOp.PrDiff, Is.True)
         Assert.That(gh.Supports ForgeOp.PrEdit, Is.True)
         Assert.That(gh.Supports ForgeOp.IssueEdit, Is.True)
+        Assert.That(gh.Supports ForgeOp.PrLabels, Is.True)
+        Assert.That(gh.Supports ForgeOp.IssueLabels, Is.True)
         Assert.That(gh.Cwd, Is.EqualTo(Directory.GetCurrentDirectory()))
 
         let gl = glForge [ "mr"; "list" ] (Reply.Ok "[]")
@@ -356,6 +358,8 @@ type DispatchTests() =
         Assert.That(gl.Supports ForgeOp.PrDiff, Is.True)
         Assert.That(gl.Supports ForgeOp.PrEdit, Is.True)
         Assert.That(gl.Supports ForgeOp.IssueEdit, Is.True)
+        Assert.That(gl.Supports ForgeOp.PrLabels, Is.True)
+        Assert.That(gl.Supports ForgeOp.IssueLabels, Is.True)
 
         let tea = teaForge [ "pr"; "list" ] (Reply.Ok "[]")
         // Gitea supports NONE of the varying ops.
@@ -367,6 +371,8 @@ type DispatchTests() =
         Assert.That(tea.Supports ForgeOp.ReleaseDelete, Is.False)
         Assert.That(tea.Supports ForgeOp.PrEdit, Is.False)
         Assert.That(tea.Supports ForgeOp.IssueEdit, Is.False)
+        Assert.That(tea.Supports ForgeOp.PrLabels, Is.False)
+        Assert.That(tea.Supports ForgeOp.IssueLabels, Is.False)
 
     [<Test>]
     member _.SupportsReviewMergeOptionsAndCloseReflectTheBackend() =

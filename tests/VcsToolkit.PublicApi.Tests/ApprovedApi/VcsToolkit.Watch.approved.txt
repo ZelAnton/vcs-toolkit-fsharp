@@ -186,7 +186,6 @@ namespace VcsToolkit.Watch
     {
         public WatcherTerminated() { }
         public WatcherTerminated(VcsToolkit.Watch.WatchError error) { }
-        protected WatcherTerminated(System.Runtime.Serialization.SerializationInfo info, System.Runtime.Serialization.StreamingContext context) { }
         public override string Message { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
         public VcsToolkit.Watch.WatchError error { get; }

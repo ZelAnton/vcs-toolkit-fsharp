@@ -1166,3 +1166,37 @@ type ObserverWiringTests() =
             Assert.That(events.Count, Is.EqualTo 1, "the observer is threaded through the Gitea client")
             Assert.That(events[0].Program, Is.EqualTo "tea")
         }
+
+[<TestFixture>]
+type LabelOperationTests() =
+
+    [<Test>]
+    member _.CreateLabelsUseTeaCommaSeparatedFlag() : Task =
+        task {
+            let tea, args = capturing (Reply.Ok "Created issue #1\n")
+            let spec = IssueCreate.Create("title", "body").WithLabels [ "bug"; "help wanted" ]
+
+            match! tea.IssueCreate(".", spec) with
+            | Ok _ ->
+                assertArgs
+                    [ "issues"
+                      "create"
+                      "--title"
+                      "title"
+                      "--description"
+                      "body"
+                      "--labels"
+                      "bug,help wanted" ]
+                    args
+            | Error e -> Assert.Fail $"labelled issue create failed: {e}"
+        }
+
+    [<Test>]
+    member _.ExistingLabelMutationsAreUnsupportedWithoutSpawning() : Task =
+        task {
+            let tea = Gitea.WithRunner(ScriptedRunner())
+
+            match! tea.PrAddLabels(".", 1UL, [ "bug" ]) with
+            | Error e -> Assert.That(e.Message, Does.Contain "label mutation")
+            | Ok() -> Assert.Fail "tea label mutation must be unsupported"
+        }

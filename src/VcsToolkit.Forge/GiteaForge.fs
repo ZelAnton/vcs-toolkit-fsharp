@@ -222,10 +222,17 @@ module internal GiteaForge =
                     match spec.Target with
                     | Some t -> c.WithBase t
                     | None -> c
+                |> fun c -> c.WithLabels spec.Labels
 
             let! r = tea.PrCreate(dir, create)
             return ofForge r
         }
+
+    let prAddLabels (_tea: VcsToolkit.Gitea.Gitea) (_dir: string) (number: uint64) (_labels: string list) =
+        task { return Error(ForgeError.Unsupported(ForgeKind.Gitea, sprintf "prAddLabels #%d" number)) }
+
+    let prRemoveLabels (_tea: VcsToolkit.Gitea.Gitea) (_dir: string) (number: uint64) (_labels: string list) =
+        task { return Error(ForgeError.Unsupported(ForgeKind.Gitea, sprintf "prRemoveLabels #%d" number)) }
 
     let prComment (tea: VcsToolkit.Gitea.Gitea) (dir: string) (number: uint64) (body: string) =
         task {
@@ -329,11 +336,20 @@ module internal GiteaForge =
             | Ok issue -> return Ok(mapIssue issue)
         }
 
-    let issueCreate (tea: VcsToolkit.Gitea.Gitea) (dir: string) (title: string) (body: string) =
+    let issueCreate (tea: VcsToolkit.Gitea.Gitea) (dir: string) (spec: IssueCreate) =
         task {
-            let! r = tea.IssueCreate(dir, title, body)
+            let create =
+                VcsToolkit.Gitea.IssueCreate.Create(spec.Title, spec.Body).WithLabels spec.Labels
+
+            let! r = tea.IssueCreate(dir, create)
             return ofForge r
         }
+
+    let issueAddLabels (_tea: VcsToolkit.Gitea.Gitea) (_dir: string) (number: uint64) (_labels: string list) =
+        task { return Error(ForgeError.Unsupported(ForgeKind.Gitea, sprintf "issueAddLabels #%d" number)) }
+
+    let issueRemoveLabels (_tea: VcsToolkit.Gitea.Gitea) (_dir: string) (number: uint64) (_labels: string list) =
+        task { return Error(ForgeError.Unsupported(ForgeKind.Gitea, sprintf "issueRemoveLabels #%d" number)) }
 
     let issueClose (tea: VcsToolkit.Gitea.Gitea) (dir: string) (number: uint64) =
         task {

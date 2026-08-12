@@ -350,6 +350,8 @@ type PrCreate =
         Head: string option
         /// The target branch (`--base`); `None` = the repo default.
         Base: string option
+        /// Labels to apply (`--label` repeated); an empty list leaves labels unset.
+        Labels: string list
     }
 
     /// A PR with the given title and body, opened from the current branch into the
@@ -358,13 +360,37 @@ type PrCreate =
         { Title = title
           Body = body
           Head = None
-          Base = None }
+          Base = None
+          Labels = [] }
 
     /// Set the source branch (`--head`).
     member this.WithHead(head: string) = { this with Head = Some head }
 
     /// Set the target branch (`--base`).
     member this.WithBase(baseBranch: string) = { this with Base = Some baseBranch }
+
+    /// Apply labels when opening the pull request.
+    member this.WithLabels(labels: string list) = { this with Labels = labels }
+
+/// Options for `issue create`. Build it through `IssueCreate.Create` and `WithLabels`.
+type IssueCreate =
+    {
+        /// The issue title (`--title`).
+        Title: string
+        /// The issue body (`--body`).
+        Body: string
+        /// Labels to apply (`--label` repeated); an empty list leaves labels unset.
+        Labels: string list
+    }
+
+    /// An issue without labels.
+    static member Create(title: string, body: string) =
+        { Title = title
+          Body = body
+          Labels = [] }
+
+    /// Apply labels when opening the issue.
+    member this.WithLabels(labels: string list) = { this with Labels = labels }
 
 /// Options for `prEdit` (`gh pr edit`). At least one of `Title`/`Body` must be
 /// `Some` — `prEdit` rejects both-`None` before spawning (an explicit error, not a
