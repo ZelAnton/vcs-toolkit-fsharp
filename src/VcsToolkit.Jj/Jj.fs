@@ -823,10 +823,15 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
     /// non-UTF-8 byte (a binary or legacy-encoded blob) is replaced with U+FFFD and does NOT
     /// round-trip — use `FileShowBytes` for a verbatim byte-for-byte read of such content.
     member _.FileShow(dir: string, revset: string, path: string) =
-        let fileset = JjFileset.Path path
-        // Untrimmed so a text blob's trailing newline survives; UTF-8-decoded, so this is NOT
-        // byte-exact for non-UTF-8 content (see the doc-comment / `FileShowBytes`).
-        runUntrimmed core (cmdInRead dir [ "file"; "show"; "-r"; revset; fileset.Value ])
+        task {
+            match checkFlags BINARY [ "path", path ] with
+            | Error e -> return Error e
+            | Ok() ->
+                let fileset = JjFileset.Path path
+                // Untrimmed so a text blob's trailing newline survives; UTF-8-decoded, so this is NOT
+                // byte-exact for non-UTF-8 content (see the doc-comment / `FileShowBytes`).
+                return! runUntrimmed core (cmdInRead dir [ "file"; "show"; "-r"; revset; fileset.Value ])
+        }
 
     /// A file's content at a revision as raw, verbatim **bytes** (`jj file show -r <revset>
     /// root-file:"<path>"`) — arbitrary (binary, legacy-encoded, non-UTF-8) content round-trips

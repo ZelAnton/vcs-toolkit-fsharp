@@ -1267,6 +1267,41 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.FileShowRejectsEmptyOrWhitespacePathBeforeSpawning() : Task =
+        task {
+            for path in [ ""; "  \t  " ] do
+                let captured, runner = capturing (Reply.Ok "unexpected")
+                let jj = Jj.WithRunner runner
+
+                match! jj.FileShow(".", "@", path) with
+                | Error(ProcessError.Spawn(program, _)) -> Assert.That(program, Is.EqualTo "jj")
+                | Error e -> Assert.Fail $"expected a Spawn refusal for path {path}, got: {e}"
+                | Ok _ -> Assert.Fail $"an invalid path {path} must be refused before spawning"
+
+                Assert.That(captured.Value.IsNone, "an invalid path must refuse before any spawn")
+        }
+
+    [<Test>]
+    member _.FileShowPreservesValidPathWithSpaces() : Task =
+        task {
+            let captured, runner = capturing (Reply.Ok "content\n")
+            let jj = Jj.WithRunner runner
+            let path = "dir/file with spaces.txt"
+
+            match! jj.FileShow(".", "@", path) with
+            | Ok content -> Assert.That(content, Is.EqualTo "content\n")
+            | Error e -> Assert.Fail $"a valid path with spaces must pass: {e}"
+
+            match captured.Value with
+            | Some cmd ->
+                Assert.That(
+                    String.concat " " (argsOf cmd),
+                    Is.EqualTo "file show -r @ root-file:\"dir/file with spaces.txt\" --color never"
+                )
+            | None -> Assert.Fail "no file show command captured"
+        }
+
+    [<Test>]
     member _.FileListDefaultsToWorkingCopyRevset() : Task =
         task {
             let jj =

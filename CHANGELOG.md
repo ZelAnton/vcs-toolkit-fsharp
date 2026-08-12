@@ -117,6 +117,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The pinned `ProcessKit`/`ProcessKit.Testing` dependency floor moves from 2.7.0 to 2.8.0, a purely additive upstream release with no breaking changes. VcsToolkit does not adopt any of the new surface (`Command.ConsoleEncoding()`, `Command.LaunchDetached()`/`Exec.detach`, `PtySession`, the Windows privilege/UI-restriction/CPU-affinity controls) — each conflicts with or is out of scope for this toolkit's UTF-8 decoding contract, `JobRunner` containment guarantee, or non-interactive credential design — so VcsToolkit's own source and tests are unaffected. Consumers still receive 2.8.0's fixes (a tee-sink error-masking fix during cancellation, safer PTY buffer-range handling, and a cleaner supervision-stop lifecycle) transitively.
 
 ### Fixed
+- `Git.ShowFile` and `Jj.FileShow` now reject empty or whitespace-only paths before spawning their CLI, while preserving valid paths containing spaces.
 - `Jj.OpLog` and `JjAt.OpLog` now pin operation-history reads to `--at-op=@` with `--ignore-working-copy`, so inspecting the operation log never snapshots the working copy or reconciles divergent operation heads.
 - `Git.SubmoduleList` now resolves the repository root before probing `.gitmodules`, so calls from nested directories return the configured superproject submodules.
 - `Jj.OpUndo` and `JjAt.OpUndo` now invoke the supported top-level `jj undo` command on jj 0.39 and newer.

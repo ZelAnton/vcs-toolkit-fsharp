@@ -2242,6 +2242,37 @@ type PositionalArgvGuardTests() =
     let argv (cmd: Command) = String.concat " " cmd.Arguments
 
     [<Test>]
+    member _.ShowFileRejectsEmptyOrWhitespacePathBeforeSpawning() : Task =
+        task {
+            for path in [ ""; "  \t  " ] do
+                let captured, runner = capturing (Reply.Ok "unexpected")
+                let git = Git.WithRunner runner
+
+                match! git.ShowFile(".", "HEAD", path) with
+                | Error(ProcessError.Spawn(program, _)) -> Assert.That(program, Is.EqualTo "git")
+                | Error e -> Assert.Fail $"expected a Spawn refusal for path {path}, got: {e}"
+                | Ok _ -> Assert.Fail $"an invalid path {path} must be refused before spawning"
+
+                Assert.That(captured.Value.IsNone, "an invalid path must refuse before any spawn")
+        }
+
+    [<Test>]
+    member _.ShowFilePreservesValidPathWithSpaces() : Task =
+        task {
+            let captured, runner = capturing (Reply.Ok "content\n")
+            let git = Git.WithRunner runner
+            let path = "dir/file with spaces.txt"
+
+            match! git.ShowFile(".", "HEAD", path) with
+            | Ok content -> Assert.That(content, Is.EqualTo "content\n")
+            | Error e -> Assert.Fail $"a valid path with spaces must pass: {e}"
+
+            match captured.Value with
+            | Some cmd -> Assert.That(argv cmd, Is.EqualTo "show HEAD:dir/file with spaces.txt")
+            | None -> Assert.Fail "no show command captured"
+        }
+
+    [<Test>]
     member _.CloneRepoRefusesLeadingDashDestinationBeforeSpawning() : Task =
         task {
             // git accepts options after positionals, so a `dest` like `--upload-pack=<cmd>` is a

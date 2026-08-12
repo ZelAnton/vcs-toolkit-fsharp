@@ -1796,7 +1796,7 @@ type Git private (core: ManagedClient) =
     /// round-trip — use `ShowFileBytes` for a verbatim byte-for-byte read of such content.
     member _.ShowFile(dir: string, rev: string, path: string) =
         task {
-            match checkFlags BINARY [ "revision", rev ] with
+            match checkFlags BINARY [ "revision", rev; "path", path ] with
             | Error e -> return Error e
             | Ok() ->
                 // Windows: git rejects backslash separators in the <rev>:<path> spec.
