@@ -154,6 +154,10 @@ type ForgeOp =
     /// `issueEdit` — edit an issue's title and/or body. **`Unsupported` on Gitea** (`tea`
     /// 0.9.2 has no issue edit command).
     | IssueEdit
+    /// `prLabels` — add/remove labels on an existing PR/MR. **Unsupported on Gitea**.
+    | PrLabels
+    /// `issueLabels` — add/remove labels on an existing issue. **Unsupported on Gitea**.
+    | IssueLabels
 
     /// Every capability-varying operation — iterate it to build a full support matrix.
     static member All =
@@ -165,7 +169,9 @@ type ForgeOp =
           ForgeOp.IssueReopen
           ForgeOp.ReleaseDelete
           ForgeOp.PrEdit
-          ForgeOp.IssueEdit ]
+          ForgeOp.IssueEdit
+          ForgeOp.PrLabels
+          ForgeOp.IssueLabels ]
 
 /// The normalised state of a `ForgePr`, unifying GitHub's `OPEN`/`CLOSED`/`MERGED`,
 /// GitLab's `opened`/`closed`/`locked`/`merged`, and Gitea's `open`/`closed`.
@@ -467,6 +473,8 @@ type PrCreate =
         Source: string option
         /// Target (base) branch; `None` = the repository default.
         Target: string option
+        /// Labels to apply when creating the PR/MR.
+        Labels: string list
     }
 
     /// A PR/MR from the current branch into the repository's default branch.
@@ -474,13 +482,37 @@ type PrCreate =
         { Title = title
           Body = body
           Source = None
-          Target = None }
+          Target = None
+          Labels = [] }
 
     /// Open from this source (head) branch instead of the current one.
     member this.WithSource(branch: string) = { this with Source = Some branch }
 
     /// Open against this target (base) branch instead of the repo default.
     member this.WithTarget(branch: string) = { this with Target = Some branch }
+
+    /// Apply labels when opening the PR/MR.
+    member this.WithLabels(labels: string list) = { this with Labels = labels }
+
+/// Options for creating an issue across the supported forges.
+type IssueCreate =
+    {
+        /// Title.
+        Title: string
+        /// Body / description.
+        Body: string
+        /// Labels to apply when creating the issue.
+        Labels: string list
+    }
+
+    /// An issue without labels.
+    static member Create(title: string, body: string) =
+        { Title = title
+          Body = body
+          Labels = [] }
+
+    /// Apply labels when opening the issue.
+    member this.WithLabels(labels: string list) = { this with Labels = labels }
 
 /// How `prMerge` merges — mapped to each CLI's own merge-strategy flag.
 [<RequireQualifiedAccess>]

@@ -100,6 +100,25 @@ module internal Catalog =
                 Error(McpError.InvalidParams(sprintf "argument %A must be an array of strings" name))
         | _ -> Error(missing name)
 
+    let private optStrArray (args: JsonElement) (name: string) : Result<string list, McpError> =
+        match args.TryGetProperty name with
+        | false, _ -> Ok []
+        | true, v when v.ValueKind = JsonValueKind.Null -> Ok []
+        | true, v when v.ValueKind = JsonValueKind.Array ->
+            let items = [ for e in v.EnumerateArray() -> e ]
+
+            if items |> List.forall (fun e -> e.ValueKind = JsonValueKind.String) then
+                Ok(
+                    items
+                    |> List.map (fun e ->
+                        match e.GetString() with
+                        | null -> ""
+                        | s -> s)
+                )
+            else
+                Error(McpError.InvalidParams(sprintf "argument %A must be an array of strings" name))
+        | true, _ -> Error(McpError.InvalidParams(sprintf "argument %A must be an array of strings" name))
+
     /// `optBool` — a missing/absent boolean, or an explicit JSON `null` (how many MCP clients
     /// serialize an omitted nullable field), defaults to `false` (matches the Rust
     /// `#[serde(default)]` on `force`/`delete_branch`); a present non-null value must be boolean.
@@ -153,6 +172,18 @@ module internal Catalog =
         { Name = "limit"
           JsonType = "integer"
           Description = "Maximum number of results (must be positive). Defaults to 100."
+          Required = false }
+
+    let private pLabels =
+        { Name = "labels"
+          JsonType = "array"
+          Description = "One or more label names."
+          Required = true }
+
+    let private pCreateLabels =
+        { Name = "labels"
+          JsonType = "array"
+          Description = "Labels to apply while creating the item; omit for none."
           Required = false }
 
     // --- the catalogue -----------------------------------------------------
@@ -481,7 +512,8 @@ module internal Catalog =
                 { Name = "body"
                   JsonType = "string"
                   Description = "Body / description."
-                  Required = true } ]
+                  Required = true }
+                pCreateLabels ]
           // Non-destructive: closing an issue is a reversible status change (reopenable),
           // discarding no data; idempotent: closing an already-closed issue is a no-op.
           write "forge_issue_close" "Close an issue (reopenable)." false true [ pIssueNumber ]
@@ -520,6 +552,18 @@ module internal Catalog =
                   Description = "New body / description; omit to leave unchanged."
                   Required = false } ]
           write
+              "forge_issue_add_labels"
+              "Add labels to an existing issue. Unsupported on Gitea."
+              false
+              true
+              [ pIssueNumber; pLabels ]
+          write
+              "forge_issue_remove_labels"
+              "Remove labels from an existing issue. Unsupported on Gitea."
+              false
+              true
+              [ pIssueNumber; pLabels ]
+          write
               "forge_pr_create"
               "Open a pull/merge request, returning the CLI's output (the URL on success)."
               false
@@ -539,7 +583,8 @@ module internal Catalog =
                 { Name = "target"
                   JsonType = "string"
                   Description = "Target/base branch; omit for the repo default."
-                  Required = false } ]
+                  Required = false }
+                pCreateLabels ]
           // Destructive: `delete_branch=true` deletes the source branch; not idempotent:
           // merging an already-merged PR errors, and `auto` makes the outcome non-deterministic.
           write
@@ -605,6 +650,18 @@ module internal Catalog =
                   JsonType = "string"
                   Description = "The new body; omit to leave it alone."
                   Required = false } ]
+          write
+              "forge_pr_add_labels"
+              "Add labels to an existing pull/merge request. Unsupported on Gitea."
+              false
+              true
+              [ pNumber; pLabels ]
+          write
+              "forge_pr_remove_labels"
+              "Remove labels from an existing pull/merge request. Unsupported on Gitea."
+              false
+              true
+              [ pNumber; pLabels ]
           write
               "forge_pr_checkout"
               "Check out a pull/merge request's branch into the local working copy (gh pr checkout / glab mr checkout / tea pr checkout). A local-worktree mutation — it switches the checked-out branch."
@@ -786,7 +843,8 @@ module internal Catalog =
         | "forge_release_view" -> bind (reqStr args "tag") server.ForgeReleaseView
         | "forge_issue_create" ->
             bind (reqStr args "title") (fun title ->
-                bind (reqStr args "body") (fun body -> server.ForgeIssueCreate(title, body)))
+                bind (reqStr args "body") (fun body ->
+                    bind (optStrArray args "labels") (fun labels -> server.ForgeIssueCreate(title, body, labels))))
         | "forge_issue_close" -> bind (reqU64 args "number") server.ForgeIssueClose
         | "forge_issue_reopen" -> bind (reqU64 args "number") server.ForgeIssueReopen
         | "forge_issue_comment" ->
@@ -796,11 +854,19 @@ module internal Catalog =
             bind (reqU64 args "number") (fun number ->
                 bind (optStr args "title") (fun title ->
                     bind (optStr args "body") (fun body -> server.ForgeIssueEdit(number, title, body))))
+        | "forge_issue_add_labels" ->
+            bind (reqU64 args "number") (fun number ->
+                bind (reqStrArray args "labels") (fun labels -> server.ForgeIssueAddLabels(number, labels)))
+        | "forge_issue_remove_labels" ->
+            bind (reqU64 args "number") (fun number ->
+                bind (reqStrArray args "labels") (fun labels -> server.ForgeIssueRemoveLabels(number, labels)))
         | "forge_pr_create" ->
             bind (reqStr args "title") (fun title ->
                 bind (reqStr args "body") (fun body ->
                     bind (optStr args "source") (fun source ->
-                        bind (optStr args "target") (fun target -> server.ForgePrCreate(title, body, source, target)))))
+                        bind (optStr args "target") (fun target ->
+                            bind (optStrArray args "labels") (fun labels ->
+                                server.ForgePrCreate(title, body, source, target, labels))))))
         | "forge_pr_merge" ->
             bind (reqU64 args "number") (fun number ->
                 bind (reqStr args "strategy") (fun strategy ->
@@ -818,6 +884,12 @@ module internal Catalog =
             bind (reqU64 args "number") (fun number ->
                 bind (optStr args "title") (fun title ->
                     bind (optStr args "body") (fun body -> server.ForgePrEdit(number, title, body))))
+        | "forge_pr_add_labels" ->
+            bind (reqU64 args "number") (fun number ->
+                bind (reqStrArray args "labels") (fun labels -> server.ForgePrAddLabels(number, labels)))
+        | "forge_pr_remove_labels" ->
+            bind (reqU64 args "number") (fun number ->
+                bind (reqStrArray args "labels") (fun labels -> server.ForgePrRemoveLabels(number, labels)))
         | "forge_pr_checkout" -> bind (reqU64 args "number") server.ForgePrCheckout
         | "forge_pr_review" ->
             bind (reqU64 args "number") (fun number ->

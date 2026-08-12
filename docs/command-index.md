@@ -291,7 +291,7 @@ caller-supplied name can't fan a mutation out across every matching ref.
 | `GitRemoteRename` | `git remote rename <old> <new>` | mutates jj's remote configuration |
 | `GitRemoteSetUrl` | `git remote set-url <name> <url>` | mutates jj's remote configuration |
 | `OpHead` | `op log --no-graph --limit 1 -T id.short()` | capture before a risky sequence |
-| `OpLog` | `op log --no-graph --limit <n> -T <template>` | newest first |
+| `OpLog` | `--ignore-working-copy op log --at-op=@ --no-graph --limit <n> -T <template>` | newest first; always pinned to the current operation |
 | `OpRestore` | `op restore <id>` | |
 | `OpUndo` | `undo` | |
 | `WorkspaceList` | `workspace list -T <template>` | |
@@ -336,7 +336,9 @@ Client: `GitHub` / `GitHubAt` (`src/VcsToolkit.GitHub/GitHub.fs`). See
 | `PrList` | `pr list --state <state> --limit <limit> --json …` | via `PrListOptions`; open PRs ≤100 by default |
 | `PrListForBranch` | `pr list --head <head> [--base <base>] --state all --limit 100 --json …` | any state; the 2-arg overload omits `--base` |
 | `PrView` | `pr view <n> --json …` | |
-| `PrCreate` | `pr create --title … --body … [--head …] [--base …]` | via `PrCreate`; returns the URL |
+| `PrCreate` | `pr create --title … --body … [--head …] [--base …] [--label …]` | via `PrCreate`; returns the URL |
+| `PrAddLabels` | `pr edit <n> --add-label <label> …` | at least one label required |
+| `PrRemoveLabels` | `pr edit <n> --remove-label <label> …` | at least one label required |
 | `PrMerge` | `pr merge <n> --merge\|--squash\|--rebase [--auto] [--delete-branch]` | via `PrMerge` |
 | `PrMarkReady` | `pr ready <n>` | |
 | `PrClose` | `pr close <n> [--delete-branch]` | |
@@ -349,7 +351,9 @@ Client: `GitHub` / `GitHubAt` (`src/VcsToolkit.GitHub/GitHub.fs`). See
 | `PrDiff` | `pr diff <n>` | parsed `FileDiff list` |
 | `IssueList` | `issue list --state <state> --limit <limit> --json …` | via `IssueListOptions`; open ≤100 by default |
 | `IssueView` | `issue view <n> --json …` | |
-| `IssueCreate` | `issue create --title <t> --body <b>` | returns the issue URL |
+| `IssueCreate` | `issue create --title <t> --body <b> [--label …]` | returns the issue URL |
+| `IssueAddLabels` | `issue edit <n> --add-label <label> …` | at least one label required |
+| `IssueRemoveLabels` | `issue edit <n> --remove-label <label> …` | at least one label required |
 | `IssueClose` | `issue close <n>` | |
 | `IssueReopen` | `issue reopen <n>` | |
 | `IssueComment` | `issue comment <n> --body <body>` | returns the comment URL |
@@ -393,7 +397,9 @@ not its breadth. See
 | `MrList` | `mr list [state flags] --per-page <limit> --output json` | via `MrListOptions`; open ≤100 by default |
 | `MrListForBranch` | `mr list --source-branch <branch> --all --output json` | any state |
 | `MrView` | `mr view <number> --output json` | `number` is GitLab's `iid` |
-| `MrCreate` | `mr create --title … --description … [--source-branch …] [--target-branch …] --yes` | via `MrCreate`; returns the CLI output (URL on success) |
+| `MrCreate` | `mr create --title … --description … [--source-branch …] [--target-branch …] [--label …] --yes` | via `MrCreate`; returns the CLI output (URL on success) |
+| `MrAddLabels` | `mr update <n> --label <label> … --yes` | at least one label required |
+| `MrRemoveLabels` | `mr update <n> --unlabel <label> … --yes` | at least one label required |
 | `MrMerge` | `mr merge <id> --yes --auto-merge=false [--squash\|--rebase]` | via `MergeStrategy`; `--auto-merge=false` overrides glab's default |
 | `MrMarkReady` | `mr update <id> --ready` | |
 | `MrClose` | `mr close <id>` | |
@@ -406,7 +412,9 @@ not its breadth. See
 | `MrDiff` | `mr diff <n>` | parsed `FileDiff list` |
 | `IssueList` | `issue list [state flags] --per-page <limit> --output json` | via `IssueListOptions`; open ≤100 by default |
 | `IssueView` | `issue view <number> --output json` | |
-| `IssueCreate` | `issue create --title … --description … --yes` | body rejected if exactly `-`; returns the issue URL |
+| `IssueCreate` | `issue create --title … --description … [--label …] --yes` | body rejected if exactly `-`; returns the issue URL |
+| `IssueAddLabels` | `issue update <n> --label <label> …` | at least one label required |
+| `IssueRemoveLabels` | `issue update <n> --unlabel <label> …` | at least one label required |
 | `IssueClose` | `issue close <id>` | |
 | `IssueReopen` | `issue reopen <id>` | |
 | `IssueComment` | `issue note <id> -m <body>` | body rejected if exactly `-` |
@@ -442,7 +450,9 @@ hatch; authentication is **ambient only** (`tea login add`, out of band — ther
 | `AuthStatus` | `login list --output csv`, non-empty | `tea` has no per-instance auth status |
 | `PrList` | `pr list --state <state> --limit <limit> --fields … --output csv` | via `PrListOptions`; tea 0.9.2 has no `--output json` on `pr list` (K-049), so this drives `--output csv` |
 | `PrView` | `pr list --state all --limit 50 --page N --fields … --output csv` (paged) + filter | synthesized — `tea` has no single-PR view |
-| `PrCreate` | `pr create --title … --description … [--head …] [--base …]` | via `PrCreate`; returns tea's text output, **not** a URL |
+| `PrCreate` | `pr create --title … --description … [--head …] [--base …] [--labels <comma-separated>]` | via `PrCreate`; returns tea's text output, **not** a URL |
+| `PrAddLabels` | *(none — refused before spawning)* | `tea` 0.9.2 has no PR label-mutation command |
+| `PrRemoveLabels` | *(none — refused before spawning)* | `tea` 0.9.2 has no PR label-mutation command |
 | `PrMerge` | `pr merge --style merge\|rebase\|squash <number>` | via `MergeStrategy`; the `--style` flag **must precede** the positional index (K-061) |
 | `PrClose` | `pr close <number>` | |
 | `PrCheckout` | `pr checkout <number>` | mutates the working copy |
@@ -452,7 +462,9 @@ hatch; authentication is **ambient only** (`tea login add`, out of band — ther
 | `PrEdit` | *(none — refused before spawning)* | `tea` 0.9.2 has no `pr edit` command at all (K-063); calling this returns a structural `Spawn` error rather than letting an unrecognised `pr edit` silently fall through to `pr list` |
 | `IssueList` | `issues list --state <state> --limit <limit> --fields … --output csv` | via `IssueListOptions`; same `--output csv` reason as `PrList` |
 | `IssueView` | `issues list --state all --limit 50 --page N --fields … --output csv` (paged) + filter | synthesized — `tea issues <number>` renders Markdown and ignores `--output` |
-| `IssueCreate` | `issues create --title … --description …` | returns tea's text output (URL on the final line) |
+| `IssueCreate` | `issues create --title … --description … [--labels <comma-separated>]` | returns tea's text output (URL on the final line) |
+| `IssueAddLabels` | *(none — refused before spawning)* | `tea` 0.9.2 has no issue label-mutation command |
+| `IssueRemoveLabels` | *(none — refused before spawning)* | `tea` 0.9.2 has no issue label-mutation command |
 | `IssueClose` | `issues close <number>` | |
 | `IssueReopen` | *(none — refused before spawning)* | `tea` 0.9.2 has no `issues reopen` command |
 | `IssueComment` | `comment <index> <body>` | shared with PRs |

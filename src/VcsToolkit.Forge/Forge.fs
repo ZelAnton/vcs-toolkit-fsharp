@@ -85,6 +85,15 @@ module private ForgeCaps =
             Version = version
             Kind = kind }
 
+[<AutoOpen>]
+module private LabelValidation =
+
+    let validateLabels (operation: string) (labels: string list) : ForgeError option =
+        if List.isEmpty labels || labels |> List.exists System.String.IsNullOrWhiteSpace then
+            Some(ForgeError.InvalidInput(sprintf "%s requires at least one non-empty label" operation))
+        else
+            None
+
 /// Version-gate for the mutating operations: run the backend's `ensureVersion` pre-check
 /// and only dispatch `run` when the CLI meets the wrapper's floor (or its version can't be
 /// confirmed too old — the gate fails open). The inert `Unknown` backend passes straight
@@ -253,7 +262,9 @@ type Forge private (cwd: string, backend: Backend) =
             | ForgeOp.IssueReopen
             | ForgeOp.ReleaseDelete
             | ForgeOp.PrEdit
-            | ForgeOp.IssueEdit -> true
+            | ForgeOp.IssueEdit
+            | ForgeOp.PrLabels
+            | ForgeOp.IssueLabels -> true
         | ForgeKind.GitLab ->
             match op with
             | ForgeOp.RepoView
@@ -264,7 +275,9 @@ type Forge private (cwd: string, backend: Backend) =
             | ForgeOp.IssueReopen
             | ForgeOp.ReleaseDelete
             | ForgeOp.PrEdit
-            | ForgeOp.IssueEdit -> true
+            | ForgeOp.IssueEdit
+            | ForgeOp.PrLabels
+            | ForgeOp.IssueLabels -> true
         | ForgeKind.Gitea ->
             match op with
             | ForgeOp.RepoView
@@ -275,7 +288,9 @@ type Forge private (cwd: string, backend: Backend) =
             | ForgeOp.IssueReopen
             | ForgeOp.ReleaseDelete
             | ForgeOp.PrEdit
-            | ForgeOp.IssueEdit -> false
+            | ForgeOp.IssueEdit
+            | ForgeOp.PrLabels
+            | ForgeOp.IssueLabels -> false
         | ForgeKind.Unknown ->
             match op with
             | ForgeOp.RepoView
@@ -286,7 +301,9 @@ type Forge private (cwd: string, backend: Backend) =
             | ForgeOp.IssueReopen
             | ForgeOp.ReleaseDelete
             | ForgeOp.PrEdit
-            | ForgeOp.IssueEdit -> false
+            | ForgeOp.IssueEdit
+            | ForgeOp.PrLabels
+            | ForgeOp.IssueLabels -> false
 
     /// Whether this handle's backend can submit a `PrReview` of `kind`. Unlike `Supports` (which
     /// answers *operation-level* gaps), `prReview` exists on every CLI but honours a different set
@@ -437,6 +454,35 @@ type Forge private (cwd: string, backend: Backend) =
             | Backend.GitLab(c, _) -> GitLabForge.prCreate c cwd spec
             | Backend.Gitea(c, _) -> GiteaForge.prCreate c cwd spec
             | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prCreate")) })
+
+    /// Add labels to an existing PR/MR. Supported on GitHub and GitLab; Gitea's tea 0.9.2
+    /// has no corresponding mutation command and returns Unsupported without spawning.
+    member _.PrAddLabels(number: uint64, labels: string list) =
+        match backend with
+        | Backend.Gitea _ -> task { return Error(ForgeError.Unsupported(ForgeKind.Gitea, "prAddLabels")) }
+        | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prAddLabels")) }
+        | Backend.GitHub(c, _) ->
+            match validateLabels "prAddLabels" labels with
+            | Some e -> task { return Error e }
+            | None -> gated backend "prAddLabels" (fun () -> GitHubForge.prAddLabels c cwd number labels)
+        | Backend.GitLab(c, _) ->
+            match validateLabels "prAddLabels" labels with
+            | Some e -> task { return Error e }
+            | None -> gated backend "prAddLabels" (fun () -> GitLabForge.prAddLabels c cwd number labels)
+
+    /// Remove labels from an existing PR/MR. Supported on GitHub and GitLab; Gitea is Unsupported.
+    member _.PrRemoveLabels(number: uint64, labels: string list) =
+        match backend with
+        | Backend.Gitea _ -> task { return Error(ForgeError.Unsupported(ForgeKind.Gitea, "prRemoveLabels")) }
+        | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prRemoveLabels")) }
+        | Backend.GitHub(c, _) ->
+            match validateLabels "prRemoveLabels" labels with
+            | Some e -> task { return Error e }
+            | None -> gated backend "prRemoveLabels" (fun () -> GitHubForge.prRemoveLabels c cwd number labels)
+        | Backend.GitLab(c, _) ->
+            match validateLabels "prRemoveLabels" labels with
+            | Some e -> task { return Error e }
+            | None -> gated backend "prRemoveLabels" (fun () -> GitLabForge.prRemoveLabels c cwd number labels)
 
     /// Post a comment to an existing PR/MR. An empty (or whitespace-only) body is rejected
     /// with `InvalidInput` before any CLI spawn. Note: on Gitea the body is a positional,
@@ -648,13 +694,45 @@ type Forge private (cwd: string, backend: Backend) =
     /// Open an issue, returning the CLI's success output — a URL on GitHub/GitLab; `tea`
     /// prints a textual summary whose final line is the URL. Version-gated: refused with
     /// `UnsupportedVersion` before spawning if the CLI is below the wrapper's floor.
-    member _.IssueCreate(title: string, body: string) =
+    member this.IssueCreate(title: string, body: string) =
+        this.IssueCreate(IssueCreate.Create(title, body))
+
+    /// Open an issue with optional labels. Version-gated like the compatibility overload.
+    member _.IssueCreate(spec: IssueCreate) =
         gated backend "issueCreate" (fun () ->
             match backend with
-            | Backend.GitHub(c, _) -> GitHubForge.issueCreate c cwd title body
-            | Backend.GitLab(c, _) -> GitLabForge.issueCreate c cwd title body
-            | Backend.Gitea(c, _) -> GiteaForge.issueCreate c cwd title body
+            | Backend.GitHub(c, _) -> GitHubForge.issueCreate c cwd spec
+            | Backend.GitLab(c, _) -> GitLabForge.issueCreate c cwd spec
+            | Backend.Gitea(c, _) -> GiteaForge.issueCreate c cwd spec
             | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "issueCreate")) })
+
+    /// Add labels to an existing issue. Supported on GitHub and GitLab; Gitea is Unsupported.
+    member _.IssueAddLabels(number: uint64, labels: string list) =
+        match backend with
+        | Backend.Gitea _ -> task { return Error(ForgeError.Unsupported(ForgeKind.Gitea, "issueAddLabels")) }
+        | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "issueAddLabels")) }
+        | Backend.GitHub(c, _) ->
+            match validateLabels "issueAddLabels" labels with
+            | Some e -> task { return Error e }
+            | None -> gated backend "issueAddLabels" (fun () -> GitHubForge.issueAddLabels c cwd number labels)
+        | Backend.GitLab(c, _) ->
+            match validateLabels "issueAddLabels" labels with
+            | Some e -> task { return Error e }
+            | None -> gated backend "issueAddLabels" (fun () -> GitLabForge.issueAddLabels c cwd number labels)
+
+    /// Remove labels from an existing issue. Supported on GitHub and GitLab; Gitea is Unsupported.
+    member _.IssueRemoveLabels(number: uint64, labels: string list) =
+        match backend with
+        | Backend.Gitea _ -> task { return Error(ForgeError.Unsupported(ForgeKind.Gitea, "issueRemoveLabels")) }
+        | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "issueRemoveLabels")) }
+        | Backend.GitHub(c, _) ->
+            match validateLabels "issueRemoveLabels" labels with
+            | Some e -> task { return Error e }
+            | None -> gated backend "issueRemoveLabels" (fun () -> GitHubForge.issueRemoveLabels c cwd number labels)
+        | Backend.GitLab(c, _) ->
+            match validateLabels "issueRemoveLabels" labels with
+            | Some e -> task { return Error e }
+            | None -> gated backend "issueRemoveLabels" (fun () -> GitLabForge.issueRemoveLabels c cwd number labels)
 
     /// Close an issue (reopenable — no data is discarded). All three CLIs support it
     /// (`gh issue close` / `glab issue close` / `tea issues close`), so it is not a

@@ -1562,10 +1562,7 @@ type LogPathsTests() =
                         (fun command ->
                             calls.Add command
                             true),
-                        Reply.Ok(
-                            commitRow "aaa1" "matched"
-                            + commitRow "ccc1" "shared"
-                        )
+                        Reply.Ok(commitRow "aaa1" "matched" + commitRow "ccc1" "shared")
                     )
 
             let git = Git.WithRunner runner
@@ -1581,9 +1578,14 @@ type LogPathsTests() =
                 let args = command.Arguments |> Seq.toList
 
                 if List.contains "--literal-pathspecs" args then
-                    Assert.That(args |> List.contains "main..HEAD", Is.False, "symbolic range must not leak into a chunk")
+                    Assert.That(
+                        args |> List.contains "main..HEAD",
+                        Is.False,
+                        "symbolic range must not leak into a chunk"
+                    )
 
             let negativeCalls = ResizeArray<Command>()
+
             let negativeRunner =
                 ScriptedRunner()
                     .On([ "rev-parse"; "^main" ], Reply.Ok "^main\n")
@@ -1603,7 +1605,11 @@ type LogPathsTests() =
                 let args = command.Arguments |> Seq.toList
 
                 if List.contains "--literal-pathspecs" args then
-                    Assert.That(args |> List.contains "^main", Is.True, "negative revision token must reach every chunk")
+                    Assert.That(
+                        args |> List.contains "^main",
+                        Is.True,
+                        "negative revision token must reach every chunk"
+                    )
         }
 
     [<Test>]

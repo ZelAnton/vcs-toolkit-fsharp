@@ -1174,13 +1174,19 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
     member _.OpHead(dir: string) =
         core.Run(cmdInRead dir [ "op"; "log"; "--no-graph"; "--limit"; "1"; "-T"; "id.short()" ])
 
-    /// The newest `limit` operations, newest first (`op log --no-graph --limit n`).
+    /// The newest `limit` operations, newest first (`op log --at-op=@ --no-graph --limit n`).
+    /// This query is always pinned to the current operation and ignores the working copy, even
+    /// on a normal (snapshotting) client, so reading operation history cannot record a snapshot
+    /// or reconcile divergent operation heads. A `ReadOnly` client therefore receives the same
+    /// argv without a duplicate `--ignore-working-copy` flag.
     member _.OpLog(dir: string, limit: int) =
         core.Parse(
-            cmdInRead
+            cmdIn
                 dir
-                [ "op"
+                [ "--ignore-working-copy"
+                  "op"
                   "log"
+                  "--at-op=@"
                   "--no-graph"
                   "--limit"
                   string limit

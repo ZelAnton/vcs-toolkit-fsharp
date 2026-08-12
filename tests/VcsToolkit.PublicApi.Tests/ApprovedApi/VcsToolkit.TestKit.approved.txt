@@ -10,6 +10,257 @@ namespace VcsToolkit.TestKit
         public string Url { get; }
         public static VcsToolkit.TestKit.BareRemote Seeded(string tag) { }
     }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Module)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    public static class ForgeFixtures
+    {
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+        [System.Serializable]
+        public sealed class GitHubIssueFixture : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.TestKit.ForgeFixtures.GitHubIssueFixture>, System.IEquatable<VcsToolkit.TestKit.ForgeFixtures.GitHubIssueFixture>
+        {
+            [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.TestKit.ForgeFixtures.GitHubIssueFixture))]
+            public GitHubIssueFixture(ulong number, string title, string state, string body, string url, Microsoft.FSharp.Collections.FSharpList<string> labels, Microsoft.FSharp.Collections.FSharpList<string> assignees, string author, string createdAt, string updatedAt, string milestone) { }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 6)]
+            public Microsoft.FSharp.Collections.FSharpList<string> Assignees { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 7)]
+            public string Author { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+            public string Body { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 8)]
+            public string CreatedAt { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 5)]
+            public Microsoft.FSharp.Collections.FSharpList<string> Labels { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 10)]
+            public string Milestone { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+            public ulong Number { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+            public string State { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+            public string Title { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 9)]
+            public string UpdatedAt { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+            public string Url { get; }
+            public string Build() { }
+            public VcsToolkit.TestKit.ForgeFixtures.GitHubIssueFixture WithAssignees(Microsoft.FSharp.Collections.FSharpList<string> assignees) { }
+            public VcsToolkit.TestKit.ForgeFixtures.GitHubIssueFixture WithLabels(Microsoft.FSharp.Collections.FSharpList<string> labels) { }
+            public static VcsToolkit.TestKit.ForgeFixtures.GitHubIssueFixture Minimal() { }
+        }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+        [System.Serializable]
+        public sealed class GitHubPullRequestFixture : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.TestKit.ForgeFixtures.GitHubPullRequestFixture>, System.IEquatable<VcsToolkit.TestKit.ForgeFixtures.GitHubPullRequestFixture>
+        {
+            [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.TestKit.ForgeFixtures.GitHubPullRequestFixture))]
+            public GitHubPullRequestFixture(ulong number, string title, string state, string headRefName, string baseRefName, string url, Microsoft.FSharp.Collections.FSharpList<string> labels, Microsoft.FSharp.Collections.FSharpList<string> assignees, string author, string createdAt, string updatedAt, string milestone) { }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 7)]
+            public Microsoft.FSharp.Collections.FSharpList<string> Assignees { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 8)]
+            public string Author { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+            public string BaseRefName { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 9)]
+            public string CreatedAt { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+            public string HeadRefName { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 6)]
+            public Microsoft.FSharp.Collections.FSharpList<string> Labels { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 11)]
+            public string Milestone { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+            public ulong Number { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+            public string State { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+            public string Title { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 10)]
+            public string UpdatedAt { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 5)]
+            public string Url { get; }
+            public string Build() { }
+            public VcsToolkit.TestKit.ForgeFixtures.GitHubPullRequestFixture WithAssignees(Microsoft.FSharp.Collections.FSharpList<string> assignees) { }
+            public VcsToolkit.TestKit.ForgeFixtures.GitHubPullRequestFixture WithLabels(Microsoft.FSharp.Collections.FSharpList<string> labels) { }
+            public VcsToolkit.TestKit.ForgeFixtures.GitHubPullRequestFixture WithMilestone(string milestone) { }
+            public static VcsToolkit.TestKit.ForgeFixtures.GitHubPullRequestFixture Minimal() { }
+        }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+        [System.Serializable]
+        public sealed class GitHubReleaseFixture : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.TestKit.ForgeFixtures.GitHubReleaseFixture>, System.IEquatable<VcsToolkit.TestKit.ForgeFixtures.GitHubReleaseFixture>
+        {
+            [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.TestKit.ForgeFixtures.GitHubReleaseFixture))]
+            public GitHubReleaseFixture(string tagName, string name, string body, string url, string publishedAt, bool isDraft, bool isPrerelease, bool isLatest, string author) { }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 8)]
+            public string Author { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+            public string Body { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 5)]
+            public bool IsDraft { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 7)]
+            public bool IsLatest { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 6)]
+            public bool IsPrerelease { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+            public string Name { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+            public string PublishedAt { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+            public string TagName { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+            public string Url { get; }
+            public string Build() { }
+            public static VcsToolkit.TestKit.ForgeFixtures.GitHubReleaseFixture Minimal() { }
+        }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+        [System.Serializable]
+        public sealed class GitLabIssueFixture : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.TestKit.ForgeFixtures.GitLabIssueFixture>, System.IEquatable<VcsToolkit.TestKit.ForgeFixtures.GitLabIssueFixture>
+        {
+            [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.TestKit.ForgeFixtures.GitLabIssueFixture))]
+            public GitLabIssueFixture(ulong iid, string title, string state, string body, string url, Microsoft.FSharp.Collections.FSharpList<string> labels, Microsoft.FSharp.Collections.FSharpList<string> assignees, string author, string createdAt, string updatedAt, string milestone) { }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 6)]
+            public Microsoft.FSharp.Collections.FSharpList<string> Assignees { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 7)]
+            public string Author { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+            public string Body { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 8)]
+            public string CreatedAt { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+            public ulong Iid { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 5)]
+            public Microsoft.FSharp.Collections.FSharpList<string> Labels { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 10)]
+            public string Milestone { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+            public string State { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+            public string Title { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 9)]
+            public string UpdatedAt { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+            public string Url { get; }
+            public string Build() { }
+            public VcsToolkit.TestKit.ForgeFixtures.GitLabIssueFixture WithAssignees(Microsoft.FSharp.Collections.FSharpList<string> assignees) { }
+            public VcsToolkit.TestKit.ForgeFixtures.GitLabIssueFixture WithLabels(Microsoft.FSharp.Collections.FSharpList<string> labels) { }
+            public static VcsToolkit.TestKit.ForgeFixtures.GitLabIssueFixture Minimal() { }
+        }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+        [System.Serializable]
+        public sealed class GitLabMergeRequestFixture : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.TestKit.ForgeFixtures.GitLabMergeRequestFixture>, System.IEquatable<VcsToolkit.TestKit.ForgeFixtures.GitLabMergeRequestFixture>
+        {
+            [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.TestKit.ForgeFixtures.GitLabMergeRequestFixture))]
+            public GitLabMergeRequestFixture(ulong iid, string title, string state, string sourceBranch, string targetBranch, string url, bool draft, Microsoft.FSharp.Collections.FSharpList<string> labels, Microsoft.FSharp.Collections.FSharpList<string> assignees, string author, string createdAt, string updatedAt, string milestone) { }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 8)]
+            public Microsoft.FSharp.Collections.FSharpList<string> Assignees { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 9)]
+            public string Author { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 10)]
+            public string CreatedAt { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 6)]
+            public bool Draft { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+            public ulong Iid { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 7)]
+            public Microsoft.FSharp.Collections.FSharpList<string> Labels { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 12)]
+            public string Milestone { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+            public string SourceBranch { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+            public string State { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+            public string TargetBranch { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+            public string Title { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 11)]
+            public string UpdatedAt { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 5)]
+            public string Url { get; }
+            public string Build() { }
+            public VcsToolkit.TestKit.ForgeFixtures.GitLabMergeRequestFixture WithAssignees(Microsoft.FSharp.Collections.FSharpList<string> assignees) { }
+            public VcsToolkit.TestKit.ForgeFixtures.GitLabMergeRequestFixture WithLabels(Microsoft.FSharp.Collections.FSharpList<string> labels) { }
+            public static VcsToolkit.TestKit.ForgeFixtures.GitLabMergeRequestFixture Minimal() { }
+        }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+        [System.Serializable]
+        public sealed class GitLabReleaseFixture : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.TestKit.ForgeFixtures.GitLabReleaseFixture>, System.IEquatable<VcsToolkit.TestKit.ForgeFixtures.GitLabReleaseFixture>
+        {
+            [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.TestKit.ForgeFixtures.GitLabReleaseFixture))]
+            public GitLabReleaseFixture(string tagName, string name, string url, string publishedAt, string description, string author) { }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 5)]
+            public string Author { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+            public string Description { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+            public string Name { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+            public string PublishedAt { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+            public string TagName { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+            public string Url { get; }
+            public string Build() { }
+            public static VcsToolkit.TestKit.ForgeFixtures.GitLabReleaseFixture Minimal() { }
+        }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+        [System.Serializable]
+        public sealed class GiteaIssueFixture : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.TestKit.ForgeFixtures.GiteaIssueFixture>, System.IEquatable<VcsToolkit.TestKit.ForgeFixtures.GiteaIssueFixture>
+        {
+            [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.TestKit.ForgeFixtures.GiteaIssueFixture))]
+            public GiteaIssueFixture(ulong number, string title, string state, string body, string url) { }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+            public string Body { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+            public ulong Number { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+            public string State { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+            public string Title { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+            public string Url { get; }
+            public string Build() { }
+            public static VcsToolkit.TestKit.ForgeFixtures.GiteaIssueFixture Minimal() { }
+        }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+        [System.Serializable]
+        public sealed class GiteaPullRequestFixture : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.TestKit.ForgeFixtures.GiteaPullRequestFixture>, System.IEquatable<VcsToolkit.TestKit.ForgeFixtures.GiteaPullRequestFixture>
+        {
+            [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.TestKit.ForgeFixtures.GiteaPullRequestFixture))]
+            public GiteaPullRequestFixture(ulong number, string title, string state, string headBranch, string baseBranch, string url) { }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+            public string BaseBranch { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+            public string HeadBranch { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+            public ulong Number { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+            public string State { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+            public string Title { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 5)]
+            public string Url { get; }
+            public string Build() { }
+            public static VcsToolkit.TestKit.ForgeFixtures.GiteaPullRequestFixture Minimal() { }
+        }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+        [System.Serializable]
+        public sealed class GiteaReleaseFixture : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.TestKit.ForgeFixtures.GiteaReleaseFixture>, System.IEquatable<VcsToolkit.TestKit.ForgeFixtures.GiteaReleaseFixture>
+        {
+            [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.TestKit.ForgeFixtures.GiteaReleaseFixture))]
+            public GiteaReleaseFixture(string tag, string title, string publishedAt, string status, string tarUrl) { }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+            public string PublishedAt { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+            public string Status { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+            public string Tag { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+            public string TarUrl { get; }
+            [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+            public string Title { get; }
+            public string Build() { }
+            public static VcsToolkit.TestKit.ForgeFixtures.GiteaReleaseFixture Minimal() { }
+        }
+    }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.ObjectType)]
     [Microsoft.FSharp.Core.Sealed]
     [System.Serializable]

@@ -919,3 +919,54 @@ type ObserverWiringTests() =
             Assert.That(events.Count, Is.EqualTo 1, "the observer is threaded through the GitLab client")
             Assert.That(events[0].Program, Is.EqualTo "glab")
         }
+
+[<TestFixture>]
+type LabelOperationTests() =
+
+    [<Test>]
+    member _.CreateAndMutateLabelsBuildTypedArgs() : Task =
+        task {
+            let create, createArgs = capturing (Reply.Ok "https://gl/mr/1\n")
+            let spec = MrCreate.Create("title", "body").WithLabels [ "bug"; "help wanted" ]
+
+            match! create.MrCreate(".", spec) with
+            | Ok url ->
+                Assert.That(url, Is.EqualTo "https://gl/mr/1")
+
+                assertArgs
+                    [ "mr"
+                      "create"
+                      "--title"
+                      "title"
+                      "--description"
+                      "body"
+                      "--yes"
+                      "--label"
+                      "bug"
+                      "--label"
+                      "help wanted" ]
+                    createArgs
+            | Error e -> Assert.Fail $"labelled mr create failed: {e}"
+
+            let add, addArgs = capturing (Reply.Ok "")
+
+            match! add.MrAddLabels(".", 4UL, [ "bug"; "urgent" ]) with
+            | Ok() -> assertArgs [ "mr"; "update"; "4"; "--label"; "bug"; "--label"; "urgent"; "--yes" ] addArgs
+            | Error e -> Assert.Fail $"add labels failed: {e}"
+
+            let remove, removeArgs = capturing (Reply.Ok "")
+
+            match! remove.IssueRemoveLabels(".", 4UL, [ "bug" ]) with
+            | Ok() -> assertArgs [ "issue"; "update"; "4"; "--unlabel"; "bug" ] removeArgs
+            | Error e -> Assert.Fail $"remove labels failed: {e}"
+        }
+
+    [<Test>]
+    member _.LabelMutationsRejectEmptySetsBeforeSpawning() : Task =
+        task {
+            let glab = permissive ()
+
+            match! glab.MrAddLabels(".", 1UL, []) with
+            | Error e -> Assert.That(e.Message, Does.Contain "non-empty label")
+            | Ok() -> Assert.Fail "an empty label set must be rejected"
+        }

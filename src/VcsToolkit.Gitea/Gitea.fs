@@ -23,6 +23,17 @@ module internal PrListPagination =
             @ [ "--fields"; PR_FIELDS; "--output"; "csv" ]
         )
 
+[<AutoOpen>]
+module private LabelValidation =
+
+    let validateLabels (operation: string) (labels: string list) : Result<unit, ProcessError> =
+        if List.isEmpty labels || labels |> List.exists String.IsNullOrWhiteSpace then
+            Error(ProcessError.Spawn(BINARY, sprintf "%s requires at least one non-empty label" operation))
+        elif labels |> List.exists (fun label -> label.Contains(',')) then
+            Error(ProcessError.Spawn(BINARY, sprintf "%s labels must not contain commas" operation))
+        else
+            Ok()
+
 /// The real Gitea (and Forgejo) client: typed async methods that run the real `tea`, ask it
 /// for its supported `--output csv` (tea 0.9.2 does not support `--output json`; see K-049 /
 /// `GiteaParse`), and parse the result. `Gitea.Create()` uses the job-backed runner;
@@ -275,16 +286,57 @@ type Gitea private (core: ManagedClient) =
     /// Unlike gh/glab, `tea` prints a summary, **not** the new PR's URL — do not parse
     /// this as a URL. See `PrCreate`.
     member _.PrCreate(dir: string, spec: PrCreate) =
-        let args =
-            [ "pr"; "create"; "--title"; spec.Title; "--description"; spec.Body ]
-            @ (match spec.Head with
-               | Some h -> [ "--head"; h ]
-               | None -> [])
-            @ (match spec.Base with
-               | Some b -> [ "--base"; b ]
-               | None -> [])
+        task {
+            let labelCheck =
+                if List.isEmpty spec.Labels then
+                    Ok()
+                else
+                    validateLabels "pr create" spec.Labels
 
-        core.Run(core.CommandIn(dir, args))
+            match labelCheck with
+            | Error e -> return Error e
+            | Ok() ->
+                let args =
+                    [ "pr"; "create"; "--title"; spec.Title; "--description"; spec.Body ]
+                    @ (match spec.Head with
+                       | Some h -> [ "--head"; h ]
+                       | None -> [])
+                    @ (match spec.Base with
+                       | Some b -> [ "--base"; b ]
+                       | None -> [])
+                    @ (if List.isEmpty spec.Labels then
+                           []
+                       else
+                           [ "--labels"; String.concat "," spec.Labels ])
+
+                return! core.Run(core.CommandIn(dir, args))
+        }
+
+    /// `tea` 0.9.2 has no command for changing labels on an existing pull request.
+    member _.PrAddLabels(_dir: string, _number: uint64, labels: string list) =
+        task {
+            let labelCheck = validateLabels "pr add labels" labels
+
+            let refusal: Result<unit, ProcessError> =
+                match labelCheck with
+                | Error e -> Error e
+                | Ok() -> Error(ProcessError.Spawn(BINARY, "tea 0.9.2 has no pull-request label mutation command"))
+
+            return refusal
+        }
+
+    /// `tea` 0.9.2 has no command for changing labels on an existing pull request.
+    member _.PrRemoveLabels(_dir: string, _number: uint64, labels: string list) =
+        task {
+            let labelCheck = validateLabels "pr remove labels" labels
+
+            let refusal: Result<unit, ProcessError> =
+                match labelCheck with
+                | Error e -> Error e
+                | Ok() -> Error(ProcessError.Spawn(BINARY, "tea 0.9.2 has no pull-request label mutation command"))
+
+            return refusal
+        }
 
     /// Merge a pull request (`tea pr merge --style merge|rebase|squash <number>`). See
     /// `MergeStrategy`.
@@ -476,8 +528,56 @@ type Gitea private (core: ManagedClient) =
     /// Open an issue, returning the command's textual output (`tea issues create
     /// --title <t> --description <d>`). Like `PrCreate`, `tea` prints a summary (with
     /// the new issue's URL on the final line), not a bare URL — returned verbatim.
-    member _.IssueCreate(dir: string, title: string, body: string) =
-        core.Run(core.CommandIn(dir, [ "issues"; "create"; "--title"; title; "--description"; body ]))
+    member this.IssueCreate(dir: string, title: string, body: string) =
+        this.IssueCreate(dir, IssueCreate.Create(title, body))
+
+    /// Open an issue with optional labels (`tea issues create --labels a,b`).
+    member _.IssueCreate(dir: string, spec: IssueCreate) =
+        task {
+            let labelCheck =
+                if List.isEmpty spec.Labels then
+                    Ok()
+                else
+                    validateLabels "issue create" spec.Labels
+
+            match labelCheck with
+            | Error e -> return Error e
+            | Ok() ->
+                let args =
+                    [ "issues"; "create"; "--title"; spec.Title; "--description"; spec.Body ]
+                    @ (if List.isEmpty spec.Labels then
+                           []
+                       else
+                           [ "--labels"; String.concat "," spec.Labels ])
+
+                return! core.Run(core.CommandIn(dir, args))
+        }
+
+    /// `tea` 0.9.2 has no command for changing labels on an existing issue.
+    member _.IssueAddLabels(_dir: string, _number: uint64, labels: string list) =
+        task {
+            let labelCheck = validateLabels "issue add labels" labels
+
+            let refusal: Result<unit, ProcessError> =
+                match labelCheck with
+                | Error e -> Error e
+                | Ok() -> Error(ProcessError.Spawn(BINARY, "tea 0.9.2 has no issue label mutation command"))
+
+            return refusal
+        }
+
+    /// `tea` 0.9.2 has no command for changing labels on an existing issue.
+    member _.IssueRemoveLabels(_dir: string, _number: uint64, labels: string list) =
+        task {
+            let labelCheck = validateLabels "issue remove labels" labels
+
+            let refusal: Result<unit, ProcessError> =
+                match labelCheck with
+                | Error e -> Error e
+                | Ok() -> Error(ProcessError.Spawn(BINARY, "tea 0.9.2 has no issue label mutation command"))
+
+            return refusal
+        }
 
     /// Close an issue without further comment (`tea issues close <number>`).
     member _.IssueClose(dir: string, number: uint64) =
@@ -607,6 +707,13 @@ and [<Sealed>] GiteaAt internal (gitea: Gitea, dir: string) =
     /// Open a pull request (`tea pr create`).
     member _.PrCreate(spec: PrCreate) = gitea.PrCreate(dir, spec)
 
+    /// Add labels to an existing pull request; unsupported by tea 0.9.2.
+    member _.PrAddLabels(number: uint64, labels: string list) = gitea.PrAddLabels(dir, number, labels)
+
+    /// Remove labels from an existing pull request; unsupported by tea 0.9.2.
+    member _.PrRemoveLabels(number: uint64, labels: string list) =
+        gitea.PrRemoveLabels(dir, number, labels)
+
     /// Merge a pull request (`tea pr merge --style … <n>`; see `Gitea.PrMerge` for why the
     /// flag must precede the index).
     member _.PrMerge(number: uint64, strategy: MergeStrategy) = gitea.PrMerge(dir, number, strategy)
@@ -644,6 +751,9 @@ and [<Sealed>] GiteaAt internal (gitea: Gitea, dir: string) =
     /// Open an issue (`tea issues create …`).
     member _.IssueCreate(title: string, body: string) = gitea.IssueCreate(dir, title, body)
 
+    /// Open an issue with optional labels (`tea issues create --labels …`).
+    member _.IssueCreate(spec: IssueCreate) = gitea.IssueCreate(dir, spec)
+
     /// Close an issue (`tea issues close <index>`).
     member _.IssueClose(number: uint64) = gitea.IssueClose(dir, number)
 
@@ -656,6 +766,14 @@ and [<Sealed>] GiteaAt internal (gitea: Gitea, dir: string) =
     /// Editing an issue is unsupported on `tea` 0.9.2; refuses before any spawn.
     member _.IssueEdit(number: uint64, title: string option, body: string option) =
         gitea.IssueEdit(dir, number, title, body)
+
+    /// Add labels to an existing issue; unsupported by tea 0.9.2.
+    member _.IssueAddLabels(number: uint64, labels: string list) =
+        gitea.IssueAddLabels(dir, number, labels)
+
+    /// Remove labels from an existing issue; unsupported by tea 0.9.2.
+    member _.IssueRemoveLabels(number: uint64, labels: string list) =
+        gitea.IssueRemoveLabels(dir, number, labels)
 
     /// Releases for the bound `dir` (`tea releases list …`).
     member _.ReleaseList() = gitea.ReleaseList dir

@@ -28,6 +28,12 @@ module private GitLabHelpers =
         else
             Ok()
 
+    let validateLabels (operation: string) (labels: string list) : Result<unit, ProcessError> =
+        if List.isEmpty labels || labels |> List.exists String.IsNullOrWhiteSpace then
+            Error(ProcessError.Spawn(BINARY, sprintf "%s requires at least one non-empty label" operation))
+        else
+            Ok()
+
 /// The real GitLab client: typed async methods that run the real `glab`, ask it for
 /// `--output json`, and deserialize the result. `GitLab.Create()` uses the job-backed
 /// runner; `GitLab.WithRunner` injects a fake one for tests. Wraps a `ManagedClient`.
@@ -203,16 +209,26 @@ type GitLab private (core: ManagedClient) =
             match rejectDashSentinel "body" spec.Body with
             | Error e -> return Error e
             | Ok() ->
-                let args =
-                    [ "mr"; "create"; "--title"; spec.Title; "--description"; spec.Body; "--yes" ]
-                    @ (match spec.Source with
-                       | Some s -> [ "--source-branch"; s ]
-                       | None -> [])
-                    @ (match spec.Target with
-                       | Some t -> [ "--target-branch"; t ]
-                       | None -> [])
+                let labelCheck =
+                    if List.isEmpty spec.Labels then
+                        Ok()
+                    else
+                        validateLabels "mr create" spec.Labels
 
-                return! core.Run(core.CommandIn(dir, args))
+                match labelCheck with
+                | Error e -> return Error e
+                | Ok() ->
+                    let args =
+                        [ "mr"; "create"; "--title"; spec.Title; "--description"; spec.Body; "--yes" ]
+                        @ (match spec.Source with
+                           | Some s -> [ "--source-branch"; s ]
+                           | None -> [])
+                        @ (match spec.Target with
+                           | Some t -> [ "--target-branch"; t ]
+                           | None -> [])
+                        @ (spec.Labels |> List.collect (fun label -> [ "--label"; label ]))
+
+                    return! core.Run(core.CommandIn(dir, args))
         }
 
     // --- MR lifecycle --------------------------------------------------------
@@ -295,6 +311,35 @@ type GitLab private (core: ManagedClient) =
                         @ [ "--yes" ]
 
                     return! core.RunUnit(core.CommandIn(dir, args))
+
+        }
+
+    /// Add labels to an existing merge request (`glab mr update <n> --label <name> --yes`).
+    member _.MrAddLabels(dir: string, number: uint64, labels: string list) =
+        task {
+            match validateLabels "mr add labels" labels with
+            | Error e -> return Error e
+            | Ok() ->
+                let args =
+                    [ "mr"; "update"; string number ]
+                    @ (labels |> List.collect (fun label -> [ "--label"; label ]))
+                    @ [ "--yes" ]
+
+                return! core.RunUnit(core.CommandIn(dir, args))
+        }
+
+    /// Remove labels from an existing merge request (`glab mr update <n> --unlabel <name> --yes`).
+    member _.MrRemoveLabels(dir: string, number: uint64, labels: string list) =
+        task {
+            match validateLabels "mr remove labels" labels with
+            | Error e -> return Error e
+            | Ok() ->
+                let args =
+                    [ "mr"; "update"; string number ]
+                    @ (labels |> List.collect (fun label -> [ "--unlabel"; label ]))
+                    @ [ "--yes" ]
+
+                return! core.RunUnit(core.CommandIn(dir, args))
         }
 
     /// The MR's pipeline status, bucketed (`glab mr view <id> --output json`, reading
@@ -343,15 +388,30 @@ type GitLab private (core: ManagedClient) =
 
     /// Open an issue, returning the command's output (the issue URL on success)
     /// (`glab issue create --title <t> --description <d> --yes`).
-    member _.IssueCreate(dir: string, title: string, body: string) =
+    member this.IssueCreate(dir: string, title: string, body: string) =
+        this.IssueCreate(dir, IssueCreate.Create(title, body))
+
+    /// Open an issue with optional labels (`glab issue create --label … --yes`).
+    member _.IssueCreate(dir: string, spec: IssueCreate) =
         task {
-            match rejectDashSentinel "body" body with
+            match rejectDashSentinel "body" spec.Body with
             | Error e -> return Error e
             | Ok() ->
-                return!
-                    core.Run(
-                        core.CommandIn(dir, [ "issue"; "create"; "--title"; title; "--description"; body; "--yes" ])
-                    )
+                let labelCheck =
+                    if List.isEmpty spec.Labels then
+                        Ok()
+                    else
+                        validateLabels "issue create" spec.Labels
+
+                match labelCheck with
+                | Error e -> return Error e
+                | Ok() ->
+                    let args =
+                        [ "issue"; "create"; "--title"; spec.Title; "--description"; spec.Body ]
+                        @ (spec.Labels |> List.collect (fun label -> [ "--label"; label ]))
+                        @ [ "--yes" ]
+
+                    return! core.Run(core.CommandIn(dir, args))
         }
 
     /// Close an issue without merging (`glab issue close <id>`).
@@ -399,6 +459,32 @@ type GitLab private (core: ManagedClient) =
                            | None -> [])
 
                     return! core.RunUnit(core.CommandIn(dir, args))
+        }
+
+    /// Add labels to an existing issue (`glab issue update <n> --label <name>`).
+    member _.IssueAddLabels(dir: string, number: uint64, labels: string list) =
+        task {
+            match validateLabels "issue add labels" labels with
+            | Error e -> return Error e
+            | Ok() ->
+                let args =
+                    [ "issue"; "update"; string number ]
+                    @ (labels |> List.collect (fun label -> [ "--label"; label ]))
+
+                return! core.RunUnit(core.CommandIn(dir, args))
+        }
+
+    /// Remove labels from an existing issue (`glab issue update <n> --unlabel <name>`).
+    member _.IssueRemoveLabels(dir: string, number: uint64, labels: string list) =
+        task {
+            match validateLabels "issue remove labels" labels with
+            | Error e -> return Error e
+            | Ok() ->
+                let args =
+                    [ "issue"; "update"; string number ]
+                    @ (labels |> List.collect (fun label -> [ "--unlabel"; label ]))
+
+                return! core.RunUnit(core.CommandIn(dir, args))
         }
 
     /// Releases for `dir` (`glab release list --per-page 100 --output json`).
@@ -541,6 +627,13 @@ and [<Sealed>] GitLabAt internal (gitlab: GitLab, dir: string) =
     /// Edit a merge request's title and/or description (`glab mr update <id> …`).
     member _.MrEdit(number: uint64, edit: MrEdit) = gitlab.MrEdit(dir, number, edit)
 
+    /// Add labels to an existing merge request (`glab mr update <n> --label …`).
+    member _.MrAddLabels(number: uint64, labels: string list) = gitlab.MrAddLabels(dir, number, labels)
+
+    /// Remove labels from an existing merge request (`glab mr update <n> --unlabel …`).
+    member _.MrRemoveLabels(number: uint64, labels: string list) =
+        gitlab.MrRemoveLabels(dir, number, labels)
+
     /// The MR's pipeline status, bucketed (`glab mr view <id> --output json`).
     member _.MrChecks(number: uint64) = gitlab.MrChecks(dir, number)
 
@@ -562,6 +655,9 @@ and [<Sealed>] GitLabAt internal (gitlab: GitLab, dir: string) =
     /// Open an issue (`glab issue create …`).
     member _.IssueCreate(title: string, body: string) = gitlab.IssueCreate(dir, title, body)
 
+    /// Open an issue with optional labels (`glab issue create --label …`).
+    member _.IssueCreate(spec: IssueCreate) = gitlab.IssueCreate(dir, spec)
+
     /// Close an issue (`glab issue close <id>`).
     member _.IssueClose(number: uint64) = gitlab.IssueClose(dir, number)
 
@@ -574,6 +670,14 @@ and [<Sealed>] GitLabAt internal (gitlab: GitLab, dir: string) =
     /// Edit an issue's title and/or description (`glab issue update <id> …`).
     member _.IssueEdit(number: uint64, title: string option, body: string option) =
         gitlab.IssueEdit(dir, number, title, body)
+
+    /// Add labels to an existing issue (`glab issue update <n> --label …`).
+    member _.IssueAddLabels(number: uint64, labels: string list) =
+        gitlab.IssueAddLabels(dir, number, labels)
+
+    /// Remove labels from an existing issue (`glab issue update <n> --unlabel …`).
+    member _.IssueRemoveLabels(number: uint64, labels: string list) =
+        gitlab.IssueRemoveLabels(dir, number, labels)
 
     /// Releases for the bound `dir` (`glab release list …`).
     member _.ReleaseList() = gitlab.ReleaseList dir

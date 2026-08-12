@@ -735,7 +735,10 @@ type VcsMcpServer
     // --- forge: mutations (gated) ------------------------------------------
 
     /// Open an issue, returning the CLI's output (the URL on success).
-    member this.ForgeIssueCreate(title: string, body: string) =
+    member this.ForgeIssueCreate(title: string, body: string) = this.ForgeIssueCreate(title, body, [])
+
+    /// Open an issue with optional labels, returning the CLI's output.
+    member this.ForgeIssueCreate(title: string, body: string, labels: string list) =
         this.WithForgeWrite "forge_issue_create" (fun f ->
             task {
                 match guardArgvField "title" title with
@@ -744,7 +747,9 @@ type VcsMcpServer
                     match guardArgvField "body" body with
                     | Error e -> return Error e
                     | Ok() ->
-                        match! f.IssueCreate(title, body) with
+                        let spec = IssueCreate.Create(title, body).WithLabels labels
+
+                        match! f.IssueCreate spec with
                         | Error e -> return Error(forgeErr e)
                         | Ok out -> return Ok(Json.ok {| output = out |})
             })
@@ -821,6 +826,36 @@ type VcsMcpServer
                         | Ok() -> return Ok(Json.ok {| edited = number |})
             })
 
+    /// Add labels to an existing issue. Gitea reports Unsupported; all mutations are write-gated.
+    member this.ForgeIssueAddLabels(number: uint64, labels: string list) =
+        this.WithForgeWrite "forge_issue_add_labels" (fun f ->
+            task {
+                match! f.IssueAddLabels(number, labels) with
+                | Error e -> return Error(forgeErr e)
+                | Ok() ->
+                    return
+                        Ok(
+                            Json.ok
+                                {| number = number
+                                   labels_added = labels |}
+                        )
+            })
+
+    /// Remove labels from an existing issue. Gitea reports Unsupported; all mutations are write-gated.
+    member this.ForgeIssueRemoveLabels(number: uint64, labels: string list) =
+        this.WithForgeWrite "forge_issue_remove_labels" (fun f ->
+            task {
+                match! f.IssueRemoveLabels(number, labels) with
+                | Error e -> return Error(forgeErr e)
+                | Ok() ->
+                    return
+                        Ok(
+                            Json.ok
+                                {| number = number
+                                   labels_removed = labels |}
+                        )
+            })
+
     /// Delete a release by tag. This is a remote-only destructive mutation, so it uses
     /// `WithForgeWrite` without taking the per-repo local write lock.
     member this.ForgeReleaseDelete(tag: string) =
@@ -836,6 +871,12 @@ type VcsMcpServer
 
     /// Open a pull/merge request, returning the CLI's output (the URL on success).
     member this.ForgePrCreate(title: string, body: string, source: string option, target: string option) =
+        this.ForgePrCreate(title, body, source, target, [])
+
+    /// Open a pull/merge request with optional labels, returning the CLI's output.
+    member this.ForgePrCreate
+        (title: string, body: string, source: string option, target: string option, labels: string list)
+        =
         this.WithForgeWrite "forge_pr_create" (fun f ->
             task {
                 match guardArgvField "title" title with
@@ -854,6 +895,7 @@ type VcsMcpServer
                                 match target with
                                 | Some x -> s.WithTarget x
                                 | Option.None -> s
+                            |> fun s -> s.WithLabels labels
 
                         match! f.PrCreate spec with
                         | Error e -> return Error(forgeErr e)
@@ -949,6 +991,36 @@ type VcsMcpServer
                         match! f.PrEdit(number, edit) with
                         | Error e -> return Error(forgeErr e)
                         | Ok() -> return Ok(Json.ok {| edited = number |})
+            })
+
+    /// Add labels to an existing pull/merge request. Gitea reports Unsupported.
+    member this.ForgePrAddLabels(number: uint64, labels: string list) =
+        this.WithForgeWrite "forge_pr_add_labels" (fun f ->
+            task {
+                match! f.PrAddLabels(number, labels) with
+                | Error e -> return Error(forgeErr e)
+                | Ok() ->
+                    return
+                        Ok(
+                            Json.ok
+                                {| number = number
+                                   labels_added = labels |}
+                        )
+            })
+
+    /// Remove labels from an existing pull/merge request. Gitea reports Unsupported.
+    member this.ForgePrRemoveLabels(number: uint64, labels: string list) =
+        this.WithForgeWrite "forge_pr_remove_labels" (fun f ->
+            task {
+                match! f.PrRemoveLabels(number, labels) with
+                | Error e -> return Error(forgeErr e)
+                | Ok() ->
+                    return
+                        Ok(
+                            Json.ok
+                                {| number = number
+                                   labels_removed = labels |}
+                        )
             })
 
     /// Check out a pull/merge request's branch into the local working copy. A local-worktree

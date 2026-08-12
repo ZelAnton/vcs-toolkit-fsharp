@@ -1,7 +1,98 @@
 namespace VcsToolkit.CliSupport
 
 open System
+open System.Text.RegularExpressions
 open ProcessKit
+
+/// Fail-closed redaction for command identities crossing the observer boundary. Wrapper clients
+/// normally keep credentials in environment variables, but the raw command escape hatches accept
+/// arbitrary argv, so the observer must not rely on every caller following that convention.
+[<RequireQualifiedAccess>]
+module internal CommandRedaction =
+
+    let private sensitiveFlags =
+        set
+            [ "--access-token"
+              "--access_token"
+              "--api-key"
+              "--api_key"
+              "--apikey"
+              "--auth"
+              "--auth-token"
+              "--auth_token"
+              "--authorization"
+              "--client-secret"
+              "--client_secret"
+              "--credential"
+              "--credentials"
+              "--oauth-token"
+              "--oauth_token"
+              "--password"
+              "--passwd"
+              "--pat"
+              "--private-token"
+              "--private_token"
+              "--secret"
+              "--token" ]
+
+    let private flagName (arg: string) =
+        let separator = arg.IndexOf '='
+
+        if separator < 0 then
+            arg.ToLowerInvariant()
+        else
+            arg.Substring(0, separator).ToLowerInvariant()
+
+    let private isSensitiveFlag (arg: string) =
+        Set.contains (flagName arg) sensitiveFlags
+
+    let private redactText (value: string) =
+        let urlUserInfo =
+            Regex("(?i)(\\b[a-z][a-z0-9+.-]*://)[^/\\s@]+@", RegexOptions.CultureInvariant)
+
+        let keyValue =
+            Regex(
+                "(?i)(\\b(?:access[_-]?token|api[_-]?key|auth(?:orization)?|password|passwd|pat|secret|token)=)[^&\\s]+",
+                RegexOptions.CultureInvariant
+            )
+
+        let bearer =
+            Regex("(?i)(\\b(?:bearer|basic)\\s+)[^\\s\\\"']+", RegexOptions.CultureInvariant)
+
+        let knownToken =
+            Regex(
+                "(?i)\\b(?:github_pat_[a-z0-9_]+|gh[pousr]_[a-z0-9_]+|glpat-[a-z0-9_-]+|gitea_[a-z0-9_-]+)\\b",
+                RegexOptions.CultureInvariant
+            )
+
+        let replace (regex: Regex) (replacement: string) (text: string) = regex.Replace(text, replacement)
+
+        value
+        |> replace urlUserInfo "$1***@"
+        |> replace keyValue "$1***"
+        |> replace bearer "$1***"
+        |> replace knownToken "***"
+
+    let private redactArgument (arg: string) =
+        let separator = arg.IndexOf '='
+
+        if separator > 0 && isSensitiveFlag arg then
+            arg.Substring(0, separator + 1) + "***"
+        else
+            redactText arg
+
+    /// Redact argv values before an observer or command log can see them. Long sensitive flags
+    /// redact their following value; inline assignments, URL userinfo, auth headers, and known
+    /// forge-token shapes are redacted in every other argument as well.
+    let argv (args: string list) : string list =
+        let rec loop pending acc remaining =
+            match remaining with
+            | [] -> List.rev acc
+            | _ :: tail when pending -> loop false ("***" :: acc) tail
+            | arg :: tail when isSensitiveFlag arg && arg.IndexOf '=' < 0 -> loop true (arg :: acc) tail
+            | arg :: tail -> loop false (redactArgument arg :: acc) tail
+
+        loop false [] args
 
 /// The identity of one command execution, shared by the start and finish notifications a
 /// `ICommandObserver` receives. `ManagedClient` builds and hands one to the observer around

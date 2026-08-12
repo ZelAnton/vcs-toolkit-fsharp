@@ -1021,6 +1021,44 @@ type ObserverTests() =
         }
 
     [<Test>]
+    member _.ObserverRedactsSensitiveFlagsRawEscapeHatchesAndKnownTokenShapes() : Task =
+        task {
+            let obs = RecordingObserver()
+
+            let args =
+                [ "api"
+                  "--token"
+                  "flag-secret"
+                  "--password=inline-secret"
+                  "https://alice:url-secret@example.test/repo"
+                  "Authorization: Bearer bearer-secret"
+                  "glpat-raw_token-value"
+                  "token=assignment-secret"
+                  "ordinary-value" ]
+
+            let client =
+                ManagedClient.WithRunner("gh", ScriptedRunner().Fallback(Reply.Ok "ok")).WithObserver obs
+
+            match! client.Run(client.Command args) with
+            | Ok output -> Assert.That(output, Is.EqualTo "ok")
+            | Error e -> Assert.Fail $"redaction probe failed: {e}"
+
+            let expected =
+                [ "api"
+                  "--token"
+                  "***"
+                  "--password=***"
+                  "https://***@example.test/repo"
+                  "Authorization: Bearer ***"
+                  "***"
+                  "token=***"
+                  "ordinary-value" ]
+
+            Assert.That(obs.Started.Count, Is.EqualTo 1)
+            Assert.That(obs.Started[0].Argv = expected, "observer argv must be redacted at the boundary")
+        }
+
+    [<Test>]
     member _.ObserverReportsActualExitCodeFromOutput() : Task =
         task {
             // `Output` surfaces a non-zero exit as data (an `Ok` result); the observer's finish

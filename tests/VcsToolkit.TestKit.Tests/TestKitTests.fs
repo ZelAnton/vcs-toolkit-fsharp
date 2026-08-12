@@ -4,6 +4,7 @@ open System
 open System.ComponentModel
 open System.Diagnostics
 open System.IO
+open System.Text.Json
 open NUnit.Framework
 open VcsToolkit.TestKit
 
@@ -74,9 +75,40 @@ let private tryCreateDirectoryLink (link: string) (target: string) : bool =
     | :? PlatformNotSupportedException ->
         // Link creation can be unavailable when the platform or test account disallows it.
         false
+
     | :? Win32Exception ->
         // A missing Windows command processor means the junction probe cannot run.
         false
+
+[<TestFixture>]
+type ForgeFixtureTests() =
+
+    [<Test>]
+    member _.BuildersEmitParserContractFields() =
+        let githubPr = ForgeFixtures.GitHubPullRequestFixture.Minimal().WithLabels [ "bug" ]
+        use githubDocument = JsonDocument.Parse(githubPr.Build())
+        Assert.That(githubDocument.RootElement.GetProperty("headRefName").GetString(), Is.EqualTo "feature/example")
+        Assert.That(githubDocument.RootElement.GetProperty("labels").GetArrayLength(), Is.EqualTo 1)
+
+        let gitlabMr =
+            ForgeFixtures.GitLabMergeRequestFixture.Minimal().WithAssignees [ "octocat" ]
+
+        use gitlabDocument = JsonDocument.Parse(gitlabMr.Build())
+        Assert.That(gitlabDocument.RootElement.GetProperty("source_branch").GetString(), Is.EqualTo "feature/example")
+        Assert.That(gitlabDocument.RootElement.GetProperty("assignees").GetArrayLength(), Is.EqualTo 1)
+
+        let giteaPr = ForgeFixtures.GiteaPullRequestFixture.Minimal().Build()
+        Assert.That(giteaPr, Does.StartWith "\"index\",\"title\",\"state\",\"head\",\"base\",\"url\"")
+
+    [<Test>]
+    member _.BuildersProvideAllThreeReleaseSurfaces() =
+        let github = ForgeFixtures.GitHubReleaseFixture.Minimal().Build()
+        let gitlab = ForgeFixtures.GitLabReleaseFixture.Minimal().Build()
+        let gitea = ForgeFixtures.GiteaReleaseFixture.Minimal().Build()
+
+        Assert.That(github, Does.Contain "\"tagName\":\"v1.0.0\"")
+        Assert.That(gitlab, Does.Contain "\"tag_name\":\"v1.0.0\"")
+        Assert.That(gitea, Does.Contain "\"Tag-Name\",\"Title\",\"Published At\",\"Status\",\"Tar URL\"")
 
 // ---------------------------------------------------------------------------
 // TempDir — hermetic (needs no binary)

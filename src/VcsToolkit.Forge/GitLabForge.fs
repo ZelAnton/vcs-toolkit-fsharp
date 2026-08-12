@@ -217,8 +217,21 @@ module internal GitLabForge =
                     match spec.Target with
                     | Some t -> c.WithTarget t
                     | None -> c
+                |> fun c -> c.WithLabels spec.Labels
 
             let! r = glab.MrCreate(dir, create)
+            return ofForge r
+        }
+
+    let prAddLabels (glab: VcsToolkit.GitLab.GitLab) (dir: string) (number: uint64) (labels: string list) =
+        task {
+            let! r = glab.MrAddLabels(dir, number, labels)
+            return ofForge r
+        }
+
+    let prRemoveLabels (glab: VcsToolkit.GitLab.GitLab) (dir: string) (number: uint64) (labels: string list) =
+        task {
+            let! r = glab.MrRemoveLabels(dir, number, labels)
             return ofForge r
         }
 
@@ -334,9 +347,24 @@ module internal GitLabForge =
             | Ok issue -> return Ok(mapIssue issue)
         }
 
-    let issueCreate (glab: VcsToolkit.GitLab.GitLab) (dir: string) (title: string) (body: string) =
+    let issueCreate (glab: VcsToolkit.GitLab.GitLab) (dir: string) (spec: IssueCreate) =
         task {
-            let! r = glab.IssueCreate(dir, title, body)
+            let create =
+                VcsToolkit.GitLab.IssueCreate.Create(spec.Title, spec.Body).WithLabels spec.Labels
+
+            let! r = glab.IssueCreate(dir, create)
+            return ofForge r
+        }
+
+    let issueAddLabels (glab: VcsToolkit.GitLab.GitLab) (dir: string) (number: uint64) (labels: string list) =
+        task {
+            let! r = glab.IssueAddLabels(dir, number, labels)
+            return ofForge r
+        }
+
+    let issueRemoveLabels (glab: VcsToolkit.GitLab.GitLab) (dir: string) (number: uint64) (labels: string list) =
+        task {
+            let! r = glab.IssueRemoveLabels(dir, number, labels)
             return ofForge r
         }
 

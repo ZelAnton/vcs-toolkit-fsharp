@@ -137,6 +137,8 @@ type MrCreate =
         Source: string option
         /// The target branch (`--target-branch`); `None` = the project default.
         Target: string option
+        /// Labels to apply (`--label` repeated); an empty list leaves labels unset.
+        Labels: string list
     }
 
     /// An MR with `title` and `body`, source/target left to glab's defaults
@@ -145,13 +147,37 @@ type MrCreate =
         { Title = title
           Body = body
           Source = None
-          Target = None }
+          Target = None
+          Labels = [] }
 
     /// Set the source branch (`--source-branch`) instead of the current branch.
     member this.WithSource(source: string) = { this with Source = Some source }
 
     /// Set the target branch (`--target-branch`) instead of the project default.
     member this.WithTarget(target: string) = { this with Target = Some target }
+
+    /// Apply labels when opening the merge request.
+    member this.WithLabels(labels: string list) = { this with Labels = labels }
+
+/// Options for `issue create`. Build it through `IssueCreate.Create` and `WithLabels`.
+type IssueCreate =
+    {
+        /// The issue title (`--title`).
+        Title: string
+        /// The issue description (`--description`).
+        Body: string
+        /// Labels to apply (`--label` repeated); an empty list leaves labels unset.
+        Labels: string list
+    }
+
+    /// An issue without labels.
+    static member Create(title: string, body: string) =
+        { Title = title
+          Body = body
+          Labels = [] }
+
+    /// Apply labels when opening the issue.
+    member this.WithLabels(labels: string list) = { this with Labels = labels }
 
 /// Options for `mrEdit` (`glab mr update`). At least one of `Title`/`Body` must be
 /// `Some` — `mrEdit` rejects both-`None` before spawning (an explicit error, not a

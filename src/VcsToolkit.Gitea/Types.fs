@@ -172,6 +172,8 @@ type PrCreate =
         Head: string option
         /// The target branch (`--base`); `None` = the repo default.
         Base: string option
+        /// Labels to apply through tea's comma-separated `--labels` value.
+        Labels: string list
     }
 
     /// A PR with `title` and `body`, source/target left to tea's defaults
@@ -180,13 +182,37 @@ type PrCreate =
         { Title = title
           Body = body
           Head = None
-          Base = None }
+          Base = None
+          Labels = [] }
 
     /// Set the source branch (`--head`) instead of the current branch.
     member this.WithHead(head: string) = { this with Head = Some head }
 
     /// Set the target branch (`--base`) instead of the repo default.
     member this.WithBase(baseBranch: string) = { this with Base = Some baseBranch }
+
+    /// Apply labels when opening the pull request.
+    member this.WithLabels(labels: string list) = { this with Labels = labels }
+
+/// Options for `issues create`. Build it through `IssueCreate.Create` and `WithLabels`.
+type IssueCreate =
+    {
+        /// The issue title (`--title`).
+        Title: string
+        /// The issue description (`--description`).
+        Body: string
+        /// Labels to apply through tea's comma-separated `--labels` value.
+        Labels: string list
+    }
+
+    /// An issue without labels.
+    static member Create(title: string, body: string) =
+        { Title = title
+          Body = body
+          Labels = [] }
+
+    /// Apply labels when opening the issue.
+    member this.WithLabels(labels: string list) = { this with Labels = labels }
 
 /// Options for a PR title/description edit. **Note: `tea` 0.9.2 has no `pr edit` command**,
 /// so `Gitea.PrEdit` refuses structurally before any spawn regardless of these fields (K-063);

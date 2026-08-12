@@ -291,7 +291,7 @@ type ManagedClient private (cfg: ManagedConfig) =
             // Capture the command identity once — it is stable across retry attempts. `Arguments`
             // is the guarded/credential-helper argv, which by construction holds no secret value.
             let program = prepared.Program
-            let argv = List.ofSeq prepared.Arguments
+            let argv = prepared.Arguments |> List.ofSeq |> CommandRedaction.argv
             let cwd = prepared.WorkingDirectory
             let attempt = ref 0
 

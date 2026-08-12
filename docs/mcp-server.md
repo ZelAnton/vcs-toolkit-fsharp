@@ -315,7 +315,8 @@ rolling itself back, so it needs the same isolation). An MCP host can dispatch t
 concurrently; without this lock, two working-copy mutations could interleave (e.g. a
 `repo_try_merge` probe's materialize-then-rollback racing a `repo_commit`).
 **Remote-only forge writes** (`forge_issue_create`, `forge_issue_close`, `forge_issue_reopen`, `forge_issue_comment`, `forge_issue_edit`,
-`forge_pr_create`, `forge_pr_comment`, `forge_pr_edit`, `forge_pr_mark_ready`, `forge_pr_review`,
+`forge_issue_add_labels`, `forge_issue_remove_labels`, `forge_pr_create`, `forge_pr_comment`, `forge_pr_edit`,
+`forge_pr_add_labels`, `forge_pr_remove_labels`, `forge_pr_mark_ready`, `forge_pr_review`,
 `forge_release_create`)
 do **not** take this local lock — they only touch the remote forge, and the forge's own server
 serializes concurrent requests on its side. `forge_pr_merge`/`forge_pr_close` are **not** in this
@@ -425,17 +426,21 @@ that forge, rather than silently degrading.
 
 | Tool | Purpose | Arguments | Destructive | Idempotent |
 |---|---|---|---|---|
-| `forge_issue_create` | Open an issue, returning the CLI's output (the URL on success). | `title` (string, required), `body` (string, required) | no | no |
+| `forge_issue_create` | Open an issue, returning the CLI's output (the URL on success). | `title` (string, required), `body` (string, required), `labels` (array of strings, optional) | no | no |
 | `forge_issue_close` | Close an issue (reopenable). | `number` (integer, required) | no | yes |
 | `forge_issue_reopen` | Reopen a closed issue. **Unsupported on Gitea** (`tea` 0.9.2 has no `issues reopen` command). | `number` (integer, required) | no | yes |
 | `forge_issue_comment` | Post a comment to an existing issue, returning the CLI's output. | `number` (integer, required), `body` (string, required) | no | no |
 | `forge_issue_edit` | Edit an issue's title and/or body (at least one required; empty strings clear fields). GitLab refuses a body equal to `-` before spawning. **Unsupported on Gitea** (`tea` 0.9.2 has no issue edit command). | `number` (integer, required), `title` (string, optional), `body` (string, optional) | no | yes |
-| `forge_pr_create` | Open a pull/merge request, returning the CLI's output (the URL on success). | `title` (string, required), `body` (string, required), `source` (string, optional — defaults to the current branch), `target` (string, optional — defaults to the repo default) | no | no |
+| `forge_issue_add_labels` | Add labels to an existing issue. **Unsupported on Gitea.** | `number` (integer, required), `labels` (array of strings, required) | no | yes |
+| `forge_issue_remove_labels` | Remove labels from an existing issue. **Unsupported on Gitea.** | `number` (integer, required), `labels` (array of strings, required) | no | yes |
+| `forge_pr_create` | Open a pull/merge request, returning the CLI's output (the URL on success). | `title` (string, required), `body` (string, required), `source` (string, optional — defaults to the current branch), `target` (string, optional — defaults to the repo default), `labels` (array of strings, optional) | no | no |
 | `forge_pr_merge` | Merge a pull/merge request with a strategy (`merge`/`squash`/`rebase`). `auto`/`delete_branch` are GitHub-only — refused as Unsupported on GitLab/Gitea if set. `delete_branch=true` deletes the source branch. | `number` (integer, required), `strategy` (string, required), `auto` (boolean, optional), `delete_branch` (boolean, optional) | **yes** | no |
 | `forge_pr_close` | Close a pull/merge request without merging. `delete_branch` is GitHub-only (refused as Unsupported on GitLab/Gitea) and also deletes the source branch. | `number` (integer, required), `delete_branch` (boolean, optional) | **yes** | yes |
 | `forge_pr_mark_ready` | Mark a draft pull/merge request as ready for review. **Unsupported on Gitea.** | `number` (integer, required) | no | yes |
 | `forge_pr_comment` | Post a comment to an existing pull/merge request, returning the CLI's output. | `number` (integer, required), `body` (string, required) | no | no |
 | `forge_pr_edit` | Edit a pull/merge request's title and/or body (at least one required). **Unsupported on Gitea** (`tea` 0.9.2 has no `pr edit` command). | `number` (integer, required), `title` (string, optional), `body` (string, optional) | no | yes |
+| `forge_pr_add_labels` | Add labels to an existing pull/merge request. **Unsupported on Gitea.** | `number` (integer, required), `labels` (array of strings, required) | no | yes |
+| `forge_pr_remove_labels` | Remove labels from an existing pull/merge request. **Unsupported on Gitea.** | `number` (integer, required), `labels` (array of strings, required) | no | yes |
 | `forge_pr_checkout` | Check out a pull/merge request's branch into the local working copy (`gh pr checkout` / `glab mr checkout` / `tea pr checkout`). Holds the per-repo write lock — it mutates the local working tree. | `number` (integer, required) | no | yes |
 | `forge_pr_review` | Submit a review on a pull/merge request: `approve`, `request_changes`, or `comment`. `body` is required for `request_changes`/`comment`, optional for `approve`. On GitLab a non-empty approve body is posted as a note after approval, an empty/whitespace body skips the note, and `-` is refused before approval as glab's stdin/editor sentinel; if a note fails, the approval remains applied and the tool returns the note error. `request_changes` is Unsupported on GitLab; `comment` is Unsupported on GitLab and Gitea (use `forge_pr_comment` there instead). | `number` (integer, required), `kind` (string, required), `body` (string, optional) | no | no |
 | `forge_release_create` | Create a release for a Git tag. `draft`/`prerelease` are supported on GitHub/Gitea and refused as Unsupported on GitLab. | `tag` (string, required), `title` (string, optional), `notes` (string, optional), `draft` (boolean, optional), `prerelease` (boolean, optional) | no | no |
