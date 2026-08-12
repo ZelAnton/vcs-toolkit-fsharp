@@ -447,6 +447,9 @@ type Git private (core: ManagedClient) =
     /// (opt-in, off by default). See `ICommandObserver`.
     member _.WithObserver(observer: ICommandObserver) = Git(core.WithObserver observer)
 
+    /// Bound retained process output for callers such as MCP that impose a response budget.
+    member _.WithOutputBudget(bytes: int option) = Git(core.WithOutputBudget bytes)
+
     /// Supply credentials for HTTPS remote operations via a provider (opt-in).
     member _.WithCredentials(provider: ICredentialProvider) = Git(core.WithCredentials provider)
 

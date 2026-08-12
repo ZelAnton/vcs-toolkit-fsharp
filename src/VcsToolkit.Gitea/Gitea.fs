@@ -72,6 +72,9 @@ type Gitea private (core: ManagedClient) =
     /// (opt-in, off by default). See `ICommandObserver`.
     member _.WithObserver(observer: ICommandObserver) = Gitea(core.WithObserver observer)
 
+    /// Bound retained process output for callers such as MCP that impose a response budget.
+    member _.WithOutputBudget(bytes: int option) = Gitea(core.WithOutputBudget bytes)
+
     // --- Escape hatches / version / auth -------------------------------------
 
     /// Run `tea <args>` in the process's current directory, returning trimmed stdout. Unguarded

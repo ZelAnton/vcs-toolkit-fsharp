@@ -111,6 +111,7 @@ namespace VcsToolkit.GitHub
         public VcsToolkit.GitHub.GitHub WithEnvToken(string var) { }
         public VcsToolkit.GitHub.GitHub WithHost(VcsToolkit.GitHub.GitHubHost host) { }
         public VcsToolkit.GitHub.GitHub WithObserver(VcsToolkit.CliSupport.ICommandObserver observer) { }
+        public VcsToolkit.GitHub.GitHub WithOutputBudget(Microsoft.FSharp.Core.FSharpOption<int>? bytes) { }
         public VcsToolkit.GitHub.GitHub WithRetry(VcsToolkit.CliSupport.RetryPolicy policy) { }
         public VcsToolkit.GitHub.GitHub WithToken(string token) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> WorkflowDispatch(string dir, VcsToolkit.GitHub.WorkflowDispatch spec) { }

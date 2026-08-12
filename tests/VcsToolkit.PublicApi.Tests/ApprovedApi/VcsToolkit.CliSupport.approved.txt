@@ -212,6 +212,7 @@ namespace VcsToolkit.CliSupport
         public VcsToolkit.CliSupport.ManagedClient WithCredentials(VcsToolkit.CliSupport.ICredentialProvider provider) { }
         public VcsToolkit.CliSupport.ManagedClient WithExpectedHost(string host) { }
         public VcsToolkit.CliSupport.ManagedClient WithObserver(VcsToolkit.CliSupport.ICommandObserver observer) { }
+        public VcsToolkit.CliSupport.ManagedClient WithOutputBudget(Microsoft.FSharp.Core.FSharpOption<int>? bytes) { }
         public VcsToolkit.CliSupport.ManagedClient WithRetry(VcsToolkit.CliSupport.RetryPolicy policy) { }
         public VcsToolkit.CliSupport.ManagedClient WithTokenEnv(VcsToolkit.CliSupport.CredentialService service, string var) { }
         public static VcsToolkit.CliSupport.ManagedClient Create(string program) { }

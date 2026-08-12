@@ -236,6 +236,10 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
     member _.WithObserver(observer: ICommandObserver) =
         Jj(core.WithObserver observer, ignoreWorkingCopy)
 
+    /// Bound retained process output for callers such as MCP that impose a response budget.
+    member _.WithOutputBudget(bytes: int option) =
+        Jj(core.WithOutputBudget bytes, ignoreWorkingCopy)
+
     /// A **read-only** view of this client (the analogue of jj's `WorkingCopy::Ignore`): its
     /// read/query methods pass the global `--ignore-working-copy` flag, so a `Status`/`Log`/
     /// `Diff`/bookmark/op-log/workspace query reports the last recorded operation's state
@@ -784,17 +788,13 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
             @ [ "-T"; JjParse.ANNOTATE_TEMPLATE; "--color"; "never"; "--"; path ]
 
         task {
-            // Parse raw bytes, not the string verb (`Output`): the latter reconstructs stdout
-            // from a line buffer, stripping every trailing `\r` (full CRLF→LF normalization) and
-            // the final newline — which would destroy the `\r` that `parseAnnotate` is documented
-            // to preserve for a CRLF-terminated source line. Rust's `core.parse` feeds raw stdout,
-            // so this keeps byte-for-byte parity for the last line.
-            match! core.OutputBytes(core.CommandIn(dir, args)) with
+            // The unbudgeted path remains raw-byte based so CRLF and the final newline survive.
+            // A bounded MCP client deliberately switches the shared helper to ProcessKit's
+            // bounded text capture before parsing, preventing OutputBytes from retaining all
+            // stdout for a large annotation.
+            match! runUntrimmedBytes core (core.CommandIn(dir, args)) with
             | Error e -> return Error e
-            | Ok res ->
-                match ProcessResult.ensureSuccess res with
-                | Error e -> return Error e
-                | Ok ok -> return Ok(JjParse.parseAnnotate (System.Text.Encoding.UTF8.GetString ok.Stdout))
+            | Ok bytes -> return Ok(JjParse.parseAnnotate (System.Text.Encoding.UTF8.GetString bytes))
         }
 
     /// Repo-relative tracked paths at `revset` (`jj file list -r <revset>`; `None` = `@`),
