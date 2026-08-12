@@ -192,6 +192,27 @@ type ProgressTests() =
                 Assert.That(events |> Seq.choose (fun event -> event.Text) |> String.concat "|", Is.EqualTo "out|err")
         }
 
+    [<Test>]
+    member _.DefaultInactivityTimeoutStopsSilentProgressRuns() : Task =
+        task {
+            let program, arguments =
+                if OperatingSystem.IsWindows() then
+                    "pwsh",
+                    [ "-NoLogo"
+                      "-NoProfile"
+                      "-Command"
+                      "Start-Sleep -Milliseconds 500; Write-Output late" ]
+                else
+                    "sh", [ "-c"; "sleep 0.5; printf late" ]
+
+            let window = TimeSpan.FromMilliseconds 100.0
+            let client = ManagedClient.Create(program).DefaultInactivityTimeout window
+
+            match! client.RunWithProgress(client.Command arguments, ignore) with
+            | Error(ProcessError.Timeout(_, timeout, _, _)) -> Assert.That(timeout, Is.EqualTo window)
+            | other -> Assert.Fail $"silent progress run should hit its inactivity watchdog, got {other}"
+        }
+
 [<TestFixture>]
 type ClassifierTests() =
 

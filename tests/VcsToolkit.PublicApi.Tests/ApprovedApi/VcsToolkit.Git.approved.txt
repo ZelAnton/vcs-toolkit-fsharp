@@ -249,6 +249,7 @@ namespace VcsToolkit.Git
         public VcsToolkit.Git.Git DefaultCancelOn(System.Threading.CancellationToken token) { }
         public VcsToolkit.Git.Git DefaultEnv(string key, string value) { }
         public VcsToolkit.Git.Git DefaultEnvRemove(string key) { }
+        public VcsToolkit.Git.Git DefaultInactivityTimeout(System.TimeSpan timeout) { }
         public VcsToolkit.Git.Git DefaultTimeout(System.TimeSpan timeout) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> DeleteBranch(string dir, string name, bool force) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Diff.FileDiff>, ProcessKit.ProcessError>> Diff(string dir, VcsToolkit.Git.DiffSpec spec) { }

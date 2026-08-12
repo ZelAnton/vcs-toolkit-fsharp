@@ -199,6 +199,7 @@ namespace VcsToolkit.CliSupport
         public VcsToolkit.CliSupport.ManagedClient DefaultCancelOn(System.Threading.CancellationToken token) { }
         public VcsToolkit.CliSupport.ManagedClient DefaultEnv(string key, string value) { }
         public VcsToolkit.CliSupport.ManagedClient DefaultEnvRemove(string key) { }
+        public VcsToolkit.CliSupport.ManagedClient DefaultInactivityTimeout(System.TimeSpan timeout) { }
         public VcsToolkit.CliSupport.ManagedClient DefaultTimeout(System.TimeSpan timeout) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<int, ProcessKit.ProcessError>> ExitCode(ProcessKit.Command cmd) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<ProcessKit.ProcessResult<string>, ProcessKit.ProcessError>> Output(ProcessKit.Command cmd) { }
