@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Git branch, tag, remote-ref, push-refspec, clone-branch, and worktree branch-name slots now reject malformed `RefName` values before spawning while revision and commit-ish inputs retain their permissive Git syntax.
+- Progress-streaming commands now retain only the bounded diagnostic tail when `WithOutputBudget` is configured, while every progress event continues to reach its callback.
 
 ### Added
 - Progress variants for Git/Jujutsu fetch, push, and clone operations, plus the Core `Repo` facade, forward one process lifecycle and output stream without replaying a partially observed network operation.
