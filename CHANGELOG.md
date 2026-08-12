@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Typed GitHub Actions workflow discovery through `GitHub.WorkflowList`/`WorkflowListOptions` and `GitHub.WorkflowView`, including disabled workflows, validated limits, and deterministic id/name/filename/path resolution without scraping human-readable CLI output.
 - Typed label creation and add/remove operations across GitHub, GitLab, Gitea, the Forge facade, and write-gated MCP tools; Gitea reports unsupported for label mutation.
 - Command observers and `vcs-mcp --log-commands` now redact sensitive flag values, token-shaped arguments, URL userinfo, and authorization headers before exposing command argv.
 - `VcsToolkit.TestKit.ForgeFixtures` provides canonical minimal GitHub, GitLab, and Gitea PR, issue, and release payload builders pinned to the parser field contracts.

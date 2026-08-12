@@ -42,6 +42,60 @@ type GitHub private (core: ManagedClient) =
         | Some e -> Error e
         | None -> Ok()
 
+    static let validateWorkflowListLimit (limit: int) : Result<unit, ProcessError> =
+        if limit <= 0 then
+            Error(ProcessError.Spawn(BINARY, "workflow list limit must be greater than zero"))
+        else
+            Ok()
+
+    static let resolveWorkflow (workflows: Workflow list) (selector: string) : Result<Workflow, ProcessError> =
+        if String.IsNullOrEmpty selector then
+            Error(ProcessError.Spawn(BINARY, "workflow view selector must not be empty"))
+        else
+            let selectorLower = selector.ToLowerInvariant()
+
+            let isNumeric, numericId =
+                match
+                    UInt64.TryParse(
+                        selector,
+                        Globalization.NumberStyles.None,
+                        Globalization.CultureInfo.InvariantCulture
+                    )
+                with
+                | true, value -> true, Some value
+                | false, _ -> false, None
+
+            let isFile = selectorLower.EndsWith(".yml") || selectorLower.EndsWith(".yaml")
+
+            let matches =
+                workflows
+                |> List.filter (fun workflow ->
+                    if isNumeric then
+                        workflow.Id = numericId.Value
+                    elif isFile then
+                        let lastSlash = workflow.Path.LastIndexOf('/')
+
+                        let fileName =
+                            if lastSlash >= 0 then
+                                workflow.Path.Substring(lastSlash + 1)
+                            else
+                                workflow.Path
+
+                        workflow.Path = selector || fileName = selector
+                    else
+                        String.Equals(workflow.Name, selector, StringComparison.OrdinalIgnoreCase))
+
+            match matches with
+            | [ workflow ] -> Ok workflow
+            | [] -> Error(ProcessError.Parse(BINARY, sprintf "could not find workflow %A" selector))
+            | _ ->
+                Error(
+                    ProcessError.Parse(
+                        BINARY,
+                        sprintf "workflow selector %A is ambiguous (%d matches)" selector matches.Length
+                    )
+                )
+
     /// Create a client driving the real job-backed runner.
     static member Create() =
         GitHub(ManagedClient.Create(BINARY).WithTokenEnv(CredentialService.GitHub, "GH_TOKEN"))
@@ -315,6 +369,44 @@ type GitHub private (core: ManagedClient) =
             ),
             GitHubParse.parseIssueList
         )
+
+    /// Active GitHub Actions workflow definitions for `dir`, up to 50.
+    /// Disabled workflows are hidden by gh unless the options overload requests `--all`.
+    member this.WorkflowList(dir: string) =
+        this.WorkflowList(dir, WorkflowListOptions.Default)
+
+    /// GitHub Actions workflow definitions for `dir` (`gh workflow list --limit <limit>
+    /// [--all] --json id,name,path,state`). A non-positive limit is rejected before spawning.
+    member _.WorkflowList(dir: string, options: WorkflowListOptions) =
+        task {
+            match validateWorkflowListLimit options.Limit with
+            | Error e -> return Error e
+            | Ok() ->
+                let args =
+                    [ "workflow"; "list"; "--limit"; string options.Limit ]
+                    @ (if options.IncludeDisabled then [ "--all" ] else [])
+                    @ [ "--json"; WORKFLOW_FIELDS ]
+
+                return! core.TryParse(core.CommandIn(dir, args), GitHubParse.parseWorkflowList)
+        }
+
+    /// Resolve one workflow by numeric id, case-insensitive display name, filename, or
+    /// repository-relative path. `gh workflow view` has no JSON mode, so this resolves
+    /// against a complete disabled-inclusive workflow list and never scrapes human output.
+    /// Missing or ambiguous selectors are structured parse errors; an empty selector is
+    /// rejected before spawning.
+    member this.WorkflowView(dir: string, selector: string) =
+        task {
+            if String.IsNullOrEmpty selector then
+                return resolveWorkflow [] selector
+            else
+                let options =
+                    WorkflowListOptions.Default.WithAll().WithLimit WORKFLOW_VIEW_LOOKUP_LIMIT
+
+                match! this.WorkflowList(dir, options) with
+                | Error e -> return Error e
+                | Ok workflows -> return resolveWorkflow workflows selector
+        }
 
     /// Open a pull request, returning its URL (`gh pr create`). See `PrCreate`.
     member _.PrCreate(dir: string, spec: PrCreate) =
@@ -841,6 +933,15 @@ and [<Sealed>] GitHubAt internal (github: GitHub, dir: string) =
 
     /// Recent workflow runs, newest first (`gh run list …`).
     member _.RunList(limit: int, branch: string option) = github.RunList(dir, limit, branch)
+
+    /// Active GitHub Actions workflow definitions, up to 50 (`gh workflow list …`).
+    member _.WorkflowList() = github.WorkflowList(dir)
+
+    /// GitHub Actions workflow definitions with disabled/limit options (`gh workflow list …`).
+    member _.WorkflowList(options: WorkflowListOptions) = github.WorkflowList(dir, options)
+
+    /// Resolve a GitHub Actions workflow by id, name, filename, or path.
+    member _.WorkflowView(selector: string) = github.WorkflowView(dir, selector)
 
     /// A single workflow run by id (`gh run view <id> --json …`).
     member _.RunView(id: uint64) = github.RunView(dir, id)
