@@ -71,7 +71,7 @@ type WriteGateTests() =
 
     [<Test>]
     member _.WriteToolsCoversTheGatedTools() =
-        Assert.That(List.length WriteTools.all, Is.EqualTo 35)
+        Assert.That(List.length WriteTools.all, Is.EqualTo 36)
         Assert.That(WriteTools.asSet.Contains "repo_commit", Is.True)
         Assert.That(WriteTools.asSet.Contains "repo_rebase", Is.True, "the new rebase tool is write-gated")
         Assert.That(WriteTools.asSet.Contains "forge_pr_checkout", Is.True, "the local-checkout tool is write-gated")

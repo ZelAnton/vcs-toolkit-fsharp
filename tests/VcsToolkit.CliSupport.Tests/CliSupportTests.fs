@@ -238,6 +238,7 @@ type ProgressTests() =
                 Assert.That(stdout.Length, Is.LessThan 120000)
             | other -> Assert.Fail $"expected a non-zero progress exit, got {other}"
         }
+
 [<TestFixture>]
 type ClassifierTests() =
 

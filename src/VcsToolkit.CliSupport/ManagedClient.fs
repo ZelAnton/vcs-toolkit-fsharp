@@ -501,10 +501,12 @@ type ManagedClient private (cfg: ManagedConfig) =
 
                         prepared.OutputBuffer policy
                     | None -> prepared
+
                 let progressCommand =
                     match cfg.DefaultInactivityTimeout with
                     | Some timeout -> outputCommand.IdleTimeout timeout
                     | None -> outputCommand
+
                 let streamed =
                     progressCommand
                         .OnStdoutLine(Action<string>(fun line -> report (ProcessEvent.Stdout line)))

@@ -359,6 +359,7 @@ tool additionally requires `--allow-write`, or `--allow-tools` naming it.
 | `repo_worktrees` | Attached worktrees (git) / workspaces (jj). | — |
 | `repo_remotes` | Configured remotes (name and URL): git remotes are deduplicated to one entry carrying the fetch URL; jj uses `jj git remote list`. | — |
 | `repo_merge_base` | The full commit id of a best common ancestor of `a` and `b`, or null when the histories are disconnected. Inputs are backend-specific revision expressions (git commit-ish values or jj revsets); jj excludes its all-zero virtual root. | `a` (string, required), `b` (string, required) |
+| `repo_op_log` | Recent Jujutsu operations, newest first. Unsupported on Git. | `max` (integer, required) |
 | `repo_show_file` | The content of a file at a revision, subject to `--output-budget` (default 200000 bytes; a truncated read appends `[truncated: showing N of M bytes]`). UTF-8-decoded text only — a non-UTF-8 byte is replaced with U+FFFD and does not round-trip, so this is for text files, not byte-exact binary reads. `rev` is passed through as-is to the backend (git commit-ish or jj revset — not cross-backend portable). | `rev` (string, required), `path` (string, required) |
 | `repo_log` | Up to `max` commits reachable from `revspec_or_revset` (git revspec, e.g. `"HEAD"`, or jj revset, e.g. `"@"`), most-recent-first. `author`/`date` are null on jj (its typed log doesn't surface authorship/timestamp). | `revspec_or_revset` (string, required), `max` (integer, required) |
 | `repo_annotate` | Per-line authorship of a file at a revision (git blame / jj file annotate), as a JSON array of lines. When truncated by `--output-budget`, returns a valid JSON envelope with `items`, `truncated: true`, `shown`, and `total`. `rev` is passed through as-is (git commit-ish or jj revset). | `path` (string, required), `rev` (string, optional — omit to annotate the working copy / `@`) |
@@ -403,6 +404,7 @@ it is safe to retry or clean up manually.
 | `repo_tag_create` | Create a git tag at `rev` (or `HEAD` when omitted). Supplying `message` creates an annotated tag; omitting it creates a lightweight tag. Unsupported on jj before any command is spawned. | `name` (string, required), `message` (string, optional), `rev` (string, optional) | no | no |
 | `repo_tag_delete` | Delete a git tag. Unsupported on jj before any command is spawned. | `name` (string, required) | **yes** | no |
 | `repo_new_child` | Start new work on top of `reference` **without** modifying it (git checkout / jj new) — unlike `repo_checkout`, does not rewrite `reference` in place on jj. | `reference` (string, required) | no | no |
+| `repo_undo` | Undo the latest Jujutsu operation. Unsupported on Git. This rewrites repository state. | — | **yes** | no |
 
 ### `forge_*` — forge tools (GitHub/GitLab/Gitea, via `VcsToolkit.Forge`)
 

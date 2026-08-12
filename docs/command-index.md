@@ -188,6 +188,7 @@ for this client's place in the layering.
 | `Version` | `--version` | |
 | `Capabilities` | `--version`, parsed (`git ≥ 2.31` floor for the `Harden` config pins; unrelated to any other method) | |
 | `WithOutputBudget` | *(none — configures retained process output)* | |
+| `DefaultInactivityTimeout` | *(none — configures the resettable stdout/stderr inactivity window for progress runs)* | disabled by default; output on either stream resets the window |
 | `Run` | `git <args>` in the process cwd (client) or the bound `dir` (`GitAt`) | |
 | `RunRaw` | like `Run`, never errors on a non-zero exit | |
 
@@ -320,6 +321,7 @@ caller-supplied name can't fan a mutation out across every matching ref.
 | `Version` | `--version` | |
 | `Capabilities` | `--version`, parsed | |
 | `WithOutputBudget` | *(none — configures retained process output)* | |
+| `DefaultInactivityTimeout` | *(none — configures the resettable stdout/stderr inactivity window for progress runs)* | disabled by default; output on either stream resets the window |
 | `Run` | `jj <args>` in the process cwd (client) or the bound `dir` (`JjAt`); **unguarded** | |
 | `RunRaw` | like `Run`, never errors on a non-zero exit; **unguarded** | |
 
