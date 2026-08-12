@@ -46,6 +46,14 @@ module internal Constants =
     let RUN_FIELDS =
         "databaseId,name,displayTitle,status,conclusion,workflowName,headBranch,event,url,createdAt"
 
+    /// `--json` field set for a GitHub Actions workflow definition (`workflow list`).
+    [<Literal>]
+    let WORKFLOW_FIELDS = "id,name,path,state"
+
+    /// `gh workflow view` has no JSON mode, so view resolves against a complete
+    /// disabled-inclusive inventory using the largest signed CLI limit.
+    let WORKFLOW_VIEW_LOOKUP_LIMIT = 2147483647
+
     /// `--json` field set for `pr checks`.
     [<Literal>]
     let CHECK_FIELDS = "name,state,bucket,workflow,link,startedAt,completedAt"
@@ -531,6 +539,26 @@ type WorkflowDispatch =
     member this.WithInput(key: string, value: string) =
         { this with
             Inputs = this.Inputs @ [ (key, value) ] }
+
+/// Options for `workflowList` (`gh workflow list --limit <limit> [--all]`).
+/// The default lists active workflows, up to gh's default of 50. Use `WithAll()`
+/// to include workflows disabled manually or for inactivity.
+type WorkflowListOptions =
+    {
+        /// Include disabled workflows (`--all`).
+        IncludeDisabled: bool
+        /// Maximum number of workflow definitions returned (`--limit`).
+        Limit: int
+    }
+
+    /// Active workflows, up to 50 — the compatibility default for `WorkflowList`.
+    static member Default = { IncludeDisabled = false; Limit = 50 }
+
+    /// Include disabled workflows (`--all`).
+    member this.WithAll() = { this with IncludeDisabled = true }
+
+    /// Set the maximum number of workflow definitions returned.
+    member this.WithLimit(limit: int) = { this with Limit = limit }
 
 /// What the installed `gh` binary supports, probed via `GitHub.Capabilities`.
 type GitHubCapabilities =

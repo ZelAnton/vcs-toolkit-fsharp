@@ -120,6 +120,9 @@ namespace VcsToolkit.GitHub
         public VcsToolkit.GitHub.GitHub WithRetry(VcsToolkit.CliSupport.RetryPolicy policy) { }
         public VcsToolkit.GitHub.GitHub WithToken(string token) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> WorkflowDispatch(string dir, VcsToolkit.GitHub.WorkflowDispatch spec) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitHub.Workflow>, ProcessKit.ProcessError>> WorkflowList(string dir) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitHub.Workflow>, ProcessKit.ProcessError>> WorkflowList(string dir, VcsToolkit.GitHub.WorkflowListOptions options) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitHub.Workflow, ProcessKit.ProcessError>> WorkflowView(string dir, string selector) { }
         public static VcsToolkit.GitHub.GitHub Create() { }
         public static VcsToolkit.GitHub.GitHub WithRunner(ProcessKit.IProcessRunner runner) { }
     }
@@ -175,6 +178,9 @@ namespace VcsToolkit.GitHub
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitHub.WorkflowRun, ProcessKit.ProcessError>> RunWatch(ulong id) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> Version() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> WorkflowDispatch(VcsToolkit.GitHub.WorkflowDispatch spec) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitHub.Workflow>, ProcessKit.ProcessError>> WorkflowList() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitHub.Workflow>, ProcessKit.ProcessError>> WorkflowList(VcsToolkit.GitHub.WorkflowListOptions options) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitHub.Workflow, ProcessKit.ProcessError>> WorkflowView(string selector) { }
     }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
     [System.Serializable]
@@ -528,6 +534,21 @@ namespace VcsToolkit.GitHub
     }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
     [System.Serializable]
+    public sealed class Workflow : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.GitHub.Workflow>, System.IEquatable<VcsToolkit.GitHub.Workflow>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.GitHub.Workflow))]
+        public Workflow(ulong id, string name, string path, string state) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public ulong Id { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public string Name { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public string Path { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+        public string State { get; }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
     public sealed class WorkflowDispatch : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.GitHub.WorkflowDispatch>, System.IEquatable<VcsToolkit.GitHub.WorkflowDispatch>
     {
         [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.GitHub.WorkflowDispatch))]
@@ -541,6 +562,20 @@ namespace VcsToolkit.GitHub
         public VcsToolkit.GitHub.WorkflowDispatch WithInput(string key, string value) { }
         public VcsToolkit.GitHub.WorkflowDispatch WithRef(string gitRef) { }
         public static VcsToolkit.GitHub.WorkflowDispatch Create(string workflow) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class WorkflowListOptions : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.GitHub.WorkflowListOptions>, System.IEquatable<VcsToolkit.GitHub.WorkflowListOptions>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.GitHub.WorkflowListOptions))]
+        public WorkflowListOptions(bool includeDisabled, int limit) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public bool IncludeDisabled { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public int Limit { get; }
+        public static VcsToolkit.GitHub.WorkflowListOptions Default { get; }
+        public VcsToolkit.GitHub.WorkflowListOptions WithAll() { }
+        public VcsToolkit.GitHub.WorkflowListOptions WithLimit(int limit) { }
     }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
     [System.Serializable]

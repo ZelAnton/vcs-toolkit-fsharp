@@ -94,6 +94,20 @@ type WorkflowRun =
         CreatedAt: string
     }
 
+/// A GitHub Actions workflow definition (`gh workflow list --json id,name,path,state`).
+type Workflow =
+    {
+        /// Repository-scoped workflow database id.
+        Id: uint64
+        /// Display name from the workflow file.
+        Name: string
+        /// Repository-relative workflow file path.
+        Path: string
+        /// GitHub state, such as `"active"`, `"disabled_manually"`, or
+        /// `"disabled_inactivity"`; future values remain strings.
+        State: string
+    }
+
 /// gh's coarse categorisation of a `CheckRun`'s state — the field to branch on when
 /// deciding whether CI passed. An unrecognised value (or absent field) reads as
 /// `Unknown` rather than failing the parse, so the wrapper never breaks on an
@@ -282,6 +296,12 @@ module internal GitHubParse =
           Url = Json.strOr el "url"
           CreatedAt = Json.strOr el "createdAt" }
 
+    let private toWorkflow (el: JsonElement) : Workflow =
+        { Id = Json.u64Or el "id"
+          Name = Json.strOr el "name"
+          Path = Json.strOr el "path"
+          State = Json.strOr el "state" }
+
     let private toBucket (el: JsonElement) : CheckBucket =
         // gh emits lowercase bucket strings; match them exactly (an unknown value or
         // absent field is the forward-compatible catch-all).
@@ -356,6 +376,10 @@ module internal GitHubParse =
     let parseRunList = Json.parseArray toRun
     /// Parse a single `gh run view` object.
     let parseRun = Json.parseObject toRun
+    /// Parse a `gh workflow list` array.
+    let parseWorkflowList = Json.parseArray toWorkflow
+    /// Parse a single workflow definition object.
+    let parseWorkflow = Json.parseObject toWorkflow
     /// Parse a `gh pr checks` array.
     let parseChecks = Json.parseArray toCheck
     /// Parse a `gh release list` array.

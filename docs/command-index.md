@@ -358,6 +358,8 @@ Client: `GitHub` / `GitHubAt` (`src/VcsToolkit.GitHub/GitHub.fs`). See
 | `IssueReopen` | `issue reopen <n>` | |
 | `IssueComment` | `issue comment <n> --body <body>` | returns the comment URL |
 | `IssueEdit` | `issue edit <n> [--title <title>] [--body <body>]` | ≥1 field required |
+| `WorkflowList` | `workflow list --limit <limit> [--all] --json id,name,path,state` | via `WorkflowListOptions`; active workflows ≤50 by default, `--all` includes disabled workflows, and non-positive limits are rejected before spawning |
+| `WorkflowView` | `workflow list --limit 2147483647 --all --json id,name,path,state` | resolves id, case-insensitive name, filename, or path from a complete JSON inventory; missing/ambiguous selectors are parse errors and human output is never scraped |
 | `RunList` | `run list --limit <n> [--branch <b>] --json …` | Actions runs, newest first |
 | `RunView` | `run view <id> --json …` | id is `WorkflowRun`'s database id |
 | `RunWatch` | `run watch <id>`, then `run view <id>` | **blocks** until the run finishes; stdout capture bounded to the last 256 lines/256 KiB |
@@ -378,9 +380,9 @@ Client: `GitHub` / `GitHubAt` (`src/VcsToolkit.GitHub/GitHub.fs`). See
 
 `browse`, `cache`, `codespace`, `extension`, `gist`, `label`, `org`, `project`, `pr lock`/
 `reopen`/`status`, `repo clone`/`create`/`fork`/`edit`/`sync`/`list`, `ruleset`, `search`,
-`secret`, `ssh-key`, `variable`, `workflow` (`list`/`view`/`enable`/`disable` — `workflow run`
-is modeled as `WorkflowDispatch`). Reach any of these through `Run`/`RunRaw`, or `Api` for a
-raw REST/GraphQL call.
+`secret`, `ssh-key`, `variable`, `workflow enable`/`disable` (`workflow list`/`view` and
+`workflow run` are modeled). Reach any of these through `Run`/`RunRaw`, or `Api` for a raw
+REST/GraphQL call.
 
 ## glab (`VcsToolkit.GitLab` — the GitLab CLI)
 

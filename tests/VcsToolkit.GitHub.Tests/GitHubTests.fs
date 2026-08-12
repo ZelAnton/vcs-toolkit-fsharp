@@ -146,6 +146,28 @@ type ParseTests() =
         | other -> Assert.Fail $"expected one run, got {other.Length}"
 
     [<Test>]
+    member _.WorkflowListParsesIdNamePathAndDisabledState() =
+        let json =
+            """[{"id":17,"name":"CI","path":".github/workflows/ci.yml","state":"active"},{"id":18,"name":"Deploy","path":".github/workflows/deploy.yaml","state":"disabled_manually"}]"""
+
+        match expectOk (GitHubParse.parseWorkflowList json) with
+        | [ active; disabled ] ->
+            Assert.That(active.Id, Is.EqualTo 17UL)
+            Assert.That(active.Name, Is.EqualTo "CI")
+            Assert.That(active.Path, Is.EqualTo ".github/workflows/ci.yml")
+            Assert.That(active.State, Is.EqualTo "active")
+            Assert.That(disabled.State, Is.EqualTo "disabled_manually")
+        | other -> Assert.Fail $"expected two workflows, got {other.Length}"
+
+    [<Test>]
+    member _.WorkflowReadsMissingFieldsAsDefaults() =
+        let workflow = expectOk (GitHubParse.parseWorkflow "{}")
+        Assert.That(workflow.Id, Is.EqualTo 0UL)
+        Assert.That(workflow.Name, Is.EqualTo "")
+        Assert.That(workflow.Path, Is.EqualTo "")
+        Assert.That(workflow.State, Is.EqualTo "")
+
+    [<Test>]
     member _.ChecksMapEveryBucketAndCatchAll() =
         let json =
             """[{"name":"build","state":"SUCCESS","bucket":"pass","workflow":"CI","link":"l","startedAt":"t1","completedAt":"t2"},
@@ -655,6 +677,99 @@ type ClientTests() =
             match! all.RunList(".", 5, None) with
             | Ok xs -> Assert.That(xs, Is.Empty)
             | Error e -> Assert.Fail $"run list (all) failed: {e}"
+        }
+
+    [<Test>]
+    member _.WorkflowListBuildsDefaultAndDisabledInclusiveArgs() : Task =
+        task {
+            let defaultList, defaultArgs = capturing (Reply.Ok "[]")
+
+            match! defaultList.WorkflowList(".") with
+            | Ok workflows ->
+                Assert.That(workflows, Is.Empty)
+                assertArgs [ "workflow"; "list"; "--limit"; "50"; "--json"; "id,name,path,state" ] defaultArgs
+            | Error e -> Assert.Fail $"default workflow list failed: {e}"
+
+            let all, allArgs = capturing (Reply.Ok "[]")
+            let options = WorkflowListOptions.Default.WithAll().WithLimit 75
+
+            match! all.WorkflowList(".", options) with
+            | Ok workflows ->
+                Assert.That(workflows, Is.Empty)
+                assertArgs [ "workflow"; "list"; "--limit"; "75"; "--all"; "--json"; "id,name,path,state" ] allArgs
+            | Error e -> Assert.Fail $"disabled-inclusive workflow list failed: {e}"
+        }
+
+    [<Test>]
+    member _.WorkflowListRejectsNonPositiveLimitBeforeSpawning() : Task =
+        task {
+            for limit in [ 0; -1 ] do
+                let runner = ScriptedRunner().Fallback(Reply.Ok "")
+                let gh = GitHub.WithRunner runner
+                let options = WorkflowListOptions.Default.WithLimit limit
+
+                match! gh.WorkflowList(".", options) with
+                | Error(ProcessError.Spawn(program, message)) ->
+                    Assert.That(program, Is.EqualTo "gh")
+                    Assert.That(message, Does.Contain "limit")
+                | Error e -> Assert.Fail $"limit {limit} returned the wrong error: {e}"
+                | Ok _ -> Assert.Fail $"limit {limit} was accepted"
+        }
+
+    [<Test>]
+    member _.WorkflowViewResolvesIdNameFilenameAndPathFromCompleteInventory() : Task =
+        task {
+            let json =
+                """[{"id":17,"name":"CI","path":".github/workflows/ci.yml","state":"active"},{"id":18,"name":"Deploy","path":".github/workflows/deploy.yaml","state":"disabled_manually"}]"""
+
+            let gh, args = capturing (Reply.Ok json)
+
+            for selector, expectedId in
+                [ "17", 17UL
+                  "ci", 17UL
+                  "deploy.yaml", 18UL
+                  ".github/workflows/ci.yml", 17UL ] do
+                match! gh.WorkflowView(".", selector) with
+                | Ok workflow -> Assert.That(workflow.Id, Is.EqualTo expectedId, selector)
+                | Error e -> Assert.Fail $"workflow selector {selector} failed: {e}"
+
+            for _ in 1..4 do
+                assertArgs
+                    [ "workflow"
+                      "list"
+                      "--limit"
+                      "2147483647"
+                      "--all"
+                      "--json"
+                      "id,name,path,state" ]
+                    args
+        }
+
+    [<Test>]
+    member _.WorkflowViewRejectsEmptyMissingAndAmbiguousSelectors() : Task =
+        task {
+            let emptyRunner = ScriptedRunner().Fallback(Reply.Ok "")
+            let emptyGh = GitHub.WithRunner emptyRunner
+
+            match! emptyGh.WorkflowView(".", "") with
+            | Error(ProcessError.Spawn(program, message)) ->
+                Assert.That(program, Is.EqualTo "gh")
+                Assert.That(message, Does.Contain "selector")
+            | Error e -> Assert.Fail $"empty selector returned the wrong error: {e}"
+            | Ok _ -> Assert.Fail "empty selector was accepted"
+
+            let json =
+                """[{"id":17,"name":"CI","path":".github/workflows/ci.yml","state":"active"},{"id":18,"name":"ci","path":".github/workflows/other.yml","state":"active"}]"""
+
+            let gh = GitHub.WithRunner(ScriptedRunner().Fallback(Reply.Ok json))
+
+            for selector in [ "missing"; "CI" ] do
+                match! gh.WorkflowView(".", selector) with
+                | Error(ProcessError.Parse(program, message)) ->
+                    Assert.That(program, Is.EqualTo "gh")
+                    Assert.That(message, Does.Contain selector)
+                | Error e -> Assert.Fail $"selector {selector} returned the wrong error: {e}"
+                | Ok workflow -> Assert.Fail $"selector {selector} unexpectedly returned {workflow.Id}"
         }
 
     [<Test>]
