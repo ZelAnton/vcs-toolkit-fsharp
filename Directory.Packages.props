@@ -22,13 +22,13 @@
 	-->
 	<ItemGroup>
 		<PackageVersion Include="FSharp.Core" Version="10.1.300" />
-		<PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
-		<PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.301" />
+		<PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
+		<PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.400" />
 		<PackageVersion Include="NUnit" Version="4.6.1" />
 		<PackageVersion Include="NUnit3TestAdapter" Version="6.2.0" />
 		<!-- Property-based testing on top of NUnit; pinned to the FsCheck.NUnit release whose
 		     NUnit dependency range ([4.0.0, 5.0.0)) covers the NUnit pin above. -->
-		<PackageVersion Include="FsCheck.NUnit" Version="3.3.3" />
+		<PackageVersion Include="FsCheck.NUnit" Version="3.4.0" />
 		<!-- Public-API snapshot generation for the PublicApi.Tests project: renders each
 		     library's public surface as text (via Mono.Cecil) to diff against a committed
 		     .approved baseline, catching accidental SemVer breaks. -->
@@ -38,7 +38,7 @@
 		     dependency in src/Directory.Build.props; the tool discovers the analyzer
 		     assemblies from each src project's restore graph. Built against
 		     FSharp.Analyzers.SDK 0.36.0, so the tool is pinned to that exact SDK version. -->
-		<PackageVersion Include="Ionide.Analyzers" Version="0.15.0" />
+		<PackageVersion Include="Ionide.Analyzers" Version="0.17.0" />
 		<PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
 		<!-- Report-only code-coverage collection (CI runs `dotnet test` with the
 		     "XPlat Code Coverage" collector), aggregated by the `dotnet-reportgenerator-
@@ -53,8 +53,8 @@
 	     (ScriptedRunner/Reply) — a TEST-only dependency, now also published on nuget.org
 	     (no local feed / vendoring). -->
 	<ItemGroup>
-		<PackageVersion Include="ProcessKit" Version="2.10.0" />
-		<PackageVersion Include="ProcessKit.Testing" Version="2.10.0" />
+		<PackageVersion Include="ProcessKit" Version="2.11.0" />
+		<PackageVersion Include="ProcessKit.Testing" Version="2.11.0" />
 	</ItemGroup>
 
 	<!-- VcsToolkit.Mcp dependencies: clean F#→JSON for tool results, and the Model Context
@@ -62,6 +62,6 @@
 	<ItemGroup>
 		<PackageVersion Include="FSharp.SystemTextJson" Version="1.4.36" />
 		<PackageVersion Include="ModelContextProtocol" Version="1.4.1" />
-		<PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
+		<PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.11" />
 	</ItemGroup>
 </Project>
