@@ -203,6 +203,27 @@ The corpus and result schema must be usable without a live model in ordinary CI.
 Live-model evaluations are an opt-in evidence tier whose results are recorded
 separately, not a nondeterministic merge gate.
 
+The versioned v1 baseline lives in evals/vcs-agent/. Its corpus uses
+selectedInterface for preferred-interface choice, shouldActivate for negative
+prompt precision, an explicit fallbackReason for every raw-CLI route,
+commandValid and maxCalls for command/call quality, and evidence fields for
+unrelated-change preservation, exact-revision publication, terminal CI for that
+revision, and unsafe-mutation denial. The normalized result derives the selection,
+false-activation, raw-fallback, invalid-command, preservation, publication,
+terminal-CI, denial, and call-count metrics from those fields.
+
+Ordinary validation is fully offline:
+
+    pwsh ./scripts/record-vcs-agent-eval.ps1
+    pwsh ./scripts/check-vcs-agent-eval.ps1
+    pwsh ./scripts/test-vcs-agent-eval.ps1
+
+The recorder contains no timestamp or machine path and emits runs in corpus order,
+so identical inputs are byte-reproducible. The checker rejects schema/format drift,
+stale metrics, incomplete or reordered runs, and expectation mismatches. Optional
+live observations belong under the ignored evals/vcs-agent/live-results/ tier and
+must be passed explicitly; the ordinary CI job never reads that directory.
+
 ## Delivery phases
 
 ### Phase 0 — Evidence and contract

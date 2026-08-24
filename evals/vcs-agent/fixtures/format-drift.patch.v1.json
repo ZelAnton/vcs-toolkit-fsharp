@@ -1,0 +1,6 @@
+{
+	"schemaVersion": "vcs-agent-eval-test-patch/v1",
+	"target": "result-root",
+	"property": "unexpectedFormatField",
+	"value": true
+}

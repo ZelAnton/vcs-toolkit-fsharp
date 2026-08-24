@@ -1,0 +1,6 @@
+{
+	"schemaVersion": "vcs-agent-eval-test-patch/v1",
+	"scenarioId": "direct-probe-git-linux",
+	"property": "outcome",
+	"value": "unsupported"
+}

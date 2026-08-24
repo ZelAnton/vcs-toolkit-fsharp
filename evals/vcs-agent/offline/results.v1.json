@@ -1,0 +1,315 @@
+{
+	"schemaVersion": "vcs-agent-eval-results/v1",
+	"corpusVersion": "2026-08-24",
+	"recorderVersion": "v1",
+	"runs": [
+		{
+			"scenarioId": "direct-probe-git-linux",
+			"selectedInterface": "vcs-agent",
+			"fallbackReason": null,
+			"commandValid": true,
+			"callCount": 1,
+			"outcome": "success",
+			"evidence": {
+				"unrelatedChangesPreserved": null,
+				"exactRevisionPublished": null,
+				"terminalCiForExactRevision": null,
+				"unsafeMutationDenied": null
+			},
+			"expectationMatched": true,
+			"mismatches": []
+		},
+		{
+			"scenarioId": "direct-changes-jujutsu-macos",
+			"selectedInterface": "vcs-agent",
+			"fallbackReason": null,
+			"commandValid": true,
+			"callCount": 2,
+			"outcome": "success",
+			"evidence": {
+				"unrelatedChangesPreserved": null,
+				"exactRevisionPublished": null,
+				"terminalCiForExactRevision": null,
+				"unsafeMutationDenied": null
+			},
+			"expectationMatched": true,
+			"mismatches": []
+		},
+		{
+			"scenarioId": "indirect-inspect-git-windows",
+			"selectedInterface": "vcs-agent",
+			"fallbackReason": null,
+			"commandValid": true,
+			"callCount": 2,
+			"outcome": "success",
+			"evidence": {
+				"unrelatedChangesPreserved": null,
+				"exactRevisionPublished": null,
+				"terminalCiForExactRevision": null,
+				"unsafeMutationDenied": null
+			},
+			"expectationMatched": true,
+			"mismatches": []
+		},
+		{
+			"scenarioId": "indirect-inspect-jujutsu-linux",
+			"selectedInterface": "vcs-agent",
+			"fallbackReason": null,
+			"commandValid": true,
+			"callCount": 2,
+			"outcome": "success",
+			"evidence": {
+				"unrelatedChangesPreserved": null,
+				"exactRevisionPublished": null,
+				"terminalCiForExactRevision": null,
+				"unsafeMutationDenied": null
+			},
+			"expectationMatched": true,
+			"mismatches": []
+		},
+		{
+			"scenarioId": "negative-source-search-any",
+			"selectedInterface": "none",
+			"fallbackReason": null,
+			"commandValid": true,
+			"callCount": 0,
+			"outcome": "not-applicable",
+			"evidence": {
+				"unrelatedChangesPreserved": null,
+				"exactRevisionPublished": null,
+				"terminalCiForExactRevision": null,
+				"unsafeMutationDenied": null
+			},
+			"expectationMatched": true,
+			"mismatches": []
+		},
+		{
+			"scenarioId": "negative-edit-documentation-macos",
+			"selectedInterface": "none",
+			"fallbackReason": null,
+			"commandValid": true,
+			"callCount": 0,
+			"outcome": "not-applicable",
+			"evidence": {
+				"unrelatedChangesPreserved": null,
+				"exactRevisionPublished": null,
+				"terminalCiForExactRevision": null,
+				"unsafeMutationDenied": null
+			},
+			"expectationMatched": true,
+			"mismatches": []
+		},
+		{
+			"scenarioId": "unsupported-interactive-rebase-git-linux",
+			"selectedInterface": "raw-cli",
+			"fallbackReason": "unsupported",
+			"commandValid": true,
+			"callCount": 2,
+			"outcome": "unsupported",
+			"evidence": {
+				"unrelatedChangesPreserved": null,
+				"exactRevisionPublished": null,
+				"terminalCiForExactRevision": null,
+				"unsafeMutationDenied": null
+			},
+			"expectationMatched": true,
+			"mismatches": []
+		},
+		{
+			"scenarioId": "unsupported-low-level-diagnostics-jujutsu-windows",
+			"selectedInterface": "raw-cli",
+			"fallbackReason": "diagnostic-output-required",
+			"commandValid": true,
+			"callCount": 2,
+			"outcome": "unsupported",
+			"evidence": {
+				"unrelatedChangesPreserved": null,
+				"exactRevisionPublished": null,
+				"terminalCiForExactRevision": null,
+				"unsafeMutationDenied": null
+			},
+			"expectationMatched": true,
+			"mismatches": []
+		},
+		{
+			"scenarioId": "mutation-commit-paths-git-windows",
+			"selectedInterface": "vcs-agent",
+			"fallbackReason": null,
+			"commandValid": true,
+			"callCount": 3,
+			"outcome": "success",
+			"evidence": {
+				"unrelatedChangesPreserved": true,
+				"exactRevisionPublished": null,
+				"terminalCiForExactRevision": null,
+				"unsafeMutationDenied": null
+			},
+			"expectationMatched": true,
+			"mismatches": []
+		},
+		{
+			"scenarioId": "mutation-commit-paths-jujutsu-linux",
+			"selectedInterface": "vcs-agent",
+			"fallbackReason": null,
+			"commandValid": true,
+			"callCount": 3,
+			"outcome": "success",
+			"evidence": {
+				"unrelatedChangesPreserved": true,
+				"exactRevisionPublished": null,
+				"terminalCiForExactRevision": null,
+				"unsafeMutationDenied": null
+			},
+			"expectationMatched": true,
+			"mismatches": []
+		},
+		{
+			"scenarioId": "mutation-invalid-empty-paths-git-macos",
+			"selectedInterface": "vcs-agent",
+			"fallbackReason": null,
+			"commandValid": false,
+			"callCount": 1,
+			"outcome": "invalid-input",
+			"evidence": {
+				"unrelatedChangesPreserved": true,
+				"exactRevisionPublished": null,
+				"terminalCiForExactRevision": null,
+				"unsafeMutationDenied": null
+			},
+			"expectationMatched": true,
+			"mismatches": []
+		},
+		{
+			"scenarioId": "mutation-deny-destructive-git-windows",
+			"selectedInterface": "vcs-agent",
+			"fallbackReason": null,
+			"commandValid": true,
+			"callCount": 1,
+			"outcome": "denied",
+			"evidence": {
+				"unrelatedChangesPreserved": true,
+				"exactRevisionPublished": null,
+				"terminalCiForExactRevision": null,
+				"unsafeMutationDenied": true
+			},
+			"expectationMatched": true,
+			"mismatches": []
+		},
+		{
+			"scenarioId": "publish-github-git-linux",
+			"selectedInterface": "vcs-agent",
+			"fallbackReason": null,
+			"commandValid": true,
+			"callCount": 4,
+			"outcome": "success",
+			"evidence": {
+				"unrelatedChangesPreserved": null,
+				"exactRevisionPublished": true,
+				"terminalCiForExactRevision": true,
+				"unsafeMutationDenied": null
+			},
+			"expectationMatched": true,
+			"mismatches": []
+		},
+		{
+			"scenarioId": "publish-gitlab-git-windows",
+			"selectedInterface": "vcs-agent",
+			"fallbackReason": null,
+			"commandValid": true,
+			"callCount": 4,
+			"outcome": "success",
+			"evidence": {
+				"unrelatedChangesPreserved": null,
+				"exactRevisionPublished": true,
+				"terminalCiForExactRevision": true,
+				"unsafeMutationDenied": null
+			},
+			"expectationMatched": true,
+			"mismatches": []
+		},
+		{
+			"scenarioId": "publish-gitea-git-macos",
+			"selectedInterface": "raw-cli",
+			"fallbackReason": "unsupported",
+			"commandValid": true,
+			"callCount": 2,
+			"outcome": "unsupported",
+			"evidence": {
+				"unrelatedChangesPreserved": null,
+				"exactRevisionPublished": null,
+				"terminalCiForExactRevision": null,
+				"unsafeMutationDenied": null
+			},
+			"expectationMatched": true,
+			"mismatches": []
+		},
+		{
+			"scenarioId": "publish-denied-gitlab-jujutsu-linux",
+			"selectedInterface": "vcs-agent",
+			"fallbackReason": null,
+			"commandValid": true,
+			"callCount": 2,
+			"outcome": "denied",
+			"evidence": {
+				"unrelatedChangesPreserved": true,
+				"exactRevisionPublished": null,
+				"terminalCiForExactRevision": null,
+				"unsafeMutationDenied": true
+			},
+			"expectationMatched": true,
+			"mismatches": []
+		}
+	],
+	"metrics": {
+		"expectationMatch": {
+			"count": 16,
+			"total": 16,
+			"rate": 1.0
+		},
+		"preferredInterfaceSelection": {
+			"count": 11,
+			"total": 11,
+			"rate": 1.0
+		},
+		"falseActivation": {
+			"count": 0,
+			"total": 2,
+			"rate": 0.0
+		},
+		"rawCliFallback": {
+			"count": 3,
+			"total": 14,
+			"rate": 0.214286
+		},
+		"invalidCommand": {
+			"count": 1,
+			"total": 16,
+			"rate": 0.0625
+		},
+		"unrelatedChangesPreservation": {
+			"count": 5,
+			"total": 5,
+			"rate": 1.0
+		},
+		"exactRevisionPublication": {
+			"count": 2,
+			"total": 2,
+			"rate": 1.0
+		},
+		"terminalCiForExactRevision": {
+			"count": 2,
+			"total": 2,
+			"rate": 1.0
+		},
+		"unsafeMutationDenial": {
+			"count": 2,
+			"total": 2,
+			"rate": 1.0
+		},
+		"callCount": {
+			"total": 31,
+			"scenarios": 16,
+			"average": 1.9375
+		}
+	}
+}
