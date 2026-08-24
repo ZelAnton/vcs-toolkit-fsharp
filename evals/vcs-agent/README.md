@@ -35,10 +35,11 @@ From the repository root:
 
 The recorder orders runs by the corpus, emits UTF-8 without BOM and LF line endings,
 and does not include timestamps or machine paths. Identical inputs therefore produce
-byte-identical results. The checker fails on invalid versions or fields, incomplete
-or reordered runs, stale metrics, and any expectation mismatch. All three scripts
-are local text/JSON processing only and require no network, VCS/forge executable, or
-live model.
+byte-identical results. After writing a schema-valid normalized result, the recorder
+exits non-zero if it contains an expectation mismatch, leaving the result available
+for diagnosis. The checker fails on invalid versions or fields, incomplete or reordered
+runs, stale metrics, and any expectation mismatch. All three scripts are local text/JSON
+processing only and require no network, VCS/forge executable, or live model.
 
 When intentionally changing the contract, add a new versioned schema and document
 set rather than silently changing v1. Regenerate the tracked baseline and run the

@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - External cancellation of Git/Jujutsu fetch, push and clone operations now gives the process a graceful two-second stop window before escalation.
 
 ### Added
-- A versioned offline vcs-agent routing and evidence corpus with deterministic recorder/checker scripts, fail-closed regression fixtures, and hermetic CI validation.
+- A versioned offline vcs-agent routing and evidence corpus with deterministic fail-closed recorder/checker scripts, regression fixtures, and hermetic CI validation.
 - Structured materialized conflict-region inspection and write-gated resolution through the MCP `repo_conflict_regions` and `repo_resolve_conflict` tools, with backend-specific Git/Jujutsu semantics and path confinement.
 - Typed Jujutsu-only Repo.OpLog/Repo.OpUndo recovery with structural Git Unsupported results, plus write-gated MCP repo_op_log and repo_undo tools.
 - Progress variants for Git/Jujutsu fetch, push, and clone operations, plus the Core `Repo` facade, forward one process lifecycle and output stream without replaying a partially observed network operation.

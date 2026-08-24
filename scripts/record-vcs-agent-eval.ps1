@@ -47,7 +47,12 @@ try {
     Write-VcsAgentEvalJson $results $OutputPath
     Assert-VcsAgentEvalSchemaMatch $OutputPath $SchemaPath 'results'
     $mismatchCount = @($results.runs | Where-Object { -not $_.expectationMatched }).Count
-    Write-Output "OK recorder schema=v1 corpus=$($corpus.corpusVersion) scenarios=$($results.runs.Count) mismatches=$mismatchCount"
+    $diagnostic = "schema=v1 corpus=$($corpus.corpusVersion) scenarios=$($results.runs.Count) mismatches=$mismatchCount"
+    if ($mismatchCount -gt 0) {
+        [Console]::Error.WriteLine("ERROR recorder $diagnostic")
+        exit 1
+    }
+    Write-Output "OK recorder $diagnostic"
     exit 0
 }
 catch {

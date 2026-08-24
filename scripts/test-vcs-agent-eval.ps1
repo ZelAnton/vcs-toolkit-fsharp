@@ -110,7 +110,10 @@ try {
         '-ObservationsPath', $mismatchObservations,
         '-OutputPath', $mismatchResults
     )
-    Assert-EvalSuccess $mismatchRecord 'mismatches=1'
+    Assert-EvalFailure $mismatchRecord 'ERROR recorder schema=v1'
+    if ($mismatchRecord.Output -notmatch [regex]::Escape('mismatches=1')) {
+        throw "Expected recorder mismatch diagnostics to contain 'mismatches=1'. Output: $($mismatchRecord.Output)"
+    }
     $mismatchCheck = Invoke-EvalScript $checker @(
         '-RepoRoot', $RepoRoot,
         '-ResultsPath', $mismatchResults
