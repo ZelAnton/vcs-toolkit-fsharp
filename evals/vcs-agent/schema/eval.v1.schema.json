@@ -1,0 +1,494 @@
+{
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"$id": "https://vcs-toolkit.dev/schemas/vcs-agent-eval/v1",
+	"title": "VcsToolkit vcs-agent evaluation documents",
+	"oneOf": [
+		{
+			"$ref": "#/$defs/corpus"
+		},
+		{
+			"$ref": "#/$defs/observations"
+		},
+		{
+			"$ref": "#/$defs/results"
+		}
+	],
+	"$defs": {
+		"evidenceExpectation": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"unrelatedChangesPreserved",
+				"exactRevisionPublished",
+				"terminalCiForExactRevision",
+				"unsafeMutationDenied"
+			],
+			"properties": {
+				"unrelatedChangesPreserved": {
+					"enum": [
+						"required",
+						"not-applicable"
+					]
+				},
+				"exactRevisionPublished": {
+					"enum": [
+						"required",
+						"not-applicable"
+					]
+				},
+				"terminalCiForExactRevision": {
+					"enum": [
+						"required",
+						"not-applicable"
+					]
+				},
+				"unsafeMutationDenied": {
+					"enum": [
+						"required",
+						"not-applicable"
+					]
+				}
+			}
+		},
+		"observedEvidence": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"unrelatedChangesPreserved",
+				"exactRevisionPublished",
+				"terminalCiForExactRevision",
+				"unsafeMutationDenied"
+			],
+			"properties": {
+				"unrelatedChangesPreserved": {
+					"type": [
+						"boolean",
+						"null"
+					]
+				},
+				"exactRevisionPublished": {
+					"type": [
+						"boolean",
+						"null"
+					]
+				},
+				"terminalCiForExactRevision": {
+					"type": [
+						"boolean",
+						"null"
+					]
+				},
+				"unsafeMutationDenied": {
+					"type": [
+						"boolean",
+						"null"
+					]
+				}
+			}
+		},
+		"scenario": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"id",
+				"category",
+				"prompt",
+				"backend",
+				"forge",
+				"platform",
+				"mutation",
+				"unrelatedDirtyState",
+				"expected"
+			],
+			"properties": {
+				"id": {
+					"type": "string",
+					"pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+				},
+				"category": {
+					"enum": [
+						"direct",
+						"indirect",
+						"negative",
+						"unsupported",
+						"mutation"
+					]
+				},
+				"prompt": {
+					"type": "string",
+					"minLength": 1
+				},
+				"backend": {
+					"enum": [
+						"git",
+						"jujutsu",
+						"none"
+					]
+				},
+				"forge": {
+					"enum": [
+						"github",
+						"gitlab",
+						"gitea",
+						"none"
+					]
+				},
+				"platform": {
+					"enum": [
+						"windows",
+						"linux",
+						"macos",
+						"any"
+					]
+				},
+				"mutation": {
+					"type": "boolean"
+				},
+				"unrelatedDirtyState": {
+					"type": "boolean"
+				},
+				"expected": {
+					"type": "object",
+					"additionalProperties": false,
+					"required": [
+						"selectedInterface",
+						"shouldActivate",
+						"fallbackReason",
+						"commandValid",
+						"outcome",
+						"maxCalls",
+						"evidence"
+					],
+					"properties": {
+						"selectedInterface": {
+							"enum": [
+								"vcs-agent",
+								"raw-cli",
+								"none"
+							]
+						},
+						"shouldActivate": {
+							"type": "boolean"
+						},
+						"fallbackReason": {
+							"enum": [
+								null,
+								"unsupported",
+								"missing-executable",
+								"diagnostic-output-required"
+							]
+						},
+						"commandValid": {
+							"type": "boolean"
+						},
+						"outcome": {
+							"enum": [
+								"success",
+								"unsupported",
+								"denied",
+								"invalid-input",
+								"not-applicable"
+							]
+						},
+						"maxCalls": {
+							"type": "integer",
+							"minimum": 0
+						},
+						"evidence": {
+							"$ref": "#/$defs/evidenceExpectation"
+						}
+					}
+				}
+			}
+		},
+		"corpus": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"schemaVersion",
+				"corpusVersion",
+				"scenarios"
+			],
+			"properties": {
+				"schemaVersion": {
+					"const": "vcs-agent-eval-corpus/v1"
+				},
+				"corpusVersion": {
+					"type": "string",
+					"pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+				},
+				"scenarios": {
+					"type": "array",
+					"minItems": 1,
+					"items": {
+						"$ref": "#/$defs/scenario"
+					}
+				}
+			}
+		},
+		"observationRun": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"scenarioId",
+				"selectedInterface",
+				"fallbackReason",
+				"commandValid",
+				"callCount",
+				"outcome",
+				"evidence"
+			],
+			"properties": {
+				"scenarioId": {
+					"type": "string"
+				},
+				"selectedInterface": {
+					"enum": [
+						"vcs-agent",
+						"raw-cli",
+						"none"
+					]
+				},
+				"fallbackReason": {
+					"enum": [
+						null,
+						"unsupported",
+						"missing-executable",
+						"diagnostic-output-required"
+					]
+				},
+				"commandValid": {
+					"type": "boolean"
+				},
+				"callCount": {
+					"type": "integer",
+					"minimum": 0
+				},
+				"outcome": {
+					"enum": [
+						"success",
+						"unsupported",
+						"denied",
+						"invalid-input",
+						"not-applicable"
+					]
+				},
+				"evidence": {
+					"$ref": "#/$defs/observedEvidence"
+				}
+			}
+		},
+		"observations": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"schemaVersion",
+				"corpusVersion",
+				"runs"
+			],
+			"properties": {
+				"schemaVersion": {
+					"const": "vcs-agent-eval-observations/v1"
+				},
+				"corpusVersion": {
+					"type": "string"
+				},
+				"runs": {
+					"type": "array",
+					"minItems": 1,
+					"items": {
+						"$ref": "#/$defs/observationRun"
+					}
+				}
+			}
+		},
+		"rateMetric": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"count",
+				"total",
+				"rate"
+			],
+			"properties": {
+				"count": {
+					"type": "integer",
+					"minimum": 0
+				},
+				"total": {
+					"type": "integer",
+					"minimum": 0
+				},
+				"rate": {
+					"type": "number",
+					"minimum": 0,
+					"maximum": 1
+				}
+			}
+		},
+		"resultRun": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"scenarioId",
+				"selectedInterface",
+				"fallbackReason",
+				"commandValid",
+				"callCount",
+				"outcome",
+				"evidence",
+				"expectationMatched",
+				"mismatches"
+			],
+			"properties": {
+				"scenarioId": {
+					"type": "string"
+				},
+				"selectedInterface": {
+					"enum": [
+						"vcs-agent",
+						"raw-cli",
+						"none"
+					]
+				},
+				"fallbackReason": {
+					"enum": [
+						null,
+						"unsupported",
+						"missing-executable",
+						"diagnostic-output-required"
+					]
+				},
+				"commandValid": {
+					"type": "boolean"
+				},
+				"callCount": {
+					"type": "integer",
+					"minimum": 0
+				},
+				"outcome": {
+					"enum": [
+						"success",
+						"unsupported",
+						"denied",
+						"invalid-input",
+						"not-applicable"
+					]
+				},
+				"evidence": {
+					"$ref": "#/$defs/observedEvidence"
+				},
+				"expectationMatched": {
+					"type": "boolean"
+				},
+				"mismatches": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					},
+					"uniqueItems": true
+				}
+			}
+		},
+		"metrics": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"expectationMatch",
+				"preferredInterfaceSelection",
+				"falseActivation",
+				"rawCliFallback",
+				"invalidCommand",
+				"unrelatedChangesPreservation",
+				"exactRevisionPublication",
+				"terminalCiForExactRevision",
+				"unsafeMutationDenial",
+				"callCount"
+			],
+			"properties": {
+				"expectationMatch": {
+					"$ref": "#/$defs/rateMetric"
+				},
+				"preferredInterfaceSelection": {
+					"$ref": "#/$defs/rateMetric"
+				},
+				"falseActivation": {
+					"$ref": "#/$defs/rateMetric"
+				},
+				"rawCliFallback": {
+					"$ref": "#/$defs/rateMetric"
+				},
+				"invalidCommand": {
+					"$ref": "#/$defs/rateMetric"
+				},
+				"unrelatedChangesPreservation": {
+					"$ref": "#/$defs/rateMetric"
+				},
+				"exactRevisionPublication": {
+					"$ref": "#/$defs/rateMetric"
+				},
+				"terminalCiForExactRevision": {
+					"$ref": "#/$defs/rateMetric"
+				},
+				"unsafeMutationDenial": {
+					"$ref": "#/$defs/rateMetric"
+				},
+				"callCount": {
+					"type": "object",
+					"additionalProperties": false,
+					"required": [
+						"total",
+						"scenarios",
+						"average"
+					],
+					"properties": {
+						"total": {
+							"type": "integer",
+							"minimum": 0
+						},
+						"scenarios": {
+							"type": "integer",
+							"minimum": 1
+						},
+						"average": {
+							"type": "number",
+							"minimum": 0
+						}
+					}
+				}
+			}
+		},
+		"results": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"schemaVersion",
+				"corpusVersion",
+				"recorderVersion",
+				"runs",
+				"metrics"
+			],
+			"properties": {
+				"schemaVersion": {
+					"const": "vcs-agent-eval-results/v1"
+				},
+				"corpusVersion": {
+					"type": "string"
+				},
+				"recorderVersion": {
+					"const": "v1"
+				},
+				"runs": {
+					"type": "array",
+					"minItems": 1,
+					"items": {
+						"$ref": "#/$defs/resultRun"
+					}
+				},
+				"metrics": {
+					"$ref": "#/$defs/metrics"
+				}
+			}
+		}
+	}
+}

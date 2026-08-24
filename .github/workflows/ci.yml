@@ -138,6 +138,21 @@ jobs:
         shell: pwsh
         run: ./scripts/test-check-command-index.ps1
 
+  # Versioned routing/evidence fixtures only: no model, network, VCS, or forge process.
+  # Optional live-model artifacts live in an ignored directory and are never enumerated here.
+  vcs-agent-eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+      - name: Check tracked vcs-agent evaluation baseline
+        shell: pwsh
+        run: ./scripts/check-vcs-agent-eval.ps1
+
+      - name: Run recorder/checker regression fixtures
+        shell: pwsh
+        run: ./scripts/test-vcs-agent-eval.ps1
+
   test:
     strategy:
       fail-fast: false
