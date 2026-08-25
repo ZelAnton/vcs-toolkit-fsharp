@@ -131,6 +131,11 @@ driving, total/tolerant parsing, argv guards, credential provisioning, error
 classification, cancellation-safe cleanup), and the escape hatches available
 at each layer, see [docs/architecture.md](docs/architecture.md).
 
+For the planned transport-neutral agent interface — the outcome-oriented `vcs-agent`
+global tool, its reusable application layer and Skill, ProcessKit-CLI composition,
+and eventual convergence with MCP — see
+[docs/agent-interface-roadmap.md](docs/agent-interface-roadmap.md).
+
 Already know the CLI command you need (`git rebase --onto`, `jj parallelize`, `gh api`) and
 want to know whether it's covered by a typed method or needs the escape hatch? See
 [docs/command-index.md](docs/command-index.md) — a reverse index, one row per typed method and
