@@ -166,12 +166,17 @@ type AgentChangedPath =
       OldPath: string option
       Change: string }
 
-/// Compact aggregate selected by `changes summary`.
-type AgentChangeSummary =
+/// Aggregate for the backend diff scope. On Git this covers tracked changes only; changed
+/// paths are reported separately because untracked paths are not part of `git diff`.
+type AgentDiffStat =
     { FilesChanged: uint64
       Insertions: uint64
-      Deletions: uint64
-      Paths: AgentChangedPath list }
+      Deletions: uint64 }
+
+/// Compact path list and explicitly scoped diff aggregate selected by `changes summary`.
+type AgentChangeSummary =
+    { Paths: AgentChangedPath list
+      DiffStat: AgentDiffStat }
 
 /// One typed line in a structured diff hunk.
 type AgentDiffLine = { Kind: string; Text: string }
@@ -192,11 +197,12 @@ type AgentFileDiff =
       Change: string
       Hunks: AgentDiffHunk list }
 
-/// Selected read-only change representation.
+/// Selected read-only change representation. The union makes summary and structured-diff
+/// payloads mutually exclusive for every public producer.
+[<RequireQualifiedAccess>]
 type ChangesData =
-    { Mode: ChangesMode
-      Summary: AgentChangeSummary option
-      Files: AgentFileDiff list }
+    | Summary of AgentChangeSummary
+    | StructuredDiff of AgentFileDiff list
 
 /// Operation-specific data carried by a v1 envelope.
 [<RequireQualifiedAccess>]
@@ -235,3 +241,35 @@ type AgentExecution =
     { ExitCode: int
       Stdout: string
       Stderr: string }
+
+module internal ContractNames =
+    let operation operation =
+        match operation with
+        | AgentOperation.Probe -> "probe"
+        | AgentOperation.Inspect -> "inspect"
+        | AgentOperation.Changes -> "changes"
+        | AgentOperation.Commit -> "commit"
+        | AgentOperation.Publish -> "publish"
+        | AgentOperation.CiStatus -> "ci.status"
+        | AgentOperation.CiWait -> "ci.wait"
+
+    let errorCode code =
+        match code with
+        | AgentErrorCode.Unsupported -> "unsupported"
+        | AgentErrorCode.Denied -> "denied"
+        | AgentErrorCode.InvalidInput -> "invalid-input"
+        | AgentErrorCode.Backend -> "backend"
+        | AgentErrorCode.Forge -> "forge"
+        | AgentErrorCode.Authentication -> "authentication"
+        | AgentErrorCode.Timeout -> "timeout"
+        | AgentErrorCode.Cancellation -> "cancellation"
+        | AgentErrorCode.OutputLimit -> "output-limit"
+        | AgentErrorCode.ExternalCommand -> "external-command"
+
+    let fallbackReason reason =
+        match reason with
+        | AgentFallbackReason.OperationNotImplemented -> "operation-not-implemented"
+        | AgentFallbackReason.MissingExecutable -> "missing-executable"
+        | AgentFallbackReason.UnsupportedBackend -> "unsupported-backend"
+        | AgentFallbackReason.UnsupportedForge -> "unsupported-forge"
+        | AgentFallbackReason.RawDiagnosticRequired -> "raw-diagnostic-required"

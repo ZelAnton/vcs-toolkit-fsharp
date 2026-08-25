@@ -75,12 +75,14 @@ vcs-agent changes --repo . --view diff --output-budget 16384
 
 Every invocation emits one versioned JSON envelope on stdout. Diagnostics use stderr, and the
 exit code is a stable mapping from the structured error code. The stdout budget defaults to
-65,536 bytes with a 512-byte minimum; an oversized result becomes an explicit `output-limit`
-envelope rather than partial JSON. `inspect` returns the detected Git/Jujutsu backend, current
-revision and branch, working-copy and tracking state, remotes, and typed forge authentication
-and capability facts. `changes` returns either a path/stat summary or parsed unified-diff
-hunks. `commit`, `publish`, `ci status`, and `ci wait` are reserved in the v1 taxonomy and
-return `unsupported` with the machine-readable fallback reason
+65,536 bytes with a 512-byte minimum; the reusable API and JSON renderer both replace an
+oversized complete result with the same explicit `output-limit` envelope. `inspect` returns the
+detected Git/Jujutsu backend, current revision and branch, working-copy and tracking state,
+remotes, and typed forge authentication
+and capability facts. `changes` returns either a path list with a separately scoped diff stat,
+or parsed unified-diff hunks; on Git the path list includes untracked entries while the stat
+covers the tracked `HEAD` diff. `commit`, `publish`, `ci status`, and `ci wait` are reserved in
+the v1 taxonomy and return `unsupported` with the machine-readable fallback reason
 `operation-not-implemented`.
 
 See [docs/agent-interface.md](docs/agent-interface.md) for the complete envelope, operation,

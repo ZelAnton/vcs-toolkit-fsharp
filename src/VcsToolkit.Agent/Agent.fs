@@ -19,36 +19,11 @@ module Agent =
     [<Literal>]
     let MinimumOutputLimitBytes = 512
 
-    let internal operationName operation =
-        match operation with
-        | AgentOperation.Probe -> "probe"
-        | AgentOperation.Inspect -> "inspect"
-        | AgentOperation.Changes -> "changes"
-        | AgentOperation.Commit -> "commit"
-        | AgentOperation.Publish -> "publish"
-        | AgentOperation.CiStatus -> "ci.status"
-        | AgentOperation.CiWait -> "ci.wait"
+    let internal operationName operation = ContractNames.operation operation
 
-    let internal errorCodeName code =
-        match code with
-        | AgentErrorCode.Unsupported -> "unsupported"
-        | AgentErrorCode.Denied -> "denied"
-        | AgentErrorCode.InvalidInput -> "invalid-input"
-        | AgentErrorCode.Backend -> "backend"
-        | AgentErrorCode.Forge -> "forge"
-        | AgentErrorCode.Authentication -> "authentication"
-        | AgentErrorCode.Timeout -> "timeout"
-        | AgentErrorCode.Cancellation -> "cancellation"
-        | AgentErrorCode.OutputLimit -> "output-limit"
-        | AgentErrorCode.ExternalCommand -> "external-command"
+    let internal errorCodeName code = ContractNames.errorCode code
 
-    let internal fallbackReasonName reason =
-        match reason with
-        | AgentFallbackReason.OperationNotImplemented -> "operation-not-implemented"
-        | AgentFallbackReason.MissingExecutable -> "missing-executable"
-        | AgentFallbackReason.UnsupportedBackend -> "unsupported-backend"
-        | AgentFallbackReason.UnsupportedForge -> "unsupported-forge"
-        | AgentFallbackReason.RawDiagnosticRequired -> "raw-diagnostic-required"
+    let internal fallbackReasonName reason = ContractNames.fallbackReason reason
 
     let internal exitCode code =
         match code with
@@ -159,6 +134,23 @@ module Agent =
             (Some limitBytes)
             (Some requiredBytes)
             None
+
+    let private enforceBudget outputLimitBytes envelope =
+        if outputLimitBytes < MinimumOutputLimitBytes then
+            envelope
+        else
+            let requiredBytes = EnvelopeSerialization.byteCount envelope
+
+            if requiredBytes <= outputLimitBytes then
+                envelope
+            else
+                outputLimit envelope.Operation outputLimitBytes requiredBytes
+
+    let private withBudget outputLimitBytes pending =
+        task {
+            let! envelope = pending
+            return enforceBudget outputLimitBytes envelope
+        }
 
     let private cancellation operation =
         failure operation AgentErrorCode.Cancellation "The operation was cancelled." false false None None None
@@ -313,7 +305,7 @@ module Agent =
         | None when List.isEmpty remotes -> None
         | None -> Some(Forge.FromUnknown root)
 
-    let private inspectCore
+    let private inspectCoreUnbounded
         (repo: Repo)
         (forgeResolver: VcsToolkit.Core.Remote list -> Forge option)
         (cancellationToken: CancellationToken)
@@ -370,8 +362,11 @@ module Agent =
                             return success operation (AgentPayload.Inspect data)
         }
 
-    /// Inspect a repository through the typed Core and Forge facades.
-    let inspect (request: InspectRequest) (cancellationToken: CancellationToken) =
+    let private inspectCore repo forgeResolver cancellationToken outputLimitBytes =
+        inspectCoreUnbounded repo forgeResolver cancellationToken outputLimitBytes
+        |> withBudget outputLimitBytes
+
+    let private inspectUnbounded (request: InspectRequest) (cancellationToken: CancellationToken) =
         task {
             let operation = operationName AgentOperation.Inspect
 
@@ -383,8 +378,15 @@ module Agent =
                 match Repo.Open request.RepositoryPath with
                 | Error error -> return repoFailure operation request.OutputLimitBytes error
                 | Ok repo ->
-                    return! inspectCore repo (forgeForRemotes repo.Root) cancellationToken request.OutputLimitBytes
+                    return!
+                        inspectCoreUnbounded repo (forgeForRemotes repo.Root) cancellationToken request.OutputLimitBytes
         }
+
+    /// Inspect a repository through the typed Core and Forge facades. The returned envelope is
+    /// already replaced by a typed output-limit outcome when its complete wire form is oversized.
+    let inspect (request: InspectRequest) (cancellationToken: CancellationToken) =
+        inspectUnbounded request cancellationToken
+        |> withBudget request.OutputLimitBytes
 
     let internal inspectWith
         (repo: Repo)
@@ -425,7 +427,7 @@ module Agent =
           Change = changeKind file.Change
           Hunks = file.Hunks |> List.map diffHunk }
 
-    let private changesCore
+    let private changesCoreUnbounded
         (repo: Repo)
         (mode: ChangesMode)
         (cancellationToken: CancellationToken)
@@ -451,18 +453,13 @@ module Agent =
                         | Error error -> return repoFailure operation outputLimitBytes error
                         | Ok stat ->
                             let summary: AgentChangeSummary =
-                                { FilesChanged = stat.FilesChanged
-                                  Insertions = stat.Insertions
-                                  Deletions = stat.Deletions
-                                  Paths = paths |> List.map changedPath }
+                                { Paths = paths |> List.map changedPath
+                                  DiffStat =
+                                    { FilesChanged = stat.FilesChanged
+                                      Insertions = stat.Insertions
+                                      Deletions = stat.Deletions } }
 
-                            return
-                                success
-                                    operation
-                                    (AgentPayload.Changes
-                                        { Mode = ChangesMode.Summary
-                                          Summary = Some summary
-                                          Files = [] })
+                            return success operation (AgentPayload.Changes(ChangesData.Summary summary))
                 | ChangesMode.StructuredDiff ->
                     match! configured.Diff() with
                     | Error error -> return repoFailure operation outputLimitBytes error
@@ -470,14 +467,14 @@ module Agent =
                         return
                             success
                                 operation
-                                (AgentPayload.Changes
-                                    { Mode = ChangesMode.StructuredDiff
-                                      Summary = None
-                                      Files = files |> List.map fileDiff })
+                                (AgentPayload.Changes(ChangesData.StructuredDiff(files |> List.map fileDiff)))
         }
 
-    /// Return either a compact summary or a bounded structured working-copy diff.
-    let changes (request: ChangesRequest) (cancellationToken: CancellationToken) =
+    let private changesCore repo mode cancellationToken outputLimitBytes =
+        changesCoreUnbounded repo mode cancellationToken outputLimitBytes
+        |> withBudget outputLimitBytes
+
+    let private changesUnbounded (request: ChangesRequest) (cancellationToken: CancellationToken) =
         task {
             let operation = operationName AgentOperation.Changes
 
@@ -488,8 +485,14 @@ module Agent =
             else
                 match Repo.Open request.RepositoryPath with
                 | Error error -> return repoFailure operation request.OutputLimitBytes error
-                | Ok repo -> return! changesCore repo request.Mode cancellationToken request.OutputLimitBytes
+                | Ok repo -> return! changesCoreUnbounded repo request.Mode cancellationToken request.OutputLimitBytes
         }
+
+    /// Return either a compact summary or a bounded structured working-copy diff. The reusable
+    /// API and process renderer expose the same typed output-limit outcome.
+    let changes (request: ChangesRequest) (cancellationToken: CancellationToken) =
+        changesUnbounded request cancellationToken
+        |> withBudget request.OutputLimitBytes
 
     let internal changesWith (repo: Repo) mode (cancellationToken: CancellationToken) outputLimitBytes =
         changesCore repo mode cancellationToken outputLimitBytes

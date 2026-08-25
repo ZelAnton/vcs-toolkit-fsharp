@@ -74,7 +74,7 @@ $expectedSiblings = [ordered]@{
     'VcsToolkit.Forge'      = @('VcsToolkit.CliSupport', 'VcsToolkit.Diff', 'VcsToolkit.GitHub', 'VcsToolkit.GitLab', 'VcsToolkit.Gitea')
     'VcsToolkit.Watch'      = @('VcsToolkit.Core', 'VcsToolkit.CliSupport', 'VcsToolkit.Diff', 'VcsToolkit.Git', 'VcsToolkit.Jj')
     'VcsToolkit.Mcp'        = @('VcsToolkit.Core', 'VcsToolkit.Forge', 'VcsToolkit.CliSupport', 'VcsToolkit.Diff', 'VcsToolkit.Git', 'VcsToolkit.Jj', 'VcsToolkit.GitHub', 'VcsToolkit.GitLab', 'VcsToolkit.Gitea')
-    'VcsToolkit.Agent'      = @('VcsToolkit.Core', 'VcsToolkit.Forge', 'VcsToolkit.CliSupport')
+    'VcsToolkit.Agent'      = @('VcsToolkit.Core', 'VcsToolkit.Forge', 'VcsToolkit.CliSupport', 'VcsToolkit.Diff', 'VcsToolkit.Git', 'VcsToolkit.Jj', 'VcsToolkit.GitHub', 'VcsToolkit.GitLab', 'VcsToolkit.Gitea')
 }
 $expectedTools = [ordered]@{
     'vcs-mcp'   = 'vcs-mcp'

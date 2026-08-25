@@ -13,6 +13,7 @@
 	<ItemGroup>
 		<Compile Include="Contract.fs" />
 		<Compile Include="Redaction.fs" />
+		<Compile Include="Serialization.fs" />
 		<Compile Include="Agent.fs" />
 		<Compile Include="Wire.fs" />
 	</ItemGroup>

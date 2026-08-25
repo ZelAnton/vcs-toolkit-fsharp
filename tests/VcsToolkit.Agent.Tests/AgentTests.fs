@@ -7,6 +7,7 @@ open System.Text
 open System.Text.Json
 open System.Threading
 open System.Threading.Tasks
+open Microsoft.FSharp.Reflection
 open NUnit.Framework
 open ProcessKit.Testing
 open VcsToolkit.Agent
@@ -99,18 +100,16 @@ type ContractTests() =
 
     [<Test>]
     member _.``Changes summary envelope matches the committed v1 golden``() =
-        let data: ChangesData =
-            { Mode = ChangesMode.Summary
-              Summary =
-                Some
+        let data =
+            ChangesData.Summary
+                { Paths =
+                    [ { Path = "src/App.fs"
+                        OldPath = None
+                        Change = "modified" } ]
+                  DiffStat =
                     { FilesChanged = 1UL
                       Insertions = 2UL
-                      Deletions = 1UL
-                      Paths =
-                        [ { Path = "src/App.fs"
-                            OldPath = None
-                            Change = "modified" } ] }
-              Files = [] }
+                      Deletions = 1UL } }
 
         let envelope: AgentEnvelope =
             { ContractVersion = Agent.ContractVersion
@@ -123,6 +122,16 @@ type ContractTests() =
               FallbackReason = None }
 
         Assert.That(AgentWire.serialize envelope, Is.EqualTo(Golden.read "changes-summary.v1.json"))
+
+    [<Test>]
+    member _.``Changes data has exactly one payload in each public union case``() =
+        let cases = FSharpType.GetUnionCases typeof<ChangesData>
+
+        Assert.That((cases |> Array.map _.Name) = [| "Summary"; "StructuredDiff" |], Is.True)
+
+        Assert.That((cases.[0].GetFields() |> Array.map _.PropertyType) = [| typeof<AgentChangeSummary> |], Is.True)
+
+        Assert.That((cases.[1].GetFields() |> Array.map _.PropertyType) = [| typeof<AgentFileDiff list> |], Is.True)
 
     [<Test>]
     member _.``Every v1 error has a stable distinct exit code``() =
@@ -308,6 +317,28 @@ type ReadOnlyOutcomeTests() =
         }
 
     [<Test>]
+    member _.``Inspect API applies the final envelope budget``() : Task =
+        task {
+            let root = createTempRoot "bounded-inspect"
+            let remote = "https://example.test/" + String.replicate 2_000 "x"
+
+            try
+                let! envelope =
+                    Agent.inspectWith
+                        (gitSnapshot root remote)
+                        None
+                        CancellationToken.None
+                        Agent.MinimumOutputLimitBytes
+
+                Assert.That(envelope.Status, Is.EqualTo AgentStatus.Error)
+                Assert.That(envelope.Data.IsNone, Is.True)
+                Assert.That(envelope.Error.Value.Code, Is.EqualTo AgentErrorCode.OutputLimit)
+                Assert.That(envelope.Error.Value.RequiredBytes.Value, Is.GreaterThan Agent.MinimumOutputLimitBytes)
+            finally
+                Directory.Delete(root, true)
+        }
+
+    [<Test>]
     member _.``Jujutsu inspect reports absent forge without fabricating authentication``() : Task =
         task {
             let root = createTempRoot "jj-inspect"
@@ -363,7 +394,7 @@ type ReadOnlyOutcomeTests() =
                         .On([ "rev-parse"; "--verify"; "-q"; "HEAD" ], Reply.Ok "abc123\n")
                         .On(
                             [ "diff"; "--no-relative"; "--shortstat"; "HEAD" ],
-                            Reply.Ok " 2 files changed, 4 insertions(+), 1 deletion(-)\n"
+                            Reply.Ok " 1 file changed, 4 insertions(+), 1 deletion(-)\n"
                         )
 
                 let repo = Repo.FromGit(root, root, Git.WithRunner runner)
@@ -372,12 +403,11 @@ type ReadOnlyOutcomeTests() =
                     Agent.changesWith repo ChangesMode.Summary CancellationToken.None Agent.DefaultOutputLimitBytes
 
                 match envelope.Data with
-                | Some(AgentPayload.Changes data) ->
-                    Assert.That(data.Mode, Is.EqualTo ChangesMode.Summary)
-                    Assert.That(data.Files, Is.Empty)
-                    Assert.That(data.Summary.Value.FilesChanged, Is.EqualTo 2UL)
-                    Assert.That(data.Summary.Value.Insertions, Is.EqualTo 4UL)
-                    Assert.That(data.Summary.Value.Paths.Length, Is.EqualTo 2)
+                | Some(AgentPayload.Changes(ChangesData.Summary summary)) ->
+                    Assert.That(summary.Paths.Length, Is.EqualTo 2)
+                    Assert.That(summary.DiffStat.FilesChanged, Is.EqualTo 1UL)
+                    Assert.That(summary.DiffStat.Insertions, Is.EqualTo 4UL)
+                    Assert.That(summary.DiffStat.Deletions, Is.EqualTo 1UL)
                 | _ -> Assert.Fail "changes payload expected"
             finally
                 Directory.Delete(root, true)
@@ -405,9 +435,9 @@ type ReadOnlyOutcomeTests() =
                         Agent.DefaultOutputLimitBytes
 
                 match envelope.Data with
-                | Some(AgentPayload.Changes data) ->
-                    Assert.That(data.Files.Length, Is.EqualTo 1)
-                    Assert.That(data.Files.Head.Hunks.Head.Lines.[1].Text, Does.Not.Contain secret)
+                | Some(AgentPayload.Changes(ChangesData.StructuredDiff files)) ->
+                    Assert.That(files.Length, Is.EqualTo 1)
+                    Assert.That(files.Head.Hunks.Head.Lines.[1].Text, Does.Not.Contain secret)
                 | _ -> Assert.Fail "changes payload expected"
 
                 Assert.That(AgentWire.serialize envelope, Does.Not.Contain secret)
@@ -431,7 +461,7 @@ type ReadOnlyOutcomeTests() =
         }
 
     [<Test>]
-    member _.``Structured change output refuses content beyond the configured wire budget``() : Task =
+    member _.``Structured change API and wire output share one final budget outcome``() : Task =
         task {
             let root = createTempRoot "bounded-diff"
             let content = String.replicate 2_000 "x"
@@ -454,6 +484,12 @@ type ReadOnlyOutcomeTests() =
                         CancellationToken.None
                         Agent.MinimumOutputLimitBytes
 
+                Assert.That(envelope.Status, Is.EqualTo AgentStatus.Error)
+                Assert.That(envelope.Data.IsNone, Is.True)
+                Assert.That(envelope.Error.Value.Code, Is.EqualTo AgentErrorCode.OutputLimit)
+                Assert.That(envelope.Error.Value.LimitBytes, Is.EqualTo(Some Agent.MinimumOutputLimitBytes))
+                Assert.That(envelope.Error.Value.RequiredBytes.Value, Is.GreaterThan Agent.MinimumOutputLimitBytes)
+
                 let rendered = AgentWire.render Agent.MinimumOutputLimitBytes envelope
                 Assert.That(rendered.ExitCode, Is.EqualTo 28)
 
@@ -466,6 +502,11 @@ type ReadOnlyOutcomeTests() =
                 let error = document.RootElement.GetProperty "error"
                 Assert.That(error.GetProperty("code").GetString(), Is.EqualTo "output-limit")
                 Assert.That(error.GetProperty("truncated").GetBoolean(), Is.True)
+
+                Assert.That(
+                    error.GetProperty("requiredBytes").GetInt32(),
+                    Is.EqualTo envelope.Error.Value.RequiredBytes.Value
+                )
             finally
                 Directory.Delete(root, true)
         }

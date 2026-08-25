@@ -41,14 +41,10 @@ namespace VcsToolkit.Agent
     public sealed class AgentChangeSummary : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.AgentChangeSummary>, System.IEquatable<VcsToolkit.Agent.AgentChangeSummary>
     {
         [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Agent.AgentChangeSummary))]
-        public AgentChangeSummary(ulong filesChanged, ulong insertions, ulong deletions, Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Agent.AgentChangedPath> paths) { }
-        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
-        public ulong Deletions { get; }
-        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
-        public ulong FilesChanged { get; }
+        public AgentChangeSummary(Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Agent.AgentChangedPath> paths, VcsToolkit.Agent.AgentDiffStat diffStat) { }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
-        public ulong Insertions { get; }
-        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+        public VcsToolkit.Agent.AgentDiffStat DiffStat { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
         public Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Agent.AgentChangedPath> Paths { get; }
     }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
@@ -93,6 +89,19 @@ namespace VcsToolkit.Agent
         public string Kind { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
         public string Text { get; }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class AgentDiffStat : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.AgentDiffStat>, System.IEquatable<VcsToolkit.Agent.AgentDiffStat>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Agent.AgentDiffStat))]
+        public AgentDiffStat(ulong filesChanged, ulong insertions, ulong deletions) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public ulong Deletions { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public ulong FilesChanged { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public ulong Insertions { get; }
     }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
     [System.Serializable]
@@ -380,18 +389,25 @@ namespace VcsToolkit.Agent
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
         public Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Agent.AgentTracking>? Tracking { get; }
     }
-    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
     [System.Serializable]
-    public sealed class ChangesData : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.ChangesData>, System.IEquatable<VcsToolkit.Agent.ChangesData>
+    public abstract class ChangesData : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.ChangesData>, System.IEquatable<VcsToolkit.Agent.ChangesData>
     {
-        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Agent.ChangesData))]
-        public ChangesData(VcsToolkit.Agent.ChangesMode mode, Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Agent.AgentChangeSummary>? summary, Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Agent.AgentFileDiff> files) { }
-        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
-        public Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Agent.AgentFileDiff> Files { get; }
-        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
-        public VcsToolkit.Agent.ChangesMode Mode { get; }
-        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
-        public Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Agent.AgentChangeSummary>? Summary { get; }
+        [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+        [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.Agent.ChangesData.StructuredDiff@DebugTypeProxy))]
+        [System.Serializable]
+        public class StructuredDiff : VcsToolkit.Agent.ChangesData { }
+        [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+        [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.Agent.ChangesData.Summary@DebugTypeProxy))]
+        [System.Serializable]
+        public class Summary : VcsToolkit.Agent.ChangesData { }
+        public static class Tags
+        {
+            public const int StructuredDiff = 1;
+            public const int Summary = 0;
+        }
     }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
     [Microsoft.FSharp.Core.RequireQualifiedAccess]

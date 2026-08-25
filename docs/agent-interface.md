@@ -124,14 +124,18 @@ vcs-agent changes --repo . --view summary
 vcs-agent changes --repo . --view diff --output-budget 32768
 ```
 
-`changes` defaults to `summary`. Summary mode reports changed paths, old paths for renames,
-change kinds, and aggregate file/insertion/deletion counts. `--view diff` reports parsed
-unified-diff files, headers, hunks, and typed context/addition/deletion lines. Both modes
-compose the backend-neutral `VcsToolkit.Core.Repo` facade and work with Git and Jujutsu.
+`changes` defaults to `summary`. Summary mode reports changed paths and a separately scoped
+`diffStat` aggregate. On Git, `paths` includes untracked entries while `diffStat` describes
+the tracked `HEAD` diff; on Jujutsu, the working-copy diff includes automatically tracked new
+files. Keeping those values in separate typed fields prevents consumers from treating the Git
+stat count as the size of the broader path list. `--view diff` reports parsed unified-diff
+files, headers, hunks, and typed context/addition/deletion lines. Both modes compose the
+backend-neutral `VcsToolkit.Core.Repo` facade and work with Git and Jujutsu.
 
 The reusable API selects the same representations through `ChangesRequest.Summary` and
-`ChangesRequest.StructuredDiff`; `WithOutputLimit` and the supplied `CancellationToken`
-have the same semantics as the CLI flags and cancellation boundary.
+`ChangesRequest.StructuredDiff`. `ChangesData` is a discriminated union, so a summary and a
+structured diff cannot coexist or both be absent. `WithOutputLimit` and the supplied
+`CancellationToken` have the same semantics as the CLI flags and cancellation boundary.
 
 ## Envelope and stream rules
 
@@ -156,11 +160,12 @@ label `vcs-agent: <error-code>` and a newline; success leaves stderr empty.
 `--output-budget <bytes>` sets the maximum UTF-8 byte count retained on stdout and the
 capture budget passed to repository and forge clients. The default is 65,536 bytes and the
 minimum accepted value is 512 bytes. Backend overflow is classified as `output-limit`
-before partial content can become typed operation data. If a complete serialized result
-would exceed the same budget, `vcs-agent` discards that result and returns a complete
+before partial content can become typed operation data. The reusable `inspect` and `changes`
+APIs measure the complete envelope at their return boundary; if it would exceed the same
+budget, they discard that result and return a complete
 `output-limit` error envelope instead. Its error object sets `truncated: true` and reports
 both `limitBytes` and the complete result's `requiredBytes`; partial operation data is never
-presented as valid JSON.
+presented as a valid typed result or valid JSON. Rendering preserves that same typed outcome.
 
 The library and server golden/hermetic tests parse the bounded response again as JSON and
 assert that its UTF-8 byte count is within the requested limit.
