@@ -265,15 +265,26 @@ small, stable JSON surface without calling raw VCS commands.
 
 ### Phase 2 — ProcessKit-CLI interoperability
 
-- Define a pinned `processkit-cli probe` preflight for the supervision features the
-  workflow uses.
-- Add a cross-binary proof that a `vcs-agent` operation can run under
-  `processkit-cli run`, retain its result, and produce a valid terminal lifecycle
-  record with faithful exit classification.
-- Test timeout, cancellation, bounded capture, and nested containment behavior on
-  the supported operating systems.
-- Produce an upstream request draft only if the published binary contract proves
-  insufficient.
+Implemented against the published ProcessKit-CLI `v0.3.3` executable contract. The proof
+pins release-asset SHA-256 digests, fail-closed probes every surface it uses, installs the
+packed `vcs-agent` tool, and validates independent agent-result and JSONL lifecycle streams.
+
+- The preflight requires schema v1, reserved exit range `100-119`, run/deadline/capture/
+  detach surfaces, control cancellation/kill/inspection/waiting, resource-summary capability,
+  and embedded event-schema validation before it launches a payload.
+- The cross-binary matrix covers successful and non-success agent exits, overall and idle
+  timeout classification, bounded capture, detached cancellation, fail-closed detached cleanup,
+  and nested ProcessKit-CLI containment teardown of a live PID/start-time descendant identity
+  on Windows, Linux, and the published Apple Silicon macOS target.
+- Fixtures use disposable system-temp directories and validate every JSONL stream with the
+  published schema. Completed streams require one terminal `runner_exit` and confirmed zero
+  survivors; the inner stream may be nonterminal when the outer boundary ends it, so teardown
+  then depends on the clean outer lifecycle plus exact PID/start-time identity checks.
+  Failure-path cleanup capability-checks and verifies kill/wait plus terminal lifecycle and
+  exact identity disappearance before deleting scratch evidence; any unconfirmed cleanup fails
+  closed and retains that evidence path.
+- The published executable surface proved sufficient. No ProcessKit-CLI implementation
+  assembly is linked and no upstream request is currently justified.
 
 Exit condition: the two tools compose without linking private ProcessKit-CLI code
 and without weakening ProcessKit containment.

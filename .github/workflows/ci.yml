@@ -142,6 +142,88 @@ jobs:
         shell: pwsh
         run: ./scripts/test-check-command-index.ps1
 
+  # Cross-binary contract proof against the published ProcessKit-CLI executable. The
+  # installer pins both the release and each supported asset's SHA-256; the proof then
+  # packages vcs-agent, installs that package as a real dotnet tool, and exercises the
+  # documented JSONL/exit/containment boundary without linking ProcessKit-CLI assemblies.
+  vcs-agent-supervision:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.3xx'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-v2-${{ hashFiles('Directory.Packages.props', 'nuget.config', 'global.json') }}
+          restore-keys: ${{ runner.os }}-nuget-v2-
+
+      - name: Install published ProcessKit-CLI
+        id: processkit
+        shell: pwsh
+        run: |
+          $destination = Join-Path $env:RUNNER_TEMP 'processkit-cli'
+          $evidence = Join-Path $env:RUNNER_TEMP 'processkit-cli-install.json'
+          $binary = ./scripts/install-processkit-cli.ps1 -Destination $destination -EvidencePath $evidence
+          "binary=$binary" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+
+      - name: Pack vcs-agent
+        run: >-
+          dotnet pack VcsToolkit.slnx
+          --configuration Release
+          --output "${{ runner.temp }}/vcs-agent-packages"
+
+      - name: Install packed vcs-agent tool
+        id: vcs_agent
+        shell: pwsh
+        run: |
+          $toolPath = Join-Path $env:RUNNER_TEMP 'vcs-agent-tool'
+          $packagePath = Join-Path $env:RUNNER_TEMP 'vcs-agent-packages'
+          $nugetConfig = Join-Path $env:RUNNER_TEMP 'vcs-agent-local.nuget.config'
+          @"
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <packageSources>
+              <clear />
+              <add key="packed-vcs-agent" value="$packagePath" />
+            </packageSources>
+          </configuration>
+          "@ | Set-Content -LiteralPath $nugetConfig -Encoding utf8NoBOM
+          dotnet tool install `
+            --tool-path $toolPath `
+            --configfile $nugetConfig `
+            --version 0.1.0 `
+            vcs-agent
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $binaryName = if ($IsWindows) { 'vcs-agent.exe' } else { 'vcs-agent' }
+          "binary=$(Join-Path $toolPath $binaryName)" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+
+      - name: Run ProcessKit-CLI composition proof
+        shell: pwsh
+        run: >-
+          ./scripts/test-vcs-agent-processkit.ps1
+          -ProcessKitCliPath '${{ steps.processkit.outputs.binary }}'
+          -VcsAgentPath '${{ steps.vcs_agent.outputs.binary }}'
+          -EvidencePath (Join-Path $env:RUNNER_TEMP 'vcs-agent-processkit-proof.json')
+
+      - name: Upload supervision evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: vcs-agent-processkit-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            ${{ runner.temp }}/processkit-cli-install.json
+            ${{ runner.temp }}/vcs-agent-processkit-proof.json
+          if-no-files-found: error
+
   # Versioned routing/evidence fixtures only: no model, network, VCS, or forge process.
   # Optional live-model artifacts live in an ignored directory and are never enumerated here.
   vcs-agent-eval:

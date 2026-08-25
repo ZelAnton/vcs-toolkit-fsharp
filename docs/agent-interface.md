@@ -217,6 +217,90 @@ processkit-cli run [supervision options] -- vcs-agent <operation> [arguments]
 remain independently packaged executables; `vcs-agent` does not load ProcessKit-CLI plugins
 or implementation assemblies.
 
+### Direct and supervised execution
+
+Run short read-only operations directly when the caller already owns their lifetime:
+
+```sh
+vcs-agent inspect --repo .
+```
+
+Use ProcessKit-CLI when the caller needs a durable lifecycle stream, explicit deadlines,
+out-of-band cancellation, bounded capture, or an additional containment boundary:
+
+```sh
+processkit-cli run \
+  --jsonl ./run/events.jsonl \
+  --capture-dir ./run/capture \
+  --capture-max-bytes 64k \
+  --no-echo \
+  -- vcs-agent inspect --repo .
+```
+
+The agent result is the one LF-terminated JSON document in `capture/stdout.log`. The
+supervisor lifecycle is the separate `events.jsonl` stream. Validate that stream with the
+same published binary before consuming it:
+
+```sh
+processkit-cli events --file ./run/events.jsonl --validate
+```
+
+The supervised process exit preserves a child exit unchanged. Consequently, `0` and the
+`vcs-agent` error range `20`–`29` retain their direct meanings. ProcessKit-CLI owns the
+separate reserved range `100`–`119`; for the boundaries used here, `106` is an overall or
+idle timeout (distinguished by `timeout.reason`) and `108` is control-plane cancellation.
+The terminal `runner_exit` record repeats the final `code`, its `source`, and the optional
+`child_code`. A valid completed proof also requires `cleanup_finished.remaining = 0` with
+no read or kill error.
+
+For out-of-band cancellation, start a named detached run, cancel it, and wait for cleanup:
+
+```sh
+processkit-cli run --detach --run-id agent-42 --jsonl ./run/events.jsonl -- vcs-agent inspect --repo .
+processkit-cli cancel --run-id agent-42
+processkit-cli wait --run-id agent-42 --timeout 15s --report-outcome
+```
+
+`wait --report-outcome` may honestly return `status: "unknown"` when a fast run removed its
+registry record before the waiter observed it live. It must then leave the outcome fields
+null. The caller that created the run still validates the terminal classification from its
+owned JSONL file.
+
+### Compatibility preflight and executable proof
+
+The repository pins published ProcessKit-CLI `v0.3.3` release assets and their SHA-256
+digests in `scripts/install-processkit-cli.ps1`. Before any payload is launched,
+`scripts/test-vcs-agent-processkit.ps1` runs `processkit-cli probe --json` and requires:
+
+- JSONL schema version `1` and the exact reserved exit band `100-119`;
+- `run` with JSONL, run id, overall/idle deadlines, grace, bounded capture, overflow policy,
+  no-echo, detach, and resource-summary surfaces;
+- run-id cancellation, hard kill, live inspection, and waiting with terminal outcome
+  reporting;
+- file-based lifecycle validation through `events --validate`.
+
+The preflight is fail-closed: an absent token, schema mismatch, exit-band mismatch, wrong
+binary identity, malformed report, or nonzero probe exit prevents every scenario from
+starting. The proof exercises that rejection path with an intentionally absent surface and
+requires the published `PROBE_INCOMPATIBLE` exit `110`. It then installs the packed
+`vcs-agent` tool and checks nine real
+cross-binary scenarios: success, `invalid-input` exit preservation, overall timeout, idle
+timeout after observed output, bounded truncating capture, detached control cancellation,
+fail-closed detached cleanup with verified kill/wait recovery, ordinary nested composition,
+and outer-cancellation teardown while an inspected inner runner and its long-lived descendant
+are alive. The teardown proof records PID/start-time identities before cancellation, requires
+the outer terminal lifecycle to report zero survivors without read/kill errors, and confirms
+that those exact identities are gone afterward. Every lifecycle stream is checked by the
+published binary's embedded schema. A stream that contains `runner_exit` must end with exactly
+one such record and clean terminal state. ProcessKit-CLI `v0.3.3` does not guarantee that the
+inner stream reaches a terminal record when the outer containment boundary ends it; on that
+branch the proof records the absent inner terminal explicitly and relies only on the clean
+outer lifecycle plus exact identity-gone checks for teardown. The `vcs-agent-supervision` CI
+matrix executes this proof on the published Windows, Linux, and Apple Silicon macOS targets and
+uploads the install/proof JSON evidence.
+An unsupported OS/architecture or missing published asset is a hard, structured installer
+failure rather than a skipped proof.
+
 ## Compatibility policy
 
 Contract version `1` freezes operation names, field names and meanings, error/fallback

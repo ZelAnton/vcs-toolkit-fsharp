@@ -85,8 +85,33 @@ covers the tracked `HEAD` diff. `commit`, `publish`, `ci status`, and `ci wait` 
 the v1 taxonomy and return `unsupported` with the machine-readable fallback reason
 `operation-not-implemented`.
 
+Short read-only calls can run directly. For a durable lifecycle, hard or idle deadline,
+bounded capture, out-of-band cancellation, or nested containment, supervise the independently
+packaged tool through ProcessKit-CLI:
+
+```sh
+processkit-cli run \
+  --jsonl ./run/events.jsonl \
+  --capture-dir ./run/capture \
+  --capture-max-bytes 64k \
+  --no-echo \
+  -- vcs-agent inspect --repo .
+processkit-cli events --file ./run/events.jsonl --validate
+```
+
+The agent envelope is retained in `run/capture/stdout.log`; ProcessKit-CLI writes its
+separate terminal JSONL lifecycle to `run/events.jsonl` and preserves a child exit unchanged.
+Before launching anything, the repository's proof requires JSONL schema v1, reserved runner
+exit band `100-119`, and every CLI surface it uses. `scripts/install-processkit-cli.ps1`
+downloads the pinned published `v0.3.3` asset with an exact SHA-256 check, while
+`scripts/test-vcs-agent-processkit.ps1` exercises success/non-success exit classification,
+overall and idle timeouts, detached cancellation, bounded capture, fail-closed detached
+cleanup, and nested containment teardown of a live descendant identity.
+CI runs that cross-binary proof on Windows, Linux, and Apple Silicon macOS; a missing or
+incompatible published binary fails closed instead of silently skipping supervision.
+
 See [docs/agent-interface.md](docs/agent-interface.md) for the complete envelope, operation,
-error, exit-code, output, redaction, and compatibility contract.
+error, exit-code, output, redaction, compatibility, and direct/supervised execution contract.
 
 ## The `vcs-mcp` MCP server
 
@@ -175,9 +200,9 @@ driving, total/tolerant parsing, argv guards, credential provisioning, error
 classification, cancellation-safe cleanup), and the escape hatches available
 at each layer, see [docs/architecture.md](docs/architecture.md).
 
-For the implemented v1 transport-neutral agent contract and `probe`, see
-[docs/agent-interface.md](docs/agent-interface.md). The remaining outcome operations, Skill,
-ProcessKit-CLI composition, and eventual MCP convergence are tracked in
+For the implemented v1 transport-neutral agent contract, `probe`, and ProcessKit-CLI
+composition, see [docs/agent-interface.md](docs/agent-interface.md). The remaining mutating
+outcomes, Skill, and eventual MCP convergence are tracked in
 [docs/agent-interface-roadmap.md](docs/agent-interface-roadmap.md).
 
 Already know the CLI command you need (`git rebase --onto`, `jj parallelize`, `gh api`) and
