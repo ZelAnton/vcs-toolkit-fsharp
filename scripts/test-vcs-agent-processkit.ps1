@@ -178,9 +178,22 @@ function Get-ProcessIdentity {
         $process = [System.Diagnostics.Process]::GetProcessById($Id)
 
         try {
+            $startTimeUtcTicks = $process.StartTime.ToUniversalTime().Ticks
+            $startIdentityToken = "utc-ticks:$startTimeUtcTicks"
+
+            if ($IsLinux) {
+                $stat = Get-Content -Raw -LiteralPath "/proc/$Id/stat" -Encoding UTF8
+                $commandEnd = $stat.LastIndexOf(')')
+                Assert-Condition ($commandEnd -gt 0) "Linux process stat for PID $Id had no command terminator."
+                $fields = @($stat.Substring($commandEnd + 1).Trim() -split '\s+')
+                Assert-Condition ($fields.Count -gt 19) "Linux process stat for PID $Id omitted its start-time field."
+                $startIdentityToken = "linux-proc:$($fields[19])"
+            }
+
             [pscustomobject]@{
                 pid = $Id
-                startTimeUtcTicks = $process.StartTime.ToUniversalTime().Ticks
+                startTimeUtcTicks = $startTimeUtcTicks
+                startIdentityToken = $startIdentityToken
             }
         }
         finally {
@@ -202,7 +215,18 @@ function Test-ProcessIdentityAlive {
     )
 
     $current = Get-ProcessIdentity -Id ([int] $Identity.pid)
-    $null -ne $current -and $current.startTimeUtcTicks -eq [long] $Identity.startTimeUtcTicks
+
+    if ($null -eq $current) {
+        return $false
+    }
+
+    $expectedToken = $Identity.PSObject.Properties['startIdentityToken']
+
+    if ($null -ne $expectedToken -and -not [string]::IsNullOrWhiteSpace([string] $expectedToken.Value)) {
+        return $current.startIdentityToken -eq [string] $expectedToken.Value
+    }
+
+    $current.startTimeUtcTicks -eq [long] $Identity.startTimeUtcTicks
 }
 
 function Assert-ProcessIdentityGone {
@@ -226,7 +250,9 @@ function Assert-ProcessIdentityGone {
         Start-Sleep -Milliseconds 100
     }
 
-    throw "$Description process identity pid=$($Identity.pid), startTimeUtcTicks=$($Identity.startTimeUtcTicks) survived teardown."
+    $startToken = $Identity.PSObject.Properties['startIdentityToken']
+    $tokenDescription = if ($null -eq $startToken) { "startTimeUtcTicks=$($Identity.startTimeUtcTicks)" } else { "startIdentityToken=$($startToken.Value)" }
+    throw "$Description process identity pid=$($Identity.pid), $tokenDescription survived teardown."
 }
 
 function Assert-ProcessIdentitiesGone {
@@ -378,9 +404,7 @@ function Invoke-VerifiedIdentityRecovery {
             $process = [System.Diagnostics.Process]::GetProcessById([int] $check.Identity.pid)
 
             try {
-                $actualStartTimeUtcTicks = $process.StartTime.ToUniversalTime().Ticks
-
-                if ($actualStartTimeUtcTicks -ne [long] $check.Identity.startTimeUtcTicks) {
+                if (-not (Test-ProcessIdentityAlive $check.Identity)) {
                     continue
                 }
 
@@ -475,8 +499,12 @@ function Read-FixtureIdentity {
                 if (
                     $identity.fixture.pid -gt 0 -and
                     $identity.fixture.startTimeUtcTicks -gt 0 -and
+                    -not [string]::IsNullOrWhiteSpace([string] $identity.fixture.startIdentityToken) -and
                     $identity.descendant.pid -gt 0 -and
-                    $identity.descendant.startTimeUtcTicks -gt 0
+                    $identity.descendant.startTimeUtcTicks -gt 0 -and
+                    -not [string]::IsNullOrWhiteSpace([string] $identity.descendant.startIdentityToken) -and
+                    (Test-ProcessIdentityAlive $identity.fixture) -and
+                    (Test-ProcessIdentityAlive $identity.descendant)
                 ) {
                     return $identity
                 }
@@ -490,6 +518,136 @@ function Read-FixtureIdentity {
     }
 
     throw "The descendant fixture did not publish a complete PID/start-time identity at '$Path' within ${TimeoutSeconds}s."
+}
+
+function Read-ReadyRunSnapshot {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $RunId,
+
+        [Parameter(Mandatory = $true)]
+        [object] $RootIdentity,
+
+        [Parameter(Mandatory = $true)]
+        [object[]] $MemberChecks,
+
+        [Parameter(Mandatory = $true)]
+        [string] $ScenarioDirectory,
+
+        [Parameter(Mandatory = $true)]
+        [string] $OutputPrefix,
+
+        [int] $TimeoutSeconds = 15
+    )
+
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+    $lastObservation = 'not attempted'
+    $inspectStdout = Join-Path $ScenarioDirectory "$OutputPrefix-inspect.json"
+    $inspectStderr = Join-Path $ScenarioDirectory "$OutputPrefix-inspect.stderr.log"
+
+    while ([DateTimeOffset]::UtcNow -lt $deadline) {
+        $deadChecks = @($MemberChecks | Where-Object { -not (Test-ProcessIdentityAlive $_.Identity) })
+
+        if ($deadChecks.Count -gt 0) {
+            $lastObservation = "exact identity not live: $($deadChecks[0].Description)"
+            Start-Sleep -Milliseconds 100
+            continue
+        }
+
+        $inspectExit = Invoke-Native `
+            -FilePath $script:ProcessKitCli `
+            -Arguments @('inspect', '--run-id', $RunId, '--json') `
+            -StdoutPath $inspectStdout `
+            -StderrPath $inspectStderr
+
+        if ($inspectExit -ne 0) {
+            $lastObservation = "inspect returned exit $inspectExit"
+            Start-Sleep -Milliseconds 100
+            continue
+        }
+
+        try {
+            $snapshot = Read-JsonFile $inspectStdout
+            Assert-Condition ($snapshot.run_id -eq $RunId) 'inspect returned the wrong run identity'
+            Assert-Condition ($snapshot.root_pid -eq $RootIdentity.pid) 'inspect returned the wrong root PID'
+
+            foreach ($check in $MemberChecks) {
+                $members = @($snapshot.members | Where-Object pid -EQ $check.Identity.pid)
+                Assert-Condition ($members.Count -eq 1) "containment did not report $($check.Description)"
+                Assert-Condition (-not [string]::IsNullOrWhiteSpace([string] $members[0].start_time)) "containment did not publish a start-time token for $($check.Description)"
+            }
+
+            return $snapshot
+        }
+        catch {
+            $lastObservation = $_.Exception.Message
+        }
+
+        Start-Sleep -Milliseconds 100
+    }
+
+    throw "Run '$RunId' did not reach a live, fully contained state within ${TimeoutSeconds}s: $lastObservation."
+}
+
+function Add-LiveRunIdentityChecks {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $RunId,
+
+        [Parameter(Mandatory = $true)]
+        [string] $ScenarioDirectory,
+
+        [object[]] $IdentityChecks = @()
+    )
+
+    $checks = [System.Collections.Generic.List[object]]::new()
+
+    foreach ($check in $IdentityChecks) {
+        $checks.Add($check)
+    }
+
+    $inspectStdout = Join-Path $ScenarioDirectory 'recovery-inspect.json'
+    $inspectStderr = Join-Path $ScenarioDirectory 'recovery-inspect.stderr.log'
+    $inspectExit = Invoke-Native `
+        -FilePath $script:ProcessKitCli `
+        -Arguments @('inspect', '--run-id', $RunId, '--json') `
+        -StdoutPath $inspectStdout `
+        -StderrPath $inspectStderr
+
+    if ($inspectExit -ne 0) {
+        return ,$checks.ToArray()
+    }
+
+    $snapshot = Read-JsonFile $inspectStdout
+    Assert-Condition ($snapshot.run_id -eq $RunId) 'Recovery inspect returned the wrong run identity.'
+
+    foreach ($member in @($snapshot.members)) {
+        $pid = [int] $member.pid
+        Assert-Condition ($pid -gt 0) 'Recovery inspect returned a nonpositive member PID.'
+        Assert-Condition (-not [string]::IsNullOrWhiteSpace([string] $member.start_time)) "Recovery inspect omitted the start-time token for PID $pid."
+        $identity = Get-ProcessIdentity -Id $pid
+
+        if ($null -eq $identity) {
+            continue
+        }
+
+        $known = @($checks | Where-Object { $_.Identity.pid -eq $pid })
+
+        if ($known.Count -gt 0) {
+            foreach ($knownCheck in $known) {
+                Assert-Condition ($knownCheck.Identity.startIdentityToken -eq $identity.startIdentityToken) "PID $pid was reused while recovery evidence was being captured."
+            }
+
+            continue
+        }
+
+        $checks.Add([pscustomobject]@{
+            Identity = $identity
+            Description = "Contained recovery member PID $pid"
+        })
+    }
+
+    ,$checks.ToArray()
 }
 
 function Invoke-DetachedTeardown {
@@ -1157,12 +1315,15 @@ try {
     Assert-Condition ($nestedDetachExit -eq 0) "Detached nested containment fixture failed to start with exit $nestedDetachExit."
 
     $innerRunnerIdentity = Read-RunRootIdentity $nestedOuterEvents 'outer container root (the inner runner)'
-    $nestedIdentity = Read-FixtureIdentity $nestedIdentityPath
     $detachedIdentityChecks = @(
         [pscustomobject]@{
             Identity = $innerRunnerIdentity
             Description = 'Nested inner runner'
-        },
+        }
+    )
+    $nestedIdentity = Read-FixtureIdentity $nestedIdentityPath
+    $detachedIdentityChecks = @(
+        $detachedIdentityChecks[0],
         [pscustomobject]@{
             Identity = $nestedIdentity.fixture
             Description = 'Nested fixture root'
@@ -1172,38 +1333,18 @@ try {
             Description = 'Nested long-lived descendant'
         }
     )
-    Assert-Condition (Test-ProcessIdentityAlive $innerRunnerIdentity) 'The inner runner was not alive before outer cancellation.'
-    Assert-Condition (Test-ProcessIdentityAlive $nestedIdentity.fixture) 'The inner fixture was not alive before outer cancellation.'
-    Assert-Condition (Test-ProcessIdentityAlive $nestedIdentity.descendant) 'The long-lived descendant was not alive before outer cancellation.'
-
-    $outerInspectExit = Invoke-Native `
-        -FilePath $script:ProcessKitCli `
-        -Arguments @('inspect', '--run-id', $detachedRunId, '--json') `
-        -StdoutPath (Join-Path $nestedTeardownDirectory 'outer-inspect.json') `
-        -StderrPath (Join-Path $nestedTeardownDirectory 'outer-inspect.stderr.log')
-    Assert-Condition ($outerInspectExit -eq 0) "Inspecting the live outer container failed with exit $outerInspectExit."
-    $outerSnapshot = Read-JsonFile (Join-Path $nestedTeardownDirectory 'outer-inspect.json')
-    Assert-Condition ($outerSnapshot.run_id -eq $detachedRunId) 'Outer inspect returned the wrong run identity.'
-    Assert-Condition ($outerSnapshot.root_pid -eq $innerRunnerIdentity.pid) 'Outer inspect did not identify the live inner runner as its root.'
-    $outerRootMember = @($outerSnapshot.members | Where-Object pid -EQ $innerRunnerIdentity.pid)
-    Assert-Condition ($outerRootMember.Count -eq 1) 'Outer containment did not report the inner runner as a member.'
-    Assert-Condition (-not [string]::IsNullOrWhiteSpace([string] $outerRootMember[0].start_time)) 'Outer containment did not publish a start-time token for the inner runner.'
-
-    $innerInspectExit = Invoke-Native `
-        -FilePath $script:ProcessKitCli `
-        -Arguments @('inspect', '--run-id', $nestedInnerRunId, '--json') `
-        -StdoutPath (Join-Path $nestedTeardownDirectory 'inner-inspect.json') `
-        -StderrPath (Join-Path $nestedTeardownDirectory 'inner-inspect.stderr.log')
-    Assert-Condition ($innerInspectExit -eq 0) "Inspecting the live inner container failed with exit $innerInspectExit."
-    $innerSnapshot = Read-JsonFile (Join-Path $nestedTeardownDirectory 'inner-inspect.json')
-    Assert-Condition ($innerSnapshot.run_id -eq $nestedInnerRunId) 'Inner inspect returned the wrong run identity.'
-    Assert-Condition ($innerSnapshot.root_pid -eq $nestedIdentity.fixture.pid) 'Inner inspect did not identify the fixture root.'
-    $fixtureMember = @($innerSnapshot.members | Where-Object pid -EQ $nestedIdentity.fixture.pid)
-    $descendantMember = @($innerSnapshot.members | Where-Object pid -EQ $nestedIdentity.descendant.pid)
-    Assert-Condition ($fixtureMember.Count -eq 1) 'Inner containment did not report the fixture root as a member.'
-    Assert-Condition ($descendantMember.Count -eq 1) 'Inner containment did not report the long-lived descendant as a member.'
-    Assert-Condition (-not [string]::IsNullOrWhiteSpace([string] $fixtureMember[0].start_time)) 'Inner containment did not publish a start-time token for the fixture root.'
-    Assert-Condition (-not [string]::IsNullOrWhiteSpace([string] $descendantMember[0].start_time)) 'Inner containment did not publish a start-time token for the descendant.'
+    $outerSnapshot = Read-ReadyRunSnapshot `
+        -RunId $detachedRunId `
+        -RootIdentity $innerRunnerIdentity `
+        -MemberChecks @($detachedIdentityChecks[0]) `
+        -ScenarioDirectory $nestedTeardownDirectory `
+        -OutputPrefix 'outer'
+    $innerSnapshot = Read-ReadyRunSnapshot `
+        -RunId $nestedInnerRunId `
+        -RootIdentity $nestedIdentity.fixture `
+        -MemberChecks @($detachedIdentityChecks[1], $detachedIdentityChecks[2]) `
+        -ScenarioDirectory $nestedTeardownDirectory `
+        -OutputPrefix 'inner'
 
     $nestedCleanupProof = Invoke-DetachedTeardown `
         -RunId $detachedRunId `
@@ -1289,6 +1430,18 @@ finally {
             $terminalAlreadyClean = $false
 
             try {
+                $detachedIdentityChecks = @(
+                    Add-LiveRunIdentityChecks `
+                        -RunId $detachedRunId `
+                        -ScenarioDirectory $detachedDirectory `
+                        -IdentityChecks $detachedIdentityChecks
+                )
+            }
+            catch {
+                # Teardown remains fail-closed below if a live snapshot cannot extend the exact-identity set.
+            }
+
+            try {
                 $existingEvents = Read-EventStream $detachedEvents $detachedDirectory
                 $null = Confirm-DetachedCleanup `
                     -Events $existingEvents `
@@ -1308,7 +1461,8 @@ finally {
                     -EventsPath $detachedEvents `
                     -ScenarioDirectory $detachedDirectory `
                     -ExpectedCode 109 `
-                    -ExpectedSource 'control_kill'
+                    -ExpectedSource 'control_kill' `
+                    -IdentityChecks $detachedIdentityChecks
             }
 
             Invoke-VerifiedIdentityRecovery $detachedIdentityChecks
