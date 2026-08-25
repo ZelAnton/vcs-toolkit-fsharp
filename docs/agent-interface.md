@@ -275,17 +275,22 @@ digests in `scripts/install-processkit-cli.ps1`. Before any payload is launched,
 - JSONL schema version `1` and the exact reserved exit band `100-119`;
 - `run` with JSONL, run id, overall/idle deadlines, grace, bounded capture, overflow policy,
   no-echo, detach, and resource-summary surfaces;
-- run-id cancellation and waiting with terminal outcome reporting;
+- run-id cancellation, hard kill, live inspection, and waiting with terminal outcome
+  reporting;
 - file-based lifecycle validation through `events --validate`.
 
 The preflight is fail-closed: an absent token, schema mismatch, exit-band mismatch, wrong
 binary identity, malformed report, or nonzero probe exit prevents every scenario from
 starting. The proof exercises that rejection path with an intentionally absent surface and
 requires the published `PROBE_INCOMPATIBLE` exit `110`. It then installs the packed
-`vcs-agent` tool and checks seven real
+`vcs-agent` tool and checks nine real
 cross-binary scenarios: success, `invalid-input` exit preservation, overall timeout, idle
 timeout after observed output, bounded truncating capture, detached control cancellation,
-and an outer ProcessKit-CLI containing an inner ProcessKit-CLI that runs `vcs-agent`.
+fail-closed detached cleanup with verified kill/wait recovery, ordinary nested composition,
+and outer-cancellation teardown while an inspected inner runner and its long-lived descendant
+are alive. The teardown proof records PID/start-time identities before cancellation, requires
+the outer terminal lifecycle to report zero survivors without read/kill errors, and confirms
+that those exact identities are gone afterward.
 Every lifecycle stream is checked by the published binary's embedded schema and for a clean
 terminal record. The `vcs-agent-supervision` CI matrix executes this proof on the published
 Windows, Linux, and Apple Silicon macOS targets and uploads the install/proof JSON evidence.

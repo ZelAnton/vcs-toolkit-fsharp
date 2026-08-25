@@ -96,6 +96,19 @@ function Read-EventStream {
     ,$events
 }
 
+function Assert-CleanTerminalState {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object[]] $Events
+    )
+
+    $cleanup = @($Events | Where-Object event -EQ 'cleanup_finished') | Select-Object -Last 1
+    Assert-Condition ($null -ne $cleanup) 'The lifecycle stream did not report cleanup_finished.'
+    Assert-Condition ($cleanup.remaining -eq 0) "ProcessKit-CLI left $($cleanup.remaining) process(es) after cleanup."
+    Assert-Condition (-not $cleanup.kill_error) 'ProcessKit-CLI reported a kill_error during cleanup.'
+    Assert-Condition (-not $cleanup.read_error) 'ProcessKit-CLI could not confirm the final contained-process set.'
+}
+
 function Assert-CleanTerminal {
     param(
         [Parameter(Mandatory = $true)]
@@ -122,11 +135,230 @@ function Assert-CleanTerminal {
         Assert-Condition ($terminal.child_code -eq [int] $ExpectedChildCode) "runner_exit child_code was $($terminal.child_code), expected $ExpectedChildCode."
     }
 
-    $cleanup = @($Events | Where-Object event -EQ 'cleanup_finished') | Select-Object -Last 1
-    Assert-Condition ($null -ne $cleanup) 'The lifecycle stream did not report cleanup_finished.'
-    Assert-Condition ($cleanup.remaining -eq 0) "ProcessKit-CLI left $($cleanup.remaining) process(es) after cleanup."
-    Assert-Condition (-not $cleanup.kill_error) 'ProcessKit-CLI reported a kill_error during cleanup.'
-    Assert-Condition (-not $cleanup.read_error) 'ProcessKit-CLI could not confirm the final contained-process set.'
+    Assert-CleanTerminalState $Events
+}
+
+function Get-ProcessIdentity {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int] $Id
+    )
+
+    try {
+        $process = [System.Diagnostics.Process]::GetProcessById($Id)
+
+        try {
+            [pscustomobject]@{
+                pid = $Id
+                startTimeUtcTicks = $process.StartTime.ToUniversalTime().Ticks
+            }
+        }
+        finally {
+            $process.Dispose()
+        }
+    }
+    catch [System.ArgumentException] {
+        $null
+    }
+    catch [System.InvalidOperationException] {
+        $null
+    }
+}
+
+function Test-ProcessIdentityAlive {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object] $Identity
+    )
+
+    $current = Get-ProcessIdentity -Id ([int] $Identity.pid)
+    $null -ne $current -and $current.startTimeUtcTicks -eq [long] $Identity.startTimeUtcTicks
+}
+
+function Assert-ProcessIdentityGone {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object] $Identity,
+
+        [Parameter(Mandatory = $true)]
+        [string] $Description,
+
+        [int] $TimeoutSeconds = 15
+    )
+
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+
+    while ([DateTimeOffset]::UtcNow -lt $deadline) {
+        if (-not (Test-ProcessIdentityAlive $Identity)) {
+            return
+        }
+
+        Start-Sleep -Milliseconds 100
+    }
+
+    throw "$Description process identity pid=$($Identity.pid), startTimeUtcTicks=$($Identity.startTimeUtcTicks) survived teardown."
+}
+
+function Read-RunRootIdentity {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $EventsPath,
+
+        [string] $Description = 'detached run',
+
+        [int] $TimeoutSeconds = 15
+    )
+
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+
+    while ([DateTimeOffset]::UtcNow -lt $deadline) {
+        if (Test-Path -LiteralPath $EventsPath -PathType Leaf) {
+            foreach ($line in Get-Content -LiteralPath $EventsPath -Encoding UTF8) {
+                if ([string]::IsNullOrWhiteSpace($line)) {
+                    continue
+                }
+
+                try {
+                    $event = $line | ConvertFrom-Json -Depth 64
+                }
+                catch {
+                    continue
+                }
+
+                if ($event.event -eq 'run_started' -and $null -ne $event.root_pid) {
+                    $identity = Get-ProcessIdentity -Id ([int] $event.root_pid)
+
+                    if ($null -ne $identity) {
+                        return $identity
+                    }
+                }
+            }
+        }
+
+        Start-Sleep -Milliseconds 100
+    }
+
+    throw "Could not observe a live root PID/start-time identity for $Description within ${TimeoutSeconds}s."
+}
+
+function Read-FixtureIdentity {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $Path,
+
+        [int] $TimeoutSeconds = 15
+    )
+
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+
+    while ([DateTimeOffset]::UtcNow -lt $deadline) {
+        if (Test-Path -LiteralPath $Path -PathType Leaf) {
+            try {
+                $identity = Read-JsonFile $Path
+
+                if (
+                    $identity.fixture.pid -gt 0 -and
+                    $identity.fixture.startTimeUtcTicks -gt 0 -and
+                    $identity.descendant.pid -gt 0 -and
+                    $identity.descendant.startTimeUtcTicks -gt 0
+                ) {
+                    return $identity
+                }
+            }
+            catch {
+                # The fixture publishes by atomic rename, but tolerate a transient reader race.
+            }
+        }
+
+        Start-Sleep -Milliseconds 100
+    }
+
+    throw "The descendant fixture did not publish a complete PID/start-time identity at '$Path' within ${TimeoutSeconds}s."
+}
+
+function Invoke-DetachedTeardown {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $RunId,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('cancel', 'kill')]
+        [string] $Action,
+
+        [Parameter(Mandatory = $true)]
+        [string] $EventsPath,
+
+        [Parameter(Mandatory = $true)]
+        [string] $ScenarioDirectory,
+
+        [Parameter(Mandatory = $true)]
+        [int] $ExpectedCode,
+
+        [Parameter(Mandatory = $true)]
+        [string] $ExpectedSource
+    )
+
+    $controlExit = Invoke-Native `
+        -FilePath $script:ProcessKitCli `
+        -Arguments @($Action, '--run-id', $RunId) `
+        -StdoutPath (Join-Path $ScenarioDirectory "$Action.stdout.log") `
+        -StderrPath (Join-Path $ScenarioDirectory "$Action.stderr.log")
+
+    $waitExit = Invoke-Native `
+        -FilePath $script:ProcessKitCli `
+        -Arguments @('wait', '--run-id', $RunId, '--timeout', '15s', '--report-outcome') `
+        -StdoutPath (Join-Path $ScenarioDirectory "$Action-wait.json") `
+        -StderrPath (Join-Path $ScenarioDirectory "$Action-wait.stderr.log")
+
+    $failures = [System.Collections.Generic.List[string]]::new()
+
+    if ($controlExit -ne 0) {
+        $failures.Add("$Action --run-id failed with exit $controlExit")
+    }
+
+    if ($waitExit -ne 0) {
+        $failures.Add("wait --run-id failed with exit $waitExit")
+    }
+
+    $events = $null
+
+    try {
+        $events = Read-EventStream $EventsPath $ScenarioDirectory
+        Assert-CleanTerminal $events $ExpectedCode $ExpectedSource $null
+    }
+    catch {
+        $failures.Add("terminal lifecycle confirmation failed: $($_.Exception.Message)")
+    }
+
+    if ($waitExit -eq 0) {
+        try {
+            $waitReport = Read-JsonFile (Join-Path $ScenarioDirectory "$Action-wait.json")
+            Assert-Condition ($waitReport.status -in @('reported', 'unknown')) "Teardown wait status was '$($waitReport.status)'."
+
+            if ($waitReport.status -eq 'reported') {
+                Assert-Condition ($waitReport.code -eq $ExpectedCode) "Teardown wait code was $($waitReport.code), expected $ExpectedCode."
+                Assert-Condition ($waitReport.source -eq $ExpectedSource) "Teardown wait source was '$($waitReport.source)', expected '$ExpectedSource'."
+            }
+            else {
+                Assert-Condition ($null -eq $waitReport.code -and $null -eq $waitReport.source) 'An unknown teardown wait outcome fabricated a result.'
+            }
+        }
+        catch {
+            $failures.Add("wait outcome validation failed: $($_.Exception.Message)")
+        }
+    }
+
+    if ($failures.Count -gt 0) {
+        throw "Detached teardown for '$RunId' was not confirmed: $($failures -join '; ')."
+    }
+
+    [pscustomobject]@{
+        runId = $RunId
+        action = $Action
+        code = $ExpectedCode
+        source = $ExpectedSource
+        remaining = 0
+    }
 }
 
 function Assert-AgentEnvelope {
@@ -231,6 +463,11 @@ $requiredSurface = @(
     'run:resource-summary',
     'cancel',
     'cancel:--run-id',
+    'kill',
+    'kill:--run-id',
+    'inspect',
+    'inspect:--run-id',
+    'inspect:--json',
     'wait',
     'wait:--run-id',
     'wait:--timeout',
@@ -246,8 +483,13 @@ $preflightRejection = $null
 $successEnvelope = $null
 $proofStatus = 'failed'
 $failure = $null
+$cleanupFailure = $null
+$primaryException = $null
+$retainedScratch = $null
 $detachedRunId = $null
 $detachedFinished = $false
+$detachedEvents = $null
+$detachedDirectory = $null
 
 try {
     $preflightDirectory = New-ScenarioDirectory 'preflight'
@@ -397,6 +639,8 @@ try {
     $cancellationDirectory = New-ScenarioDirectory 'cancellation'
     $detachedRunId = 'vcs-agent-t208-' + [Guid]::NewGuid().ToString('N')
     $cancellationEvents = Join-Path $cancellationDirectory 'events.jsonl'
+    $detachedDirectory = $cancellationDirectory
+    $detachedEvents = $cancellationEvents
     $detachExit = Invoke-Native `
         -FilePath $script:ProcessKitCli `
         -Arguments @(
@@ -422,34 +666,83 @@ try {
         -StderrPath (Join-Path $cancellationDirectory 'detach.stderr.log')
     Assert-Condition ($detachExit -eq 0) "Detached cancellation fixture failed to start with exit $detachExit."
 
-    $cancelExit = Invoke-Native `
-        -FilePath $script:ProcessKitCli `
-        -Arguments @('cancel', '--run-id', $detachedRunId) `
-        -StdoutPath (Join-Path $cancellationDirectory 'cancel.stdout.log') `
-        -StderrPath (Join-Path $cancellationDirectory 'cancel.stderr.log')
-    Assert-Condition ($cancelExit -eq 0) "Control-plane cancellation failed with exit $cancelExit."
-
-    $waitExit = Invoke-Native `
-        -FilePath $script:ProcessKitCli `
-        -Arguments @('wait', '--run-id', $detachedRunId, '--timeout', '15s', '--report-outcome') `
-        -StdoutPath (Join-Path $cancellationDirectory 'wait.json') `
-        -StderrPath (Join-Path $cancellationDirectory 'wait.stderr.log')
-    Assert-Condition ($waitExit -eq 0) "Waiting for the cancelled run failed with exit $waitExit."
-    $waitReport = Read-JsonFile (Join-Path $cancellationDirectory 'wait.json')
-    Assert-Condition ($waitReport.status -in @('reported', 'unknown')) "Cancellation wait status was '$($waitReport.status)', expected the published reported/unknown taxonomy."
-
-    if ($waitReport.status -eq 'reported') {
-        Assert-Condition ($waitReport.code -eq 108 -and $waitReport.source -eq 'control_cancel') 'Cancellation wait report did not preserve the control_cancel outcome.'
-    }
-    else {
-        Assert-Condition ($null -eq $waitReport.code -and $null -eq $waitReport.source) 'An unknown wait outcome must not fabricate an exit classification.'
-    }
+    $null = Invoke-DetachedTeardown `
+        -RunId $detachedRunId `
+        -Action cancel `
+        -EventsPath $cancellationEvents `
+        -ScenarioDirectory $cancellationDirectory `
+        -ExpectedCode 108 `
+        -ExpectedSource 'control_cancel'
     $cancellationStream = Read-EventStream $cancellationEvents $cancellationDirectory
-    Assert-CleanTerminal $cancellationStream 108 'control_cancel' $null
     $cancelledEvent = @($cancellationStream | Where-Object event -EQ 'cancelled')
     Assert-Condition ($cancelledEvent.Count -eq 1 -and $cancelledEvent[0].source -eq 'control_cancel') 'Cancellation lifecycle evidence was absent or misclassified.'
     $detachedFinished = $true
     $scenarioResults.Add([pscustomobject]@{ name = 'cancellation'; status = 'passed'; exitCode = 108 })
+
+    $cleanupDirectory = New-ScenarioDirectory 'detached-cleanup-failure-path'
+    $negativeAttemptDirectory = Join-Path $cleanupDirectory 'negative-attempt'
+    [System.IO.Directory]::CreateDirectory($negativeAttemptDirectory) | Out-Null
+    $detachedRunId = 'vcs-agent-cleanup-t208-' + [Guid]::NewGuid().ToString('N')
+    $detachedEvents = Join-Path $cleanupDirectory 'events.jsonl'
+    $detachedDirectory = $cleanupDirectory
+    $detachedFinished = $false
+    $cleanupDetachExit = Invoke-Native `
+        -FilePath $script:ProcessKitCli `
+        -Arguments @(
+            'run',
+            '--detach',
+            '--run-id',
+            $detachedRunId,
+            '--jsonl',
+            $detachedEvents,
+            '--',
+            $powerShell,
+            '-NoProfile',
+            '-File',
+            $fixture,
+            '-Mode',
+            'sleep'
+        ) `
+        -StdoutPath (Join-Path $cleanupDirectory 'detach.stdout.log') `
+        -StderrPath (Join-Path $cleanupDirectory 'detach.stderr.log')
+    Assert-Condition ($cleanupDetachExit -eq 0) "Detached cleanup fixture failed to start with exit $cleanupDetachExit."
+    $cleanupRootIdentity = Read-RunRootIdentity $detachedEvents 'cleanup failure-path fixture'
+    $expectedCleanupFailure = $null
+
+    try {
+        $null = Invoke-DetachedTeardown `
+            -RunId "$detachedRunId-intentionally-missing" `
+            -Action kill `
+            -EventsPath $detachedEvents `
+            -ScenarioDirectory $negativeAttemptDirectory `
+            -ExpectedCode 109 `
+            -ExpectedSource 'control_kill'
+    }
+    catch {
+        $expectedCleanupFailure = $_.Exception.Message
+    }
+
+    Assert-Condition (-not [string]::IsNullOrWhiteSpace($expectedCleanupFailure)) 'The negative cleanup attempt did not fail closed.'
+    Assert-Condition ([System.IO.Directory]::Exists($cleanupDirectory)) 'Negative cleanup failure removed its scratch evidence prematurely.'
+    Assert-Condition (Test-Path -LiteralPath $detachedEvents -PathType Leaf) 'Negative cleanup failure removed its lifecycle evidence prematurely.'
+    Assert-Condition (Test-ProcessIdentityAlive $cleanupRootIdentity) 'Negative cleanup failure did not leave a live subject for the verified recovery path.'
+    $cleanupProof = Invoke-DetachedTeardown `
+        -RunId $detachedRunId `
+        -Action kill `
+        -EventsPath $detachedEvents `
+        -ScenarioDirectory $cleanupDirectory `
+        -ExpectedCode 109 `
+        -ExpectedSource 'control_kill'
+    $detachedFinished = $true
+    Assert-ProcessIdentityGone $cleanupRootIdentity 'Detached cleanup fixture root'
+    $scenarioResults.Add([pscustomobject]@{
+        name = 'detached-cleanup-failure-path'
+        status = 'passed'
+        exitCode = $cleanupProof.code
+        failureObserved = $true
+        evidencePreservedUntilRecovery = $true
+        remaining = $cleanupProof.remaining
+    })
 
     $nestedDirectory = New-ScenarioDirectory 'nested-containment'
     $innerDirectory = Join-Path $nestedDirectory 'inner'
@@ -503,16 +796,159 @@ try {
         innerMechanism = $innerStarted.mechanism
     })
 
+    $nestedTeardownDirectory = New-ScenarioDirectory 'nested-containment-teardown'
+    $nestedTeardownInnerDirectory = Join-Path $nestedTeardownDirectory 'inner'
+    [System.IO.Directory]::CreateDirectory($nestedTeardownInnerDirectory) | Out-Null
+    [System.IO.Directory]::CreateDirectory((Join-Path $nestedTeardownInnerDirectory 'capture')) | Out-Null
+    $nestedIdentityPath = Join-Path $nestedTeardownInnerDirectory 'process-identities.json'
+    $nestedOuterEvents = Join-Path $nestedTeardownDirectory 'events.jsonl'
+    $nestedInnerEvents = Join-Path $nestedTeardownInnerDirectory 'events.jsonl'
+    $nestedInnerRunId = 'vcs-agent-nested-inner-t208-' + [Guid]::NewGuid().ToString('N')
+    $detachedRunId = 'vcs-agent-nested-outer-t208-' + [Guid]::NewGuid().ToString('N')
+    $detachedEvents = $nestedOuterEvents
+    $detachedDirectory = $nestedTeardownDirectory
+    $detachedFinished = $false
+    $nestedDetachExit = Invoke-Native `
+        -FilePath $script:ProcessKitCli `
+        -Arguments @(
+            'run',
+            '--detach',
+            '--run-id',
+            $detachedRunId,
+            '--jsonl',
+            $nestedOuterEvents,
+            '--grace',
+            '2s',
+            '--capture-dir',
+            (Join-Path $nestedTeardownDirectory 'capture'),
+            '--capture-max-bytes',
+            '64k',
+            '--no-echo',
+            '--',
+            $script:ProcessKitCli,
+            'run',
+            '--run-id',
+            $nestedInnerRunId,
+            '--jsonl',
+            $nestedInnerEvents,
+            '--grace',
+            '1s',
+            '--capture-dir',
+            (Join-Path $nestedTeardownInnerDirectory 'capture'),
+            '--capture-max-bytes',
+            '64k',
+            '--no-echo',
+            '--',
+            $powerShell,
+            '-NoProfile',
+            '-File',
+            $fixture,
+            '-Mode',
+            'descendant',
+            '-IdentityPath',
+            $nestedIdentityPath
+        ) `
+        -StdoutPath (Join-Path $nestedTeardownDirectory 'detach.stdout.log') `
+        -StderrPath (Join-Path $nestedTeardownDirectory 'detach.stderr.log')
+    Assert-Condition ($nestedDetachExit -eq 0) "Detached nested containment fixture failed to start with exit $nestedDetachExit."
+
+    $innerRunnerIdentity = Read-RunRootIdentity $nestedOuterEvents 'outer container root (the inner runner)'
+    $nestedIdentity = Read-FixtureIdentity $nestedIdentityPath
+    Assert-Condition (Test-ProcessIdentityAlive $innerRunnerIdentity) 'The inner runner was not alive before outer cancellation.'
+    Assert-Condition (Test-ProcessIdentityAlive $nestedIdentity.fixture) 'The inner fixture was not alive before outer cancellation.'
+    Assert-Condition (Test-ProcessIdentityAlive $nestedIdentity.descendant) 'The long-lived descendant was not alive before outer cancellation.'
+
+    $outerInspectExit = Invoke-Native `
+        -FilePath $script:ProcessKitCli `
+        -Arguments @('inspect', '--run-id', $detachedRunId, '--json') `
+        -StdoutPath (Join-Path $nestedTeardownDirectory 'outer-inspect.json') `
+        -StderrPath (Join-Path $nestedTeardownDirectory 'outer-inspect.stderr.log')
+    Assert-Condition ($outerInspectExit -eq 0) "Inspecting the live outer container failed with exit $outerInspectExit."
+    $outerSnapshot = Read-JsonFile (Join-Path $nestedTeardownDirectory 'outer-inspect.json')
+    Assert-Condition ($outerSnapshot.run_id -eq $detachedRunId) 'Outer inspect returned the wrong run identity.'
+    Assert-Condition ($outerSnapshot.root_pid -eq $innerRunnerIdentity.pid) 'Outer inspect did not identify the live inner runner as its root.'
+    $outerRootMember = @($outerSnapshot.members | Where-Object pid -EQ $innerRunnerIdentity.pid)
+    Assert-Condition ($outerRootMember.Count -eq 1) 'Outer containment did not report the inner runner as a member.'
+    Assert-Condition (-not [string]::IsNullOrWhiteSpace([string] $outerRootMember[0].start_time)) 'Outer containment did not publish a start-time token for the inner runner.'
+
+    $innerInspectExit = Invoke-Native `
+        -FilePath $script:ProcessKitCli `
+        -Arguments @('inspect', '--run-id', $nestedInnerRunId, '--json') `
+        -StdoutPath (Join-Path $nestedTeardownDirectory 'inner-inspect.json') `
+        -StderrPath (Join-Path $nestedTeardownDirectory 'inner-inspect.stderr.log')
+    Assert-Condition ($innerInspectExit -eq 0) "Inspecting the live inner container failed with exit $innerInspectExit."
+    $innerSnapshot = Read-JsonFile (Join-Path $nestedTeardownDirectory 'inner-inspect.json')
+    Assert-Condition ($innerSnapshot.run_id -eq $nestedInnerRunId) 'Inner inspect returned the wrong run identity.'
+    Assert-Condition ($innerSnapshot.root_pid -eq $nestedIdentity.fixture.pid) 'Inner inspect did not identify the fixture root.'
+    $fixtureMember = @($innerSnapshot.members | Where-Object pid -EQ $nestedIdentity.fixture.pid)
+    $descendantMember = @($innerSnapshot.members | Where-Object pid -EQ $nestedIdentity.descendant.pid)
+    Assert-Condition ($fixtureMember.Count -eq 1) 'Inner containment did not report the fixture root as a member.'
+    Assert-Condition ($descendantMember.Count -eq 1) 'Inner containment did not report the long-lived descendant as a member.'
+    Assert-Condition (-not [string]::IsNullOrWhiteSpace([string] $fixtureMember[0].start_time)) 'Inner containment did not publish a start-time token for the fixture root.'
+    Assert-Condition (-not [string]::IsNullOrWhiteSpace([string] $descendantMember[0].start_time)) 'Inner containment did not publish a start-time token for the descendant.'
+
+    $nestedCleanupProof = Invoke-DetachedTeardown `
+        -RunId $detachedRunId `
+        -Action cancel `
+        -EventsPath $nestedOuterEvents `
+        -ScenarioDirectory $nestedTeardownDirectory `
+        -ExpectedCode 108 `
+        -ExpectedSource 'control_cancel'
+    $detachedFinished = $true
+    Assert-ProcessIdentityGone $innerRunnerIdentity 'Nested inner runner'
+    Assert-ProcessIdentityGone $nestedIdentity.fixture 'Nested fixture root'
+    Assert-ProcessIdentityGone $nestedIdentity.descendant 'Nested long-lived descendant'
+    $nestedOuterStream = Read-EventStream $nestedOuterEvents $nestedTeardownDirectory
+    $nestedOuterStarted = @($nestedOuterStream | Where-Object event -EQ 'run_started')[0]
+    $scenarioResults.Add([pscustomobject]@{
+        name = 'nested-containment-teardown'
+        status = 'passed'
+        exitCode = $nestedCleanupProof.code
+        outerMechanism = $nestedOuterStarted.mechanism
+        innerMechanism = $innerSnapshot.mechanism
+        innerRunnerIdentityGone = $true
+        fixtureIdentityGone = $true
+        descendantIdentityGone = $true
+        remaining = $nestedCleanupProof.remaining
+    })
+
     $proofStatus = 'passed'
 }
 catch {
     $failure = $_.Exception.Message
-    throw
+    $primaryException = $_.Exception
 }
 finally {
     if ($null -ne $detachedRunId -and -not $detachedFinished) {
-        & $script:ProcessKitCli kill --run-id $detachedRunId 1> $null 2> $null
-        & $script:ProcessKitCli wait --run-id $detachedRunId --timeout 15s 1> $null 2> $null
+        try {
+            $terminalAlreadyClean = $false
+
+            try {
+                $existingEvents = Read-EventStream $detachedEvents $detachedDirectory
+                Assert-CleanTerminalState $existingEvents
+                $terminalAlreadyClean = $true
+            }
+            catch {
+                # A live or partial stream is expected on the recovery path; kill/wait must finish it below.
+            }
+
+            if (-not $terminalAlreadyClean) {
+                $null = Invoke-DetachedTeardown `
+                    -RunId $detachedRunId `
+                    -Action kill `
+                    -EventsPath $detachedEvents `
+                    -ScenarioDirectory $detachedDirectory `
+                    -ExpectedCode 109 `
+                    -ExpectedSource 'control_kill'
+            }
+
+            $detachedFinished = $true
+        }
+        catch {
+            $cleanupFailure = $_.Exception.Message
+            $proofStatus = 'failed'
+            $retainedScratch = $script:Scratch
+        }
     }
 
     $evidence = [ordered]@{
@@ -543,6 +979,11 @@ finally {
         agentResult = $successEnvelope
         scenarios = @($scenarioResults)
         failure = $failure
+        cleanup = [ordered]@{
+            confirmed = $detachedFinished -or $null -eq $detachedRunId
+            failure = $cleanupFailure
+            retainedScratch = $retainedScratch
+        }
     }
 
     if (-not [string]::IsNullOrWhiteSpace($EvidencePath)) {
@@ -560,9 +1001,24 @@ finally {
     Assert-Condition ($resolvedScratch.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase)) 'Refusing to clean a scratch directory outside the system temp root.'
     Assert-Condition ($resolvedScratch -ne $tempRoot) 'Refusing to clean the system temp root itself.'
 
-    if ([System.IO.Directory]::Exists($resolvedScratch)) {
+    if ($null -eq $cleanupFailure -and [System.IO.Directory]::Exists($resolvedScratch)) {
         [System.IO.Directory]::Delete($resolvedScratch, $true)
     }
+}
+
+if ($null -ne $primaryException -and $null -ne $cleanupFailure) {
+    throw [System.AggregateException]::new(
+        "The supervised proof failed and detached cleanup was not confirmed; evidence remains at '$retainedScratch'.",
+        [System.Exception[]] @($primaryException, [System.InvalidOperationException]::new($cleanupFailure))
+    )
+}
+
+if ($null -ne $primaryException) {
+    throw $primaryException
+}
+
+if ($null -ne $cleanupFailure) {
+    throw "Detached cleanup was not confirmed; evidence remains at '$retainedScratch': $cleanupFailure"
 }
 
 Write-Host "ProcessKit-CLI $($preflightReport.version) supervised proof passed: $($scenarioResults.Count) scenarios."

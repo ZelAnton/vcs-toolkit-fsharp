@@ -105,7 +105,8 @@ Before launching anything, the repository's proof requires JSONL schema v1, rese
 exit band `100-119`, and every CLI surface it uses. `scripts/install-processkit-cli.ps1`
 downloads the pinned published `v0.3.3` asset with an exact SHA-256 check, while
 `scripts/test-vcs-agent-processkit.ps1` exercises success/non-success exit classification,
-overall and idle timeouts, detached cancellation, bounded capture, and nested containment.
+overall and idle timeouts, detached cancellation, bounded capture, fail-closed detached
+cleanup, and nested containment teardown of a live descendant identity.
 CI runs that cross-binary proof on Windows, Linux, and Apple Silicon macOS; a missing or
 incompatible published binary fails closed instead of silently skipping supervision.
 

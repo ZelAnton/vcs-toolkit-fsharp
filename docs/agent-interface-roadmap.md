@@ -270,14 +270,16 @@ pins release-asset SHA-256 digests, fail-closed probes every surface it uses, in
 packed `vcs-agent` tool, and validates independent agent-result and JSONL lifecycle streams.
 
 - The preflight requires schema v1, reserved exit range `100-119`, run/deadline/capture/
-  detach surfaces, control cancellation/waiting, resource-summary capability, and embedded
-  event-schema validation before it launches a payload.
+  detach surfaces, control cancellation/kill/inspection/waiting, resource-summary capability,
+  and embedded event-schema validation before it launches a payload.
 - The cross-binary matrix covers successful and non-success agent exits, overall and idle
-  timeout classification, bounded capture, detached cancellation, and nested ProcessKit-CLI
-  containment on Windows, Linux, and the published Apple Silicon macOS target.
+  timeout classification, bounded capture, detached cancellation, fail-closed detached cleanup,
+  and nested ProcessKit-CLI containment teardown of a live PID/start-time descendant identity
+  on Windows, Linux, and the published Apple Silicon macOS target.
 - Fixtures use disposable system-temp directories; lifecycle validation requires one
-  terminal `runner_exit` and confirmed zero survivors, and best-effort cleanup still kills
-  and waits for a detached fixture when an assertion fails.
+  terminal `runner_exit` and confirmed zero survivors. Failure-path cleanup capability-checks
+  and verifies kill/wait plus terminal lifecycle before deleting scratch evidence; an
+  unconfirmed cleanup fails closed and retains that evidence path.
 - The published executable surface proved sufficient. No ProcessKit-CLI implementation
   assembly is linked and no upstream request is currently justified.
 
