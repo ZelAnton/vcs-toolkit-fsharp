@@ -69,6 +69,15 @@
 		</Project>
 		<Project Path="tests/VcsToolkit.Agent.Tests/VcsToolkit.Agent.Tests.fsproj">
 			<BuildDependency Project="src/VcsToolkit.Agent/VcsToolkit.Agent.fsproj" />
+			<BuildDependency Project="src/VcsToolkit.CliSupport/VcsToolkit.CliSupport.fsproj" />
+			<BuildDependency Project="src/VcsToolkit.Core/VcsToolkit.Core.fsproj" />
+			<BuildDependency Project="src/VcsToolkit.Forge/VcsToolkit.Forge.fsproj" />
+			<BuildDependency Project="src/VcsToolkit.Diff/VcsToolkit.Diff.fsproj" />
+			<BuildDependency Project="src/VcsToolkit.Git/VcsToolkit.Git.fsproj" />
+			<BuildDependency Project="src/VcsToolkit.Jj/VcsToolkit.Jj.fsproj" />
+			<BuildDependency Project="src/VcsToolkit.GitHub/VcsToolkit.GitHub.fsproj" />
+			<BuildDependency Project="src/VcsToolkit.GitLab/VcsToolkit.GitLab.fsproj" />
+			<BuildDependency Project="src/VcsToolkit.Gitea/VcsToolkit.Gitea.fsproj" />
 		</Project>
 		<Project Path="tests/VcsToolkit.Agent.Server.Tests/VcsToolkit.Agent.Server.Tests.fsproj">
 			<BuildDependency Project="src/VcsToolkit.Agent.Server/VcsToolkit.Agent.Server.fsproj" />

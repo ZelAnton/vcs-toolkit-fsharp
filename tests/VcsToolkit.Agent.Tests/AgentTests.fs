@@ -197,7 +197,11 @@ type ContractTests() =
                       LimitBytes = None
                       RequiredBytes = None }
               Warnings =
-                [ { Code = "consumer-warning"
+                [ { Code = $"https://user:{urlSecret}@example.test/warning"
+                    Message = "credentialed URL warning" }
+                  { Code = $"Bearer {bearerSecret}"
+                    Message = "bearer warning" }
+                  { Code = $"api_key={namedSecret}"
                     Message = message } ]
               FallbackReason = None }
 

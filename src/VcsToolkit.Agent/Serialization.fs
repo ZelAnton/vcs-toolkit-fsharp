@@ -233,7 +233,7 @@ module internal EnvelopeSerialization =
 
         for warning in envelope.Warnings do
             writer.WriteStartObject()
-            writer.WriteString("code", warning.Code)
+            writer.WriteString("code", Redaction.redact warning.Code)
             writer.WriteString("message", Redaction.redact warning.Message)
             writer.WriteEndObject()
 
