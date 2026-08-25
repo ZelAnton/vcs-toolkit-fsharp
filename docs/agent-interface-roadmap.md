@@ -9,9 +9,12 @@ interface becomes the primary executable contract for local agents; an Agent Ski
 teaches workflows over that contract; MCP remains a supported adapter rather than
 the product's only agent-facing entry point.
 
-The working executable name used below is `vcs-agent`. The first contract task must
-confirm the name, the package/project names, and the initial stable surface before
-publication.
+The executable and package name is now confirmed as `vcs-agent`, with
+`VcsToolkit.Agent` as the reusable library and `VcsToolkit.Agent.Server` as the thin
+global-tool adapter. Contract v1 and the deterministic read-only `probe` are implemented;
+the remaining outcomes below are reserved in the taxonomy and return structured
+`unsupported` until their delivery phases land. The exact current contract is documented
+in [vcs-agent v1 contract](agent-interface.md).
 
 ## Problem statement
 
@@ -228,6 +231,10 @@ must be passed explicitly; the ordinary CI job never reads that directory.
 
 ### Phase 0 — Evidence and contract
 
+Implemented: the offline evaluation baseline, v1 envelope/error/exit/output/redaction and
+compatibility contract, project/tool names, package/build wiring, and deterministic `probe`
+are committed and covered by golden/hermetic validation.
+
 - Establish the golden prompt corpus, routing policy, metrics, and repeatable result
   recorder.
 - Freeze the v1 executable/project names, command taxonomy, JSON/error envelope, exit
@@ -242,6 +249,9 @@ Exit condition: the interface can be implemented and evaluated without depending
 undocumented behavior or an undecided extension-host design.
 
 ### Phase 1 — Read-only CLI
+
+In progress: `probe` is implemented. `inspect` and `changes` remain the next read-only
+outcomes and currently return the v1 `unsupported` envelope.
 
 - Add the reusable outcome library, thin global-tool project, and `probe`.
 - Implement `inspect` and `changes` over `VcsToolkit.Core` / `VcsToolkit.Forge`.

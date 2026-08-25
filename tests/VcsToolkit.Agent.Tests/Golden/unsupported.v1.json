@@ -1,0 +1,1 @@
+{"contractVersion":"1","operation":"inspect","status":"error","terminal":true,"data":null,"error":{"code":"unsupported","message":"Operation \u0027inspect\u0027 is not implemented by this tool version.","retryable":false,"truncated":false,"limitBytes":null,"requiredBytes":null},"warnings":[],"fallbackReason":"operation-not-implemented"}

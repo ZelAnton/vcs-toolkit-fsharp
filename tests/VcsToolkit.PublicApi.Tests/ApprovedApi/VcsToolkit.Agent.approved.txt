@@ -1,0 +1,208 @@
+namespace VcsToolkit.Agent
+{
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Module)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    public static class Agent
+    {
+        [Microsoft.FSharp.Core.Literal]
+        [System.Diagnostics.DebuggerBrowsable(System.Diagnostics.DebuggerBrowsableState.Never)]
+        public const string ContractVersion = "1";
+        [Microsoft.FSharp.Core.Literal]
+        [System.Diagnostics.DebuggerBrowsable(System.Diagnostics.DebuggerBrowsableState.Never)]
+        public const int DefaultOutputLimitBytes = 65536;
+        [Microsoft.FSharp.Core.Literal]
+        [System.Diagnostics.DebuggerBrowsable(System.Diagnostics.DebuggerBrowsableState.Never)]
+        public const int MinimumOutputLimitBytes = 512;
+        public static VcsToolkit.Agent.AgentEnvelope probe(string? toolVersion) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class AgentCapability : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.AgentCapability>, System.IEquatable<VcsToolkit.Agent.AgentCapability>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Agent.AgentCapability))]
+        public AgentCapability(VcsToolkit.Agent.AgentOperation operation, bool supported, bool mutating) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public bool Mutating { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public VcsToolkit.Agent.AgentOperation Operation { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public bool Supported { get; }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class AgentEnvelope : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.AgentEnvelope>, System.IEquatable<VcsToolkit.Agent.AgentEnvelope>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Agent.AgentEnvelope))]
+        public AgentEnvelope(string contractVersion, string operation, VcsToolkit.Agent.AgentStatus status, bool terminal, Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Agent.AgentPayload>? data, Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Agent.AgentError>? error, Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Agent.AgentWarning> warnings, Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Agent.AgentFallbackReason>? fallbackReason) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public string ContractVersion { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+        public Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Agent.AgentPayload>? Data { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 5)]
+        public Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Agent.AgentError>? Error { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 7)]
+        public Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Agent.AgentFallbackReason>? FallbackReason { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public string Operation { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public VcsToolkit.Agent.AgentStatus Status { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+        public bool Terminal { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 6)]
+        public Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Agent.AgentWarning> Warnings { get; }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class AgentError : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.AgentError>, System.IEquatable<VcsToolkit.Agent.AgentError>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Agent.AgentError))]
+        public AgentError(VcsToolkit.Agent.AgentErrorCode code, string message, bool retryable, bool truncated, Microsoft.FSharp.Core.FSharpOption<int>? limitBytes, Microsoft.FSharp.Core.FSharpOption<int>? requiredBytes) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public VcsToolkit.Agent.AgentErrorCode Code { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+        public Microsoft.FSharp.Core.FSharpOption<int>? LimitBytes { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public string Message { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 5)]
+        public Microsoft.FSharp.Core.FSharpOption<int>? RequiredBytes { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public bool Retryable { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+        public bool Truncated { get; }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+    [System.Serializable]
+    public sealed class AgentErrorCode : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.AgentErrorCode>, System.IEquatable<VcsToolkit.Agent.AgentErrorCode>
+    {
+        public static class Tags
+        {
+            public const int Authentication = 5;
+            public const int Backend = 3;
+            public const int Cancellation = 7;
+            public const int Denied = 1;
+            public const int ExternalCommand = 9;
+            public const int Forge = 4;
+            public const int InvalidInput = 2;
+            public const int OutputLimit = 8;
+            public const int Timeout = 6;
+            public const int Unsupported = 0;
+        }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class AgentExecution : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.AgentExecution>, System.IEquatable<VcsToolkit.Agent.AgentExecution>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Agent.AgentExecution))]
+        public AgentExecution(int exitCode, string stdout, string stderr) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public int ExitCode { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public string Stderr { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public string Stdout { get; }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+    [System.Serializable]
+    public sealed class AgentFallbackReason : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.AgentFallbackReason>, System.IEquatable<VcsToolkit.Agent.AgentFallbackReason>
+    {
+        public static class Tags
+        {
+            public const int MissingExecutable = 1;
+            public const int OperationNotImplemented = 0;
+            public const int RawDiagnosticRequired = 4;
+            public const int UnsupportedBackend = 2;
+            public const int UnsupportedForge = 3;
+        }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+    [System.Serializable]
+    public sealed class AgentOperation : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.AgentOperation>, System.IEquatable<VcsToolkit.Agent.AgentOperation>
+    {
+        public static class Tags
+        {
+            public const int Changes = 2;
+            public const int CiStatus = 5;
+            public const int CiWait = 6;
+            public const int Commit = 3;
+            public const int Inspect = 1;
+            public const int Probe = 0;
+            public const int Publish = 4;
+        }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+    [System.Serializable]
+    public sealed class AgentPayload : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.AgentPayload>, System.IEquatable<VcsToolkit.Agent.AgentPayload> { }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+    [System.Serializable]
+    public sealed class AgentStatus : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.AgentStatus>, System.IEquatable<VcsToolkit.Agent.AgentStatus>
+    {
+        public static class Tags
+        {
+            public const int Error = 1;
+            public const int Success = 0;
+        }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class AgentWarning : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.AgentWarning>, System.IEquatable<VcsToolkit.Agent.AgentWarning>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Agent.AgentWarning))]
+        public AgentWarning(string code, string message) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public string Code { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public string Message { get; }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Module)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    public static class AgentWire
+    {
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1})]
+        public static VcsToolkit.Agent.AgentExecution render(int outputLimitBytes, VcsToolkit.Agent.AgentEnvelope envelope) { }
+        public static string serialize(VcsToolkit.Agent.AgentEnvelope envelope) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class ProbeData : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.ProbeData>, System.IEquatable<VcsToolkit.Agent.ProbeData>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Agent.ProbeData))]
+        public ProbeData(string toolName, string toolVersion, Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Agent.AgentCapability> operations, Microsoft.FSharp.Collections.FSharpList<string> backends, Microsoft.FSharp.Collections.FSharpList<string> forges, VcsToolkit.Agent.SupervisorCompatibility supervisor) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+        public Microsoft.FSharp.Collections.FSharpList<string> Backends { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+        public Microsoft.FSharp.Collections.FSharpList<string> Forges { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Agent.AgentCapability> Operations { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 5)]
+        public VcsToolkit.Agent.SupervisorCompatibility Supervisor { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public string ToolName { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public string ToolVersion { get; }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class SupervisorCompatibility : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.SupervisorCompatibility>, System.IEquatable<VcsToolkit.Agent.SupervisorCompatibility>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Agent.SupervisorCompatibility))]
+        public SupervisorCompatibility(string mode, string lifecycleProtocol, bool required) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public string LifecycleProtocol { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public string Mode { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public bool Required { get; }
+    }
+}
