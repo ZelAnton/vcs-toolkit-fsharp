@@ -276,10 +276,13 @@ packed `vcs-agent` tool, and validates independent agent-result and JSONL lifecy
   timeout classification, bounded capture, detached cancellation, fail-closed detached cleanup,
   and nested ProcessKit-CLI containment teardown of a live PID/start-time descendant identity
   on Windows, Linux, and the published Apple Silicon macOS target.
-- Fixtures use disposable system-temp directories; lifecycle validation requires one
-  terminal `runner_exit` and confirmed zero survivors. Failure-path cleanup capability-checks
-  and verifies kill/wait plus terminal lifecycle before deleting scratch evidence; an
-  unconfirmed cleanup fails closed and retains that evidence path.
+- Fixtures use disposable system-temp directories and validate every JSONL stream with the
+  published schema. Completed streams require one terminal `runner_exit` and confirmed zero
+  survivors; the inner stream may be nonterminal when the outer boundary ends it, so teardown
+  then depends on the clean outer lifecycle plus exact PID/start-time identity checks.
+  Failure-path cleanup capability-checks and verifies kill/wait plus terminal lifecycle and
+  exact identity disappearance before deleting scratch evidence; any unconfirmed cleanup fails
+  closed and retains that evidence path.
 - The published executable surface proved sufficient. No ProcessKit-CLI implementation
   assembly is linked and no upstream request is currently justified.
 

@@ -290,10 +290,14 @@ fail-closed detached cleanup with verified kill/wait recovery, ordinary nested c
 and outer-cancellation teardown while an inspected inner runner and its long-lived descendant
 are alive. The teardown proof records PID/start-time identities before cancellation, requires
 the outer terminal lifecycle to report zero survivors without read/kill errors, and confirms
-that those exact identities are gone afterward.
-Every lifecycle stream is checked by the published binary's embedded schema and for a clean
-terminal record. The `vcs-agent-supervision` CI matrix executes this proof on the published
-Windows, Linux, and Apple Silicon macOS targets and uploads the install/proof JSON evidence.
+that those exact identities are gone afterward. Every lifecycle stream is checked by the
+published binary's embedded schema. A stream that contains `runner_exit` must end with exactly
+one such record and clean terminal state. ProcessKit-CLI `v0.3.3` does not guarantee that the
+inner stream reaches a terminal record when the outer containment boundary ends it; on that
+branch the proof records the absent inner terminal explicitly and relies only on the clean
+outer lifecycle plus exact identity-gone checks for teardown. The `vcs-agent-supervision` CI
+matrix executes this proof on the published Windows, Linux, and Apple Silicon macOS targets and
+uploads the install/proof JSON evidence.
 An unsupported OS/architecture or missing published asset is a hard, structured installer
 failure rather than a skipped proof.
 

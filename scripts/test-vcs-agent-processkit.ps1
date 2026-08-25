@@ -58,7 +58,7 @@ function Read-JsonFile {
     Get-Content -Raw -LiteralPath $Path -Encoding UTF8 | ConvertFrom-Json -Depth 64
 }
 
-function Read-EventStream {
+function Read-ValidatedEventStream {
     param(
         [Parameter(Mandatory = $true)]
         [string] $Path,
@@ -89,6 +89,19 @@ function Read-EventStream {
         Assert-Condition ($event.schema_version -eq 1) "Lifecycle stream '$Path' contained a non-v1 event."
     }
 
+    ,$events
+}
+
+function Read-EventStream {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $Path,
+
+        [Parameter(Mandatory = $true)]
+        [string] $ScenarioDirectory
+    )
+
+    $events = Read-ValidatedEventStream $Path $ScenarioDirectory
     $terminal = @($events | Where-Object event -EQ 'runner_exit')
     Assert-Condition ($terminal.Count -eq 1) "Lifecycle stream '$Path' must contain exactly one runner_exit event."
     Assert-Condition ($events[-1].event -eq 'runner_exit') "runner_exit must be the terminal lifecycle record in '$Path'."
@@ -197,6 +210,73 @@ function Assert-ProcessIdentityGone {
     }
 
     throw "$Description process identity pid=$($Identity.pid), startTimeUtcTicks=$($Identity.startTimeUtcTicks) survived teardown."
+}
+
+function Assert-ProcessIdentitiesGone {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object[]] $IdentityChecks,
+
+        [int] $TimeoutSeconds = 15
+    )
+
+    foreach ($check in $IdentityChecks) {
+        Assert-ProcessIdentityGone $check.Identity $check.Description $TimeoutSeconds
+    }
+}
+
+function Invoke-VerifiedIdentityRecovery {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object[]] $IdentityChecks
+    )
+
+    $failures = [System.Collections.Generic.List[string]]::new()
+
+    foreach ($check in $IdentityChecks) {
+        if (-not (Test-ProcessIdentityAlive $check.Identity)) {
+            continue
+        }
+
+        try {
+            $process = [System.Diagnostics.Process]::GetProcessById([int] $check.Identity.pid)
+
+            try {
+                $actualStartTimeUtcTicks = $process.StartTime.ToUniversalTime().Ticks
+
+                if ($actualStartTimeUtcTicks -ne [long] $check.Identity.startTimeUtcTicks) {
+                    continue
+                }
+
+                $process.Kill($true)
+
+                if (-not $process.WaitForExit(10000)) {
+                    throw "$($check.Description) did not exit within the 10s emergency-recovery deadline."
+                }
+            }
+            finally {
+                $process.Dispose()
+            }
+        }
+        catch {
+            if (Test-ProcessIdentityAlive $check.Identity) {
+                $failures.Add("$($check.Description) exact-identity recovery failed: $($_.Exception.Message)")
+            }
+        }
+    }
+
+    foreach ($check in $IdentityChecks) {
+        try {
+            Assert-ProcessIdentityGone $check.Identity $check.Description
+        }
+        catch {
+            $failures.Add($_.Exception.Message)
+        }
+    }
+
+    if ($failures.Count -gt 0) {
+        throw "Exact-identity recovery was not confirmed: $($failures -join '; ')"
+    }
 }
 
 function Read-RunRootIdentity {
@@ -490,6 +570,8 @@ $detachedRunId = $null
 $detachedFinished = $false
 $detachedEvents = $null
 $detachedDirectory = $null
+$detachedIdentityChecks = @()
+$identityAssertionFailed = $false
 
 try {
     $preflightDirectory = New-ScenarioDirectory 'preflight'
@@ -641,6 +723,7 @@ try {
     $cancellationEvents = Join-Path $cancellationDirectory 'events.jsonl'
     $detachedDirectory = $cancellationDirectory
     $detachedEvents = $cancellationEvents
+    $detachedIdentityChecks = @()
     $detachExit = Invoke-Native `
         -FilePath $script:ProcessKitCli `
         -Arguments @(
@@ -686,6 +769,7 @@ try {
     $detachedEvents = Join-Path $cleanupDirectory 'events.jsonl'
     $detachedDirectory = $cleanupDirectory
     $detachedFinished = $false
+    $detachedIdentityChecks = @()
     $cleanupDetachExit = Invoke-Native `
         -FilePath $script:ProcessKitCli `
         -Arguments @(
@@ -726,6 +810,12 @@ try {
     Assert-Condition ([System.IO.Directory]::Exists($cleanupDirectory)) 'Negative cleanup failure removed its scratch evidence prematurely.'
     Assert-Condition (Test-Path -LiteralPath $detachedEvents -PathType Leaf) 'Negative cleanup failure removed its lifecycle evidence prematurely.'
     Assert-Condition (Test-ProcessIdentityAlive $cleanupRootIdentity) 'Negative cleanup failure did not leave a live subject for the verified recovery path.'
+    $detachedIdentityChecks = @(
+        [pscustomobject]@{
+            Identity = $cleanupRootIdentity
+            Description = 'Detached cleanup fixture root'
+        }
+    )
     $cleanupProof = Invoke-DetachedTeardown `
         -RunId $detachedRunId `
         -Action kill `
@@ -733,14 +823,66 @@ try {
         -ScenarioDirectory $cleanupDirectory `
         -ExpectedCode 109 `
         -ExpectedSource 'control_kill'
+
+    $identityRecoveryStartInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $identityRecoveryStartInfo.FileName = $powerShell
+    $identityRecoveryStartInfo.UseShellExecute = $false
+    $identityRecoveryStartInfo.ArgumentList.Add('-NoProfile')
+    $identityRecoveryStartInfo.ArgumentList.Add('-File')
+    $identityRecoveryStartInfo.ArgumentList.Add($fixture)
+    $identityRecoveryStartInfo.ArgumentList.Add('-Mode')
+    $identityRecoveryStartInfo.ArgumentList.Add('sleep')
+    $identityRecoverySubject = [System.Diagnostics.Process]::Start($identityRecoveryStartInfo)
+    Assert-Condition ($null -ne $identityRecoverySubject) 'The identity-recovery regression subject did not start.'
+
+    try {
+        $identityRecoverySubjectIdentity = Get-ProcessIdentity -Id $identityRecoverySubject.Id
+        Assert-Condition ($null -ne $identityRecoverySubjectIdentity) 'The identity-recovery regression subject did not expose a live exact identity.'
+        $detachedIdentityChecks = @(
+            [pscustomobject]@{
+                Identity = $cleanupRootIdentity
+                Description = 'Detached cleanup fixture root'
+            },
+            [pscustomobject]@{
+                Identity = $identityRecoverySubjectIdentity
+                Description = 'Synthetic post-lifecycle survivor'
+            }
+        )
+        $expectedIdentityFailure = $null
+
+        try {
+            Assert-ProcessIdentitiesGone $detachedIdentityChecks -TimeoutSeconds 1
+        }
+        catch {
+            $expectedIdentityFailure = $_.Exception.Message
+        }
+
+        Assert-Condition (-not [string]::IsNullOrWhiteSpace($expectedIdentityFailure)) 'The exact-identity completion gate accepted a post-lifecycle survivor.'
+        Assert-Condition (-not $detachedFinished) 'Detached cleanup was marked confirmed before exact identities were gone.'
+        Assert-Condition ([System.IO.Directory]::Exists($cleanupDirectory)) 'The post-lifecycle identity failure removed scratch evidence before recovery.'
+        Assert-Condition (Test-Path -LiteralPath $detachedEvents -PathType Leaf) 'The post-lifecycle identity failure removed lifecycle evidence before recovery.'
+        Invoke-VerifiedIdentityRecovery $detachedIdentityChecks
+        Assert-ProcessIdentitiesGone $detachedIdentityChecks
+    }
+    finally {
+        if (-not $identityRecoverySubject.HasExited) {
+            $identityRecoverySubject.Kill($true)
+            Assert-Condition ($identityRecoverySubject.WaitForExit(10000)) 'The identity-recovery regression subject survived its local safety cleanup.'
+        }
+
+        $identityRecoverySubject.Dispose()
+    }
+
     $detachedFinished = $true
-    Assert-ProcessIdentityGone $cleanupRootIdentity 'Detached cleanup fixture root'
     $scenarioResults.Add([pscustomobject]@{
         name = 'detached-cleanup-failure-path'
         status = 'passed'
         exitCode = $cleanupProof.code
         failureObserved = $true
         evidencePreservedUntilRecovery = $true
+        identityFailureObservedAfterTerminalLifecycle = $true
+        cleanupConfirmedBeforeIdentityRecovery = $false
+        identityRecoveryConfirmed = $true
         remaining = $cleanupProof.remaining
     })
 
@@ -808,6 +950,7 @@ try {
     $detachedEvents = $nestedOuterEvents
     $detachedDirectory = $nestedTeardownDirectory
     $detachedFinished = $false
+    $detachedIdentityChecks = @()
     $nestedDetachExit = Invoke-Native `
         -FilePath $script:ProcessKitCli `
         -Arguments @(
@@ -854,6 +997,20 @@ try {
 
     $innerRunnerIdentity = Read-RunRootIdentity $nestedOuterEvents 'outer container root (the inner runner)'
     $nestedIdentity = Read-FixtureIdentity $nestedIdentityPath
+    $detachedIdentityChecks = @(
+        [pscustomobject]@{
+            Identity = $innerRunnerIdentity
+            Description = 'Nested inner runner'
+        },
+        [pscustomobject]@{
+            Identity = $nestedIdentity.fixture
+            Description = 'Nested fixture root'
+        },
+        [pscustomobject]@{
+            Identity = $nestedIdentity.descendant
+            Description = 'Nested long-lived descendant'
+        }
+    )
     Assert-Condition (Test-ProcessIdentityAlive $innerRunnerIdentity) 'The inner runner was not alive before outer cancellation.'
     Assert-Condition (Test-ProcessIdentityAlive $nestedIdentity.fixture) 'The inner fixture was not alive before outer cancellation.'
     Assert-Condition (Test-ProcessIdentityAlive $nestedIdentity.descendant) 'The long-lived descendant was not alive before outer cancellation.'
@@ -894,11 +1051,37 @@ try {
         -ScenarioDirectory $nestedTeardownDirectory `
         -ExpectedCode 108 `
         -ExpectedSource 'control_cancel'
-    $detachedFinished = $true
-    Assert-ProcessIdentityGone $innerRunnerIdentity 'Nested inner runner'
-    Assert-ProcessIdentityGone $nestedIdentity.fixture 'Nested fixture root'
-    Assert-ProcessIdentityGone $nestedIdentity.descendant 'Nested long-lived descendant'
+
+    try {
+        Assert-ProcessIdentitiesGone $detachedIdentityChecks
+    }
+    catch {
+        $identityAssertionFailed = $true
+        throw
+    }
+
     $nestedOuterStream = Read-EventStream $nestedOuterEvents $nestedTeardownDirectory
+    $nestedInnerStream = Read-ValidatedEventStream $nestedInnerEvents $nestedTeardownInnerDirectory
+    $nestedInnerStarted = @($nestedInnerStream | Where-Object event -EQ 'run_started')
+    Assert-Condition ($nestedInnerStarted.Count -eq 1) 'The inner nested lifecycle did not report exactly one run_started event.'
+    Assert-Condition ($nestedInnerStarted[0].run_id -eq $nestedInnerRunId) 'The inner nested lifecycle reported the wrong run identity.'
+    $nestedInnerTerminals = @($nestedInnerStream | Where-Object event -EQ 'runner_exit')
+    Assert-Condition ($nestedInnerTerminals.Count -le 1) 'The inner nested lifecycle reported more than one runner_exit event.'
+
+    if ($nestedInnerTerminals.Count -eq 1) {
+        Assert-Condition ($nestedInnerStream[-1].event -eq 'runner_exit') 'The inner nested runner_exit was not terminal.'
+        Assert-CleanTerminal $nestedInnerStream 107 'cancelled' $null
+        $nestedInnerCancelled = @($nestedInnerStream | Where-Object event -EQ 'cancelled')
+        Assert-Condition ($nestedInnerCancelled.Count -eq 1) 'The inner nested lifecycle did not report exactly one local cancellation.'
+        Assert-Condition ($nestedInnerCancelled[0].source -in @('sigterm', 'sighup', 'ctrl_break', 'ctrl_close', 'ctrl_logoff', 'ctrl_shutdown')) "The inner nested lifecycle cancellation source was '$($nestedInnerCancelled[0].source)'."
+        $nestedInnerCleanup = @($nestedInnerStream | Where-Object event -EQ 'cleanup_finished') | Select-Object -Last 1
+    }
+    else {
+        $nestedInnerCancelled = @()
+        $nestedInnerCleanup = $null
+    }
+
+    $detachedFinished = $true
     $nestedOuterStarted = @($nestedOuterStream | Where-Object event -EQ 'run_started')[0]
     $scenarioResults.Add([pscustomobject]@{
         name = 'nested-containment-teardown'
@@ -910,6 +1093,22 @@ try {
         fixtureIdentityGone = $true
         descendantIdentityGone = $true
         remaining = $nestedCleanupProof.remaining
+        outerLifecycle = [ordered]@{
+            validated = $true
+            code = $nestedCleanupProof.code
+            source = $nestedCleanupProof.source
+            remaining = $nestedCleanupProof.remaining
+        }
+        innerLifecycle = [ordered]@{
+            validated = $true
+            terminalGuaranteed = $false
+            terminalObserved = $nestedInnerTerminals.Count -eq 1
+            code = if ($nestedInnerTerminals.Count -eq 1) { $nestedInnerTerminals[0].code } else { $null }
+            source = if ($nestedInnerTerminals.Count -eq 1) { $nestedInnerTerminals[0].source } else { $null }
+            cancelSource = if ($nestedInnerCancelled.Count -eq 1) { $nestedInnerCancelled[0].source } else { $null }
+            remaining = if ($null -ne $nestedInnerCleanup) { $nestedInnerCleanup.remaining } else { $null }
+            cleanupProof = if ($nestedInnerTerminals.Count -eq 1) { 'inner-terminal' } else { 'outer-clean-terminal-and-exact-identities-gone' }
+        }
     })
 
     $proofStatus = 'passed'
@@ -942,6 +1141,7 @@ finally {
                     -ExpectedSource 'control_kill'
             }
 
+            Invoke-VerifiedIdentityRecovery $detachedIdentityChecks
             $detachedFinished = $true
         }
         catch {
@@ -949,6 +1149,10 @@ finally {
             $proofStatus = 'failed'
             $retainedScratch = $script:Scratch
         }
+    }
+
+    if ($null -ne $primaryException -and $null -eq $retainedScratch) {
+        $retainedScratch = $script:Scratch
     }
 
     $evidence = [ordered]@{
@@ -982,6 +1186,7 @@ finally {
         cleanup = [ordered]@{
             confirmed = $detachedFinished -or $null -eq $detachedRunId
             failure = $cleanupFailure
+            identityAssertionFailed = $identityAssertionFailed
             retainedScratch = $retainedScratch
         }
     }
@@ -1001,7 +1206,7 @@ finally {
     Assert-Condition ($resolvedScratch.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase)) 'Refusing to clean a scratch directory outside the system temp root.'
     Assert-Condition ($resolvedScratch -ne $tempRoot) 'Refusing to clean the system temp root itself.'
 
-    if ($null -eq $cleanupFailure -and [System.IO.Directory]::Exists($resolvedScratch)) {
+    if ($null -eq $primaryException -and $null -eq $cleanupFailure -and [System.IO.Directory]::Exists($resolvedScratch)) {
         [System.IO.Directory]::Delete($resolvedScratch, $true)
     }
 }
