@@ -312,8 +312,8 @@ jobs:
       - name: Pack
         # Packs every packable project in the solution (the test projects are
         # IsPackable=false), producing one .nupkg/.snupkg per VcsToolkit.* library PLUS the
-        # `vcs-mcp` .NET global tool (src/VcsToolkit.Mcp.Server, PackAsTool=true). The tool is
-        # a self-contained DotnetTool package — pack runs a publish that bundles its runtime
+        # `vcs-mcp` and `vcs-agent` .NET global tools (PackAsTool=true). Each tool is a
+        # self-contained DotnetTool package — pack runs a publish that bundles its runtime
         # assemblies (the VcsToolkit.* siblings included) under tools/<tfm>/, so it needs no
         # sibling NuGet dependencies. The downstream push/checksum/release steps glob *.nupkg /
         # *.snupkg, so they pick up the tool alongside the libraries with no per-package wiring.

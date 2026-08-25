@@ -20,6 +20,8 @@
 		<TestKitDir>$(RepoRoot)src\VcsToolkit.TestKit\</TestKitDir>
 		<McpDir>$(RepoRoot)src\VcsToolkit.Mcp\</McpDir>
 		<McpServerDir>$(RepoRoot)src\VcsToolkit.Mcp.Server\</McpServerDir>
+		<AgentDir>$(RepoRoot)src\VcsToolkit.Agent\</AgentDir>
+		<AgentServerDir>$(RepoRoot)src\VcsToolkit.Agent.Server\</AgentServerDir>
 	</PropertyGroup>
 
 	<PropertyGroup>

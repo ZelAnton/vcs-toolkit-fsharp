@@ -4,11 +4,11 @@
 		<TargetFramework>net10.0</TargetFramework>
 		<IsPackable>false</IsPackable>
 		<!-- Resolve every src/* library through assembly search paths (no ProjectReference);
-		     build ordering after all twelve libraries is enforced by BuildDependency entries
+		     build ordering after all thirteen libraries is enforced by BuildDependency entries
 		     in VcsToolkit.slnx. Each referenced assembly is copied into this project's output,
 		     where the test loads it via Assembly.LoadFrom and PublicApiGenerator (Cecil) reads
 		     it, resolving its dependencies from the same directory. -->
-		<AssemblySearchPaths>$(AssemblySearchPaths);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework);$(DiffDir)bin\$(Configuration)\$(TargetFramework);$(GitDir)bin\$(Configuration)\$(TargetFramework);$(JjDir)bin\$(Configuration)\$(TargetFramework);$(GitHubDir)bin\$(Configuration)\$(TargetFramework);$(GitLabDir)bin\$(Configuration)\$(TargetFramework);$(GiteaDir)bin\$(Configuration)\$(TargetFramework);$(CoreDir)bin\$(Configuration)\$(TargetFramework);$(ForgeDir)bin\$(Configuration)\$(TargetFramework);$(WatchDir)bin\$(Configuration)\$(TargetFramework);$(TestKitDir)bin\$(Configuration)\$(TargetFramework);$(McpDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
+		<AssemblySearchPaths>$(AssemblySearchPaths);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework);$(DiffDir)bin\$(Configuration)\$(TargetFramework);$(GitDir)bin\$(Configuration)\$(TargetFramework);$(JjDir)bin\$(Configuration)\$(TargetFramework);$(GitHubDir)bin\$(Configuration)\$(TargetFramework);$(GitLabDir)bin\$(Configuration)\$(TargetFramework);$(GiteaDir)bin\$(Configuration)\$(TargetFramework);$(CoreDir)bin\$(Configuration)\$(TargetFramework);$(ForgeDir)bin\$(Configuration)\$(TargetFramework);$(WatchDir)bin\$(Configuration)\$(TargetFramework);$(TestKitDir)bin\$(Configuration)\$(TargetFramework);$(McpDir)bin\$(Configuration)\$(TargetFramework);$(AgentDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
 	</PropertyGroup>
 
 	<!-- Embed the project directory so the test reads/writes the .approved / .received
@@ -37,7 +37,7 @@
 		<PackageReference Include="FSharp.SystemTextJson" />
 	</ItemGroup>
 
-	<!-- All twelve publishable src/* libraries whose public surface is snapshot-tested. -->
+	<!-- All thirteen publishable src/* libraries whose public surface is snapshot-tested. -->
 	<ItemGroup>
 		<Reference Include="VcsToolkit.CliSupport" />
 		<Reference Include="VcsToolkit.Diff" />
@@ -51,6 +51,7 @@
 		<Reference Include="VcsToolkit.Watch" />
 		<Reference Include="VcsToolkit.TestKit" />
 		<Reference Include="VcsToolkit.Mcp" />
+		<Reference Include="VcsToolkit.Agent" />
 	</ItemGroup>
 
 </Project>

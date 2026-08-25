@@ -8,7 +8,7 @@
     `dotnet pack` is exercised only by the release workflow today, so a
     regression in the packaging mechanics (the post-pack sibling-dependency
     rewrite in Directory.Build.targets, the README/icon/XML-doc inclusion, the
-    `vcs-mcp` DotnetTool layout) would otherwise surface only at release time —
+    `vcs-mcp` / `vcs-agent` DotnetTool layouts) would otherwise surface only at release time —
     the most expensive place for a surprise. This script re-checks those
     invariants against a fresh `dotnet pack` output so CI can catch the
     regression on the PR that introduces it.
@@ -23,13 +23,13 @@
         Directory.Build.targets) — no more, no fewer.
       - Every package must carry README.md and icon.png at its root, plus an
         XML documentation file under lib/ or tools/ (GenerateDocumentationFile).
-      - `vcs-mcp` must be a self-contained DotnetTool: its .nuspec must declare
+      - `vcs-mcp` and `vcs-agent` must be self-contained DotnetTools: each .nuspec must declare
         <packageType name="DotnetTool" />, it must ship a
-        tools/<tfm>/.../DotnetToolSettings.xml, and — being self-contained
+        tools/<tfm>/.../DotnetToolSettings.xml with the expected command name, and — being self-contained
         (siblings bundled, not restored) — it must NOT declare any
         `VcsToolkit.*` NuGet <dependency>.
       - Every package this script expects (the keys of $expectedSiblings, plus
-        vcs-mcp) must actually have been produced — catches a project silently
+        both tool IDs) must actually have been produced — catches a project silently
         dropping out of the pack.
 
     Exits 1 (with every issue listed) on any violation, 0 when every packed
@@ -59,8 +59,8 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 # mirroring each src/*/*.fsproj's `<Reference Include="VcsToolkit.*" />` set
 # (the same set Directory.Build.targets' _InjectSiblingPackageDependencies
 # target derives at pack time). Keep in sync when a project's sibling
-# references change. `vcs-mcp` (the DotnetTool) is intentionally NOT a key
-# here — it bundles its siblings instead of depending on them; see below.
+# references change. DotnetTools are intentionally NOT keys here — they bundle
+# their siblings instead of depending on them; see below.
 $expectedSiblings = [ordered]@{
     'VcsToolkit.CliSupport' = @()
     'VcsToolkit.Diff'       = @()
@@ -74,8 +74,12 @@ $expectedSiblings = [ordered]@{
     'VcsToolkit.Forge'      = @('VcsToolkit.CliSupport', 'VcsToolkit.Diff', 'VcsToolkit.GitHub', 'VcsToolkit.GitLab', 'VcsToolkit.Gitea')
     'VcsToolkit.Watch'      = @('VcsToolkit.Core', 'VcsToolkit.CliSupport', 'VcsToolkit.Diff', 'VcsToolkit.Git', 'VcsToolkit.Jj')
     'VcsToolkit.Mcp'        = @('VcsToolkit.Core', 'VcsToolkit.Forge', 'VcsToolkit.CliSupport', 'VcsToolkit.Diff', 'VcsToolkit.Git', 'VcsToolkit.Jj', 'VcsToolkit.GitHub', 'VcsToolkit.GitLab', 'VcsToolkit.Gitea')
+    'VcsToolkit.Agent'      = @('VcsToolkit.Core', 'VcsToolkit.Forge', 'VcsToolkit.CliSupport')
 }
-$toolPackageId = 'vcs-mcp'
+$expectedTools = [ordered]@{
+    'vcs-mcp'   = 'vcs-mcp'
+    'vcs-agent' = 'vcs-agent'
+}
 
 function Get-XPathAttr {
     param([System.Xml.XmlElement]$Node, [string]$AttrName)
@@ -132,7 +136,7 @@ foreach ($nupkg in $nupkgs) {
             | Where-Object { $_ -like 'VcsToolkit.*' } `
             | Sort-Object -Unique)
 
-        if ($id -eq $toolPackageId) {
+        if ($expectedTools.Contains($id)) {
             if ($actualDeps.Count -gt 0) {
                 $failures.Add("${id}: DotnetTool package must bundle its VcsToolkit.* siblings, not declare NuGet dependencies on them, but found: $($actualDeps -join ', ')")
             }
@@ -147,7 +151,7 @@ foreach ($nupkg in $nupkgs) {
                 $failures.Add("${id}: unexpected sibling dependency/-ies not in `$expectedSiblings: $($unexpected -join ', ')")
             }
         } else {
-            $failures.Add("${id}: no entry in `$expectedSiblings (nor is it '$toolPackageId') — update scripts/validate-packages.ps1 when adding a new packable project")
+            $failures.Add("${id}: no entry in `$expectedSiblings or `$expectedTools — update scripts/validate-packages.ps1 when adding a new packable project")
         }
 
         # --- README / icon / XML-doc check -----------------------------------
@@ -174,16 +178,38 @@ foreach ($nupkg in $nupkgs) {
             $failures.Add("${id}: package is missing an XML documentation file under lib/ or tools/ (GenerateDocumentationFile)")
         }
 
-        # --- vcs-mcp DotnetTool validity ---------------------------------------
-        if ($id -eq $toolPackageId) {
+        # --- DotnetTool validity -----------------------------------------------
+        if ($expectedTools.Contains($id)) {
             $packageTypeNodes = @($nuspec.SelectNodes('//*[local-name()="packageType"]'))
             $hasDotnetTool = @($packageTypeNodes | Where-Object { (Get-XPathAttr $_ 'name') -eq 'DotnetTool' })
             if ($hasDotnetTool.Count -eq 0) {
                 $failures.Add("${id}: not a valid DotnetTool package (.nuspec is missing <packageTypes><packageType name=`"DotnetTool`" /></packageTypes>)")
             }
-            $hasToolSettings = $allFiles | Where-Object { $_ -match '^tools/[^/]+/.*/DotnetToolSettings\.xml$' }
-            if (-not $hasToolSettings) {
+            $toolSettingsPath = $allFiles | Where-Object { $_ -match '^tools/[^/]+/.*/DotnetToolSettings\.xml$' } | Select-Object -First 1
+            if (-not $toolSettingsPath) {
                 $failures.Add("${id}: missing tools/<tfm>/.../DotnetToolSettings.xml — not a valid .NET tool layout")
+            }
+            else {
+                [xml]$toolSettings = Get-Content -Raw (Join-Path $extractDir ($toolSettingsPath -replace '/', [System.IO.Path]::DirectorySeparatorChar))
+                $commandNode = $toolSettings.SelectSingleNode('//*[local-name()="Command"]')
+                if (-not $commandNode) {
+                    $failures.Add("${id}: DotnetToolSettings.xml has no <Command> metadata")
+                }
+                else {
+                    $expectedCommand = $expectedTools[$id]
+                    $actualCommand = Get-XPathAttr $commandNode 'Name'
+                    $actualEntryPoint = Get-XPathAttr $commandNode 'EntryPoint'
+                    $actualRunner = Get-XPathAttr $commandNode 'Runner'
+                    if ($actualCommand -ne $expectedCommand) {
+                        $failures.Add("${id}: DotnetTool command name is '$actualCommand', expected '$expectedCommand'")
+                    }
+                    if ($actualEntryPoint -ne "$id.dll") {
+                        $failures.Add("${id}: DotnetTool entry point is '$actualEntryPoint', expected '$id.dll'")
+                    }
+                    if ($actualRunner -ne 'dotnet') {
+                        $failures.Add("${id}: DotnetTool runner is '$actualRunner', expected 'dotnet'")
+                    }
+                }
             }
         }
     } finally {
@@ -198,8 +224,10 @@ foreach ($expectedId in $expectedSiblings.Keys) {
         $failures.Add("${expectedId}: expected package was not found among the packed artifacts")
     }
 }
-if (-not $seenIds.ContainsKey($toolPackageId)) {
-    $failures.Add("${toolPackageId}: expected DotnetTool package was not found among the packed artifacts")
+foreach ($toolPackageId in $expectedTools.Keys) {
+    if (-not $seenIds.ContainsKey($toolPackageId)) {
+        $failures.Add("${toolPackageId}: expected DotnetTool package was not found among the packed artifacts")
+    }
 }
 
 Write-Host ""

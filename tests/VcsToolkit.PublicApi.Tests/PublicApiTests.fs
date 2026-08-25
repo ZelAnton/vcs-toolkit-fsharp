@@ -20,7 +20,7 @@ open PublicApiGenerator
 [<TestFixture>]
 type PublicApiTests() =
 
-    /// The twelve publishable libraries under src/*, kept in sync with the `<Reference>`
+    /// The thirteen publishable libraries under src/*, kept in sync with the `<Reference>`
     /// items in the .fsproj and the BuildDependency entries in VcsToolkit.slnx.
     static member Packages: string[] =
         [| "VcsToolkit.CliSupport"
@@ -34,7 +34,8 @@ type PublicApiTests() =
            "VcsToolkit.Forge"
            "VcsToolkit.Watch"
            "VcsToolkit.TestKit"
-           "VcsToolkit.Mcp" |]
+           "VcsToolkit.Mcp"
+           "VcsToolkit.Agent" |]
 
     /// Directory holding the committed `.approved.txt` baselines, resolved from the
     /// project directory embedded at build time so `dotnet test` reads and writes them

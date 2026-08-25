@@ -11,7 +11,7 @@ contributor workflow built on top of the map below.
 
 ## Package layering
 
-VcsToolkit ships thirteen packages under `src/`. Their build order — and their
+VcsToolkit ships fifteen packages under `src/`. Their build order — and their
 allowed dependency direction — comes straight from the `BuildDependency`
 entries in [`VcsToolkit.slnx`](https://github.com/ZelAnton/vcs-toolkit-fsharp/blob/main/VcsToolkit.slnx); nothing here is aspirational,
 it is what the solution file enforces. Laid out by layer, lowest first:
@@ -28,8 +28,9 @@ Layer 2   VcsToolkit.GitHub   VcsToolkit.GitLab   VcsToolkit.Gitea
 Layer 3   VcsToolkit.Core (Git+Jj)   VcsToolkit.Forge (GitHub+GitLab+Gitea)
               |                     |
 Layer 4   VcsToolkit.Watch (on Core)   VcsToolkit.Mcp (on Core+Forge)
-                                            |
-Layer 5                            VcsToolkit.Mcp.Server
+              VcsToolkit.Agent (on Core+Forge+CliSupport)
+                       |                         |
+Layer 5   VcsToolkit.Agent.Server      VcsToolkit.Mcp.Server
 
 VcsToolkit.TestKit — no dependency on any of the above, and none of the above
 depend on it either; it is a leaf that any test project may reference without
@@ -228,6 +229,23 @@ repository through `Jj.ReadOnly()` (`--ignore-working-copy`) — an ordinary jj
 query snapshots the working copy and records an operation, so an observer that
 did not would perturb the very state it reports, and a *polling* observer would
 do so forever, on a timer.
+
+### `VcsToolkit.Agent` / `VcsToolkit.Agent.Server` — the outcome interface
+
+`Agent` is the transport-neutral application boundary above both facades. It owns the
+versioned machine envelope, stable operation and error taxonomies, output budgeting,
+redaction, and outcome orchestration that can later be shared by command-line and MCP
+adapters. It references `Core`, `Forge`, and `CliSupport`; any future VCS or forge child
+must therefore remain on those typed ProcessKit-backed routes. There is deliberately no
+general raw-command escape hatch at this layer.
+
+`Agent.Server` is the thin `vcs-agent` global-tool adapter. It parses the declared v1
+command taxonomy, delegates the implemented read-only `probe` to the library, then writes
+the rendered stdout/stderr and returns the library's stable exit mapping. Operations not
+implemented in the current phase return a structured `unsupported` envelope before any
+VCS process can run. The exact v1 bytes, redaction, budget refusal, exit mapping, argv
+boundary, and probe non-mutation are covered by the two Agent test projects; package
+validation checks the global-tool metadata and bundled layout.
 
 ### `VcsToolkit.Mcp` / `VcsToolkit.Mcp.Server` — the agent-facing tool surface
 

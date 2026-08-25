@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<IsPackable>false</IsPackable>
+		<AssemblySearchPaths>$(AssemblySearchPaths);$(AgentServerDir)bin\$(Configuration)\$(TargetFramework);$(AgentDir)bin\$(Configuration)\$(TargetFramework);$(CoreDir)bin\$(Configuration)\$(TargetFramework);$(ForgeDir)bin\$(Configuration)\$(TargetFramework);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<Compile Include="ServerTests.fs" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="FSharp.Core" />
+		<PackageReference Include="Microsoft.NET.Test.Sdk" />
+		<PackageReference Include="NUnit" />
+		<PackageReference Include="NUnit3TestAdapter" />
+		<PackageReference Include="coverlet.collector" />
+		<PackageReference Include="ProcessKit" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Reference Include="vcs-agent" />
+		<Reference Include="VcsToolkit.Agent" />
+	</ItemGroup>
+
+</Project>
