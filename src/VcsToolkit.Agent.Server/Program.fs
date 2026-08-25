@@ -1,12 +1,16 @@
 module Main
 
 open System
+open System.IO
 open System.Reflection
+open System.Threading
 open VcsToolkit.Agent
 
 type private ParsedCommand =
     { Operation: AgentOperation
-      OutputLimitBytes: int }
+      OutputLimitBytes: int
+      RepositoryPath: string
+      ChangesMode: ChangesMode }
 
 let internal readVersionFromAssembly (assembly: Assembly | null) =
     match assembly with
@@ -31,13 +35,14 @@ let private tryOperation (args: string list) =
     | [ "ci"; "wait" ] -> Some AgentOperation.CiWait
     | _ -> None
 
-let private parseOutputLimit args =
-    let rec loop commandArgs outputLimit remaining =
+let private parseOptions args =
+    let rec loop commandArgs outputLimit repositoryPath changesMode remaining =
         match remaining with
-        | [] -> Ok(List.rev commandArgs, outputLimit)
+        | [] -> Ok(List.rev commandArgs, outputLimit, repositoryPath, changesMode)
         | "--output-budget" :: value :: rest ->
             match Int32.TryParse value with
-            | true, parsed when parsed >= Agent.MinimumOutputLimitBytes -> loop commandArgs parsed rest
+            | true, parsed when parsed >= Agent.MinimumOutputLimitBytes ->
+                loop commandArgs parsed repositoryPath changesMode rest
             | _ ->
                 Error(
                     Agent.invalidInput
@@ -45,35 +50,76 @@ let private parseOutputLimit args =
                         $"--output-budget must be an integer of at least {Agent.MinimumOutputLimitBytes} bytes"
                 )
         | "--output-budget" :: [] -> Error(Agent.invalidInput "command" "--output-budget requires an integer value")
-        | token :: rest -> loop (token :: commandArgs) outputLimit rest
+        | "--repo" :: value :: rest -> loop commandArgs outputLimit value changesMode rest
+        | "--repo" :: [] -> Error(Agent.invalidInput "command" "--repo requires a path value")
+        | "--view" :: value :: rest ->
+            match value with
+            | "summary" -> loop commandArgs outputLimit repositoryPath ChangesMode.Summary rest
+            | "diff"
+            | "structured-diff" -> loop commandArgs outputLimit repositoryPath ChangesMode.StructuredDiff rest
+            | _ -> Error(Agent.invalidInput "command" "--view must be 'summary' or 'diff'")
+        | "--view" :: [] -> Error(Agent.invalidInput "command" "--view requires a value")
+        | token :: rest -> loop (token :: commandArgs) outputLimit repositoryPath changesMode rest
 
-    loop [] Agent.DefaultOutputLimitBytes args
+    loop [] Agent.DefaultOutputLimitBytes (Directory.GetCurrentDirectory()) ChangesMode.Summary args
 
 let private parse args =
-    match parseOutputLimit (List.ofArray args) with
+    match parseOptions (List.ofArray args) with
     | Error envelope -> Error envelope
-    | Ok(commandArgs, outputLimit) ->
+    | Ok(commandArgs, outputLimit, repositoryPath, changesMode) ->
         match tryOperation commandArgs with
         | Some operation ->
             Ok
                 { Operation = operation
-                  OutputLimitBytes = outputLimit }
+                  OutputLimitBytes = outputLimit
+                  RepositoryPath = repositoryPath
+                  ChangesMode = changesMode }
         | None -> Error(Agent.invalidInput "command" "unknown or incomplete operation")
 
-let internal run args =
-    match parse args with
-    | Error envelope -> AgentWire.render Agent.DefaultOutputLimitBytes envelope
-    | Ok command ->
-        let envelope =
-            match command.Operation with
-            | AgentOperation.Probe -> Agent.probe (toolVersion ())
-            | operation -> Agent.unsupported operation
+let internal runWithCancellation args cancellationToken =
+    task {
+        match parse args with
+        | Error envelope -> return AgentWire.render Agent.DefaultOutputLimitBytes envelope
+        | Ok command ->
+            let! envelope =
+                match command.Operation with
+                | AgentOperation.Probe -> task { return Agent.probe (toolVersion ()) }
+                | AgentOperation.Inspect ->
+                    Agent.inspect
+                        { RepositoryPath = command.RepositoryPath
+                          OutputLimitBytes = command.OutputLimitBytes }
+                        cancellationToken
+                | AgentOperation.Changes ->
+                    Agent.changes
+                        { RepositoryPath = command.RepositoryPath
+                          Mode = command.ChangesMode
+                          OutputLimitBytes = command.OutputLimitBytes }
+                        cancellationToken
+                | operation -> task { return Agent.unsupported operation }
 
-        AgentWire.render command.OutputLimitBytes envelope
+            return AgentWire.render command.OutputLimitBytes envelope
+    }
+
+let internal run args =
+    runWithCancellation args CancellationToken.None
+    |> fun pending -> pending.GetAwaiter().GetResult()
 
 [<EntryPoint>]
 let main args =
-    let result = run args
+    use cts = new CancellationTokenSource()
+
+    let cancelHandler =
+        ConsoleCancelEventHandler(fun _ eventArgs ->
+            eventArgs.Cancel <- true
+            cts.Cancel())
+
+    Console.CancelKeyPress.AddHandler cancelHandler
+
+    let result =
+        runWithCancellation args cts.Token
+        |> fun pending -> pending.GetAwaiter().GetResult()
+
+    Console.CancelKeyPress.RemoveHandler cancelHandler
     Console.Out.Write result.Stdout
 
     if result.Stderr.Length > 0 then

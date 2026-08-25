@@ -5,10 +5,10 @@
 application outcomes; `VcsToolkit.Agent.Server` is only the argv/stdout/stderr/exit-code
 adapter packaged as a .NET global tool.
 
-The first implemented operation is `probe`. The other v1 names are reserved now so an
-agent can distinguish a planned capability from an unknown command without relying on
-human-readable diagnostics. The broader delivery sequence is documented in the
-[agent interface roadmap](agent-interface-roadmap.md).
+The implemented read-only operations are `probe`, `inspect`, and `changes`. The other
+v1 names are reserved now so an agent can distinguish a planned capability from an
+unknown command without relying on human-readable diagnostics. The broader delivery
+sequence is documented in the [agent interface roadmap](agent-interface-roadmap.md).
 
 ## Installation
 
@@ -30,8 +30,8 @@ dotnet tool install --global vcs-agent --version 0.1.0 --add-source ./artifacts
 | Command | Envelope operation | v1 availability | Mutating |
 |---|---|---|---|
 | `probe` | `probe` | supported | no |
-| `inspect` | `inspect` | planned; returns `unsupported` | no |
-| `changes` | `changes` | planned; returns `unsupported` | no |
+| `inspect` | `inspect` | supported | no |
+| `changes` | `changes` | supported | no |
 | `commit` | `commit` | planned; returns `unsupported` | yes |
 | `publish` | `publish` | planned; returns `unsupported` | yes |
 | `ci status` | `ci.status` | planned; returns `unsupported` | no |
@@ -72,7 +72,7 @@ assembly metadata):
 		"toolVersion": "0.1.0",
 		"operations": [
 			{ "name": "probe", "availability": "supported", "mutating": false },
-			{ "name": "inspect", "availability": "planned", "mutating": false }
+			{ "name": "inspect", "availability": "supported", "mutating": false }
 		],
 		"backends": ["git", "jj"],
 		"forges": ["github", "gitlab", "gitea"],
@@ -90,6 +90,52 @@ assembly metadata):
 
 The example shortens the `operations` array for readability; the real `probe` contains
 every row from the operation table above in that stable order.
+
+## Inspect
+
+```sh
+vcs-agent inspect --repo .
+vcs-agent inspect --repo ./worktree --output-budget 16384
+```
+
+`inspect` opens the explicit repository through `VcsToolkit.Core.Repo` and returns one
+typed snapshot containing:
+
+- the canonical repository root and detected `git` or `jj` backend;
+- the current revision and optional branch;
+- dirty, changed-file, conflict, operation, and optional upstream/ahead/behind facts;
+- configured remote names and URLs;
+- forge status, kind, authentication, CLI version, and the supported PR, issue, and
+  release capabilities.
+
+Forge status is `absent` when no remote identifies a forge, `unsupported` when a remote
+identifies an unknown forge family, `unauthenticated` when the known forge CLI reports no
+active identity, and `available` when it is authenticated. Known forge CLI failures remain
+typed errors; they are not converted to absent capabilities.
+
+The reusable API accepts an `InspectRequest` and a `CancellationToken`. Its
+`WithOutputLimit` member sets the same limit used for backend capture and final JSON
+rendering by the executable.
+
+## Changes
+
+```sh
+vcs-agent changes --repo . --view summary
+vcs-agent changes --repo . --view diff --output-budget 32768
+```
+
+`changes` defaults to `summary`. Summary mode reports changed paths and a separately scoped
+`diffStat` aggregate. On Git, `paths` includes untracked entries while `diffStat` describes
+the tracked `HEAD` diff; on Jujutsu, the working-copy diff includes automatically tracked new
+files. Keeping those values in separate typed fields prevents consumers from treating the Git
+stat count as the size of the broader path list. `--view diff` reports parsed unified-diff
+files, headers, hunks, and typed context/addition/deletion lines. Both modes compose the
+backend-neutral `VcsToolkit.Core.Repo` facade and work with Git and Jujutsu.
+
+The reusable API selects the same representations through `ChangesRequest.Summary` and
+`ChangesRequest.StructuredDiff`. `ChangesData` is a discriminated union, so a summary and a
+structured diff cannot coexist or both be absent. `WithOutputLimit` and the supplied
+`CancellationToken` have the same semantics as the CLI flags and cancellation boundary.
 
 ## Envelope and stream rules
 
@@ -111,12 +157,15 @@ label `vcs-agent: <error-code>` and a newline; success leaves stderr empty.
 
 ## Output budgets
 
-`--output-budget <bytes>` sets the maximum UTF-8 byte count retained on stdout. The
-default is 65,536 bytes and the minimum accepted value is 512 bytes. If a complete result
-would exceed the budget, `vcs-agent` discards that result and returns a complete
+`--output-budget <bytes>` sets the maximum UTF-8 byte count retained on stdout and the
+capture budget passed to repository and forge clients. The default is 65,536 bytes and the
+minimum accepted value is 512 bytes. Backend overflow is classified as `output-limit`
+before partial content can become typed operation data. The reusable `inspect` and `changes`
+APIs measure the complete envelope at their return boundary; if it would exceed the same
+budget, they discard that result and return a complete
 `output-limit` error envelope instead. Its error object sets `truncated: true` and reports
 both `limitBytes` and the complete result's `requiredBytes`; partial operation data is never
-presented as valid JSON.
+presented as a valid typed result or valid JSON. Rendering preserves that same typed outcome.
 
 The library and server golden/hermetic tests parse the bounded response again as JSON and
 assert that its UTF-8 byte count is within the requested limit.
@@ -143,15 +192,18 @@ distinct.
 
 ## Redaction and process boundary
 
-Envelope error and warning text passes through the contract redactor before serialization.
-It removes URL userinfo, bearer values, and named token/password/secret/API-key/
-authorization values. The tool parser does not echo unknown argv or machine-local paths in
-its errors. Redaction has a regression test with credentialed URLs and authorization data.
+Every string in inspect and changes data, envelope errors, and warnings passes through the
+contract redactor again at final serialization. It removes URL userinfo, bearer values, and
+named token/password/secret/API-key/authorization values from remote URLs, paths, revision
+text, forge metadata, and diff content even when a caller constructs a public envelope
+directly. The tool parser does not echo unknown argv or machine-local paths in its errors.
+Regression tests cover credentialed URLs and authorization data at the API and wire
+boundaries.
 
-Future repository and forge outcomes must compose the typed `VcsToolkit.Core`,
-`VcsToolkit.Forge`, and `VcsToolkit.CliSupport` seams, which in turn execute through
-ProcessKit. `VcsToolkit.Agent` deliberately exposes no raw-command escape hatch and
-production code contains no direct `System.Diagnostics.Process` launch path. See the
+Repository and forge outcomes compose the typed `VcsToolkit.Core`, `VcsToolkit.Forge`, and
+`VcsToolkit.CliSupport` seams, which in turn execute through ProcessKit.
+`VcsToolkit.Agent` deliberately exposes no raw-command escape hatch and production code
+contains no direct `System.Diagnostics.Process` launch path. See the
 [architecture guide](architecture.md) for the package boundary.
 
 For longer-running outcomes, callers may compose the executable through the published

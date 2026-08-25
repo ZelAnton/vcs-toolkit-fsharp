@@ -11,10 +11,10 @@ the product's only agent-facing entry point.
 
 The executable and package name is now confirmed as `vcs-agent`, with
 `VcsToolkit.Agent` as the reusable library and `VcsToolkit.Agent.Server` as the thin
-global-tool adapter. Contract v1 and the deterministic read-only `probe` are implemented;
-the remaining outcomes below are reserved in the taxonomy and return structured
-`unsupported` until their delivery phases land. The exact current contract is documented
-in [vcs-agent v1 contract](agent-interface.md).
+global-tool adapter. Contract v1 and the read-only `probe`, `inspect`, and `changes`
+outcomes are implemented; the remaining outcomes below are reserved in the taxonomy and
+return structured `unsupported` until their delivery phases land. The exact current
+contract is documented in [vcs-agent v1 contract](agent-interface.md).
 
 ## Problem statement
 
@@ -250,8 +250,10 @@ undocumented behavior or an undecided extension-host design.
 
 ### Phase 1 — Read-only CLI
 
-In progress: `probe` is implemented. `inspect` and `changes` remain the next read-only
-outcomes and currently return the v1 `unsupported` envelope.
+Implemented: `probe`, typed repository and forge `inspect`, and summary or structured-diff
+`changes` are available through the reusable library and thin global-tool adapter. Their
+Git/Jujutsu, forge-status, cancellation, redaction, and output-budget behavior is covered by
+golden and scripted-runner tests.
 
 - Add the reusable outcome library, thin global-tool project, and `probe`.
 - Implement `inspect` and `changes` over `VcsToolkit.Core` / `VcsToolkit.Forge`.

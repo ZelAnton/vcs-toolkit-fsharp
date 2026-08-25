@@ -62,9 +62,154 @@ type ProbeData =
       Forges: string list
       Supervisor: SupervisorCompatibility }
 
+/// Request for the bounded repository-inspection outcome.
+type InspectRequest =
+    { RepositoryPath: string
+      OutputLimitBytes: int }
+
+    static member Create(repositoryPath: string) =
+        { RepositoryPath = repositoryPath
+          OutputLimitBytes = 65_536 }
+
+    member this.WithOutputLimit(outputLimitBytes: int) =
+        { this with
+            OutputLimitBytes = outputLimitBytes }
+
+/// Which read-only change representation a caller selected.
+[<RequireQualifiedAccess>]
+type ChangesMode =
+    | Summary
+    | StructuredDiff
+
+/// Request for a bounded change outcome.
+type ChangesRequest =
+    { RepositoryPath: string
+      Mode: ChangesMode
+      OutputLimitBytes: int }
+
+    static member Summary(repositoryPath: string) =
+        { RepositoryPath = repositoryPath
+          Mode = ChangesMode.Summary
+          OutputLimitBytes = 65_536 }
+
+    static member StructuredDiff(repositoryPath: string) =
+        { RepositoryPath = repositoryPath
+          Mode = ChangesMode.StructuredDiff
+          OutputLimitBytes = 65_536 }
+
+    member this.WithOutputLimit(outputLimitBytes: int) =
+        { this with
+            OutputLimitBytes = outputLimitBytes }
+
+/// Current revision identity reported by `inspect`.
+type AgentRevisionIdentity =
+    { Revision: string option
+      Branch: string option }
+
+/// Upstream tracking facts for the current branch.
+type AgentTracking =
+    { Branch: string
+      Ahead: uint64 option
+      Behind: uint64 option }
+
+/// Current working-copy state reported by `inspect`.
+type AgentWorkingState =
+    { Dirty: bool
+      ChangeCount: uint64
+      Conflicted: bool
+      Operation: string
+      Tracking: AgentTracking option }
+
+/// One redacted configured remote.
+type AgentRemote = { Name: string; Url: string }
+
+/// Forge discovery state for the repository.
+[<RequireQualifiedAccess>]
+type AgentForgeStatus =
+    | Absent
+    | Unsupported
+    | Available
+    | Unauthenticated
+
+/// Stable capability subset needed by outcome workflows.
+type AgentForgeCapabilities =
+    { PullRequestCreate: bool
+      PullRequestComment: bool
+      PullRequestEdit: bool
+      PullRequestChecks: bool
+      PullRequestMerge: bool
+      IssueCreate: bool
+      IssueReopen: bool
+      ReleaseDelete: bool }
+
+/// Detected forge, authentication and capabilities.
+type AgentForgeInfo =
+    { Status: AgentForgeStatus
+      Kind: string option
+      Authenticated: bool
+      Version: string option
+      Capabilities: AgentForgeCapabilities }
+
+/// Repository facts returned by `inspect` in one result.
+type InspectData =
+    { Root: string
+      Backend: string
+      Identity: AgentRevisionIdentity
+      WorkingState: AgentWorkingState
+      Remotes: AgentRemote list
+      Forge: AgentForgeInfo
+      Operations: AgentCapability list }
+
+/// One changed path in a compact summary.
+type AgentChangedPath =
+    { Path: string
+      OldPath: string option
+      Change: string }
+
+/// Aggregate for the backend diff scope. On Git this covers tracked changes only; changed
+/// paths are reported separately because untracked paths are not part of `git diff`.
+type AgentDiffStat =
+    { FilesChanged: uint64
+      Insertions: uint64
+      Deletions: uint64 }
+
+/// Compact path list and explicitly scoped diff aggregate selected by `changes summary`.
+type AgentChangeSummary =
+    { Paths: AgentChangedPath list
+      DiffStat: AgentDiffStat }
+
+/// One typed line in a structured diff hunk.
+type AgentDiffLine = { Kind: string; Text: string }
+
+/// One structured diff hunk.
+type AgentDiffHunk =
+    { OldStart: uint64
+      OldLines: uint64
+      NewStart: uint64
+      NewLines: uint64
+      Section: string
+      Lines: AgentDiffLine list }
+
+/// One structured file diff. Raw duplicate text is intentionally omitted.
+type AgentFileDiff =
+    { Path: string
+      OldPath: string option
+      Change: string
+      Hunks: AgentDiffHunk list }
+
+/// Selected read-only change representation. The union makes summary and structured-diff
+/// payloads mutually exclusive for every public producer.
+[<RequireQualifiedAccess>]
+type ChangesData =
+    | Summary of AgentChangeSummary
+    | StructuredDiff of AgentFileDiff list
+
 /// Operation-specific data carried by a v1 envelope.
 [<RequireQualifiedAccess>]
-type AgentPayload = Probe of ProbeData
+type AgentPayload =
+    | Probe of ProbeData
+    | Inspect of InspectData
+    | Changes of ChangesData
 
 /// Structured failure details. `LimitBytes` and `RequiredBytes` are populated only for
 /// `OutputLimit`; `Truncated` makes refusal of oversized content explicit.
@@ -96,3 +241,35 @@ type AgentExecution =
     { ExitCode: int
       Stdout: string
       Stderr: string }
+
+module internal ContractNames =
+    let operation operation =
+        match operation with
+        | AgentOperation.Probe -> "probe"
+        | AgentOperation.Inspect -> "inspect"
+        | AgentOperation.Changes -> "changes"
+        | AgentOperation.Commit -> "commit"
+        | AgentOperation.Publish -> "publish"
+        | AgentOperation.CiStatus -> "ci.status"
+        | AgentOperation.CiWait -> "ci.wait"
+
+    let errorCode code =
+        match code with
+        | AgentErrorCode.Unsupported -> "unsupported"
+        | AgentErrorCode.Denied -> "denied"
+        | AgentErrorCode.InvalidInput -> "invalid-input"
+        | AgentErrorCode.Backend -> "backend"
+        | AgentErrorCode.Forge -> "forge"
+        | AgentErrorCode.Authentication -> "authentication"
+        | AgentErrorCode.Timeout -> "timeout"
+        | AgentErrorCode.Cancellation -> "cancellation"
+        | AgentErrorCode.OutputLimit -> "output-limit"
+        | AgentErrorCode.ExternalCommand -> "external-command"
+
+    let fallbackReason reason =
+        match reason with
+        | AgentFallbackReason.OperationNotImplemented -> "operation-not-implemented"
+        | AgentFallbackReason.MissingExecutable -> "missing-executable"
+        | AgentFallbackReason.UnsupportedBackend -> "unsupported-backend"
+        | AgentFallbackReason.UnsupportedForge -> "unsupported-forge"
+        | AgentFallbackReason.RawDiagnosticRequired -> "raw-diagnostic-required"

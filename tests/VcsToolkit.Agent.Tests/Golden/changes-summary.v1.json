@@ -1,0 +1,1 @@
+{"contractVersion":"1","operation":"changes","status":"success","terminal":true,"data":{"kind":"changes","mode":"summary","summary":{"paths":[{"path":"src/App.fs","oldPath":null,"change":"modified"}],"diffStat":{"filesChanged":1,"insertions":2,"deletions":1}},"files":[]},"error":null,"warnings":[],"fallbackReason":null}

@@ -239,6 +239,21 @@ type Forge private (cwd: string, backend: Backend) =
         | Backend.Gitea(c, _) -> Some c
         | _ -> None
 
+    /// Apply agent-operation cancellation and fail-loud capture limits while preserving the
+    /// facade's backend dispatch and cached version probe.
+    member internal _.WithAgentExecution(cancellationToken, outputLimitBytes) =
+        let configured =
+            match backend with
+            | Backend.GitHub(client, _) ->
+                githubBackend (client.DefaultCancelOn(cancellationToken).WithOutputBudget(outputLimitBytes))
+            | Backend.GitLab(client, _) ->
+                gitlabBackend (client.DefaultCancelOn(cancellationToken).WithOutputBudget(outputLimitBytes))
+            | Backend.Gitea(client, _) ->
+                giteaBackend (client.DefaultCancelOn(cancellationToken).WithOutputBudget(outputLimitBytes))
+            | Backend.Unknown -> Backend.Unknown
+
+        Forge(cwd, configured)
+
     /// Whether this handle's backend supports `op` — an **operation-level** gap only. The
     /// capability-varying operations (`ForgeOp`) are all present on GitHub and GitLab; Gitea
     /// (`tea`) supports **none** of them, and an `Unknown` handle (no CLI) supports nothing — so

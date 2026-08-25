@@ -3,7 +3,7 @@
 	<PropertyGroup>
 		<TargetFramework>net10.0</TargetFramework>
 		<IsPackable>false</IsPackable>
-		<AssemblySearchPaths>$(AssemblySearchPaths);$(AgentDir)bin\$(Configuration)\$(TargetFramework);$(CoreDir)bin\$(Configuration)\$(TargetFramework);$(ForgeDir)bin\$(Configuration)\$(TargetFramework);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
+		<AssemblySearchPaths>$(AssemblySearchPaths);$(AgentDir)bin\$(Configuration)\$(TargetFramework);$(CoreDir)bin\$(Configuration)\$(TargetFramework);$(ForgeDir)bin\$(Configuration)\$(TargetFramework);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework);$(DiffDir)bin\$(Configuration)\$(TargetFramework);$(GitDir)bin\$(Configuration)\$(TargetFramework);$(JjDir)bin\$(Configuration)\$(TargetFramework);$(GitHubDir)bin\$(Configuration)\$(TargetFramework);$(GitLabDir)bin\$(Configuration)\$(TargetFramework);$(GiteaDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -21,10 +21,20 @@
 		<PackageReference Include="NUnit3TestAdapter" />
 		<PackageReference Include="coverlet.collector" />
 		<PackageReference Include="ProcessKit" />
+		<PackageReference Include="ProcessKit.Testing" />
 	</ItemGroup>
 
 	<ItemGroup>
 		<Reference Include="VcsToolkit.Agent" />
+		<Reference Include="VcsToolkit.CliSupport" />
+		<Reference Include="VcsToolkit.Core" />
+		<Reference Include="VcsToolkit.Forge" />
+		<Reference Include="VcsToolkit.Diff" />
+		<Reference Include="VcsToolkit.Git" />
+		<Reference Include="VcsToolkit.Jj" />
+		<Reference Include="VcsToolkit.GitHub" />
+		<Reference Include="VcsToolkit.GitLab" />
+		<Reference Include="VcsToolkit.Gitea" />
 	</ItemGroup>
 
 </Project>
