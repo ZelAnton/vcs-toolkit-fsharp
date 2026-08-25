@@ -194,8 +194,8 @@ type ForgePrState =
 /// adapter fetches the narrowest bucket that is a superset of the requested state (`closed` for
 /// `Closed`, `all` for `Merged`) and narrows the rows on our side. For `Closed`, it walks the
 /// `closed` pages, removes merged rows, and stably deduplicates PR numbers until `Limit` unique
-/// rows are collected or an empty page is returned. If the safety bound is reached first, the
-/// operation returns an explicit error. `Merged` still narrows the single fetched `--state all`
+/// rows are collected or an empty/repeated page is returned. If the safety bound is reached first
+/// on distinct pages, the operation returns an explicit error. `Merged` still narrows the single fetched `--state all`
 /// window, while `Open` and `All` preserve their one-listing semantics. See `GiteaForge.prList`.
 [<RequireQualifiedAccess>]
 type PrListState =

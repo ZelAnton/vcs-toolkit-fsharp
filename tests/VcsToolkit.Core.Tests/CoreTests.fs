@@ -1170,8 +1170,10 @@ type AssemblyTests() =
             // The count spawn resolves the workspace root first (`Jj.Status`), hence `root`.
             let runner =
                 ScriptedRunner()
+                    .On([ "-T"; "commit_id" ], Reply.Ok "abc123def\n")
                     .On([ "log"; "-r"; "@"; "--limit"; "1" ], Reply.Ok "abc123def\t0\t0\n") // empty="0" ⇒ dirty
                     .On([ "log"; "heads(::@ & bookmarks())" ], Reply.Ok "main\txyz\n")
+                    .On([ "log"; "-r"; "::@" ], Reply.Ok "abc123def\txyz\nxyz\t\n")
                     .On([ "root" ], Reply.Ok "/repo\n")
                     .On([ "diff"; "-r"; "@"; "--summary" ], Reply.Ok "M a.rs\nA b.rs\n")
 
@@ -1492,11 +1494,13 @@ type AssemblyTests() =
 
             let runner =
                 ScriptedRunner()
+                    .On([ "-T"; "commit_id" ], Reply.Ok $"{full}\n")
                     // Snapshot spawn 1: head/empty/conflict for `@` (empty="1" ⇒ clean, so
                     // the change-count spawn is skipped).
                     .On([ "log"; "-r"; "@"; "--limit"; "1" ], Reply.Ok $"{full}\t1\t0\n")
                     // Snapshot spawn 2: the nearest reachable bookmark → branch.
                     .On([ "log"; "heads(::@ & bookmarks())" ], Reply.Ok "main\txyz\n")
+                    .On([ "log"; "-r"; "::@" ], Reply.Ok $"{full}\txyz\nxyz\t\n")
                     // ListWorktrees: one workspace on that SAME full commit, then its root.
                     .On([ "workspace"; "list" ], Reply.Ok $"\"default\"\t{full}\t\"main\"\n")
                     .On([ "workspace"; "root"; "--name"; "default" ], Reply.Ok "/repo\n")

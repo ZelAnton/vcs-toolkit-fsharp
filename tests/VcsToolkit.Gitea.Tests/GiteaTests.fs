@@ -391,6 +391,23 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.PrListClosedStopsWhenTeaRepeatsAPage() : Task =
+        task {
+            let repeatedPage =
+                teaCsv [ prHeader; [ "7"; "same"; "closed"; "h7"; "main"; "u7" ] ]
+
+            let tea = Gitea.WithRunner(ScriptedRunner().Fallback(Reply.Ok repeatedPage))
+
+            let options =
+                PrListOptions.Default.WithState PrListState.Closed |> fun o -> o.WithLimit 2
+
+            match! tea.PrList(".", options) with
+            | Ok [ pr ] -> Assert.That(pr.Number, Is.EqualTo 7UL)
+            | Ok other -> Assert.Fail $"expected the unique first-page PR, got {other.Length}"
+            | Error e -> Assert.Fail $"repeated page should terminate successfully: {e}"
+        }
+
+    [<Test>]
     member _.PrViewFindsOnFirstPage() : Task =
         task {
             let csv =

@@ -486,8 +486,10 @@ type StatsTests() =
 /// A scripted runner whose snapshot reads `head`, clean, on `main` with one bookmark.
 let private scriptedRunner (head: string) =
     ScriptedRunner()
+        .On([ "-T"; "commit_id" ], Reply.Ok $"{head}\n")
         .On([ "log"; "-r"; "@"; "--limit"; "1" ], Reply.Ok $"{head}\t1\t0\n") // empty=1 clean, conflict=0
         .On([ "log"; "heads(::@ & bookmarks())" ], Reply.Ok "main\txyz\n")
+        .On([ "log"; "-r"; "::@" ], Reply.Ok $"{head}\txyz\nxyz\t\n")
         .On([ "bookmark"; "list" ], Reply.Ok "main\tabc\n")
 
 /// A jj-backed `Repo` over `scriptedRunner`.
@@ -517,6 +519,7 @@ let private transientThenOkRunner (head: string) (failCount: int) =
     let mutable calls = 0
 
     ScriptedRunner()
+        .On([ "-T"; "commit_id" ], Reply.Ok $"{head}\n")
         .When(
             (fun (cmd: Command) ->
                 let isSnapshotQuery =
@@ -530,6 +533,7 @@ let private transientThenOkRunner (head: string) (failCount: int) =
         )
         .On([ "log"; "-r"; "@"; "--limit"; "1" ], Reply.Ok $"{head}\t1\t0\n")
         .On([ "log"; "heads(::@ & bookmarks())" ], Reply.Ok "main\txyz\n")
+        .On([ "log"; "-r"; "::@" ], Reply.Ok $"{head}\txyz\nxyz\t\n")
         .On([ "bookmark"; "list" ], Reply.Ok "main\tabc\n")
 
 /// A jj runner whose snapshot `log` command always fails with a plain non-zero exit — a

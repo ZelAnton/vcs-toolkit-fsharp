@@ -760,7 +760,7 @@ type Jj private (core: ManagedClient, ignoreWorkingCopy: bool) =
 
                         return
                             Ok(
-                                if commitId = "" || isVirtualRoot then
+                                if commitId.Length = 0 || isVirtualRoot then
                                     None
                                 else
                                     Some commitId

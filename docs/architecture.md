@@ -159,8 +159,8 @@ rather than discovering it via a runtime error. The listing operations
   `--output csv` listing — but `tea`'s `--state` has no merged value and no
   head-branch filter. `prList`'s `Closed` path walks paginated `--state closed`
   results, removes merged rows, and stably deduplicates PR numbers until the
-  requested limit or an empty page; reaching its safety bound returns an
-  explicit error. `prList`'s `Merged` path and `prForBranch` remain narrowed on
+  requested limit or an empty/repeated page; reaching its safety bound on
+  distinct pages returns an explicit error. `prList`'s `Merged` path and `prForBranch` remain narrowed on
   the single window the CLI fetched, while `Open`/`All` retain their one-listing
   semantics.
 
@@ -173,6 +173,9 @@ whose canonical path is checked against the OS temp root before creation,
 clone/fetch/push against — synchronous and raising on
 failure (it is test fixture code, not library code, so "throw on the
 unexpected" is the right default here, unlike everywhere else in this stack).
+`JjSandbox` redirects Jujutsu's secure per-repository config store beneath the
+ignored `.jj` state directory, keeping that metadata disposable without making
+it appear as a working-copy change.
 It is placed off to the side in the dependency diagram on purpose: it has *no*
 dependency on any other VcsToolkit package, not even `CliSupport`, so that it
 can be a test-time dependency of the test project for **any** other package

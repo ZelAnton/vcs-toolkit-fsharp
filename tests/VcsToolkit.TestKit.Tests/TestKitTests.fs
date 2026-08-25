@@ -377,9 +377,9 @@ type JjSandboxTests() =
         Assert.That(Directory.Exists(Path.Combine(repo.Path, ".jj")), Is.True, "jj init created .jj")
 
         Assert.That(
-            Directory.Exists(Path.Combine(repo.Path, ".vcs-toolkit-jj-config", "jj", "repos")),
+            Directory.Exists(Path.Combine(repo.Path, ".jj", ".vcs-toolkit-jj-config", "jj", "repos")),
             Is.True,
-            "repo-scoped jj config must stay inside the disposable sandbox"
+            "repo-scoped jj config must stay inside the disposable state directory"
         )
 
         repo.Jj [ "config"; "set"; "--repo"; "test.vcs-toolkit.hermetic"; "sandbox-only" ]

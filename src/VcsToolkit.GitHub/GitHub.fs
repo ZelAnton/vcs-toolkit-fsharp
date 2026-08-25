@@ -71,7 +71,7 @@ type GitHub private (core: ManagedClient) =
                 workflows
                 |> List.filter (fun workflow ->
                     if isNumeric then
-                        workflow.Id = numericId.Value
+                        numericId |> Option.exists ((=) workflow.Id)
                     elif isFile then
                         let lastSlash = workflow.Path.LastIndexOf('/')
 

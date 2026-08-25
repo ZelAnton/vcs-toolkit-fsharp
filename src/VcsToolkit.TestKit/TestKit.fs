@@ -35,7 +35,7 @@ module internal Internals =
         Path.Combine(baseP, "vcs-testkit-nonexistent-config")
 
     let private jjConfigRoot (cwd: string) =
-        Path.Combine(cwd, ".vcs-toolkit-jj-config")
+        Path.Combine(cwd, ".jj", ".vcs-toolkit-jj-config")
 
     /// Build an isolated `ProcessStartInfo` for `binary` in `cwd`. **Every** git/jj
     /// invocation routes through here so the sandbox is hermetic — it must not inherit the

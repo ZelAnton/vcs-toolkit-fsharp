@@ -80,15 +80,15 @@ type MergeStrategy =
 /// Which PR states `prList` returns (`tea pr list --state`). `tea`'s `--state` filter takes
 /// `open`/`closed`/`all`. `Open` and `All` preserve the direct, single-listing behaviour of
 /// those CLI states. `Closed` walks the `closed` pages, removes merged rows, keeps the first
-/// occurrence of each PR number, and continues until the requested limit is reached or an empty
-/// page is returned; hitting the 200-page safety bound before that returns an explicit parse
-/// error.
+/// occurrence of each PR number, and continues until the requested limit is reached, an empty
+/// page is returned, or tea repeats the same page because its pagination cursor stalled; hitting
+/// the 200-page safety bound on distinct pages before that returns an explicit parse error.
 [<RequireQualifiedAccess>]
 type PrListState =
     /// Open PRs (`--state open`, tea's default).
     | Open
     /// Closed PRs without merging; pages `--state closed`, removes merged rows, and keeps unique
-    /// PR numbers until the requested limit, an empty page, or the safety bound is reached.
+    /// PR numbers until the requested limit, an empty/repeated page, or the safety bound is reached.
     | Closed
     /// Every PR regardless of state (`--state all`).
     | All

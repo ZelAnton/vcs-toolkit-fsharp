@@ -136,7 +136,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Jj.OpUndo` and `JjAt.OpUndo` now invoke the supported top-level `jj undo` command on jj 0.39 and newer.
 - `Git.SwitchWithStash` now restores its exact stash entry by object id and serializes reflog cleanup with Git's stash ref lock, preserving concurrent processes' stash entries during branch switching.
 - `Repo.ListWorktrees()` on Jujutsu now propagates workspace-root resolution failures instead of returning an incomplete successful list.
-- Gitea-backed `Forge.PrList(PrListOptions.Closed)` now advances through `tea pr list` pages, deduplicates closed non-merged PRs, and stops with an explicit safety-bound error instead of returning a short first-page result or looping indefinitely.
+- Gitea-backed `Forge.PrList(PrListOptions.Closed)` now advances through distinct `tea pr list` pages, deduplicates closed non-merged PRs, and returns the unique rows collected when tea repeats a page instead of looping to the safety bound.
 - `GitHub.WorkflowDispatch` now rejects empty, `=`-containing, and NUL-containing input keys before spawning `gh`, while preserving unrestricted input values.
 - `Git.Harden()` now probes Git before selecting its hook/fsmonitor/sshCommand pins, using the legacy command-scope config channel on Git 2.30 and older instead of returning a client whose `GIT_CONFIG_COUNT` pins are ignored.
 - `ManagedClient.DefaultEnv` now preserves a later explicit environment default over an earlier removal of the same key, while a later `DefaultEnvRemove` still wins; this keeps mandatory `Git.Harden()` pins effective when callers preconfigure environment removals.
@@ -148,6 +148,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Repo.ConflictedFiles` on Jujutsu now resolves conflicted paths from the workspace root, preserving every repo-relative path when a `Repo` handle is bound to a subdirectory.
 - `Repo.TryMerge` on Jujutsu now reports every merge conflict with a workspace-root-relative path when the `Repo` handle is bound to a subdirectory, while keeping the merge probe and rollback anchored to that handle.
 - `VcsToolkit.TestKit`'s `GitSandbox` and `JjSandbox` now reject rooted or escaping paths before writing, keeping fixture files inside their sandbox roots.
+- `VcsToolkit.TestKit.JjSandbox` now keeps Jujutsu's secure per-repository config metadata under the ignored `.jj` state directory instead of exposing it as working-copy changes.
 - `vcs-mcp` request cancellation now stops read and write tool execution, including per-repository lock waits, without starting another retry attempt or losing the configured server timeout.
 - Direct `Git.ListFiles` and `Jj.FileList` calls from a repository subdirectory now return repo-relative paths, matching their bound and facade counterparts.
 - `RepoWatcher.Dispose` now tears down filesystem watchers and cancellation resources atomically when called concurrently, preventing repeated-dispose races.

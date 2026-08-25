@@ -168,7 +168,7 @@ type Gitea private (core: ManagedClient) =
     /// tea 0.9.2 does not support `--output json` on `pr list` (K-049), so this drives its
     /// supported `--output csv` (`outputdsv`) format instead. `Closed` is the one state that
     /// needs a page walk: Gitea's closed bucket can contain merged rows, so this method keeps
-    /// unique non-merged rows until `options.Limit`, an empty page, or the safety bound.
+    /// unique non-merged rows until `options.Limit`, an empty/repeated page, or the safety bound.
     member _.PrList(dir: string, options: PrListOptions) =
         match options.State with
         | PrListState.Open
@@ -180,6 +180,7 @@ type Gitea private (core: ManagedClient) =
                 let mutable failure: ProcessError option = None
                 let mutable seen = Set.empty<uint64>
                 let mutable collected: PullRequest list = []
+                let mutable previousPageNumbers: Set<uint64> option = None
 
                 while options.Limit > 0
                       && collected.Length < options.Limit
@@ -190,16 +191,25 @@ type Gitea private (core: ManagedClient) =
                     | Error e -> failure <- Some e
                     | Ok prs when List.isEmpty prs -> ended <- true
                     | Ok prs ->
-                        for pr in prs do
-                            if
-                                not pr.Merged
-                                && collected.Length < options.Limit
-                                && not (Set.contains pr.Number seen)
-                            then
-                                seen <- Set.add pr.Number seen
-                                collected <- pr :: collected
+                        let pageNumbers = prs |> List.map (fun pr -> pr.Number) |> Set.ofList
 
-                        page <- page + 1
+                        if previousPageNumbers = Some pageNumbers then
+                            // tea 0.9.2 accepts --page but does not pass it to the API. Treat an
+                            // identical consecutive page as a stalled cursor and return the unique
+                            // rows collected so far instead of repeating it to the safety bound.
+                            ended <- true
+                        else
+                            for pr in prs do
+                                if
+                                    not pr.Merged
+                                    && collected.Length < options.Limit
+                                    && not (Set.contains pr.Number seen)
+                                then
+                                    seen <- Set.add pr.Number seen
+                                    collected <- pr :: collected
+
+                            previousPageNumbers <- Some pageNumbers
+                            page <- page + 1
 
                 match failure with
                 | Some e -> return Error e

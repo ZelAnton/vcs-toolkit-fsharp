@@ -406,8 +406,8 @@ type Forge private (cwd: string, backend: Backend) =
     ///   the narrowest `--state` bucket that is a superset of the requested state and narrows
     ///   the rows itself. `Closed` ("closed without merging") is page-walked by the adapter: it
     ///   removes merged rows, keeps the first occurrence of each PR number, and stops at `Limit`
-    ///   unique rows or an empty page. If the safety bound is reached first, the operation returns
-    ///   an explicit error. `Open` and `All` retain their one-listing semantics; `Merged` is still
+    ///   unique rows or an empty/repeated page. If the safety bound is reached first on distinct
+    ///   pages, the operation returns an explicit error. `Open` and `All` retain their one-listing semantics; `Merged` is still
     ///   narrowed over the single fetched `--state all` window — see `PrListState`.
     member _.PrList(options: PrListOptions) =
         match backend with

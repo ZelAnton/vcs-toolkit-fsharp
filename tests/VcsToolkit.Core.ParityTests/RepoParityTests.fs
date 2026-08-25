@@ -43,9 +43,9 @@ let private coveredReadMethods =
           "Snapshot"
           "Trunk" ]
 
-/// `Repo` members that are not read queries, so they are deliberately out of this matrix's
-/// scope: mutations, the merge probe (it mutates and rolls back), and the `At` re-anchoring
-/// helper. Their behaviour is covered by `tests/VcsToolkit.Core.Tests`.
+/// `Repo` members deliberately outside this matrix: mutations, backend-specific reads, the merge
+/// probe (it mutates and rolls back), and the `At` re-anchoring helper. Their behaviour is covered
+/// by `tests/VcsToolkit.Core.Tests`.
 let private nonReadMembers =
     set
         [ "AbortInProgress"
@@ -58,8 +58,12 @@ let private nonReadMembers =
           "Fetch"
           "FetchBranch"
           "FetchFrom"
+          "FetchWithProgress"
           "NewChild"
+          "OpLog" // jj-only read method; git has no operation-log concept
+          "OpUndo"
           "Push"
+          "PushWithProgress"
           "Rebase"
           "RemoveWorktree"
           "RenameBranch"

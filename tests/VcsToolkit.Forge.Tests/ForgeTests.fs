@@ -1483,7 +1483,7 @@ type PrListOptionsTests() =
         }
 
     [<Test>]
-    member _.GiteaPrListClosedReportsSafetyBound() : Task =
+    member _.GiteaPrListClosedStopsWhenTeaRepeatsAPage() : Task =
         task {
             let repeatedPage =
                 teaCsv [ prHeader; [ "7"; "same"; "closed"; "f7"; "main"; "u7" ] ]
@@ -1492,8 +1492,9 @@ type PrListOptionsTests() =
             let forge = Forge.FromGitea(".", VcsToolkit.Gitea.Gitea.WithRunner runner)
 
             match! forge.PrList(PrListOptions.Closed.WithLimit 2) with
-            | Error e -> Assert.That(e.Message, Does.Contain "safety bound")
-            | Ok prs -> Assert.Fail $"repeated non-empty pages must fail at the safety bound, got {prs.Length} PRs"
+            | Ok [ pr ] -> Assert.That(pr.Number, Is.EqualTo 7UL)
+            | Ok prs -> Assert.Fail $"expected the unique first-page PR, got {prs.Length} PRs"
+            | Error e -> Assert.Fail $"repeated page should terminate successfully: {e.Message}"
         }
 
     [<Test>]

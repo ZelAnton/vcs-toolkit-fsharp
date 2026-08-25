@@ -169,7 +169,7 @@ module internal GiteaForge =
     ///
     /// `Closed` is paged by the low-level wrapper after `tea`'s merged rows are removed, so
     /// it keeps requesting pages until `options.Limit` unique closed PRs are collected, an
-    /// empty page is returned, or the wrapper's safety bound is reached. `Merged` still narrows
+    /// empty/repeated page is returned, or the wrapper's safety bound is reached. `Merged` still narrows
     /// the single `--state all` window returned by `tea`; to find one specific PR regardless of
     /// depth, use `prView`, which has its own page walk.
     let prList (tea: VcsToolkit.Gitea.Gitea) (dir: string) (options: PrListOptions) =
