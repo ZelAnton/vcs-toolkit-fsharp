@@ -121,6 +121,10 @@ jobs:
         shell: pwsh
         run: ./scripts/validate-packages.ps1 -PackagesDir ./artifacts
 
+      - name: Check release package-validation gate
+        shell: pwsh
+        run: ./scripts/test-release-workflow.ps1
+
   # docs/command-index.md is a hand-maintained reverse index (CLI command -> typed method).
   # This job compares each wrapper section bidirectionally with the approved public-API
   # surface (tests/VcsToolkit.PublicApi.Tests/ApprovedApi/*.approved.txt). Pure text

@@ -56,7 +56,8 @@ module AgentWire =
         match payload with
         | AgentPayload.Probe probe -> writeProbe writer probe
 
-    /// Serialize one envelope with stable property ordering and LF termination.
+    /// Serialize one envelope with stable property ordering and LF termination. Error and
+    /// warning messages are redacted at this boundary, including caller-constructed envelopes.
     let serialize envelope =
         use stream = new MemoryStream()
 
@@ -79,7 +80,7 @@ module AgentWire =
         | Some error ->
             writer.WriteStartObject("error")
             writer.WriteString("code", Agent.errorCodeName error.Code)
-            writer.WriteString("message", error.Message)
+            writer.WriteString("message", Redaction.redact error.Message)
             writer.WriteBoolean("retryable", error.Retryable)
             writer.WriteBoolean("truncated", error.Truncated)
             writeOptionalInt writer "limitBytes" error.LimitBytes

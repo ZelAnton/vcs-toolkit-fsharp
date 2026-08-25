@@ -319,6 +319,10 @@ jobs:
         # *.snupkg, so they pick up the tool alongside the libraries with no per-package wiring.
         run: dotnet pack VcsToolkit.slnx --no-build --configuration Release --output ./artifacts /p:Version=${{ needs.version.outputs.version }}
 
+      - name: Validate release packages
+        shell: pwsh
+        run: ./scripts/validate-packages.ps1 -PackagesDir ./artifacts
+
       - name: Generate SHA256SUMS
         run: |
           set -euo pipefail

@@ -77,6 +77,45 @@ type ContractTests() =
         )
 
     [<Test>]
+    member _.``Public envelopes cannot bypass final-boundary redaction``() =
+        let urlSecret = "url-secret-value"
+        let bearerSecret = "bearer-secret-value"
+        let namedSecret = "named-secret-value"
+
+        let message =
+            $"https://user:{urlSecret}@example.test/repo Bearer {bearerSecret} api_key={namedSecret}"
+
+        let envelope: AgentEnvelope =
+            { ContractVersion = Agent.ContractVersion
+              Operation = "consumer.operation"
+              Status = AgentStatus.Error
+              Terminal = true
+              Data = None
+              Error =
+                Some
+                    { Code = AgentErrorCode.ExternalCommand
+                      Message = message
+                      Retryable = false
+                      Truncated = false
+                      LimitBytes = None
+                      RequiredBytes = None }
+              Warnings =
+                [ { Code = "consumer-warning"
+                    Message = message } ]
+              FallbackReason = None }
+
+        let serialized = AgentWire.serialize envelope
+        let rendered = AgentWire.render Agent.DefaultOutputLimitBytes envelope
+
+        for output in [ serialized; rendered.Stdout ] do
+            Assert.That(output, Does.Not.Contain urlSecret)
+            Assert.That(output, Does.Not.Contain bearerSecret)
+            Assert.That(output, Does.Not.Contain namedSecret)
+            Assert.That(output, Does.Contain "[REDACTED]")
+
+        Assert.That(rendered.ExitCode, Is.EqualTo 29)
+
+    [<Test>]
     member _.``Oversized output becomes an explicit bounded output-limit envelope``() =
         let limit = Agent.MinimumOutputLimitBytes
         let output = Agent.probe "0.1.0-test" |> AgentWire.render limit
