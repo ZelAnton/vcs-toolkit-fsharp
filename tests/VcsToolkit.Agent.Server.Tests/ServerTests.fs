@@ -4,6 +4,8 @@ open System
 open System.IO
 open System.Reflection
 open System.Text.Json
+open System.Threading
+open System.Threading.Tasks
 open NUnit.Framework
 open VcsToolkit.Agent
 
@@ -88,3 +90,44 @@ type ServerTests() =
             document.RootElement.GetProperty("error").GetProperty("code").GetString(),
             Is.EqualTo "output-limit"
         )
+
+    [<Test>]
+    member _.``Inspect accepts an explicit repository and reports a typed backend failure``() =
+        let missing =
+            Path.Combine(Path.GetTempPath(), "vcs-agent-missing-" + Guid.NewGuid().ToString("N"))
+
+        let result = Main.run [| "inspect"; "--repo"; missing |]
+        Assert.That(result.ExitCode, Is.EqualTo 23)
+
+        use document = JsonDocument.Parse result.Stdout
+        Assert.That(document.RootElement.GetProperty("operation").GetString(), Is.EqualTo "inspect")
+        Assert.That(document.RootElement.GetProperty("error").GetProperty("code").GetString(), Is.EqualTo "backend")
+
+    [<Test>]
+    member _.``Changes parses the selected diff view before repository execution``() =
+        let missing =
+            Path.Combine(Path.GetTempPath(), "vcs-agent-missing-" + Guid.NewGuid().ToString("N"))
+
+        let result = Main.run [| "changes"; "--view"; "diff"; "--repo"; missing |]
+        Assert.That(result.ExitCode, Is.EqualTo 23)
+
+        use document = JsonDocument.Parse result.Stdout
+        Assert.That(document.RootElement.GetProperty("operation").GetString(), Is.EqualTo "changes")
+
+    [<Test>]
+    member _.``Request cancellation returns the stable cancellation envelope``() : Task =
+        task {
+            use cts = new CancellationTokenSource()
+            cts.Cancel()
+
+            let! result = Main.runWithCancellation [| "inspect"; "--repo"; Directory.GetCurrentDirectory() |] cts.Token
+
+            Assert.That(result.ExitCode, Is.EqualTo 27)
+
+            use document = JsonDocument.Parse result.Stdout
+
+            Assert.That(
+                document.RootElement.GetProperty("error").GetProperty("code").GetString(),
+                Is.EqualTo "cancellation"
+            )
+        }

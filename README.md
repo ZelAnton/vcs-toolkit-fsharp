@@ -37,7 +37,7 @@ The toolkit is split into one package per concern, mirroring the Rust workspace.
 | `VcsToolkit.Gitea` | Implemented | The Gitea/Forgejo (`tea`) CLI client: pull requests and issues (including labels on creation), releases, and a `.At(dir)` cwd-bound view. Unsupported `tea` operations such as PR/issue label mutation, PR edit, and release delete fail before spawning. Authentication is ambient (`tea`'s stored logins). |
 | `VcsToolkit.Core` | Implemented | The backend-agnostic `Repo` facade over Git / Jujutsu: `Open` auto-detects git vs jj, then one handle runs whatever both tools support — branch/snapshot reads, changed files, unified working-copy diffs & diff stats, partial commits, fetch/push/checkout/rebase, a trace-free merge-conflict probe (`TryMerge`), in-progress merge/rebase state, and worktree management — returning plain result types. Escape hatches `.Git`/`.Jj` (raw client) and `.GitAt`/`.JjAt` (dir-bound views) reach the raw surface; only the synchronous `cleanupWorktreeBlocking` Drop-guard is intentionally not ported (`IAsyncDisposable` awaits `RemoveWorktree`). |
 | `VcsToolkit.Forge` | Implemented | The unified forge facade over GitHub / GitLab / Gitea: one `Forge` handle exposes a common PR/MR, issue, and release surface, including typed label creation and mutation, and returns plain result types that don't mention which forge produced them. Backend gaps are explicit `Unsupported` results rather than silently dropped options; `ForgeKind.OfRemoteUrl` classifies the public-SaaS hosts with anti-spoofing checks. The gh/glab/tea analogue of `Core`'s `Repo` over git/jj. |
-| `VcsToolkit.Agent` | Implemented (v1 probe) | The transport-neutral application contract for outcome-oriented agent workflows. It owns the versioned envelope, operation/error taxonomy, deterministic read-only `probe`, bounded JSON rendering, redaction, and stable exit mapping used by the thin `vcs-agent` global tool. The remaining declared operations report structured `unsupported` until their implementation phases land. |
+| `VcsToolkit.Agent` | Implemented (v1 read-only) | The transport-neutral application contract for outcome-oriented agent workflows. It owns the versioned envelope, operation/error taxonomy, deterministic `probe`, typed repository `inspect`, summary or structured-diff `changes`, bounded JSON rendering, redaction, and stable exit mapping used by the thin `vcs-agent` global tool. Mutating and CI operations remain reserved and report structured `unsupported`. |
 | `VcsToolkit.TestKit` | Implemented | Throwaway git/jj sandboxes (and a seeded bare remote) for integration tests, plus canonical parser-shaped GitHub, GitLab, and Gitea PR/issue/release fixtures: a self-cleaning `TempDir` whose tag is sanitized to one component and verified under the canonical OS temp root, `GitSandbox` / `JjSandbox` scenario builders, and `BareRemote` — dependency-free (no wrapper libraries, so it can be a test dependency of any without a cycle), hermetic (no host VCS config leaks in), and raising on failure; sandbox writes reject rooted or escaping paths before filesystem changes. |
 | `VcsToolkit.Watch` | Implemented | Filesystem-watch a git/jj repository and emit typed state-change events. A `RepoWatcher` watches the `.git`/`.jj` state dir (and, optionally, the working tree), debounces the write burst a VCS operation makes, re-queries `Repo.Snapshot`, and diffs it against the previous state to yield typed `RepoEvent`s (`HeadMoved`, `BranchSwitched`, `BranchCreated`/`Deleted`, `WorkingCopyChanged`, upstream/ahead-behind/operation/conflict). Re-query-and-diff (not raw FS events) makes it robust to ref temp-file renames and `index.lock` churn. The foundation for prompts, status bars, and TUIs. |
 | `VcsToolkit.Mcp` | Implemented | A Model Context Protocol server exposing the toolkit's typed git/jj + forge operations as agent-callable tools, including optional labels on creation and write-gated label add/remove tools. The `VcsToolkit.Mcp` library is the hermetically-testable core — `VcsMcpServer` with the `repo_*` / `forge_*` tools over `Core`/`Forge`, the `WriteGate` write policy (read tools always available, mutations gated by `--allow-write`/`--allow-tools`), the tool catalogue and dispatcher, and the CLI parser. The thin `vcs-mcp` binary (`VcsToolkit.Mcp.Server`) wires it to the `ModelContextProtocol` SDK over stdio, with a hardened git client, per-command timeout, and request cancellation propagation through commands and repository lock waits. |
@@ -61,20 +61,27 @@ dotnet pack VcsToolkit.slnx --configuration Release --output ./artifacts
 dotnet tool install --global vcs-agent --version 0.1.0 --add-source ./artifacts
 ```
 
-`probe` is the first implemented v1 outcome. It is deterministic and read-only: it does not
-inspect a repository, executable, network, environment variable, or machine-local path.
+The implemented v1 read-only outcomes are `probe`, `inspect`, and `changes`. `probe` is
+deterministic and does not inspect a repository, executable, network, environment variable,
+or machine-local path.
 
 ```sh
 vcs-agent probe
 vcs-agent probe --output-budget 4096
+vcs-agent inspect --repo .
+vcs-agent changes --repo . --view summary
+vcs-agent changes --repo . --view diff --output-budget 16384
 ```
 
 Every invocation emits one versioned JSON envelope on stdout. Diagnostics use stderr, and the
 exit code is a stable mapping from the structured error code. The stdout budget defaults to
 65,536 bytes with a 512-byte minimum; an oversized result becomes an explicit `output-limit`
-envelope rather than partial JSON. `inspect`, `changes`, `commit`, `publish`, `ci status`, and
-`ci wait` are already reserved in the v1 taxonomy but currently return `unsupported` with the
-machine-readable fallback reason `operation-not-implemented`.
+envelope rather than partial JSON. `inspect` returns the detected Git/Jujutsu backend, current
+revision and branch, working-copy and tracking state, remotes, and typed forge authentication
+and capability facts. `changes` returns either a path/stat summary or parsed unified-diff
+hunks. `commit`, `publish`, `ci status`, and `ci wait` are reserved in the v1 taxonomy and
+return `unsupported` with the machine-readable fallback reason
+`operation-not-implemented`.
 
 See [docs/agent-interface.md](docs/agent-interface.md) for the complete envelope, operation,
 error, exit-code, output, redaction, and compatibility contract.

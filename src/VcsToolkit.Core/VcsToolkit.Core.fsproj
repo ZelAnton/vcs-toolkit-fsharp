@@ -21,6 +21,10 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<InternalsVisibleTo Include="VcsToolkit.Agent" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<PackageReference Include="FSharp.Core" />
 		<PackageReference Include="ProcessKit" />
 	</ItemGroup>

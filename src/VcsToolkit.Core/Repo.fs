@@ -208,6 +208,16 @@ type Repo private (root: string, cwd: string, backend: Backend) =
         | Backend.Jj j -> Some(j.At cwd)
         | Backend.Git _ -> None
 
+    /// Apply agent-operation cancellation and fail-loud capture limits without exposing the
+    /// backend client or duplicating its command construction in the agent layer.
+    member internal _.WithAgentExecution(cancellationToken, outputLimitBytes) =
+        let configured =
+            match backend with
+            | Backend.Git git -> Backend.Git(git.DefaultCancelOn(cancellationToken).WithOutputBudget(outputLimitBytes))
+            | Backend.Jj jj -> Backend.Jj(jj.DefaultCancelOn(cancellationToken).WithOutputBudget(outputLimitBytes))
+
+        Repo(root, cwd, configured)
+
     // --- Refs ----------------------------------------------------------------
 
     /// The current branch (git) or bookmark (jj). On jj this is the nearest bookmark

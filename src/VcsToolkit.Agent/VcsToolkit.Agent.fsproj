@@ -6,7 +6,7 @@
 		<PackageId>VcsToolkit.Agent</PackageId>
 		<Description>Transport-neutral, versioned outcome contracts for agent-facing VCS workflows. Provides bounded machine-readable envelopes and reusable orchestration over VcsToolkit.Core and VcsToolkit.Forge, with no raw-command escape hatch.</Description>
 		<PackageTags>fsharp;vcs;git;jujutsu;jj;forge;agent;automation;process</PackageTags>
-		<AssemblySearchPaths>$(AssemblySearchPaths);$(CoreDir)bin\$(Configuration)\$(TargetFramework);$(ForgeDir)bin\$(Configuration)\$(TargetFramework);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
+		<AssemblySearchPaths>$(AssemblySearchPaths);$(CoreDir)bin\$(Configuration)\$(TargetFramework);$(ForgeDir)bin\$(Configuration)\$(TargetFramework);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework);$(DiffDir)bin\$(Configuration)\$(TargetFramework);$(GitDir)bin\$(Configuration)\$(TargetFramework);$(JjDir)bin\$(Configuration)\$(TargetFramework);$(GitHubDir)bin\$(Configuration)\$(TargetFramework);$(GitLabDir)bin\$(Configuration)\$(TargetFramework);$(GiteaDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
 	</PropertyGroup>
 
 	<!-- F# COMPILE ORDER IS SIGNIFICANT. -->
@@ -31,6 +31,12 @@
 		<Reference Include="VcsToolkit.Core" />
 		<Reference Include="VcsToolkit.Forge" />
 		<Reference Include="VcsToolkit.CliSupport" />
+		<Reference Include="VcsToolkit.Diff" />
+		<Reference Include="VcsToolkit.Git" />
+		<Reference Include="VcsToolkit.Jj" />
+		<Reference Include="VcsToolkit.GitHub" />
+		<Reference Include="VcsToolkit.GitLab" />
+		<Reference Include="VcsToolkit.Gitea" />
 	</ItemGroup>
 
 </Project>
