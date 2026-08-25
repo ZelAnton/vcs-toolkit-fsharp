@@ -250,8 +250,12 @@ The supervised process exit preserves a child exit unchanged. Consequently, `0` 
 separate reserved range `100`–`119`; for the boundaries used here, `106` is an overall or
 idle timeout (distinguished by `timeout.reason`) and `108` is control-plane cancellation.
 The terminal `runner_exit` record repeats the final `code`, its `source`, and the optional
-`child_code`. A valid completed proof also requires `cleanup_finished.remaining = 0` with
-no read or kill error.
+`child_code`. A valid completed proof requires no cleanup read or kill error. It normally also
+requires `cleanup_finished.remaining = 0`. On the POSIX process-group fallback, ProcessKit-CLI
+`v0.3.3` can snapshot an already-killed but not-yet-reaped root as `remaining = 1` immediately
+before `runner_exit`. The executable proof accepts that narrow terminal observation only when
+every reported PID matches a pre-recorded PID/start-time identity, all exact identities are
+gone, and a bounded machine-readable `inspect` confirms that the run is no longer registered.
 
 For out-of-band cancellation, start a named detached run, cancel it, and wait for cleanup:
 
@@ -275,8 +279,8 @@ digests in `scripts/install-processkit-cli.ps1`. Before any payload is launched,
 - JSONL schema version `1` and the exact reserved exit band `100-119`;
 - `run` with JSONL, run id, overall/idle deadlines, grace, bounded capture, overflow policy,
   no-echo, detach, and resource-summary surfaces;
-- run-id cancellation, hard kill, live inspection, and waiting with terminal outcome
-  reporting;
+- run-id cancellation, hard kill, live inspection (including machine-readable failures), and
+  waiting with terminal outcome reporting;
 - file-based lifecycle validation through `events --validate`.
 
 The preflight is fail-closed: an absent token, schema mismatch, exit-band mismatch, wrong
@@ -288,14 +292,15 @@ cross-binary scenarios: success, `invalid-input` exit preservation, overall time
 timeout after observed output, bounded truncating capture, detached control cancellation,
 fail-closed detached cleanup with verified kill/wait recovery, ordinary nested composition,
 and outer-cancellation teardown while an inspected inner runner and its long-lived descendant
-are alive. The teardown proof records PID/start-time identities before cancellation, requires
-the outer terminal lifecycle to report zero survivors without read/kill errors, and confirms
-that those exact identities are gone afterward. Every lifecycle stream is checked by the
-published binary's embedded schema. A stream that contains `runner_exit` must end with exactly
-one such record and clean terminal state. ProcessKit-CLI `v0.3.3` does not guarantee that the
-inner stream reaches a terminal record when the outer containment boundary ends it; on that
-branch the proof records the absent inner terminal explicitly and relies only on the clean
-outer lifecycle plus exact identity-gone checks for teardown. The `vcs-agent-supervision` CI
+are alive. The teardown proof records PID/start-time identities before cancellation, rejects
+cleanup read/kill errors and unknown reported survivors, and confirms that every exact identity
+is gone afterward. A nonzero POSIX terminal snapshot additionally requires the bounded
+machine-readable registry confirmation described above. Every lifecycle stream is checked by
+the published binary's embedded schema. A stream that contains `runner_exit` must end with
+exactly one such record. ProcessKit-CLI `v0.3.3` does not guarantee that the inner stream reaches
+a terminal record when the outer containment boundary ends it; on that branch the proof records
+the absent inner terminal explicitly and relies on the independently confirmed outer teardown
+plus exact identity-gone checks. The `vcs-agent-supervision` CI
 matrix executes this proof on the published Windows, Linux, and Apple Silicon macOS targets and
 uploads the install/proof JSON evidence.
 An unsupported OS/architecture or missing published asset is a hard, structured installer

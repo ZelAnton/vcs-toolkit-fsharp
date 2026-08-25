@@ -122,7 +122,7 @@ function Assert-CleanTerminalState {
     Assert-Condition (-not $cleanup.read_error) 'ProcessKit-CLI could not confirm the final contained-process set.'
 }
 
-function Assert-CleanTerminal {
+function Assert-TerminalOutcome {
     param(
         [Parameter(Mandatory = $true)]
         [object[]] $Events,
@@ -147,7 +147,24 @@ function Assert-CleanTerminal {
     else {
         Assert-Condition ($terminal.child_code -eq [int] $ExpectedChildCode) "runner_exit child_code was $($terminal.child_code), expected $ExpectedChildCode."
     }
+}
 
+function Assert-CleanTerminal {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object[]] $Events,
+
+        [Parameter(Mandatory = $true)]
+        [int] $ExpectedCode,
+
+        [Parameter(Mandatory = $true)]
+        [string] $ExpectedSource,
+
+        [AllowNull()]
+        [object] $ExpectedChildCode
+    )
+
+    Assert-TerminalOutcome $Events $ExpectedCode $ExpectedSource $ExpectedChildCode
     Assert-CleanTerminalState $Events
 }
 
@@ -222,6 +239,125 @@ function Assert-ProcessIdentitiesGone {
 
     foreach ($check in $IdentityChecks) {
         Assert-ProcessIdentityGone $check.Identity $check.Description $TimeoutSeconds
+    }
+}
+
+function Assert-RunRegistrationGone {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $RunId,
+
+        [Parameter(Mandatory = $true)]
+        [string] $ScenarioDirectory,
+
+        [int] $TimeoutSeconds = 5
+    )
+
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+    $lastObservation = 'not attempted'
+    $inspectStdout = Join-Path $ScenarioDirectory 'post-terminal-inspect.json'
+    $inspectStderr = Join-Path $ScenarioDirectory 'post-terminal-inspect.stderr.json'
+
+    while ([DateTimeOffset]::UtcNow -lt $deadline) {
+        $inspectExit = Invoke-Native `
+            -FilePath $script:ProcessKitCli `
+            -Arguments @('inspect', '--error-format', 'json', '--run-id', $RunId, '--json') `
+            -StdoutPath $inspectStdout `
+            -StderrPath $inspectStderr
+
+        if ($inspectExit -eq 103) {
+            try {
+                $inspectError = Read-JsonFile $inspectStderr
+
+                if (
+                    $inspectError.error_version -eq 1 -and
+                    $inspectError.code -eq 103 -and
+                    $inspectError.kind -eq 'not_found' -and
+                    $inspectError.operation -eq 'inspect' -and
+                    $inspectError.run_id -eq $RunId
+                ) {
+                    return
+                }
+
+                $lastObservation = "inspect returned exit 103 with kind '$($inspectError.kind)'"
+            }
+            catch {
+                $lastObservation = 'inspect returned exit 103 without a valid machine error envelope'
+            }
+        }
+        elseif ($inspectExit -eq 0) {
+            try {
+                $snapshot = Read-JsonFile $inspectStdout
+                $lastObservation = "inspect still reported a live run with $(@($snapshot.members).Count) member(s)"
+            }
+            catch {
+                $lastObservation = 'inspect returned success without a valid snapshot'
+            }
+        }
+        else {
+            $lastObservation = "inspect returned unexpected exit $inspectExit"
+        }
+
+        Start-Sleep -Milliseconds 100
+    }
+
+    throw "Run '$RunId' did not reach a confirmed unregistered state within ${TimeoutSeconds}s: $lastObservation."
+}
+
+function Confirm-DetachedCleanup {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object[]] $Events,
+
+        [Parameter(Mandatory = $true)]
+        [string] $RunId,
+
+        [Parameter(Mandatory = $true)]
+        [string] $ScenarioDirectory,
+
+        [object[]] $IdentityChecks = @()
+    )
+
+    $cleanup = @($Events | Where-Object event -EQ 'cleanup_finished') | Select-Object -Last 1
+    Assert-Condition ($null -ne $cleanup) 'The lifecycle stream did not report cleanup_finished.'
+    Assert-Condition (-not $cleanup.kill_error) 'ProcessKit-CLI reported a kill_error during cleanup.'
+    Assert-Condition (-not $cleanup.read_error) 'ProcessKit-CLI could not confirm the final contained-process set.'
+
+    $reportedRemaining = [int] $cleanup.remaining
+
+    if ($reportedRemaining -eq 0) {
+        if ($IdentityChecks.Count -gt 0) {
+            Assert-ProcessIdentitiesGone $IdentityChecks
+        }
+
+        return [pscustomobject]@{
+            remaining = 0
+            lifecycleRemaining = 0
+            proof = 'lifecycle-clean'
+        }
+    }
+
+    $reportedPids = @($cleanup.remaining_pids | ForEach-Object { [int] $_ })
+    Assert-Condition ($reportedPids.Count -eq $reportedRemaining) 'cleanup_finished.remaining did not match remaining_pids.'
+    Assert-Condition ($reportedPids.Count -eq @($reportedPids | Sort-Object -Unique).Count) 'cleanup_finished.remaining_pids contained duplicate identities.'
+    Assert-Condition ($IdentityChecks.Count -gt 0) 'A nonzero terminal member snapshot had no pre-recorded exact identities.'
+    $started = @($Events | Where-Object event -EQ 'run_started')
+    Assert-Condition ($started.Count -eq 1) 'A nonzero terminal member snapshot had no unique run_started mechanism evidence.'
+    Assert-Condition ($started[0].mechanism -eq 'process_group') "A nonzero terminal member snapshot came from unsupported mechanism '$($started[0].mechanism)'."
+
+    $knownPids = @($IdentityChecks | ForEach-Object { [int] $_.Identity.pid })
+
+    foreach ($reportedPid in $reportedPids) {
+        Assert-Condition ($reportedPid -in $knownPids) "cleanup_finished reported unknown remaining PID $reportedPid."
+    }
+
+    Assert-ProcessIdentitiesGone $IdentityChecks
+    Assert-RunRegistrationGone $RunId $ScenarioDirectory
+
+    [pscustomobject]@{
+        remaining = 0
+        lifecycleRemaining = $reportedRemaining
+        proof = 'terminal-identities-and-registry-clean'
     }
 }
 
@@ -375,7 +511,9 @@ function Invoke-DetachedTeardown {
         [int] $ExpectedCode,
 
         [Parameter(Mandatory = $true)]
-        [string] $ExpectedSource
+        [string] $ExpectedSource,
+
+        [object[]] $IdentityChecks = @()
     )
 
     $controlExit = Invoke-Native `
@@ -401,10 +539,12 @@ function Invoke-DetachedTeardown {
     }
 
     $events = $null
+    $cleanupProof = $null
 
     try {
         $events = Read-EventStream $EventsPath $ScenarioDirectory
-        Assert-CleanTerminal $events $ExpectedCode $ExpectedSource $null
+        Assert-TerminalOutcome $events $ExpectedCode $ExpectedSource $null
+        $cleanupProof = Confirm-DetachedCleanup $events $RunId $ScenarioDirectory $IdentityChecks
     }
     catch {
         $failures.Add("terminal lifecycle confirmation failed: $($_.Exception.Message)")
@@ -437,7 +577,9 @@ function Invoke-DetachedTeardown {
         action = $Action
         code = $ExpectedCode
         source = $ExpectedSource
-        remaining = 0
+        remaining = $cleanupProof.remaining
+        lifecycleRemaining = $cleanupProof.lifecycleRemaining
+        cleanupProof = $cleanupProof.proof
     }
 }
 
@@ -546,6 +688,7 @@ $requiredSurface = @(
     'kill',
     'kill:--run-id',
     'inspect',
+    'inspect:--error-format',
     'inspect:--run-id',
     'inspect:--json',
     'wait',
@@ -748,19 +891,34 @@ try {
         -StdoutPath (Join-Path $cancellationDirectory 'detach.stdout.log') `
         -StderrPath (Join-Path $cancellationDirectory 'detach.stderr.log')
     Assert-Condition ($detachExit -eq 0) "Detached cancellation fixture failed to start with exit $detachExit."
+    $cancellationRootIdentity = Read-RunRootIdentity $cancellationEvents 'detached cancellation fixture'
+    $detachedIdentityChecks = @(
+        [pscustomobject]@{
+            Identity = $cancellationRootIdentity
+            Description = 'Detached cancellation fixture root'
+        }
+    )
 
-    $null = Invoke-DetachedTeardown `
+    $cancellationProof = Invoke-DetachedTeardown `
         -RunId $detachedRunId `
         -Action cancel `
         -EventsPath $cancellationEvents `
         -ScenarioDirectory $cancellationDirectory `
         -ExpectedCode 108 `
-        -ExpectedSource 'control_cancel'
+        -ExpectedSource 'control_cancel' `
+        -IdentityChecks $detachedIdentityChecks
     $cancellationStream = Read-EventStream $cancellationEvents $cancellationDirectory
     $cancelledEvent = @($cancellationStream | Where-Object event -EQ 'cancelled')
     Assert-Condition ($cancelledEvent.Count -eq 1 -and $cancelledEvent[0].source -eq 'control_cancel') 'Cancellation lifecycle evidence was absent or misclassified.'
     $detachedFinished = $true
-    $scenarioResults.Add([pscustomobject]@{ name = 'cancellation'; status = 'passed'; exitCode = 108 })
+    $scenarioResults.Add([pscustomobject]@{
+        name = 'cancellation'
+        status = 'passed'
+        exitCode = 108
+        remaining = $cancellationProof.remaining
+        lifecycleRemaining = $cancellationProof.lifecycleRemaining
+        cleanupProof = $cancellationProof.cleanupProof
+    })
 
     $cleanupDirectory = New-ScenarioDirectory 'detached-cleanup-failure-path'
     $negativeAttemptDirectory = Join-Path $cleanupDirectory 'negative-attempt'
@@ -822,7 +980,8 @@ try {
         -EventsPath $detachedEvents `
         -ScenarioDirectory $cleanupDirectory `
         -ExpectedCode 109 `
-        -ExpectedSource 'control_kill'
+        -ExpectedSource 'control_kill' `
+        -IdentityChecks $detachedIdentityChecks
 
     $identityRecoveryStartInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $identityRecoveryStartInfo.FileName = $powerShell
@@ -884,6 +1043,8 @@ try {
         cleanupConfirmedBeforeIdentityRecovery = $false
         identityRecoveryConfirmed = $true
         remaining = $cleanupProof.remaining
+        lifecycleRemaining = $cleanupProof.lifecycleRemaining
+        cleanupProof = $cleanupProof.cleanupProof
     })
 
     $nestedDirectory = New-ScenarioDirectory 'nested-containment'
@@ -1050,7 +1211,8 @@ try {
         -EventsPath $nestedOuterEvents `
         -ScenarioDirectory $nestedTeardownDirectory `
         -ExpectedCode 108 `
-        -ExpectedSource 'control_cancel'
+        -ExpectedSource 'control_cancel' `
+        -IdentityChecks $detachedIdentityChecks
 
     try {
         Assert-ProcessIdentitiesGone $detachedIdentityChecks
@@ -1093,11 +1255,15 @@ try {
         fixtureIdentityGone = $true
         descendantIdentityGone = $true
         remaining = $nestedCleanupProof.remaining
+        lifecycleRemaining = $nestedCleanupProof.lifecycleRemaining
+        cleanupProof = $nestedCleanupProof.cleanupProof
         outerLifecycle = [ordered]@{
             validated = $true
             code = $nestedCleanupProof.code
             source = $nestedCleanupProof.source
             remaining = $nestedCleanupProof.remaining
+            lifecycleRemaining = $nestedCleanupProof.lifecycleRemaining
+            cleanupProof = $nestedCleanupProof.cleanupProof
         }
         innerLifecycle = [ordered]@{
             validated = $true
@@ -1124,7 +1290,11 @@ finally {
 
             try {
                 $existingEvents = Read-EventStream $detachedEvents $detachedDirectory
-                Assert-CleanTerminalState $existingEvents
+                $null = Confirm-DetachedCleanup `
+                    -Events $existingEvents `
+                    -RunId $detachedRunId `
+                    -ScenarioDirectory $detachedDirectory `
+                    -IdentityChecks $detachedIdentityChecks
                 $terminalAlreadyClean = $true
             }
             catch {

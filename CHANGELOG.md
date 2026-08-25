@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - External cancellation of Git/Jujutsu fetch, push and clone operations now gives the process a graceful two-second stop window before escalation.
 
 ### Added
-- Packaged `vcs-agent` can now be exercised through a pinned, fail-closed ProcessKit-CLI supervision proof covering lifecycle validation, exit preservation, deadlines, cancellation, bounded capture, and nested containment on supported operating systems.
+- Packaged `vcs-agent` can now be exercised through a pinned, fail-closed ProcessKit-CLI supervision proof covering lifecycle validation, exit preservation, deadlines, cancellation, bounded capture, and nested containment on supported operating systems, including exact-identity and registry confirmation for the published POSIX post-kill member-snapshot race.
 - Read-only `vcs-agent inspect` and `vcs-agent changes` outcomes expose bounded, redacted repository, working-copy, remote, forge, change-summary, and structured-diff data for Git and Jujutsu.
 - `VcsToolkit.Agent` and the `vcs-agent` global tool establish a bounded, redacted v1 machine contract with a deterministic read-only `probe`, structured errors, and stable exit codes.
 - A versioned offline vcs-agent routing and evidence corpus with deterministic fail-closed recorder/checker scripts, regression fixtures, and hermetic CI validation.
