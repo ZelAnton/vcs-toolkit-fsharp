@@ -570,8 +570,13 @@ function Read-ReadyRunSnapshot {
             $snapshot = Read-JsonFile $inspectStdout
             Assert-Condition ($snapshot.run_id -eq $RunId) 'inspect returned the wrong run identity'
             Assert-Condition ($snapshot.root_pid -eq $RootIdentity.pid) 'inspect returned the wrong root PID'
+            Assert-Condition ($snapshot.mechanism -in @('job_object', 'cgroup_v2', 'process_reaper', 'process_group')) "inspect returned unsupported containment mechanism '$($snapshot.mechanism)'"
 
             foreach ($check in $MemberChecks) {
+                if ($snapshot.mechanism -eq 'process_group' -and $check.Identity.pid -ne $RootIdentity.pid) {
+                    continue
+                }
+
                 $members = @($snapshot.members | Where-Object pid -EQ $check.Identity.pid)
                 Assert-Condition ($members.Count -eq 1) "containment did not report $($check.Description)"
                 Assert-Condition (-not [string]::IsNullOrWhiteSpace([string] $members[0].start_time)) "containment did not publish a start-time token for $($check.Description)"
@@ -873,6 +878,7 @@ $detachedEvents = $null
 $detachedDirectory = $null
 $detachedIdentityChecks = @()
 $identityAssertionFailed = $false
+$nestedContractEvidence = $null
 
 try {
     $preflightDirectory = New-ScenarioDirectory 'preflight'
@@ -1346,6 +1352,21 @@ try {
         -ScenarioDirectory $nestedTeardownDirectory `
         -OutputPrefix 'inner'
 
+    $nestedProcessGroupFallback = $outerSnapshot.mechanism -eq 'process_group' -or $innerSnapshot.mechanism -eq 'process_group'
+    $nestedContractEvidence = [ordered]@{
+        outerMechanism = $outerSnapshot.mechanism
+        innerMechanism = $innerSnapshot.mechanism
+        descendantIdentityLiveBeforeCancel = Test-ProcessIdentityAlive $nestedIdentity.descendant
+        descendantEnumeration = if ($innerSnapshot.mechanism -eq 'process_group') { 'tracked-group-leaders-only' } else { 'whole-contained-tree' }
+        nestedOwnerTeardownCapability = if ($nestedProcessGroupFallback) { 'not-published' } else { 'mechanism-contained' }
+        unsupportedReason = if ($nestedProcessGroupFallback) {
+            'ProcessKit-CLI v0.3.3 publishes no capability guaranteeing inner process-group cleanup when outer teardown terminates the inner runner.'
+        } else {
+            $null
+        }
+        exactIdentityCleanupRequired = $true
+    }
+
     $nestedCleanupProof = Invoke-DetachedTeardown `
         -RunId $detachedRunId `
         -Action cancel `
@@ -1505,6 +1526,7 @@ finally {
             }
         }
         agentResult = $successEnvelope
+        nestedContainmentContract = $nestedContractEvidence
         scenarios = @($scenarioResults)
         failure = $failure
         cleanup = [ordered]@{

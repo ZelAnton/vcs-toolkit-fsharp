@@ -294,7 +294,10 @@ fail-closed detached cleanup with verified kill/wait recovery, ordinary nested c
 and outer-cancellation teardown while an inspected inner runner and its long-lived descendant
 are alive. The teardown proof records PID/start-time identities before cancellation, rejects
 cleanup read/kill errors and unknown reported survivors, and confirms that every exact identity
-is gone afterward. A nonzero POSIX terminal snapshot additionally requires the bounded
+is gone afterward. On the POSIX process-group fallback, `inspect.members` is used only for its
+published tracked-group-leader scope; descendant liveness and cleanup are checked from the
+fixture's exact PID/start-time identity instead of waiting for an entry that the contract does
+not enumerate. A nonzero POSIX terminal snapshot additionally requires the bounded
 machine-readable registry confirmation described above. Every lifecycle stream is checked by
 the published binary's embedded schema. A stream that contains `runner_exit` must end with
 exactly one such record. ProcessKit-CLI `v0.3.3` does not guarantee that the inner stream reaches
@@ -305,6 +308,12 @@ matrix executes this proof on the published Windows, Linux, and Apple Silicon ma
 uploads the install/proof JSON evidence.
 An unsupported OS/architecture or missing published asset is a hard, structured installer
 failure rather than a skipped proof.
+
+ProcessKit-CLI `v0.3.3` publishes no nested-owner teardown capability for the POSIX
+process-group fallback. The current Linux and macOS failure, minimal reproducer, required
+generic semantics, and acceptable additive alternatives are recorded in the
+[upstream-request draft](processkit-cli-nested-posix-containment-request.md). The executable
+proof continues to run and fails closed on a surviving exact identity.
 
 ## Compatibility policy
 

@@ -106,7 +106,11 @@ exit band `100-119`, and every CLI surface it uses. `scripts/install-processkit-
 downloads the pinned published `v0.3.3` asset with an exact SHA-256 check, while
 `scripts/test-vcs-agent-processkit.ps1` exercises success/non-success exit classification,
 overall and idle timeouts, detached cancellation, bounded capture, fail-closed detached
-cleanup, and nested containment teardown of a live descendant identity.
+cleanup, and nested containment teardown of a live descendant identity. The proof follows the
+published leader-only member enumeration on the POSIX process-group fallback while still
+requiring every exact identity to disappear. ProcessKit-CLI `v0.3.3` does not publish the
+nested-owner teardown guarantee needed by that fallback; the fail-closed reproducer and
+upstream request are [documented here](docs/processkit-cli-nested-posix-containment-request.md).
 CI runs that cross-binary proof on Windows, Linux, and Apple Silicon macOS; a missing or
 incompatible published binary fails closed instead of silently skipping supervision.
 

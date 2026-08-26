@@ -287,8 +287,13 @@ packed `vcs-agent` tool, and validates independent agent-result and JSONL lifecy
   Failure-path cleanup capability-checks and verifies kill/wait plus terminal lifecycle and
   exact identity disappearance before deleting scratch evidence; any unconfirmed cleanup fails
   closed and retains that evidence path.
-- The published executable surface proved sufficient. No ProcessKit-CLI implementation
-  assembly is linked and no upstream request is currently justified.
+- The published `process_group` contract enumerates tracked group leaders rather than every
+  descendant, so readiness follows that scope while cleanup still requires every exact identity
+  to disappear. Published `v0.3.3` does not guarantee inner-owned group cleanup when outer
+  teardown terminates the inner runner; the evidence-backed minimal reproducer and generic
+  additive request are recorded in
+  [`processkit-cli-nested-posix-containment-request.md`](processkit-cli-nested-posix-containment-request.md).
+  No ProcessKit-CLI implementation assembly is linked, and the proof does not skip this gap.
 
 Exit condition: the two tools compose without linking private ProcessKit-CLI code
 and without weakening ProcessKit containment.
