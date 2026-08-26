@@ -38,6 +38,20 @@ let private capturing (reply: Reply) : (Command option ref) * ScriptedRunner =
 
     captured, runner
 
+let private assertRefused<'T> (label: string) (operation: Git -> Task<Result<'T, ProcessError>>) : Task =
+    task {
+        let captured, runner = capturing (Reply.Ok "unexpected")
+        let! result = operation (Git.WithRunner runner)
+
+        match result with
+        | Error(ProcessError.Spawn(program, _)) ->
+            Assert.That(program, Is.EqualTo "git", $"{label} must report a Git refusal")
+        | Error e -> Assert.Fail $"{label} returned the wrong error: {e}"
+        | Ok _ -> Assert.Fail $"{label} accepted an invalid RefName"
+
+        Assert.That(captured.Value.IsNone, $"{label} must refuse before spawning")
+    }
+
 /// Run `f` in a fresh temp directory, removed afterwards (for on-disk marker probes).
 let private withTempDir (f: string -> unit) =
     let dir =
@@ -1693,20 +1707,6 @@ type GuardTests() =
     [<Test>]
     member _.StrictRefNameSlotsRejectBeforeSpawning() : Task =
         task {
-            let assertRefused label operation =
-                task {
-                    let captured, runner = capturing (Reply.Ok "unexpected")
-                    let! result = operation (Git.WithRunner runner)
-
-                    match result with
-                    | Error(ProcessError.Spawn(program, _)) ->
-                        Assert.That(program, Is.EqualTo "git", $"{label} must report a Git refusal")
-                    | Error e -> Assert.Fail $"{label} returned the wrong error: {e}"
-                    | Ok _ -> Assert.Fail $"{label} accepted an invalid RefName"
-
-                    Assert.That(captured.Value.IsNone, $"{label} must refuse before spawning")
-                }
-
             do! assertRefused "CreateBranch" (fun git -> git.CreateBranch(".", "feature/.hidden"))
             do! assertRefused "BranchExists" (fun git -> git.BranchExists(".", "feature//name"))
             do! assertRefused "RemoteBranchExists" (fun git -> git.RemoteBranchExists(".", "feature/*"))
