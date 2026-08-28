@@ -230,9 +230,11 @@ type CommitCompletion =
     /// A backend call could have mutated the repository, but postflight could not prove its outcome.
     | Ambiguous
 
-/// Bounded evidence returned for both a verified commit and an ambiguous late failure. A
-/// `CreatedRevision` is populated only after `Paths` were read from that revision and matched
-/// `BackendPaths`; `ObservedCreatedRevision` is only a candidate for caller inspection.
+/// Bounded evidence returned for both a verified commit and an ambiguous late failure.
+/// `ObservedCreatedRevision` is populated only after the backend's relevant revision identity
+/// changed. `CreatedRevision` is stronger: it identifies the direct Git child of `SourceRevision`
+/// (or the sole root in an unborn repository), or the created Jujutsu revision, after `Paths` were
+/// read from that revision and matched `BackendPaths`.
 type CommitData =
     { Root: string
       Backend: string

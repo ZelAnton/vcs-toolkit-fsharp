@@ -653,6 +653,23 @@ module Agent =
                 else
                     outputLimit attached.Operation outputLimitBytes (EnvelopeSerialization.byteCount attached)
 
+    let private isDirectGitCommit (repo: Repo) (git: VcsToolkit.Git.Git) beforeRevision candidateRevision =
+        task {
+            match beforeRevision with
+            | Some sourceRevision ->
+                match! git.RevParse(repo.Root, $"{candidateRevision}^") with
+                | Error _ -> return false
+                | Ok parentRevision when parentRevision <> sourceRevision -> return false
+                | Ok _ ->
+                    match! repo.Log($"{sourceRevision}..{candidateRevision}", 2) with
+                    | Ok [ candidate ] -> return candidate.Id = candidateRevision
+                    | _ -> return false
+            | None ->
+                match! repo.Log(candidateRevision, 2) with
+                | Ok [ candidate ] -> return candidate.Id = candidateRevision
+                | _ -> return false
+        }
+
     let private observedCommitPaths (repo: Repo) beforeRevision createdRevision =
         task {
             match repo.Kind with
@@ -660,22 +677,25 @@ module Agent =
                 match repo.Git with
                 | None -> return None
                 | Some git ->
-                    let! fromRevision =
-                        match beforeRevision with
-                        | Some revision -> task { return Some revision }
-                        | None ->
-                            task {
-                                match! git.EmptyTreeOid repo.Root with
-                                | Ok revision -> return Some revision
-                                | Error _ -> return None
-                            }
+                    match! isDirectGitCommit repo git beforeRevision createdRevision with
+                    | false -> return None
+                    | true ->
+                        let! fromRevision =
+                            match beforeRevision with
+                            | Some revision -> task { return Some revision }
+                            | None ->
+                                task {
+                                    match! git.EmptyTreeOid repo.Root with
+                                    | Ok revision -> return Some revision
+                                    | Error _ -> return None
+                                }
 
-                    match fromRevision with
-                    | None -> return None
-                    | Some revision ->
-                        match! git.DiffBetween(repo.Root, revision, createdRevision) with
-                        | Ok diffs -> return Some(diffPathSet diffs)
-                        | Error _ -> return None
+                        match fromRevision with
+                        | None -> return None
+                        | Some revision ->
+                            match! git.DiffBetween(repo.Root, revision, createdRevision) with
+                            | Ok diffs -> return Some(diffPathSet diffs)
+                            | Error _ -> return None
             | BackendKind.Jj ->
                 match repo.Jj with
                 | None -> return None
@@ -685,20 +705,33 @@ module Agent =
                     | Error _ -> return None
         }
 
-    let private resolveObservedCreatedRevision (repo: Repo) observedSnapshot =
+    let private resolveCurrentRevision (repo: Repo) revset observedSnapshot =
         task {
-            match repo.Kind with
-            | BackendKind.Git ->
-                match observedSnapshot |> Option.bind _.Head with
-                | Some revision -> return Some revision
-                | None ->
-                    match! repo.Log("HEAD", 1) with
-                    | Ok(commit :: _) -> return Some commit.Id
-                    | _ -> return None
-            | BackendKind.Jj ->
-                match! repo.Log("@-", 1) with
+            match observedSnapshot |> Option.bind _.Head with
+            | Some revision -> return Some revision
+            | None ->
+                match! repo.Log(revset, 1) with
                 | Ok(commit :: _) -> return Some commit.Id
                 | _ -> return None
+        }
+
+    let private resolveObservedCreatedRevision (repo: Repo) before observedSnapshot =
+        task {
+            let currentRevset =
+                match repo.Kind with
+                | BackendKind.Git -> "HEAD"
+                | BackendKind.Jj -> "@"
+
+            match! resolveCurrentRevision repo currentRevset observedSnapshot with
+            | None -> return None
+            | Some currentRevision when Some currentRevision = before.Head -> return None
+            | Some currentRevision ->
+                match repo.Kind with
+                | BackendKind.Git -> return Some currentRevision
+                | BackendKind.Jj ->
+                    match! repo.Log("@-", 1) with
+                    | Ok(commit :: _) when Some commit.Id <> before.Head -> return Some commit.Id
+                    | _ -> return None
         }
 
     let private commitCoreUnbounded
@@ -823,18 +856,11 @@ module Agent =
                                             changedAfter |> Set.filter (selected.Contains >> not) = unrelatedBefore)
 
                                     let! observedCreatedRevision =
-                                        resolveObservedCreatedRevision recovery observedSnapshot
-
-                                    let mutationObserved =
-                                        match mutationResult, observedSnapshot with
-                                        | Ok(), _ -> true
-                                        | Error _, Some after -> after.Head <> before.Head
-                                        | Error _, None -> false
+                                        resolveObservedCreatedRevision recovery before observedSnapshot
 
                                     let! observedPaths =
                                         match observedCreatedRevision with
-                                        | Some revision when mutationObserved ->
-                                            observedCommitPaths recovery before.Head revision
+                                        | Some revision -> observedCommitPaths recovery before.Head revision
                                         | _ -> task { return None }
 
                                     let createdRevision =

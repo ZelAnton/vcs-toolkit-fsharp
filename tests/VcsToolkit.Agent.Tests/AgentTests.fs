@@ -107,6 +107,50 @@ module private CommitTest =
             member _.SpawnAsync(command, cancellationToken) =
                 inner.SpawnAsync(command, cancellationToken)
 
+    type AdditionalCommitRunner(inner: IProcessRunner, repositoryRoot: string) =
+        interface IProcessRunner with
+            member _.CaptureStringAsync(command, cancellationToken) =
+                task {
+                    let! result = inner.CaptureStringAsync(command, cancellationToken)
+
+                    if command.Arguments |> Seq.contains "commit" then
+                        match result with
+                        | Error _ -> ()
+                        | Ok _ ->
+                            File.AppendAllText(Path.Combine(repositoryRoot, "selected.txt"), "concurrent\n")
+
+                            Raw.git
+                                repositoryRoot
+                                [ "commit"
+                                  "-qm"
+                                  "concurrent selected update"
+                                  "--only"
+                                  "--"
+                                  "selected.txt" ]
+
+                    return result
+                }
+
+            member _.CaptureBytesAsync(command, cancellationToken) =
+                inner.CaptureBytesAsync(command, cancellationToken)
+
+            member _.SpawnAsync(command, cancellationToken) =
+                inner.SpawnAsync(command, cancellationToken)
+
+    type FailingCommitRunner(inner: IProcessRunner, error: ProcessError) =
+        interface IProcessRunner with
+            member _.CaptureStringAsync(command, cancellationToken) =
+                if command.Arguments |> Seq.contains "commit" then
+                    Task.FromResult(Error error)
+                else
+                    inner.CaptureStringAsync(command, cancellationToken)
+
+            member _.CaptureBytesAsync(command, cancellationToken) =
+                inner.CaptureBytesAsync(command, cancellationToken)
+
+            member _.SpawnAsync(command, cancellationToken) =
+                inner.SpawnAsync(command, cancellationToken)
+
     let requireGit () =
         try
             Raw.git "." [ "--version" ]
@@ -573,6 +617,9 @@ type ReadOnlyOutcomeTests() =
                 let data = CommitTest.expectCommit envelope
                 Assert.That(data.SourceRevision, Is.EqualTo(Some "abc123"))
                 Assert.That(data.SourceBranch, Is.EqualTo(Some "main"))
+                Assert.That(data.ObservedCreatedRevision.IsNone, Is.True)
+                Assert.That(data.CreatedRevision.IsNone, Is.True)
+                Assert.That(data.Paths, Is.Empty)
                 Assert.That(data.Completion, Is.EqualTo CommitCompletion.Ambiguous)
 
                 Assert.That(
@@ -623,6 +670,9 @@ type ReadOnlyOutcomeTests() =
                 Assert.That(envelope.Terminal, Is.True)
                 let data = CommitTest.expectCommit envelope
                 Assert.That(data.SourceRevision, Is.EqualTo(Some "abc123"))
+                Assert.That(data.ObservedCreatedRevision.IsNone, Is.True)
+                Assert.That(data.CreatedRevision.IsNone, Is.True)
+                Assert.That(data.Paths, Is.Empty)
                 Assert.That(data.Completion, Is.EqualTo CommitCompletion.Ambiguous)
             finally
                 Directory.Delete(root, true)
@@ -823,6 +873,73 @@ type ReadOnlyOutcomeTests() =
         }
 
     [<Test>]
+    member _.``A second Git commit with an aggregate matching path set is not claimed``() : Task =
+        task {
+            CommitTest.requireGit ()
+            use sandbox = GitSandbox.Init "agent-commit-multi-revision"
+            sandbox.CommitFile("selected.txt", "before\n", "base")
+            sandbox.Write("selected.txt", "selected\n")
+            let sourceRevision = sandbox.RevParse "HEAD"
+
+            let runner =
+                CommitTest.AdditionalCommitRunner(JobRunner() :> IProcessRunner, sandbox.Path)
+
+            let repo = Repo.FromGit(sandbox.Path, sandbox.Path, Git.WithRunner runner)
+
+            let! envelope =
+                Agent.commitWith
+                    repo
+                    [ "selected.txt" ]
+                    "selected only"
+                    CancellationToken.None
+                    Agent.DefaultOutputLimitBytes
+
+            Assert.That(envelope.Status, Is.EqualTo AgentStatus.Error)
+            Assert.That(envelope.Error.Value.Code, Is.EqualTo AgentErrorCode.Backend)
+            let evidence = CommitTest.expectCommit envelope
+            let observedRevision = sandbox.RevParse "HEAD"
+            Assert.That(evidence.SourceRevision, Is.EqualTo(Some sourceRevision))
+            Assert.That(evidence.ObservedCreatedRevision, Is.EqualTo(Some observedRevision))
+            Assert.That(evidence.CreatedRevision.IsNone, Is.True)
+            Assert.That(evidence.Paths, Is.Empty)
+            Assert.That(evidence.Completion, Is.EqualTo CommitCompletion.Ambiguous)
+
+            match! repo.Git.Value.DiffBetween(sandbox.Path, sourceRevision, observedRevision) with
+            | Error error -> Assert.Fail error.Message
+            | Ok diffs -> Assert.That((diffs |> List.map _.Path |> Set.ofList) = set [ "selected.txt" ], Is.True)
+        }
+
+    [<Test>]
+    member _.``An unborn Git repository verifies exactly one root revision``() : Task =
+        task {
+            CommitTest.requireGit ()
+            use sandbox = GitSandbox.Init "agent-commit-unborn"
+            sandbox.Write("selected.txt", "selected\n")
+            sandbox.Git [ "add"; "--"; "selected.txt" ]
+
+            let! envelope =
+                Agent.commit
+                    (CommitRequest.Create(sandbox.Path, [ "selected.txt" ], "initial selected"))
+                    CancellationToken.None
+
+            let evidence = CommitTest.expectCommit envelope
+            Assert.That(envelope.Status, Is.EqualTo AgentStatus.Success)
+            Assert.That(evidence.SourceRevision.IsNone, Is.True)
+            Assert.That(evidence.ObservedCreatedRevision.IsSome, Is.True)
+            Assert.That(evidence.CreatedRevision, Is.EqualTo evidence.ObservedCreatedRevision)
+            Assert.That((evidence.Paths = [ "selected.txt" ]), Is.True)
+            Assert.That(evidence.Completion, Is.EqualTo CommitCompletion.Verified)
+
+            match Repo.Open sandbox.Path with
+            | Error error -> Assert.Fail error.Message
+            | Ok repo ->
+                match! repo.Log(evidence.CreatedRevision.Value, 2) with
+                | Error error -> Assert.Fail error.Message
+                | Ok [ root ] -> Assert.That(root.Id, Is.EqualTo evidence.CreatedRevision.Value)
+                | Ok commits -> Assert.Fail $"expected one sole root revision, observed {commits.Length}"
+        }
+
+    [<Test>]
     member _.``Git rename expands to one verified old and new backend path pair``() : Task =
         task {
             CommitTest.requireGit ()
@@ -996,6 +1113,53 @@ type ReadOnlyOutcomeTests() =
             match! openedAfter.ChangedFiles() with
             | Error error -> Assert.Fail error.Message
             | Ok changes -> Assert.That((changes |> List.map _.Path) = [ "unrelated.txt" ], Is.True)
+        }
+
+    [<Test>]
+    member _.``Jujutsu failures without a revision transition emit no created candidate``() : Task =
+        task {
+            CommitTest.requireJj ()
+
+            let failures =
+                [ AgentErrorCode.Backend, ProcessError.Spawn("jj", "injected commit failure")
+                  AgentErrorCode.Timeout, ProcessError.Timeout("jj", TimeSpan.FromSeconds 1.0, "", "") ]
+
+            for expectedCode, failure in failures do
+                use sandbox =
+                    JjSandbox.InitNonColocated $"agent-commit-jj-no-transition-{expectedCode}"
+
+                sandbox.Write("base.txt", "base\n")
+                sandbox.Describe "base"
+                sandbox.NewChange "work"
+                sandbox.Write("selected.txt", "selected\n")
+
+                let inner = CommitTest.isolatedJjRunner sandbox.Path
+                let runner = CommitTest.FailingCommitRunner(inner, failure) :> IProcessRunner
+                let repo = Repo.FromJj(sandbox.Path, sandbox.Path, Jj.WithRunner runner)
+                let! before = repo.Snapshot()
+
+                let sourceRevision =
+                    match before with
+                    | Ok snapshot -> snapshot.Head
+                    | Error error -> failwith error.Message
+
+                let! envelope =
+                    Agent.commitWith
+                        repo
+                        [ "selected.txt" ]
+                        "selected only"
+                        CancellationToken.None
+                        Agent.DefaultOutputLimitBytes
+
+                Assert.That(envelope.Status, Is.EqualTo AgentStatus.Error)
+                Assert.That(envelope.Error.Value.Code, Is.EqualTo expectedCode)
+                let evidence = CommitTest.expectCommit envelope
+                Assert.That(evidence.SourceRevision, Is.EqualTo sourceRevision)
+                Assert.That(evidence.ObservedRevision, Is.EqualTo sourceRevision)
+                Assert.That(evidence.ObservedCreatedRevision.IsNone, Is.True)
+                Assert.That(evidence.CreatedRevision.IsNone, Is.True)
+                Assert.That(evidence.Paths, Is.Empty)
+                Assert.That(evidence.Completion, Is.EqualTo CommitCompletion.Ambiguous)
         }
 
     [<Test>]

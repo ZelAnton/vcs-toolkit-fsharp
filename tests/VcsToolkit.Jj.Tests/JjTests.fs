@@ -1428,7 +1428,7 @@ type ClientTests() =
             use repo = JjSandbox.Init "file-list-direct-subdirectory"
             repo.Write("sub/a.txt", "a\n")
             repo.Write("top.txt", "top\n")
-            let jj = Jj.Create()
+            let jj = isolatedJjFor repo
             let subdir = System.IO.Path.Combine(repo.Path, "sub")
 
             match! jj.FileList(subdir, None) with

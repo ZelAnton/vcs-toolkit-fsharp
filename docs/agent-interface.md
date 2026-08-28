@@ -164,15 +164,20 @@ envelope fits the requested stdout budget. Only then does it invoke the existing
 `Repo.CommitPaths`; it does not select or switch a backend, branch, or bookmark. Its only path
 expansion is the preflight old/new pair for one selected rename. Postflight requires the
 branch/bookmark identity to remain unchanged, every selected backend path to leave the changed
-set, and the unrelated changed-path set to remain identical. It also reads the created revision's
-diff and requires that observed path set to equal the exact backend path set before success.
+set, and the unrelated changed-path set to remain identical. On Git, the observed candidate must
+be the single direct child of the source revision (or the sole root of an unborn repository), and
+`paths` is read from that candidate's own parent-to-candidate diff. On Jujutsu, it is read from the
+created revision's own parent diff. The observed path set must equal the exact backend path set
+before success.
 
 Commit data binds the outcome to the canonical `root`, `backend`, `sourceRevision`, and
 `sourceBranch`. It distinguishes logical `requestedPaths` from the `backendPaths` sent to
 `Repo.CommitPaths`; `paths` comes from the observed created-revision diff rather than echoing the
-request. `observedRevision`, `observedBranch`, and `observedCreatedRevision` record bounded
-postflight facts, while `createdRevision` is populated only when the observed revision paths
-exactly match `backendPaths`. `completion` is `verified` on success.
+request. `observedRevision` and `observedBranch` record bounded postflight facts;
+`observedCreatedRevision` is present only after backend-specific evidence shows that the relevant
+revision identity changed. `createdRevision` is populated only after the direct-revision proof
+above and an exact match between its own observed paths and `backendPaths`. `completion` is
+`verified` on success.
 
 When unrelated dirt remains, the envelope includes an `unrelated-changes-preserved` warning. A
 backend failure, timeout, cancellation, or failed postflight is terminal and structured. Once a
