@@ -5,8 +5,8 @@
 application outcomes; `VcsToolkit.Agent.Server` is only the argv/stdout/stderr/exit-code
 adapter packaged as a .NET global tool.
 
-The implemented read-only operations are `probe`, `inspect`, and `changes`. The other
-v1 names are reserved now so an agent can distinguish a planned capability from an
+The implemented operations are the read-only `probe`, `inspect`, and `changes` outcomes plus
+the checked mutation `commit`. The other v1 names are reserved now so an agent can distinguish a planned capability from an
 unknown command without relying on human-readable diagnostics. The broader delivery
 sequence is documented in the [agent interface roadmap](agent-interface-roadmap.md).
 
@@ -32,7 +32,7 @@ dotnet tool install --global vcs-agent --version 0.1.0 --add-source ./artifacts
 | `probe` | `probe` | supported | no |
 | `inspect` | `inspect` | supported | no |
 | `changes` | `changes` | supported | no |
-| `commit` | `commit` | planned; returns `unsupported` | yes |
+| `commit` | `commit` | supported | yes |
 | `publish` | `publish` | planned; returns `unsupported` | yes |
 | `ci status` | `ci.status` | planned; returns `unsupported` | no |
 | `ci wait` | `ci.wait` | planned; returns `unsupported` | no |
@@ -137,6 +137,43 @@ The reusable API selects the same representations through `ChangesRequest.Summar
 structured diff cannot coexist or both be absent. `WithOutputLimit` and the supplied
 `CancellationToken` have the same semantics as the CLI flags and cancellation boundary.
 
+## Commit
+
+```sh
+vcs-agent commit --repo . --path src/App.fs --path tests/App.Tests.fs --message "Update app"
+vcs-agent commit --repo ./worktree --path docs/guide.md --message "Update guide" --output-budget 16384
+```
+
+`commit` requires a non-empty repository path, a non-empty NUL-free message, and one or more
+repeated `--path` values in the forward-slash, repository-root-relative form returned by
+`changes`. Empty, duplicate, rooted, backslash, empty-segment, `.` and `..` traversal paths are rejected as
+`invalid-input` before the repository is opened or any backend command runs. Every selected
+path must be present in the preflight changed-path set. On Git, a newly untracked path is
+reported by `changes`, but the existing `Repo.CommitPaths` / `git commit --only` contract
+requires a path already known to Git; asking to commit an untracked path therefore returns a
+structured `backend` failure without adding it implicitly. Jujutsu automatically tracks new
+working-copy files.
+
+After validation, `commit` reads the current snapshot and changed paths, refuses conflicts or
+another in-progress repository operation, and proves that the prospective complete success
+envelope fits the requested stdout budget. Only then does it invoke the existing
+`Repo.CommitPaths`; it does not select or switch a backend, branch, or bookmark, and it never
+adds another path. Postflight requires the branch/bookmark identity to remain unchanged, every
+selected path to leave the changed set, and the unrelated changed-path set to remain identical.
+
+Success data contains `backend`, the optional `sourceRevision`, `createdRevision`, and the
+ordered `paths` actually passed to `Repo.CommitPaths`. Git reports the new `HEAD`; Jujutsu
+reports the finalized parent of its new working-copy change. When unrelated dirt remains, the
+envelope includes an `unrelated-changes-preserved` warning. A backend failure, timeout, or
+cancellation is terminal and structured. If a command completed but its response was lost, a
+safe replay finds that the selected paths are no longer changed and stops with `invalid-input`
+instead of committing the unrelated work. `VcsToolkit.Agent.Tests` proves these behaviors with
+hermetic no-spawn/timeout checks and real `GitSandbox` / non-colocated `JjSandbox` repositories.
+
+The reusable API uses `CommitRequest.Create(repositoryPath, paths, message)`, optional
+`WithOutputLimit`, and a `CancellationToken`; its result and the CLI renderer share the same
+v1 envelope and full-output budget.
+
 ## Envelope and stream rules
 
 Every invocation writes exactly one LF-terminated JSON document to stdout. Property order
@@ -160,7 +197,7 @@ label `vcs-agent: <error-code>` and a newline; success leaves stderr empty.
 `--output-budget <bytes>` sets the maximum UTF-8 byte count retained on stdout and the
 capture budget passed to repository and forge clients. The default is 65,536 bytes and the
 minimum accepted value is 512 bytes. Backend overflow is classified as `output-limit`
-before partial content can become typed operation data. The reusable `inspect` and `changes`
+before partial content can become typed operation data. The reusable `inspect`, `changes`, and `commit`
 APIs measure the complete envelope at their return boundary; if it would exceed the same
 budget, they discard that result and return a complete
 `output-limit` error envelope instead. Its error object sets `truncated: true` and reports
@@ -192,7 +229,7 @@ distinct.
 
 ## Redaction and process boundary
 
-Every string in inspect and changes data, envelope errors, and warnings passes through the
+Every string in inspect, changes, and commit data, envelope errors, and warnings passes through the
 contract redactor again at final serialization. It removes URL userinfo, bearer values, and
 named token/password/secret/API-key/authorization values from remote URLs, paths, revision
 text, forge metadata, and diff content even when a caller constructs a public envelope

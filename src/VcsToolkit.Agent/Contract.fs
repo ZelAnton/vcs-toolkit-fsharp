@@ -101,6 +101,24 @@ type ChangesRequest =
         { this with
             OutputLimitBytes = outputLimitBytes }
 
+/// Request for an exact-path repository commit. Paths use the repository-root-relative,
+/// forward-slash form returned by `changes`; an empty path set is always refused.
+type CommitRequest =
+    { RepositoryPath: string
+      Paths: string list
+      Message: string
+      OutputLimitBytes: int }
+
+    static member Create(repositoryPath: string, paths: string list, message: string) =
+        { RepositoryPath = repositoryPath
+          Paths = paths
+          Message = message
+          OutputLimitBytes = 65_536 }
+
+    member this.WithOutputLimit(outputLimitBytes: int) =
+        { this with
+            OutputLimitBytes = outputLimitBytes }
+
 /// Current revision identity reported by `inspect`.
 type AgentRevisionIdentity =
     { Revision: string option
@@ -204,12 +222,20 @@ type ChangesData =
     | Summary of AgentChangeSummary
     | StructuredDiff of AgentFileDiff list
 
+/// Evidence returned after an exact-path commit has passed its postflight checks.
+type CommitData =
+    { Backend: string
+      SourceRevision: string option
+      CreatedRevision: string
+      Paths: string list }
+
 /// Operation-specific data carried by a v1 envelope.
 [<RequireQualifiedAccess>]
 type AgentPayload =
     | Probe of ProbeData
     | Inspect of InspectData
     | Changes of ChangesData
+    | Commit of CommitData
 
 /// Structured failure details. `LimitBytes` and `RequiredBytes` are populated only for
 /// `OutputLimit`; `Truncated` makes refusal of oversized content explicit.

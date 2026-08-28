@@ -49,7 +49,7 @@ module Agent =
             Supported = true
             Mutating = false }
           { Operation = AgentOperation.Commit
-            Supported = false
+            Supported = true
             Mutating = true }
           { Operation = AgentOperation.Publish
             Supported = false
@@ -216,6 +216,10 @@ module Agent =
           Error = None
           Warnings = []
           FallbackReason = None }
+
+    let private successWithWarnings operation payload warnings =
+        { success operation payload with
+            Warnings = warnings }
 
     let private operationState state =
         match state with
@@ -496,3 +500,238 @@ module Agent =
 
     let internal changesWith (repo: Repo) mode (cancellationToken: CancellationToken) outputLimitBytes =
         changesCore repo mode cancellationToken outputLimitBytes
+
+    let private validateCommitPaths paths =
+        let invalidPath path =
+            String.IsNullOrWhiteSpace path
+            || path.IndexOf('\000') >= 0
+            || path.IndexOf('\r') >= 0
+            || path.IndexOf('\n') >= 0
+            || path.Contains('\\')
+            || path.StartsWith('/')
+            || (path.Length >= 2 && Char.IsLetter path.[0] && path.[1] = ':')
+            || (path.Split('/')
+                |> Array.exists (fun segment -> segment.Length = 0 || segment = "." || segment = ".."))
+
+        if obj.ReferenceEquals(paths, null) || List.isEmpty paths then
+            Error "commit requires at least one repo-relative path"
+        else
+            match paths |> List.tryFind invalidPath with
+            | Some path ->
+                Error $"commit path '{path}' must be a non-empty repo-relative forward-slash path without traversal"
+            | None when (paths |> Set.ofList |> Set.count) <> List.length paths ->
+                Error "commit paths must not contain duplicates"
+            | None -> Ok paths
+
+    let private validateCommitMessage message =
+        if String.IsNullOrWhiteSpace message then
+            Error "commit message must not be empty"
+        elif message.IndexOf('\000') >= 0 then
+            Error "commit message must not contain NUL"
+        else
+            Ok message
+
+    let private changedPathSet (changes: FileChange list) =
+        changes |> List.map _.Path |> Set.ofList
+
+    let private commitWarnings unrelatedPaths =
+        if Set.isEmpty unrelatedPaths then
+            []
+        else
+            [ { Code = "unrelated-changes-preserved"
+                Message = $"{Set.count unrelatedPaths} unrelated changed path(s) remain in the working copy." } ]
+
+    let private commitCoreUnbounded
+        (repo: Repo)
+        (paths: string list)
+        (message: string)
+        (cancellationToken: CancellationToken)
+        (outputLimitBytes: int)
+        =
+        task {
+            let operation = operationName AgentOperation.Commit
+
+            if outputLimitBytes < MinimumOutputLimitBytes then
+                return invalidInput operation $"output budget must be at least {MinimumOutputLimitBytes} bytes"
+            elif cancellationToken.IsCancellationRequested then
+                return cancellation operation
+            else
+                match validateCommitPaths paths, validateCommitMessage message with
+                | Error validationError, _
+                | _, Error validationError -> return invalidInput operation validationError
+                | Ok validatedPaths, Ok _ ->
+                    let configured: Repo =
+                        repo.WithAgentExecution(cancellationToken, Some outputLimitBytes)
+
+                    match! configured.Snapshot() with
+                    | Error error -> return repoFailure operation outputLimitBytes error
+                    | Ok before when before.Conflicted || before.Operation <> OperationState.Clear ->
+                        return
+                            failure
+                                operation
+                                AgentErrorCode.Denied
+                                "commit is denied while the repository has conflicts or another operation in progress"
+                                false
+                                false
+                                None
+                                None
+                                None
+                    | Ok before ->
+                        match! configured.ChangedFiles() with
+                        | Error error -> return repoFailure operation outputLimitBytes error
+                        | Ok changesBefore ->
+                            let changedBefore = changedPathSet changesBefore
+                            let missing = validatedPaths |> List.filter (changedBefore.Contains >> not)
+
+                            if not (List.isEmpty missing) then
+                                let missingText = String.concat ", " missing
+
+                                return
+                                    invalidInput
+                                        operation
+                                        $"commit paths are not all changed in the working copy: {missingText}"
+                            else
+                                let selected = Set.ofList validatedPaths
+
+                                let unrelatedBefore = changedBefore |> Set.filter (selected.Contains >> not)
+
+                                let warnings = commitWarnings unrelatedBefore
+
+                                let budgetPreview =
+                                    successWithWarnings
+                                        operation
+                                        (AgentPayload.Commit
+                                            { Backend = configured.Kind.AsString
+                                              SourceRevision = before.Head
+                                              CreatedRevision = String.replicate 128 "0"
+                                              Paths = validatedPaths })
+                                        warnings
+
+                                let previewBytes = EnvelopeSerialization.byteCount budgetPreview
+
+                                if previewBytes > outputLimitBytes then
+                                    return outputLimit operation outputLimitBytes previewBytes
+                                else
+                                    match! configured.CommitPaths(validatedPaths, message) with
+                                    | Error error -> return repoFailure operation outputLimitBytes error
+                                    | Ok() ->
+                                        match! configured.Snapshot() with
+                                        | Error error -> return repoFailure operation outputLimitBytes error
+                                        | Ok after when after.Branch <> before.Branch ->
+                                            return
+                                                failure
+                                                    operation
+                                                    AgentErrorCode.Backend
+                                                    "commit changed the current branch or bookmark unexpectedly"
+                                                    false
+                                                    false
+                                                    None
+                                                    None
+                                                    None
+                                        | Ok after ->
+                                            match! configured.ChangedFiles() with
+                                            | Error error -> return repoFailure operation outputLimitBytes error
+                                            | Ok changesAfter ->
+                                                let changedAfter = changedPathSet changesAfter
+                                                let stillSelected = selected |> Set.filter changedAfter.Contains
+
+                                                let unrelatedAfter =
+                                                    changedAfter |> Set.filter (selected.Contains >> not)
+
+                                                if not (Set.isEmpty stillSelected) then
+                                                    let stillSelectedText = String.concat ", " stillSelected
+
+                                                    return
+                                                        failure
+                                                            operation
+                                                            AgentErrorCode.Backend
+                                                            $"commit postflight found selected paths still changed: {stillSelectedText}"
+                                                            false
+                                                            false
+                                                            None
+                                                            None
+                                                            None
+                                                elif unrelatedAfter <> unrelatedBefore then
+                                                    return
+                                                        failure
+                                                            operation
+                                                            AgentErrorCode.Backend
+                                                            "commit postflight found that the unrelated changed-path set was modified"
+                                                            false
+                                                            false
+                                                            None
+                                                            None
+                                                            None
+                                                else
+                                                    let createdRevision =
+                                                        match configured.Kind with
+                                                        | BackendKind.Git -> after.Head
+                                                        | BackendKind.Jj -> None
+
+                                                    let! createdRevisionResult =
+                                                        match createdRevision with
+                                                        | Some revision -> task { return Ok revision }
+                                                        | None ->
+                                                            task {
+                                                                match! configured.Log("@-", 1) with
+                                                                | Ok(commit :: _) -> return Ok commit.Id
+                                                                | Ok [] ->
+                                                                    return
+                                                                        Error(
+                                                                            RepoError.InvalidInput
+                                                                                "commit postflight could not resolve the created revision"
+                                                                        )
+                                                                | Error error -> return Error error
+                                                            }
+
+                                                    match createdRevisionResult with
+                                                    | Error error -> return repoFailure operation outputLimitBytes error
+                                                    | Ok createdRevision ->
+                                                        return
+                                                            successWithWarnings
+                                                                operation
+                                                                (AgentPayload.Commit
+                                                                    { Backend = configured.Kind.AsString
+                                                                      SourceRevision = before.Head
+                                                                      CreatedRevision = createdRevision
+                                                                      Paths = validatedPaths })
+                                                                warnings
+        }
+
+    let private commitCore repo paths message cancellationToken outputLimitBytes =
+        commitCoreUnbounded repo paths message cancellationToken outputLimitBytes
+        |> withBudget outputLimitBytes
+
+    /// Commit exactly the requested changed repo-relative paths. Validation and repository
+    /// preflight complete before `Repo.CommitPaths` is invoked, and the returned envelope has
+    /// already passed the complete serialized-output budget.
+    let commit (request: CommitRequest) (cancellationToken: CancellationToken) =
+        task {
+            let operation = operationName AgentOperation.Commit
+
+            if request.OutputLimitBytes < MinimumOutputLimitBytes then
+                return invalidInput operation $"output budget must be at least {MinimumOutputLimitBytes} bytes"
+            elif cancellationToken.IsCancellationRequested then
+                return cancellation operation
+            elif String.IsNullOrWhiteSpace request.RepositoryPath then
+                return invalidInput operation "repository path must not be empty"
+            else
+                match validateCommitPaths request.Paths, validateCommitMessage request.Message with
+                | Error validationError, _
+                | _, Error validationError -> return invalidInput operation validationError
+                | Ok _, Ok _ ->
+                    match Repo.Open request.RepositoryPath with
+                    | Error error -> return repoFailure operation request.OutputLimitBytes error
+                    | Ok repo ->
+                        return!
+                            commitCoreUnbounded
+                                repo
+                                request.Paths
+                                request.Message
+                                cancellationToken
+                                request.OutputLimitBytes
+        }
+        |> withBudget request.OutputLimitBytes
+
+    let internal commitWith (repo: Repo) paths message (cancellationToken: CancellationToken) outputLimitBytes =
+        commitCore repo paths message cancellationToken outputLimitBytes

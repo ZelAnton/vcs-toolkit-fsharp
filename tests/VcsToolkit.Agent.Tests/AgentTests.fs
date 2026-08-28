@@ -9,12 +9,14 @@ open System.Threading
 open System.Threading.Tasks
 open Microsoft.FSharp.Reflection
 open NUnit.Framework
+open ProcessKit
 open ProcessKit.Testing
 open VcsToolkit.Agent
 open VcsToolkit.Core
 open VcsToolkit.Forge
 open VcsToolkit.Git
 open VcsToolkit.Jj
+open VcsToolkit.TestKit
 
 module private Golden =
     let private projectDir =
@@ -28,6 +30,86 @@ module private Golden =
 
     let read name =
         File.ReadAllText(Path.Combine(projectDir, "Golden", name)).Replace("\r\n", "\n")
+
+module private CommitTest =
+    type IsolatedJjRunner(inner: IProcessRunner, repositoryRoot: string) =
+        let configRoot = Path.Combine(repositoryRoot, ".jj", ".vcs-toolkit-jj-config")
+
+        let isolate (command: Command) =
+            command
+            |> Command.env "JJ_CONFIG" (Path.Combine(configRoot, "vcs-agent-nonexistent-config.toml"))
+            |> Command.env "APPDATA" configRoot
+            |> Command.env "LOCALAPPDATA" configRoot
+            |> Command.env "XDG_CONFIG_HOME" configRoot
+            |> Command.env "JJ_USER" "test"
+            |> Command.env "JJ_EMAIL" "test@example.com"
+
+        interface IProcessRunner with
+            member _.CaptureStringAsync(command, cancellationToken) =
+                inner.CaptureStringAsync(isolate command, cancellationToken)
+
+            member _.CaptureBytesAsync(command, cancellationToken) =
+                inner.CaptureBytesAsync(isolate command, cancellationToken)
+
+            member _.SpawnAsync(command, cancellationToken) =
+                inner.SpawnAsync(isolate command, cancellationToken)
+
+    type FailAfterSuccessfulCommitRunner(inner: IProcessRunner) =
+        let mutable committed = false
+
+        interface IProcessRunner with
+            member _.CaptureStringAsync(command, cancellationToken) =
+                task {
+                    if committed then
+                        return Error(ProcessError.Spawn(command.Program, "injected post-commit read failure"))
+                    else
+                        let! result = inner.CaptureStringAsync(command, cancellationToken)
+
+                        if command.Arguments |> Seq.contains "commit" then
+                            match result with
+                            | Ok _ -> committed <- true
+                            | Error _ -> ()
+
+                        return result
+                }
+
+            member _.CaptureBytesAsync(command, cancellationToken) =
+                inner.CaptureBytesAsync(command, cancellationToken)
+
+            member _.SpawnAsync(command, cancellationToken) =
+                inner.SpawnAsync(command, cancellationToken)
+
+    let requireGit () =
+        try
+            Raw.git "." [ "--version" ]
+        with _ ->
+            // This live-backend test is optional on developer machines without Git.
+            Assert.Ignore "git not available on PATH"
+
+    let requireJj () =
+        try
+            Raw.jj "." [ "--version" ]
+        with _ ->
+            // Local runs may omit jj, but CI's REQUIRE_JJ gate must fail closed.
+            if Environment.GetEnvironmentVariable "REQUIRE_JJ" = "1" then
+                Assert.Fail "REQUIRE_JJ=1 but jj not available on PATH"
+            else
+                Assert.Ignore "jj not available on PATH"
+
+    let expectCommit envelope =
+        match envelope.Data with
+        | Some(AgentPayload.Commit data) -> data
+        | _ ->
+            let detail =
+                envelope.Error
+                |> Option.map _.Message
+                |> Option.defaultValue "no structured error"
+
+            Assert.Fail $"commit payload expected: {detail}"
+            Unchecked.defaultof<CommitData>
+
+    let isolatedJjRunner repositoryRoot =
+        IsolatedJjRunner(JobRunner() :> IProcessRunner, repositoryRoot) :> IProcessRunner
 
 [<TestFixture>]
 type ContractTests() =
@@ -124,6 +206,29 @@ type ContractTests() =
         Assert.That(AgentWire.serialize envelope, Is.EqualTo(Golden.read "changes-summary.v1.json"))
 
     [<Test>]
+    member _.``Commit envelope matches the committed v1 golden``() =
+        let envelope: AgentEnvelope =
+            { ContractVersion = Agent.ContractVersion
+              Operation = "commit"
+              Status = AgentStatus.Success
+              Terminal = true
+              Data =
+                Some(
+                    AgentPayload.Commit
+                        { Backend = "git"
+                          SourceRevision = Some "abc123"
+                          CreatedRevision = "def456"
+                          Paths = [ "src/App.fs"; "tests/App.Tests.fs" ] }
+                )
+              Error = None
+              Warnings =
+                [ { Code = "unrelated-changes-preserved"
+                    Message = "1 unrelated changed path(s) remain in the working copy." } ]
+              FallbackReason = None }
+
+        Assert.That(AgentWire.serialize envelope, Is.EqualTo(Golden.read "commit.v1.json"))
+
+    [<Test>]
     member _.``Changes data has exactly one payload in each public union case``() =
         let cases = FSharpType.GetUnionCases typeof<ChangesData>
 
@@ -187,7 +292,14 @@ type ContractTests() =
               Operation = "consumer.operation"
               Status = AgentStatus.Error
               Terminal = true
-              Data = None
+              Data =
+                Some(
+                    AgentPayload.Commit
+                        { Backend = "git"
+                          SourceRevision = Some $"Bearer {bearerSecret}"
+                          CreatedRevision = $"https://user:{urlSecret}@example.test/revision"
+                          Paths = [ $"api_key={namedSecret}" ] }
+                )
               Error =
                 Some
                     { Code = AgentErrorCode.ExternalCommand
@@ -318,6 +430,430 @@ type ReadOnlyOutcomeTests() =
                 Assert.That(serialized, Does.Contain "[REDACTED]")
             finally
                 Directory.Delete(root, true)
+        }
+
+    [<Test>]
+    member _.``Invalid exact paths and cancellation never invoke a backend``() : Task =
+        task {
+            let nullPaths: string list = Unchecked.defaultof<_>
+
+            let invalidPathSets =
+                [ []
+                  nullPaths
+                  [ "../outside.fs" ]
+                  [ "/rooted.fs" ]
+                  [ "C:/rooted.fs" ]
+                  [ "a\\b.fs" ]
+                  [ "a//b.fs" ]
+                  [ "a.fs"; "a.fs" ] ]
+
+            for paths in invalidPathSets do
+                let runner = ScriptedRunner()
+                let repo = Repo.FromGit(".", ".", Git.WithRunner runner)
+
+                let! envelope =
+                    Agent.commitWith repo paths "message" CancellationToken.None Agent.DefaultOutputLimitBytes
+
+                Assert.That(envelope.Error.Value.Code, Is.EqualTo AgentErrorCode.InvalidInput)
+                Assert.That(runner.Received, Is.Empty)
+
+            for message in [ " "; string '\000' ] do
+                let runner = ScriptedRunner()
+                let repo = Repo.FromGit(".", ".", Git.WithRunner runner)
+
+                let! envelope =
+                    Agent.commitWith repo [ "src/App.fs" ] message CancellationToken.None Agent.DefaultOutputLimitBytes
+
+                Assert.That(envelope.Error.Value.Code, Is.EqualTo AgentErrorCode.InvalidInput)
+                Assert.That(runner.Received, Is.Empty)
+
+            let emptyRepositoryRequest = CommitRequest.Create(" ", [ "src/App.fs" ], "message")
+
+            let! emptyRepository = Agent.commit emptyRepositoryRequest CancellationToken.None
+            Assert.That(emptyRepository.Error.Value.Code, Is.EqualTo AgentErrorCode.InvalidInput)
+
+            use cts = new CancellationTokenSource()
+            cts.Cancel()
+            let cancelledRunner = ScriptedRunner()
+            let cancelledRepo = Repo.FromGit(".", ".", Git.WithRunner cancelledRunner)
+
+            let! cancelled =
+                Agent.commitWith cancelledRepo [ "src/App.fs" ] "message" cts.Token Agent.DefaultOutputLimitBytes
+
+            Assert.That(cancelled.Error.Value.Code, Is.EqualTo AgentErrorCode.Cancellation)
+            Assert.That(cancelledRunner.Received, Is.Empty)
+        }
+
+    [<Test>]
+    member _.``Backend timeout is a typed terminal commit result``() : Task =
+        task {
+            let root =
+                Path.Combine(Path.GetTempPath(), $"vcs-agent-commit-timeout-{Guid.NewGuid():N}")
+
+            let gitDir = Path.Combine(root, ".git")
+            Directory.CreateDirectory gitDir |> ignore
+            let nul = string '\000'
+
+            let snapshot =
+                [ "# branch.oid abc123"
+                  "# branch.head main"
+                  "1 .M N... 100644 100644 100644 1 2 src/App.fs" ]
+                |> List.map (fun line -> line + nul)
+                |> String.concat ""
+
+            let runner =
+                ScriptedRunner()
+                    .On([ "status"; "--porcelain=v2"; "--branch"; "-z" ], Reply.Ok snapshot)
+                    .On([ "rev-parse"; "--git-dir" ], Reply.Ok(gitDir + "\n"))
+                    .On([ "status"; "--porcelain=v1"; "-z" ], Reply.Ok($" M src/App.fs{nul}"))
+                    .On([ "commit" ], Reply.Error(ProcessError.Timeout("git", TimeSpan.FromSeconds 1.0, "", "")))
+
+            try
+                let repo = Repo.FromGit(root, root, Git.WithRunner runner)
+
+                let! envelope =
+                    Agent.commitWith
+                        repo
+                        [ "src/App.fs" ]
+                        "message"
+                        CancellationToken.None
+                        Agent.DefaultOutputLimitBytes
+
+                Assert.That(envelope.Status, Is.EqualTo AgentStatus.Error)
+                Assert.That(envelope.Error.Value.Code, Is.EqualTo AgentErrorCode.Timeout)
+                Assert.That(envelope.Terminal, Is.True)
+
+                Assert.That(
+                    runner.CountReceived(fun invocation -> invocation.Args |> Seq.contains "commit"),
+                    Is.EqualTo 1
+                )
+            finally
+                Directory.Delete(root, true)
+        }
+
+    [<Test>]
+    member _.``Backend cancellation is a typed terminal commit result``() : Task =
+        task {
+            let root =
+                Path.Combine(Path.GetTempPath(), $"vcs-agent-commit-cancel-{Guid.NewGuid():N}")
+
+            let gitDir = Path.Combine(root, ".git")
+            Directory.CreateDirectory gitDir |> ignore
+            let nul = string '\000'
+
+            let snapshot =
+                [ "# branch.oid abc123"
+                  "# branch.head main"
+                  "1 .M N... 100644 100644 100644 1 2 src/App.fs" ]
+                |> List.map (fun line -> line + nul)
+                |> String.concat ""
+
+            let runner =
+                ScriptedRunner()
+                    .On([ "status"; "--porcelain=v2"; "--branch"; "-z" ], Reply.Ok snapshot)
+                    .On([ "rev-parse"; "--git-dir" ], Reply.Ok(gitDir + "\n"))
+                    .On([ "status"; "--porcelain=v1"; "-z" ], Reply.Ok($" M src/App.fs{nul}"))
+                    .On([ "commit" ], Reply.Error(ProcessError.Cancelled "git"))
+
+            try
+                let repo = Repo.FromGit(root, root, Git.WithRunner runner)
+
+                let! envelope =
+                    Agent.commitWith
+                        repo
+                        [ "src/App.fs" ]
+                        "message"
+                        CancellationToken.None
+                        Agent.DefaultOutputLimitBytes
+
+                Assert.That(envelope.Status, Is.EqualTo AgentStatus.Error)
+                Assert.That(envelope.Error.Value.Code, Is.EqualTo AgentErrorCode.Cancellation)
+                Assert.That(envelope.Terminal, Is.True)
+            finally
+                Directory.Delete(root, true)
+        }
+
+    [<Test>]
+    member _.``Commit refuses an oversized prospective success before mutation``() : Task =
+        task {
+            let root =
+                Path.Combine(Path.GetTempPath(), $"vcs-agent-commit-budget-{Guid.NewGuid():N}")
+
+            let gitDir = Path.Combine(root, ".git")
+            Directory.CreateDirectory gitDir |> ignore
+            let nul = string '\000'
+            let path = "src/" + String.replicate 350 "x" + ".fs"
+
+            let snapshot =
+                [ "# branch.oid abc123"
+                  "# branch.head main"
+                  $"1 .M N... 100644 100644 100644 1 2 {path}" ]
+                |> List.map (fun line -> line + nul)
+                |> String.concat ""
+
+            let runner =
+                ScriptedRunner()
+                    .On([ "status"; "--porcelain=v2"; "--branch"; "-z" ], Reply.Ok snapshot)
+                    .On([ "rev-parse"; "--git-dir" ], Reply.Ok(gitDir + "\n"))
+                    .On([ "status"; "--porcelain=v1"; "-z" ], Reply.Ok($" M {path}{nul}"))
+                    .On([ "commit" ], Reply.Exit 0)
+
+            try
+                let repo = Repo.FromGit(root, root, Git.WithRunner runner)
+
+                let! envelope =
+                    Agent.commitWith repo [ path ] "message" CancellationToken.None Agent.MinimumOutputLimitBytes
+
+                Assert.That(envelope.Error.Value.Code, Is.EqualTo AgentErrorCode.OutputLimit)
+
+                Assert.That(
+                    runner.CountReceived(fun invocation -> invocation.Args |> Seq.contains "commit"),
+                    Is.EqualTo 0
+                )
+            finally
+                Directory.Delete(root, true)
+        }
+
+    [<Test>]
+    member _.``Git commit preserves unrelated dirt and a retry cannot capture it``() : Task =
+        task {
+            CommitTest.requireGit ()
+            use sandbox = GitSandbox.Init "agent-commit-git"
+            sandbox.CommitFile("selected-a.txt", "before a\n", "base a")
+            sandbox.CommitFile("selected-b.txt", "before b\n", "base b")
+            sandbox.CommitFile("tracked-unrelated.txt", "before unrelated\n", "base unrelated")
+            let source = sandbox.RevParse "HEAD"
+            sandbox.Write("selected-a.txt", "selected a\n")
+            sandbox.Write("selected-b.txt", "selected b\n")
+            sandbox.Write("tracked-unrelated.txt", "dirty tracked\n")
+            sandbox.Write("untracked-unrelated.txt", "dirty untracked\n")
+
+            let request =
+                CommitRequest.Create(sandbox.Path, [ "selected-a.txt"; "selected-b.txt" ], "selected only")
+
+            let! envelope = Agent.commit request CancellationToken.None
+            let data = CommitTest.expectCommit envelope
+
+            Assert.That(data.Backend, Is.EqualTo "git")
+            Assert.That(data.SourceRevision, Is.EqualTo(Some source))
+            Assert.That(data.CreatedRevision, Is.EqualTo(sandbox.RevParse "HEAD"))
+            Assert.That((data.Paths = [ "selected-a.txt"; "selected-b.txt" ]), Is.True)
+            Assert.That(envelope.Warnings |> List.map _.Code, Does.Contain "unrelated-changes-preserved")
+
+            Assert.That(
+                File.ReadAllText(Path.Combine(sandbox.Path, "tracked-unrelated.txt")),
+                Is.EqualTo "dirty tracked\n"
+            )
+
+            Assert.That(
+                File.ReadAllText(Path.Combine(sandbox.Path, "untracked-unrelated.txt")),
+                Is.EqualTo "dirty untracked\n"
+            )
+
+            let! opened =
+                match Repo.Open sandbox.Path with
+                | Ok repo -> task { return repo }
+                | Error error -> failwith error.Message
+
+            let! remaining = opened.ChangedFiles()
+
+            match remaining with
+            | Error error -> Assert.Fail error.Message
+            | Ok changes ->
+                let remainingPaths = changes |> List.map _.Path |> List.sort
+
+                Assert.That((remainingPaths = [ "tracked-unrelated.txt"; "untracked-unrelated.txt" ]), Is.True)
+
+            for path in data.Paths do
+                match! opened.LogPaths(data.CreatedRevision, 1, [ path ]) with
+                | Error error -> Assert.Fail error.Message
+                | Ok(commit :: _) -> Assert.That(commit.Id, Is.EqualTo data.CreatedRevision)
+                | Ok [] -> Assert.Fail $"created Git revision did not include {path}"
+
+            match! opened.LogPaths(data.CreatedRevision, 1, [ "tracked-unrelated.txt" ]) with
+            | Error error -> Assert.Fail error.Message
+            | Ok(commit :: _) -> Assert.That(commit.Id, Is.Not.EqualTo data.CreatedRevision)
+            | Ok [] -> ()
+
+            let beforeRetry = sandbox.RevParse "HEAD"
+            let! retry = Agent.commit request CancellationToken.None
+            Assert.That(retry.Error.Value.Code, Is.EqualTo AgentErrorCode.InvalidInput)
+            Assert.That(sandbox.RevParse "HEAD", Is.EqualTo beforeRetry)
+
+            Assert.That(
+                File.ReadAllText(Path.Combine(sandbox.Path, "tracked-unrelated.txt")),
+                Is.EqualTo "dirty tracked\n"
+            )
+        }
+
+    [<Test>]
+    member _.``Git replay after a post-commit failure cannot capture unrelated dirt``() : Task =
+        task {
+            CommitTest.requireGit ()
+            use sandbox = GitSandbox.Init "agent-commit-git-recovery"
+            sandbox.CommitFile("selected.txt", "before\n", "base")
+            sandbox.Write("selected.txt", "selected\n")
+            sandbox.Write("unrelated.txt", "unrelated\n")
+            let before = sandbox.RevParse "HEAD"
+
+            let failingRunner =
+                CommitTest.FailAfterSuccessfulCommitRunner(JobRunner() :> IProcessRunner)
+
+            let repo = Repo.FromGit(sandbox.Path, sandbox.Path, Git.WithRunner failingRunner)
+
+            let! first =
+                Agent.commitWith
+                    repo
+                    [ "selected.txt" ]
+                    "selected only"
+                    CancellationToken.None
+                    Agent.DefaultOutputLimitBytes
+
+            Assert.That(first.Error.Value.Code, Is.EqualTo AgentErrorCode.Backend)
+            let afterMutation = sandbox.RevParse "HEAD"
+            Assert.That(afterMutation, Is.Not.EqualTo before)
+
+            let request =
+                CommitRequest.Create(sandbox.Path, [ "selected.txt" ], "selected only")
+
+            let! retry = Agent.commit request CancellationToken.None
+            Assert.That(retry.Error.Value.Code, Is.EqualTo AgentErrorCode.InvalidInput)
+            Assert.That(sandbox.RevParse "HEAD", Is.EqualTo afterMutation)
+            Assert.That(File.ReadAllText(Path.Combine(sandbox.Path, "unrelated.txt")), Is.EqualTo "unrelated\n")
+        }
+
+    [<Test>]
+    member _.``Jujutsu commit preserves unrelated dirt and reports the created revision``() : Task =
+        task {
+            CommitTest.requireJj ()
+            use sandbox = JjSandbox.InitNonColocated "agent-commit-jj"
+            sandbox.Write("base.txt", "base\n")
+            sandbox.Write("tracked-unrelated.txt", "before unrelated\n")
+            sandbox.Describe "base"
+            sandbox.NewChange "work"
+            sandbox.Write("selected.txt", "selected\n")
+            sandbox.Write("tracked-unrelated.txt", "dirty tracked\n")
+            sandbox.Write("untracked-unrelated.txt", "dirty untracked\n")
+
+            let request =
+                CommitRequest.Create(sandbox.Path, [ "selected.txt" ], "selected only")
+
+            let repo =
+                Repo.FromJj(sandbox.Path, sandbox.Path, Jj.WithRunner(CommitTest.isolatedJjRunner sandbox.Path))
+
+            let! envelope =
+                Agent.commitWith repo request.Paths request.Message CancellationToken.None request.OutputLimitBytes
+
+            let data = CommitTest.expectCommit envelope
+
+            Assert.That(data.Backend, Is.EqualTo "jj")
+            Assert.That(data.SourceRevision.IsSome, Is.True)
+            Assert.That(String.IsNullOrWhiteSpace data.CreatedRevision, Is.False)
+            Assert.That((data.Paths = [ "selected.txt" ]), Is.True)
+            Assert.That(envelope.Warnings |> List.map _.Code, Does.Contain "unrelated-changes-preserved")
+
+            Assert.That(
+                File.ReadAllText(Path.Combine(sandbox.Path, "tracked-unrelated.txt")),
+                Is.EqualTo "dirty tracked\n"
+            )
+
+            Assert.That(
+                File.ReadAllText(Path.Combine(sandbox.Path, "untracked-unrelated.txt")),
+                Is.EqualTo "dirty untracked\n"
+            )
+
+            match! repo.ChangedFiles() with
+            | Error error -> Assert.Fail error.Message
+            | Ok changes ->
+                let remainingPaths = changes |> List.map _.Path |> List.sort
+
+                Assert.That((remainingPaths = [ "tracked-unrelated.txt"; "untracked-unrelated.txt" ]), Is.True)
+
+            match! repo.Log("@-", 1) with
+            | Error error -> Assert.Fail error.Message
+            | Ok(commit :: _) -> Assert.That(data.CreatedRevision, Is.EqualTo commit.Id)
+            | Ok [] -> Assert.Fail "created jj revision was not found"
+
+            match! repo.LogPaths(data.CreatedRevision, 1, [ "selected.txt" ]) with
+            | Error error -> Assert.Fail error.Message
+            | Ok(commit :: _) -> Assert.That(commit.Id, Is.EqualTo data.CreatedRevision)
+            | Ok [] -> Assert.Fail "created Jujutsu revision did not include selected.txt"
+
+            match! repo.LogPaths(data.CreatedRevision, 1, [ "tracked-unrelated.txt" ]) with
+            | Error error -> Assert.Fail error.Message
+            | Ok(commit :: _) -> Assert.That(commit.Id, Is.Not.EqualTo data.CreatedRevision)
+            | Ok [] -> ()
+
+            let! retry =
+                Agent.commitWith repo request.Paths request.Message CancellationToken.None request.OutputLimitBytes
+
+            Assert.That(retry.Error.Value.Code, Is.EqualTo AgentErrorCode.InvalidInput)
+
+            Assert.That(
+                File.ReadAllText(Path.Combine(sandbox.Path, "tracked-unrelated.txt")),
+                Is.EqualTo "dirty tracked\n"
+            )
+        }
+
+    [<Test>]
+    member _.``Jujutsu replay after a post-commit failure cannot capture unrelated dirt``() : Task =
+        task {
+            CommitTest.requireJj ()
+            use sandbox = JjSandbox.InitNonColocated "agent-commit-jj-recovery"
+            sandbox.Write("base.txt", "base\n")
+            sandbox.Describe "base"
+            sandbox.NewChange "work"
+            sandbox.Write("selected.txt", "selected\n")
+            sandbox.Write("unrelated.txt", "unrelated\n")
+
+            let openedBefore =
+                Repo.FromJj(sandbox.Path, sandbox.Path, Jj.WithRunner(CommitTest.isolatedJjRunner sandbox.Path))
+
+            let! beforeSnapshot = openedBefore.Snapshot()
+
+            let beforeRevision =
+                match beforeSnapshot with
+                | Ok snapshot -> snapshot.Head
+                | Error error -> failwith error.Message
+
+            let failingRunner =
+                CommitTest.FailAfterSuccessfulCommitRunner(CommitTest.isolatedJjRunner sandbox.Path)
+
+            let repo = Repo.FromJj(sandbox.Path, sandbox.Path, Jj.WithRunner failingRunner)
+
+            let! first =
+                Agent.commitWith
+                    repo
+                    [ "selected.txt" ]
+                    "selected only"
+                    CancellationToken.None
+                    Agent.DefaultOutputLimitBytes
+
+            Assert.That(first.Error.Value.Code, Is.EqualTo AgentErrorCode.Backend)
+
+            let openedAfter =
+                Repo.FromJj(sandbox.Path, sandbox.Path, Jj.WithRunner(CommitTest.isolatedJjRunner sandbox.Path))
+
+            match! openedAfter.Snapshot() with
+            | Error error -> Assert.Fail error.Message
+            | Ok snapshot -> Assert.That(snapshot.Head, Is.Not.EqualTo beforeRevision)
+
+            let request =
+                CommitRequest.Create(sandbox.Path, [ "selected.txt" ], "selected only")
+
+            let! retry =
+                Agent.commitWith
+                    openedAfter
+                    request.Paths
+                    request.Message
+                    CancellationToken.None
+                    request.OutputLimitBytes
+
+            Assert.That(retry.Error.Value.Code, Is.EqualTo AgentErrorCode.InvalidInput)
+
+            match! openedAfter.ChangedFiles() with
+            | Error error -> Assert.Fail error.Message
+            | Ok changes -> Assert.That((changes |> List.map _.Path) = [ "unrelated.txt" ], Is.True)
         }
 
     [<Test>]

@@ -10,7 +10,9 @@ type private ParsedCommand =
     { Operation: AgentOperation
       OutputLimitBytes: int
       RepositoryPath: string
-      ChangesMode: ChangesMode }
+      ChangesMode: ChangesMode
+      CommitPaths: string list
+      CommitMessage: string }
 
 let internal readVersionFromAssembly (assembly: Assembly | null) =
     match assembly with
@@ -36,13 +38,13 @@ let private tryOperation (args: string list) =
     | _ -> None
 
 let private parseOptions args =
-    let rec loop commandArgs outputLimit repositoryPath changesMode remaining =
+    let rec loop commandArgs outputLimit repositoryPath changesMode commitPaths commitMessage remaining =
         match remaining with
-        | [] -> Ok(List.rev commandArgs, outputLimit, repositoryPath, changesMode)
+        | [] -> Ok(List.rev commandArgs, outputLimit, repositoryPath, changesMode, List.rev commitPaths, commitMessage)
         | "--output-budget" :: value :: rest ->
             match Int32.TryParse value with
             | true, parsed when parsed >= Agent.MinimumOutputLimitBytes ->
-                loop commandArgs parsed repositoryPath changesMode rest
+                loop commandArgs parsed repositoryPath changesMode commitPaths commitMessage rest
             | _ ->
                 Error(
                     Agent.invalidInput
@@ -50,30 +52,40 @@ let private parseOptions args =
                         $"--output-budget must be an integer of at least {Agent.MinimumOutputLimitBytes} bytes"
                 )
         | "--output-budget" :: [] -> Error(Agent.invalidInput "command" "--output-budget requires an integer value")
-        | "--repo" :: value :: rest -> loop commandArgs outputLimit value changesMode rest
+        | "--repo" :: value :: rest -> loop commandArgs outputLimit value changesMode commitPaths commitMessage rest
         | "--repo" :: [] -> Error(Agent.invalidInput "command" "--repo requires a path value")
         | "--view" :: value :: rest ->
             match value with
-            | "summary" -> loop commandArgs outputLimit repositoryPath ChangesMode.Summary rest
+            | "summary" ->
+                loop commandArgs outputLimit repositoryPath ChangesMode.Summary commitPaths commitMessage rest
             | "diff"
-            | "structured-diff" -> loop commandArgs outputLimit repositoryPath ChangesMode.StructuredDiff rest
+            | "structured-diff" ->
+                loop commandArgs outputLimit repositoryPath ChangesMode.StructuredDiff commitPaths commitMessage rest
             | _ -> Error(Agent.invalidInput "command" "--view must be 'summary' or 'diff'")
         | "--view" :: [] -> Error(Agent.invalidInput "command" "--view requires a value")
-        | token :: rest -> loop (token :: commandArgs) outputLimit repositoryPath changesMode rest
+        | "--path" :: value :: rest ->
+            loop commandArgs outputLimit repositoryPath changesMode (value :: commitPaths) commitMessage rest
+        | "--path" :: [] -> Error(Agent.invalidInput "command" "--path requires a repo-relative path value")
+        | "--message" :: value :: rest -> loop commandArgs outputLimit repositoryPath changesMode commitPaths value rest
+        | "--message" :: [] -> Error(Agent.invalidInput "command" "--message requires a value")
+        | token :: rest ->
+            loop (token :: commandArgs) outputLimit repositoryPath changesMode commitPaths commitMessage rest
 
-    loop [] Agent.DefaultOutputLimitBytes (Directory.GetCurrentDirectory()) ChangesMode.Summary args
+    loop [] Agent.DefaultOutputLimitBytes (Directory.GetCurrentDirectory()) ChangesMode.Summary [] "" args
 
 let private parse args =
     match parseOptions (List.ofArray args) with
     | Error envelope -> Error envelope
-    | Ok(commandArgs, outputLimit, repositoryPath, changesMode) ->
+    | Ok(commandArgs, outputLimit, repositoryPath, changesMode, commitPaths, commitMessage) ->
         match tryOperation commandArgs with
         | Some operation ->
             Ok
                 { Operation = operation
                   OutputLimitBytes = outputLimit
                   RepositoryPath = repositoryPath
-                  ChangesMode = changesMode }
+                  ChangesMode = changesMode
+                  CommitPaths = commitPaths
+                  CommitMessage = commitMessage }
         | None -> Error(Agent.invalidInput "command" "unknown or incomplete operation")
 
 let internal runWithCancellation args cancellationToken =
@@ -93,6 +105,13 @@ let internal runWithCancellation args cancellationToken =
                     Agent.changes
                         { RepositoryPath = command.RepositoryPath
                           Mode = command.ChangesMode
+                          OutputLimitBytes = command.OutputLimitBytes }
+                        cancellationToken
+                | AgentOperation.Commit ->
+                    Agent.commit
+                        { RepositoryPath = command.RepositoryPath
+                          Paths = command.CommitPaths
+                          Message = command.CommitMessage
                           OutputLimitBytes = command.OutputLimitBytes }
                         cancellationToken
                 | operation -> task { return Agent.unsupported operation }

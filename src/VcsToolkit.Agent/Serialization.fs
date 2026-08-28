@@ -193,11 +193,26 @@ module internal EnvelopeSerialization =
 
         writer.WriteEndObject()
 
+    let private writeCommit (writer: Utf8JsonWriter) (commit: CommitData) =
+        writer.WriteStartObject()
+        writer.WriteString("kind", "commit")
+        writer.WriteString("backend", Redaction.redact commit.Backend)
+        writeOptionalString writer "sourceRevision" commit.SourceRevision
+        writer.WriteString("createdRevision", Redaction.redact commit.CreatedRevision)
+        writer.WriteStartArray("paths")
+
+        for path in commit.Paths do
+            writer.WriteStringValue(Redaction.redact path)
+
+        writer.WriteEndArray()
+        writer.WriteEndObject()
+
     let private writePayload (writer: Utf8JsonWriter) payload =
         match payload with
         | AgentPayload.Probe probe -> writeProbe writer probe
         | AgentPayload.Inspect inspect -> writeInspect writer inspect
         | AgentPayload.Changes changes -> writeChanges writer changes
+        | AgentPayload.Commit commit -> writeCommit writer commit
 
     let serialize envelope =
         use stream = new MemoryStream()

@@ -37,7 +37,7 @@ The toolkit is split into one package per concern, mirroring the Rust workspace.
 | `VcsToolkit.Gitea` | Implemented | The Gitea/Forgejo (`tea`) CLI client: pull requests and issues (including labels on creation), releases, and a `.At(dir)` cwd-bound view. Unsupported `tea` operations such as PR/issue label mutation, PR edit, and release delete fail before spawning. Authentication is ambient (`tea`'s stored logins). |
 | `VcsToolkit.Core` | Implemented | The backend-agnostic `Repo` facade over Git / Jujutsu: `Open` auto-detects git vs jj, then one handle runs whatever both tools support — branch/snapshot reads, changed files, unified working-copy diffs & diff stats, partial commits, fetch/push/checkout/rebase, a trace-free merge-conflict probe (`TryMerge`), in-progress merge/rebase state, and worktree management — returning plain result types. Escape hatches `.Git`/`.Jj` (raw client) and `.GitAt`/`.JjAt` (dir-bound views) reach the raw surface; only the synchronous `cleanupWorktreeBlocking` Drop-guard is intentionally not ported (`IAsyncDisposable` awaits `RemoveWorktree`). |
 | `VcsToolkit.Forge` | Implemented | The unified forge facade over GitHub / GitLab / Gitea: one `Forge` handle exposes a common PR/MR, issue, and release surface, including typed label creation and mutation, and returns plain result types that don't mention which forge produced them. Backend gaps are explicit `Unsupported` results rather than silently dropped options; `ForgeKind.OfRemoteUrl` classifies the public-SaaS hosts with anti-spoofing checks. The gh/glab/tea analogue of `Core`'s `Repo` over git/jj. |
-| `VcsToolkit.Agent` | Implemented (v1 read-only) | The transport-neutral application contract for outcome-oriented agent workflows. It owns the versioned envelope, operation/error taxonomy, deterministic `probe`, typed repository `inspect`, summary or structured-diff `changes`, bounded JSON rendering, redaction, and stable exit mapping used by the thin `vcs-agent` global tool. Mutating and CI operations remain reserved and report structured `unsupported`. |
+| `VcsToolkit.Agent` | Implemented (v1 read + checked commit) | The transport-neutral application contract for outcome-oriented agent workflows. It owns the versioned envelope, operation/error taxonomy, deterministic `probe`, typed repository `inspect`, summary or structured-diff `changes`, exact-path checked `commit`, bounded JSON rendering, redaction, and stable exit mapping used by the thin `vcs-agent` global tool. Publication and CI operations remain reserved and report structured `unsupported`. |
 | `VcsToolkit.TestKit` | Implemented | Throwaway git/jj sandboxes (and a seeded bare remote) for integration tests, plus canonical parser-shaped GitHub, GitLab, and Gitea PR/issue/release fixtures: a self-cleaning `TempDir` whose tag is sanitized to one component and verified under the canonical OS temp root, `GitSandbox` / `JjSandbox` scenario builders, and `BareRemote` — dependency-free (no wrapper libraries, so it can be a test dependency of any without a cycle), hermetic (no host VCS config leaks in), and raising on failure; sandbox writes reject rooted or escaping paths before filesystem changes. |
 | `VcsToolkit.Watch` | Implemented | Filesystem-watch a git/jj repository and emit typed state-change events. A `RepoWatcher` watches the `.git`/`.jj` state dir (and, optionally, the working tree), debounces the write burst a VCS operation makes, re-queries `Repo.Snapshot`, and diffs it against the previous state to yield typed `RepoEvent`s (`HeadMoved`, `BranchSwitched`, `BranchCreated`/`Deleted`, `WorkingCopyChanged`, upstream/ahead-behind/operation/conflict). Re-query-and-diff (not raw FS events) makes it robust to ref temp-file renames and `index.lock` churn. The foundation for prompts, status bars, and TUIs. |
 | `VcsToolkit.Mcp` | Implemented | A Model Context Protocol server exposing the toolkit's typed git/jj + forge operations as agent-callable tools, including optional labels on creation and write-gated label add/remove tools. The `VcsToolkit.Mcp` library is the hermetically-testable core — `VcsMcpServer` with the `repo_*` / `forge_*` tools over `Core`/`Forge`, the `WriteGate` write policy (read tools always available, mutations gated by `--allow-write`/`--allow-tools`), the tool catalogue and dispatcher, and the CLI parser. The thin `vcs-mcp` binary (`VcsToolkit.Mcp.Server`) wires it to the `ModelContextProtocol` SDK over stdio, with a hardened git client, per-command timeout, and request cancellation propagation through commands and repository lock waits. |
@@ -61,7 +61,7 @@ dotnet pack VcsToolkit.slnx --configuration Release --output ./artifacts
 dotnet tool install --global vcs-agent --version 0.1.0 --add-source ./artifacts
 ```
 
-The implemented v1 read-only outcomes are `probe`, `inspect`, and `changes`. `probe` is
+The implemented v1 outcomes are `probe`, `inspect`, `changes`, and checked exact-path `commit`. `probe` is
 deterministic and does not inspect a repository, executable, network, environment variable,
 or machine-local path.
 
@@ -71,6 +71,7 @@ vcs-agent probe --output-budget 4096
 vcs-agent inspect --repo .
 vcs-agent changes --repo . --view summary
 vcs-agent changes --repo . --view diff --output-budget 16384
+vcs-agent commit --repo . --path src/App.fs --path tests/App.Tests.fs --message "Update app"
 ```
 
 Every invocation emits one versioned JSON envelope on stdout. Diagnostics use stderr, and the
@@ -81,7 +82,10 @@ detected Git/Jujutsu backend, current revision and branch, working-copy and trac
 remotes, and typed forge authentication
 and capability facts. `changes` returns either a path list with a separately scoped diff stat,
 or parsed unified-diff hunks; on Git the path list includes untracked entries while the stat
-covers the tracked `HEAD` diff. `commit`, `publish`, `ci status`, and `ci wait` are reserved in
+covers the tracked `HEAD` diff. `commit` validates a non-empty explicit repo-relative path set,
+preflights the complete result budget and repository state before mutation, delegates only to
+`Repo.CommitPaths`, and returns source/created revision identities plus the included paths while
+preserving unrelated dirt. `publish`, `ci status`, and `ci wait` are reserved in
 the v1 taxonomy and return `unsupported` with the machine-readable fallback reason
 `operation-not-implemented`.
 

@@ -8,6 +8,7 @@ open System.Threading
 open System.Threading.Tasks
 open NUnit.Framework
 open VcsToolkit.Agent
+open VcsToolkit.TestKit
 
 [<TestFixture>]
 type ServerTests() =
@@ -113,6 +114,99 @@ type ServerTests() =
 
         use document = JsonDocument.Parse result.Stdout
         Assert.That(document.RootElement.GetProperty("operation").GetString(), Is.EqualTo "changes")
+
+    [<Test>]
+    member _.``Commit parses repeated exact paths and refuses incomplete requests before opening a repository``() =
+        let missing =
+            Path.Combine(Path.GetTempPath(), "vcs-agent-missing-" + Guid.NewGuid().ToString("N"))
+
+        let emptyPaths = Main.run [| "commit"; "--repo"; missing; "--message"; "message" |]
+        Assert.That(emptyPaths.ExitCode, Is.EqualTo 22)
+
+        use emptyDocument = JsonDocument.Parse emptyPaths.Stdout
+        Assert.That(emptyDocument.RootElement.GetProperty("operation").GetString(), Is.EqualTo "commit")
+
+        let parsed =
+            Main.run
+                [| "commit"
+                   "--repo"
+                   missing
+                   "--path"
+                   "src/App.fs"
+                   "--path"
+                   "tests/App.Tests.fs"
+                   "--message"
+                   "message" |]
+
+        Assert.That(parsed.ExitCode, Is.EqualTo 23)
+
+        use parsedDocument = JsonDocument.Parse parsed.Stdout
+        Assert.That(parsedDocument.RootElement.GetProperty("operation").GetString(), Is.EqualTo "commit")
+
+        let missingMessage =
+            Main.run [| "commit"; "--repo"; missing; "--path"; "src/App.fs" |]
+
+        Assert.That(missingMessage.ExitCode, Is.EqualTo 22)
+
+    [<Test>]
+    member _.``Commit executes repeated exact paths and preserves unrelated tracked and untracked dirt``() =
+        try
+            Raw.git "." [ "--version" ]
+        with _ ->
+            Assert.Ignore "git not available on PATH"
+
+        use sandbox = GitSandbox.Init "agent-server-commit"
+        sandbox.CommitFile("selected-a.txt", "before a\n", "base a")
+        sandbox.CommitFile("selected-b.txt", "before b\n", "base b")
+        sandbox.CommitFile("tracked-unrelated.txt", "before unrelated\n", "base unrelated")
+        let sourceRevision = sandbox.RevParse "HEAD"
+        sandbox.Write("selected-a.txt", "selected a\n")
+        sandbox.Write("selected-b.txt", "selected b\n")
+        sandbox.Write("tracked-unrelated.txt", "dirty tracked\n")
+        sandbox.Write("untracked-unrelated.txt", "dirty untracked\n")
+
+        let result =
+            Main.run
+                [| "commit"
+                   "--repo"
+                   sandbox.Path
+                   "--path"
+                   "selected-a.txt"
+                   "--path"
+                   "selected-b.txt"
+                   "--message"
+                   "selected only" |]
+
+        Assert.That(result.ExitCode, Is.EqualTo 0)
+        Assert.That(result.Stderr, Is.Empty)
+
+        use document = JsonDocument.Parse result.Stdout
+        let data = document.RootElement.GetProperty "data"
+        Assert.That(data.GetProperty("sourceRevision").GetString(), Is.EqualTo sourceRevision)
+        Assert.That(data.GetProperty("createdRevision").GetString(), Is.EqualTo(sandbox.RevParse "HEAD"))
+
+        let includedPaths =
+            data.GetProperty("paths").EnumerateArray()
+            |> Seq.map _.GetString()
+            |> Seq.toList
+
+        Assert.That((includedPaths = [ "selected-a.txt"; "selected-b.txt" ]), Is.True)
+        sandbox.Git [ "diff"; "--quiet"; "--"; "selected-a.txt"; "selected-b.txt" ]
+
+        let trackedUnrelatedStillDirty =
+            try
+                sandbox.Git [ "diff"; "--quiet"; "--"; "tracked-unrelated.txt" ]
+                false
+            with _ ->
+                // TestKit turns git diff's expected exit 1 for a dirty path into an exception.
+                true
+
+        Assert.That(trackedUnrelatedStillDirty, Is.True)
+
+        Assert.That(
+            File.ReadAllText(Path.Combine(sandbox.Path, "untracked-unrelated.txt")),
+            Is.EqualTo "dirty untracked\n"
+        )
 
     [<Test>]
     member _.``Request cancellation returns the stable cancellation envelope``() : Task =

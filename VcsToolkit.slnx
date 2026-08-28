@@ -78,10 +78,12 @@
 			<BuildDependency Project="src/VcsToolkit.GitHub/VcsToolkit.GitHub.fsproj" />
 			<BuildDependency Project="src/VcsToolkit.GitLab/VcsToolkit.GitLab.fsproj" />
 			<BuildDependency Project="src/VcsToolkit.Gitea/VcsToolkit.Gitea.fsproj" />
+			<BuildDependency Project="src/VcsToolkit.TestKit/VcsToolkit.TestKit.fsproj" />
 		</Project>
 		<Project Path="tests/VcsToolkit.Agent.Server.Tests/VcsToolkit.Agent.Server.Tests.fsproj">
 			<BuildDependency Project="src/VcsToolkit.Agent.Server/VcsToolkit.Agent.Server.fsproj" />
 			<BuildDependency Project="src/VcsToolkit.Agent/VcsToolkit.Agent.fsproj" />
+			<BuildDependency Project="src/VcsToolkit.TestKit/VcsToolkit.TestKit.fsproj" />
 		</Project>
 		<Project Path="tests/VcsToolkit.PublicApi.Tests/VcsToolkit.PublicApi.Tests.fsproj">
 			<BuildDependency Project="src/VcsToolkit.CliSupport/VcsToolkit.CliSupport.fsproj" />
