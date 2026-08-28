@@ -20,6 +20,10 @@ namespace VcsToolkit.Agent
         [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
                 1,
                 1})]
+        public static System.Threading.Tasks.Task<VcsToolkit.Agent.AgentEnvelope> commit(VcsToolkit.Agent.CommitRequest request, System.Threading.CancellationToken cancellationToken) { }
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1})]
         public static System.Threading.Tasks.Task<VcsToolkit.Agent.AgentEnvelope> inspect(VcsToolkit.Agent.InspectRequest request, System.Threading.CancellationToken cancellationToken) { }
         public static VcsToolkit.Agent.AgentEnvelope probe(string? toolVersion) { }
     }
@@ -290,6 +294,10 @@ namespace VcsToolkit.Agent
         [System.Serializable]
         public class Changes : VcsToolkit.Agent.AgentPayload { }
         [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+        [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.Agent.AgentPayload.Commit@DebugTypeProxy))]
+        [System.Serializable]
+        public class Commit : VcsToolkit.Agent.AgentPayload { }
+        [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
         [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.Agent.AgentPayload.Inspect@DebugTypeProxy))]
         [System.Serializable]
         public class Inspect : VcsToolkit.Agent.AgentPayload { }
@@ -300,6 +308,7 @@ namespace VcsToolkit.Agent
         public static class Tags
         {
             public const int Changes = 2;
+            public const int Commit = 3;
             public const int Inspect = 1;
             public const int Probe = 0;
         }
@@ -436,6 +445,70 @@ namespace VcsToolkit.Agent
         public VcsToolkit.Agent.ChangesRequest WithOutputLimit(int outputLimitBytes) { }
         public static VcsToolkit.Agent.ChangesRequest StructuredDiff(string repositoryPath) { }
         public static VcsToolkit.Agent.ChangesRequest Summary(string repositoryPath) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+    [System.Serializable]
+    public sealed class CommitCompletion : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.CommitCompletion>, System.IEquatable<VcsToolkit.Agent.CommitCompletion>
+    {
+        public static class Tags
+        {
+            public const int Ambiguous = 1;
+            public const int Verified = 0;
+        }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class CommitData : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.CommitData>, System.IEquatable<VcsToolkit.Agent.CommitData>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Agent.CommitData))]
+        public CommitData(string root, string backend, Microsoft.FSharp.Core.FSharpOption<string>? sourceRevision, Microsoft.FSharp.Core.FSharpOption<string>? sourceBranch, Microsoft.FSharp.Collections.FSharpList<string> requestedPaths, Microsoft.FSharp.Collections.FSharpList<string> backendPaths, Microsoft.FSharp.Core.FSharpOption<string>? observedRevision, Microsoft.FSharp.Core.FSharpOption<string>? observedBranch, Microsoft.FSharp.Core.FSharpOption<string>? observedCreatedRevision, Microsoft.FSharp.Core.FSharpOption<string>? createdRevision, Microsoft.FSharp.Collections.FSharpList<string> paths, Microsoft.FSharp.Core.FSharpOption<bool>? selectedPathsRemaining, Microsoft.FSharp.Core.FSharpOption<bool>? unrelatedPathsPreserved, VcsToolkit.Agent.CommitCompletion completion) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public string Backend { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 5)]
+        public Microsoft.FSharp.Collections.FSharpList<string> BackendPaths { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 13)]
+        public VcsToolkit.Agent.CommitCompletion Completion { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 9)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? CreatedRevision { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 7)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? ObservedBranch { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 8)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? ObservedCreatedRevision { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 6)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? ObservedRevision { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 10)]
+        public Microsoft.FSharp.Collections.FSharpList<string> Paths { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+        public Microsoft.FSharp.Collections.FSharpList<string> RequestedPaths { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public string Root { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 11)]
+        public Microsoft.FSharp.Core.FSharpOption<bool>? SelectedPathsRemaining { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? SourceBranch { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? SourceRevision { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 12)]
+        public Microsoft.FSharp.Core.FSharpOption<bool>? UnrelatedPathsPreserved { get; }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class CommitRequest : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.CommitRequest>, System.IEquatable<VcsToolkit.Agent.CommitRequest>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Agent.CommitRequest))]
+        public CommitRequest(string repositoryPath, Microsoft.FSharp.Collections.FSharpList<string> paths, string message, int outputLimitBytes) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public string Message { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+        public int OutputLimitBytes { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public Microsoft.FSharp.Collections.FSharpList<string> Paths { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public string RepositoryPath { get; }
+        public VcsToolkit.Agent.CommitRequest WithOutputLimit(int outputLimitBytes) { }
+        public static VcsToolkit.Agent.CommitRequest Create(string repositoryPath, Microsoft.FSharp.Collections.FSharpList<string> paths, string message) { }
     }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
     [System.Serializable]

@@ -101,6 +101,18 @@ let private requireJj () =
         else
             Assert.Ignore message
 
+let private isolatedJjFor (repo: JjSandbox) =
+    let configRoot = System.IO.Path.Combine(repo.Path, ".jj", ".vcs-toolkit-jj-config")
+
+    Jj
+        .Create()
+        .DefaultEnv("JJ_CONFIG", System.IO.Path.Combine(configRoot, "vcs-toolkit-jj-tests-no-such-config.toml"))
+        .DefaultEnv("APPDATA", configRoot)
+        .DefaultEnv("LOCALAPPDATA", configRoot)
+        .DefaultEnv("XDG_CONFIG_HOME", configRoot)
+        .DefaultEnv("JJ_USER", "test")
+        .DefaultEnv("JJ_EMAIL", "test@example.com")
+
 // ---------------------------------------------------------------------------
 // Pure parsers
 // ---------------------------------------------------------------------------
@@ -1014,7 +1026,7 @@ type ClientTests() =
         task {
             requireJj ()
             use repo = JjSandbox.Init "git-remote-roundtrip"
-            let jj = Jj.Create()
+            let jj = isolatedJjFor repo
 
             match! jj.GitRemoteAdd(repo.Path, "origin", "https://example.com/original.git") with
             | Ok() -> ()
@@ -1056,7 +1068,7 @@ type ClientTests() =
         task {
             requireJj ()
             use repo = JjSandbox.Init "config-set-roundtrip"
-            let jj = Jj.Create()
+            let jj = isolatedJjFor repo
 
             match! jj.ConfigSet(repo.Path, "test.config-set", "configured") with
             | Ok() -> ()
@@ -1075,7 +1087,7 @@ type ClientTests() =
             // significant leading/trailing whitespace in the value itself.
             requireJj ()
             use repo = JjSandbox.Init "config-get-padded-roundtrip"
-            let jj = Jj.Create()
+            let jj = isolatedJjFor repo
 
             match! jj.ConfigSet(repo.Path, "test.config-padded", " padded ") with
             | Ok() -> ()
@@ -1416,7 +1428,7 @@ type ClientTests() =
             use repo = JjSandbox.Init "file-list-direct-subdirectory"
             repo.Write("sub/a.txt", "a\n")
             repo.Write("top.txt", "top\n")
-            let jj = Jj.Create()
+            let jj = isolatedJjFor repo
             let subdir = System.IO.Path.Combine(repo.Path, "sub")
 
             match! jj.FileList(subdir, None) with

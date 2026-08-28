@@ -101,6 +101,24 @@ type ChangesRequest =
         { this with
             OutputLimitBytes = outputLimitBytes }
 
+/// Request for an exact-path repository commit. Paths use the repository-root-relative,
+/// forward-slash form returned by `changes`; an empty path set is always refused.
+type CommitRequest =
+    { RepositoryPath: string
+      Paths: string list
+      Message: string
+      OutputLimitBytes: int }
+
+    static member Create(repositoryPath: string, paths: string list, message: string) =
+        { RepositoryPath = repositoryPath
+          Paths = paths
+          Message = message
+          OutputLimitBytes = 65_536 }
+
+    member this.WithOutputLimit(outputLimitBytes: int) =
+        { this with
+            OutputLimitBytes = outputLimitBytes }
+
 /// Current revision identity reported by `inspect`.
 type AgentRevisionIdentity =
     { Revision: string option
@@ -204,12 +222,42 @@ type ChangesData =
     | Summary of AgentChangeSummary
     | StructuredDiff of AgentFileDiff list
 
+/// Whether the backend mutation and its postflight evidence establish one exact revision.
+[<RequireQualifiedAccess>]
+type CommitCompletion =
+    /// The created revision and its changed-path set were independently observed.
+    | Verified
+    /// A backend call could have mutated the repository, but postflight could not prove its outcome.
+    | Ambiguous
+
+/// Bounded evidence returned for both a verified commit and an ambiguous late failure.
+/// `ObservedCreatedRevision` is populated only after the backend's relevant revision identity
+/// changed. `CreatedRevision` is stronger: it identifies the direct Git child of `SourceRevision`
+/// (or the sole root in an unborn repository), or the created Jujutsu revision, after `Paths` were
+/// read from that revision and matched `BackendPaths`.
+type CommitData =
+    { Root: string
+      Backend: string
+      SourceRevision: string option
+      SourceBranch: string option
+      RequestedPaths: string list
+      BackendPaths: string list
+      ObservedRevision: string option
+      ObservedBranch: string option
+      ObservedCreatedRevision: string option
+      CreatedRevision: string option
+      Paths: string list
+      SelectedPathsRemaining: bool option
+      UnrelatedPathsPreserved: bool option
+      Completion: CommitCompletion }
+
 /// Operation-specific data carried by a v1 envelope.
 [<RequireQualifiedAccess>]
 type AgentPayload =
     | Probe of ProbeData
     | Inspect of InspectData
     | Changes of ChangesData
+    | Commit of CommitData
 
 /// Structured failure details. `LimitBytes` and `RequiredBytes` are populated only for
 /// `OutputLimit`; `Truncated` makes refusal of oversized content explicit.

@@ -5,8 +5,8 @@
 application outcomes; `VcsToolkit.Agent.Server` is only the argv/stdout/stderr/exit-code
 adapter packaged as a .NET global tool.
 
-The implemented read-only operations are `probe`, `inspect`, and `changes`. The other
-v1 names are reserved now so an agent can distinguish a planned capability from an
+The implemented operations are the read-only `probe`, `inspect`, and `changes` outcomes plus
+the checked mutation `commit`. The other v1 names are reserved now so an agent can distinguish a planned capability from an
 unknown command without relying on human-readable diagnostics. The broader delivery
 sequence is documented in the [agent interface roadmap](agent-interface-roadmap.md).
 
@@ -32,7 +32,7 @@ dotnet tool install --global vcs-agent --version 0.1.0 --add-source ./artifacts
 | `probe` | `probe` | supported | no |
 | `inspect` | `inspect` | supported | no |
 | `changes` | `changes` | supported | no |
-| `commit` | `commit` | planned; returns `unsupported` | yes |
+| `commit` | `commit` | supported | yes |
 | `publish` | `publish` | planned; returns `unsupported` | yes |
 | `ci status` | `ci.status` | planned; returns `unsupported` | no |
 | `ci wait` | `ci.wait` | planned; returns `unsupported` | no |
@@ -137,6 +137,61 @@ The reusable API selects the same representations through `ChangesRequest.Summar
 structured diff cannot coexist or both be absent. `WithOutputLimit` and the supplied
 `CancellationToken` have the same semantics as the CLI flags and cancellation boundary.
 
+## Commit
+
+```sh
+vcs-agent commit --repo . --path src/App.fs --path tests/App.Tests.fs --message "Update app"
+vcs-agent commit --repo ./worktree --path docs/guide.md --message "Update guide" --output-budget 16384
+```
+
+The CLI requires an explicitly supplied, non-empty `--repo` before it opens a repository;
+unlike `inspect` and `changes`, which intentionally default an omitted `--repo` to the process
+working directory, `commit` never uses that default. It also requires a non-empty NUL-free message and one or more repeated `--path`
+values in the forward-slash, repository-root-relative form returned by
+`changes`. Empty, duplicate, rooted, backslash, empty-segment, `.` and `..` traversal paths are rejected as
+`invalid-input` before the repository is opened or any backend command runs. Every selected
+path must be present in the preflight changed-path set. Selecting the new path of a reported
+rename expands before mutation to the old/new backend path pair; a rename that cannot be
+represented by that pair is refused before `Repo.CommitPaths`. On Git, a newly untracked path is
+reported by `changes`, but the existing `Repo.CommitPaths` / `git commit --only` contract
+requires a path already known to Git; asking to commit an untracked path therefore returns a
+structured `backend` failure without adding it implicitly. Jujutsu automatically tracks new
+working-copy files.
+
+After validation, `commit` reads the current snapshot and changed paths, refuses conflicts or
+another in-progress repository operation, and proves that the prospective complete success
+envelope fits the requested stdout budget. Only then does it invoke the existing
+`Repo.CommitPaths`; it does not select or switch a backend, branch, or bookmark. Its only path
+expansion is the preflight old/new pair for one selected rename. Postflight requires the
+branch/bookmark identity to remain unchanged, every selected backend path to leave the changed
+set, and the unrelated changed-path set to remain identical. On Git, the observed candidate must
+be the single direct child of the source revision (or the sole root of an unborn repository), and
+`paths` is read from that candidate's own parent-to-candidate diff. On Jujutsu, it is read from the
+created revision's own parent diff. The observed path set must equal the exact backend path set
+before success.
+
+Commit data binds the outcome to the canonical `root`, `backend`, `sourceRevision`, and
+`sourceBranch`. It distinguishes logical `requestedPaths` from the `backendPaths` sent to
+`Repo.CommitPaths`; `paths` comes from the observed created-revision diff rather than echoing the
+request. `observedRevision` and `observedBranch` record bounded postflight facts;
+`observedCreatedRevision` is present only after backend-specific evidence shows that the relevant
+revision identity changed. `createdRevision` is populated only after the direct-revision proof
+above and an exact match between its own observed paths and `backendPaths`. `completion` is
+`verified` on success.
+
+When unrelated dirt remains, the envelope includes an `unrelated-changes-preserved` warning. A
+backend failure, timeout, cancellation, or failed postflight is terminal and structured. Once a
+mutating call can have started, bounded best-effort postflight uses an independent cleanup token
+and returns the same commit data with `completion: "ambiguous"`; it never upgrades an observed
+candidate to `createdRevision` without exact revision-path verification. A caller can inspect that
+evidence before a replay, and a replay after a completed mutation stops with `invalid-input`
+instead of committing unrelated work. `VcsToolkit.Agent.Tests` proves these behaviors with
+hermetic no-spawn/timeout/path-mismatch checks and real Git/Jujutsu commit and rename sandboxes.
+
+The reusable API uses `CommitRequest.Create(repositoryPath, paths, message)`, optional
+`WithOutputLimit`, and a `CancellationToken`; its result and the CLI renderer share the same
+v1 envelope and full-output budget.
+
 ## Envelope and stream rules
 
 Every invocation writes exactly one LF-terminated JSON document to stdout. Property order
@@ -146,7 +201,8 @@ and spelling are golden-tested. The top-level fields are:
 - `operation`: the canonical operation name;
 - `status`: `success` or `error`;
 - `terminal`: whether this outcome is terminal rather than still running;
-- `data`: operation-specific typed data, or `null` on error;
+- `data`: operation-specific typed data, including bounded ambiguous commit evidence after a
+  mutating call can have started; otherwise `null` on error;
 - `error`: structured error details, or `null` on success;
 - `warnings`: bounded `{ code, message }` diagnostics that do not change status;
 - `fallbackReason`: a machine-readable reason for visible lower-level fallback, or
@@ -160,12 +216,15 @@ label `vcs-agent: <error-code>` and a newline; success leaves stderr empty.
 `--output-budget <bytes>` sets the maximum UTF-8 byte count retained on stdout and the
 capture budget passed to repository and forge clients. The default is 65,536 bytes and the
 minimum accepted value is 512 bytes. Backend overflow is classified as `output-limit`
-before partial content can become typed operation data. The reusable `inspect` and `changes`
+before partial content can become typed operation data. The reusable `inspect`, `changes`, and `commit`
 APIs measure the complete envelope at their return boundary; if it would exceed the same
-budget, they discard that result and return a complete
+budget, they return a complete
 `output-limit` error envelope instead. Its error object sets `truncated: true` and reports
 both `limitBytes` and the complete result's `requiredBytes`; partial operation data is never
-presented as a valid typed result or valid JSON. Rendering preserves that same typed outcome.
+presented as a valid typed result or valid JSON. Before commit mutation, the prospective budget
+includes both verified-success and compact ambiguous-failure evidence, so a late failure can
+retain bounded evidence rather than discovering an undersized envelope after mutation. Rendering
+preserves that same typed outcome.
 
 The library and server golden/hermetic tests parse the bounded response again as JSON and
 assert that its UTF-8 byte count is within the requested limit.
@@ -192,7 +251,7 @@ distinct.
 
 ## Redaction and process boundary
 
-Every string in inspect and changes data, envelope errors, and warnings passes through the
+Every string in inspect, changes, and commit data, envelope errors, and warnings passes through the
 contract redactor again at final serialization. It removes URL userinfo, bearer values, and
 named token/password/secret/API-key/authorization values from remote URLs, paths, revision
 text, forge metadata, and diff content even when a caller constructs a public envelope

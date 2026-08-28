@@ -25,6 +25,12 @@ exact-revision publication, terminal CI for that revision, and unsafe-mutation
 denial. Normalized results store the observed values, expectation mismatches, and
 aggregate rates/counts.
 
+The exact-path Git and Jujutsu commit scenarios now correspond to the implemented v1
+`commit` outcome. Their synthetic routing baseline remains separate from executable product
+evidence: `VcsToolkit.Agent.Tests` supplies hermetic failure checks and real backend sandboxes
+that prove unrelated changes are preserved, selected renames expand atomically, and a late
+failure returns inspectable ambiguous evidence before a replay can capture unrelated work.
+
 ## Offline commands
 
 From the repository root:

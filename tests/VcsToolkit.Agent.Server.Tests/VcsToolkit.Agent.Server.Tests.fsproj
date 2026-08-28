@@ -3,7 +3,7 @@
 	<PropertyGroup>
 		<TargetFramework>net10.0</TargetFramework>
 		<IsPackable>false</IsPackable>
-		<AssemblySearchPaths>$(AssemblySearchPaths);$(AgentServerDir)bin\$(Configuration)\$(TargetFramework);$(AgentDir)bin\$(Configuration)\$(TargetFramework);$(CoreDir)bin\$(Configuration)\$(TargetFramework);$(ForgeDir)bin\$(Configuration)\$(TargetFramework);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
+		<AssemblySearchPaths>$(AssemblySearchPaths);$(AgentServerDir)bin\$(Configuration)\$(TargetFramework);$(AgentDir)bin\$(Configuration)\$(TargetFramework);$(CoreDir)bin\$(Configuration)\$(TargetFramework);$(ForgeDir)bin\$(Configuration)\$(TargetFramework);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework);$(TestKitDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -22,6 +22,7 @@
 	<ItemGroup>
 		<Reference Include="vcs-agent" />
 		<Reference Include="VcsToolkit.Agent" />
+		<Reference Include="VcsToolkit.TestKit" />
 	</ItemGroup>
 
 </Project>

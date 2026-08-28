@@ -12,7 +12,7 @@ the product's only agent-facing entry point.
 The executable and package name is now confirmed as `vcs-agent`, with
 `VcsToolkit.Agent` as the reusable library and `VcsToolkit.Agent.Server` as the thin
 global-tool adapter. Contract v1 and the read-only `probe`, `inspect`, and `changes`
-outcomes are implemented; the remaining outcomes below are reserved in the taxonomy and
+outcomes and the exact-path checked `commit` mutation are implemented; the remaining outcomes below are reserved in the taxonomy and
 return structured `unsupported` until their delivery phases land. The exact current
 contract is documented in [vcs-agent v1 contract](agent-interface.md).
 
@@ -142,8 +142,11 @@ The CLI is not a substitute for host permissions, but it must make safe behavior
 easy behavior:
 
 - mutations require an explicit operation and explicit repository;
-- `commit` accepts an exact non-empty path set and preserves unrelated changes by
-  routing through `Repo.CommitPaths`;
+- `commit` accepts an exact non-empty logical path set, expands a reported rename to one
+  old/new backend pair before mutation, and preserves unrelated changes through
+  `Repo.CommitPaths`;
+- a late mutating failure is explicitly ambiguous and retains bounded preflight plus
+  best-effort postflight identity without claiming an unverified created revision;
 - push/publication reports the local revision, remote revision, forge/account
   identity, and resulting PR/MR;
 - CI success is accepted only for the intended revision and a terminal conclusion;
@@ -300,7 +303,10 @@ and without weakening ProcessKit containment.
 
 ### Phase 3 — Checked mutations and publication
 
-- Add exact-path commit with preflight and before/after evidence.
+- Exact-path commit is implemented with fail-before-mutation validation and output-budget
+  preflight, before/after revision evidence, unchanged branch/bookmark and unrelated-dirt
+  postconditions, and safe replay after an ambiguous completed mutation. Hermetic and real
+  Git/Jujutsu sandbox tests are the executable evidence.
 - Add checked push and PR/MR publication with explicit account/forge identity.
 - Add exact-revision CI status and terminal wait where typed backend capabilities
   support them, returning structured `unsupported` elsewhere.
