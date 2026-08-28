@@ -148,6 +148,40 @@ type ServerTests() =
 
         Assert.That(missingMessage.ExitCode, Is.EqualTo 22)
 
+    [<Test; NonParallelizable>]
+    member _.``Commit without an explicit repo refuses before mutating the current directory``() =
+        try
+            Raw.git "." [ "--version" ]
+        with _ ->
+            Assert.Ignore "git not available on PATH"
+
+        use sandbox = GitSandbox.Init "agent-server-explicit-repo"
+        sandbox.CommitFile("selected.txt", "before\n", "base")
+        sandbox.Write("selected.txt", "dirty\n")
+        let beforeRevision = sandbox.RevParse "HEAD"
+        let previous = Directory.GetCurrentDirectory()
+
+        try
+            Directory.SetCurrentDirectory sandbox.Path
+
+            let result =
+                Main.run [| "commit"; "--path"; "selected.txt"; "--message"; "must refuse" |]
+
+            Assert.That(result.ExitCode, Is.EqualTo 22)
+
+            use document = JsonDocument.Parse result.Stdout
+            Assert.That(document.RootElement.GetProperty("operation").GetString(), Is.EqualTo "commit")
+
+            Assert.That(
+                document.RootElement.GetProperty("error").GetProperty("code").GetString(),
+                Is.EqualTo "invalid-input"
+            )
+
+            Assert.That(sandbox.RevParse "HEAD", Is.EqualTo beforeRevision)
+            Assert.That(File.ReadAllText(Path.Combine(sandbox.Path, "selected.txt")), Is.EqualTo "dirty\n")
+        finally
+            Directory.SetCurrentDirectory previous
+
     [<Test>]
     member _.``Commit executes repeated exact paths and preserves unrelated tracked and untracked dirt``() =
         try

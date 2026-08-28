@@ -196,15 +196,49 @@ module internal EnvelopeSerialization =
     let private writeCommit (writer: Utf8JsonWriter) (commit: CommitData) =
         writer.WriteStartObject()
         writer.WriteString("kind", "commit")
+        writer.WriteString("root", Redaction.redact commit.Root)
         writer.WriteString("backend", Redaction.redact commit.Backend)
         writeOptionalString writer "sourceRevision" commit.SourceRevision
-        writer.WriteString("createdRevision", Redaction.redact commit.CreatedRevision)
+        writeOptionalString writer "sourceBranch" commit.SourceBranch
+
+        writer.WriteStartArray("requestedPaths")
+
+        for path in commit.RequestedPaths do
+            writer.WriteStringValue(Redaction.redact path)
+
+        writer.WriteEndArray()
+        writer.WriteStartArray("backendPaths")
+
+        for path in commit.BackendPaths do
+            writer.WriteStringValue(Redaction.redact path)
+
+        writer.WriteEndArray()
+        writeOptionalString writer "observedRevision" commit.ObservedRevision
+        writeOptionalString writer "observedBranch" commit.ObservedBranch
+        writeOptionalString writer "observedCreatedRevision" commit.ObservedCreatedRevision
+        writeOptionalString writer "createdRevision" commit.CreatedRevision
         writer.WriteStartArray("paths")
 
         for path in commit.Paths do
             writer.WriteStringValue(Redaction.redact path)
 
         writer.WriteEndArray()
+
+        match commit.SelectedPathsRemaining with
+        | Some value -> writer.WriteBoolean("selectedPathsRemaining", value)
+        | None -> writer.WriteNull "selectedPathsRemaining"
+
+        match commit.UnrelatedPathsPreserved with
+        | Some value -> writer.WriteBoolean("unrelatedPathsPreserved", value)
+        | None -> writer.WriteNull "unrelatedPathsPreserved"
+
+        writer.WriteString(
+            "completion",
+            match commit.Completion with
+            | CommitCompletion.Verified -> "verified"
+            | CommitCompletion.Ambiguous -> "ambiguous"
+        )
+
         writer.WriteEndObject()
 
     let private writePayload (writer: Utf8JsonWriter) payload =

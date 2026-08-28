@@ -38,13 +38,31 @@ let private tryOperation (args: string list) =
     | _ -> None
 
 let private parseOptions args =
-    let rec loop commandArgs outputLimit repositoryPath changesMode commitPaths commitMessage remaining =
+    let rec loop
+        commandArgs
+        outputLimit
+        repositoryPath
+        repositoryExplicit
+        changesMode
+        commitPaths
+        commitMessage
+        remaining
+        =
         match remaining with
-        | [] -> Ok(List.rev commandArgs, outputLimit, repositoryPath, changesMode, List.rev commitPaths, commitMessage)
+        | [] ->
+            Ok(
+                List.rev commandArgs,
+                outputLimit,
+                repositoryPath,
+                repositoryExplicit,
+                changesMode,
+                List.rev commitPaths,
+                commitMessage
+            )
         | "--output-budget" :: value :: rest ->
             match Int32.TryParse value with
             | true, parsed when parsed >= Agent.MinimumOutputLimitBytes ->
-                loop commandArgs parsed repositoryPath changesMode commitPaths commitMessage rest
+                loop commandArgs parsed repositoryPath repositoryExplicit changesMode commitPaths commitMessage rest
             | _ ->
                 Error(
                     Agent.invalidInput
@@ -52,32 +70,68 @@ let private parseOptions args =
                         $"--output-budget must be an integer of at least {Agent.MinimumOutputLimitBytes} bytes"
                 )
         | "--output-budget" :: [] -> Error(Agent.invalidInput "command" "--output-budget requires an integer value")
-        | "--repo" :: value :: rest -> loop commandArgs outputLimit value changesMode commitPaths commitMessage rest
+        | "--repo" :: value :: rest ->
+            loop commandArgs outputLimit value true changesMode commitPaths commitMessage rest
         | "--repo" :: [] -> Error(Agent.invalidInput "command" "--repo requires a path value")
         | "--view" :: value :: rest ->
             match value with
             | "summary" ->
-                loop commandArgs outputLimit repositoryPath ChangesMode.Summary commitPaths commitMessage rest
+                loop
+                    commandArgs
+                    outputLimit
+                    repositoryPath
+                    repositoryExplicit
+                    ChangesMode.Summary
+                    commitPaths
+                    commitMessage
+                    rest
             | "diff"
             | "structured-diff" ->
-                loop commandArgs outputLimit repositoryPath ChangesMode.StructuredDiff commitPaths commitMessage rest
+                loop
+                    commandArgs
+                    outputLimit
+                    repositoryPath
+                    repositoryExplicit
+                    ChangesMode.StructuredDiff
+                    commitPaths
+                    commitMessage
+                    rest
             | _ -> Error(Agent.invalidInput "command" "--view must be 'summary' or 'diff'")
         | "--view" :: [] -> Error(Agent.invalidInput "command" "--view requires a value")
         | "--path" :: value :: rest ->
-            loop commandArgs outputLimit repositoryPath changesMode (value :: commitPaths) commitMessage rest
+            loop
+                commandArgs
+                outputLimit
+                repositoryPath
+                repositoryExplicit
+                changesMode
+                (value :: commitPaths)
+                commitMessage
+                rest
         | "--path" :: [] -> Error(Agent.invalidInput "command" "--path requires a repo-relative path value")
-        | "--message" :: value :: rest -> loop commandArgs outputLimit repositoryPath changesMode commitPaths value rest
+        | "--message" :: value :: rest ->
+            loop commandArgs outputLimit repositoryPath repositoryExplicit changesMode commitPaths value rest
         | "--message" :: [] -> Error(Agent.invalidInput "command" "--message requires a value")
         | token :: rest ->
-            loop (token :: commandArgs) outputLimit repositoryPath changesMode commitPaths commitMessage rest
+            loop
+                (token :: commandArgs)
+                outputLimit
+                repositoryPath
+                repositoryExplicit
+                changesMode
+                commitPaths
+                commitMessage
+                rest
 
-    loop [] Agent.DefaultOutputLimitBytes (Directory.GetCurrentDirectory()) ChangesMode.Summary [] "" args
+    loop [] Agent.DefaultOutputLimitBytes (Directory.GetCurrentDirectory()) false ChangesMode.Summary [] "" args
 
 let private parse args =
     match parseOptions (List.ofArray args) with
     | Error envelope -> Error envelope
-    | Ok(commandArgs, outputLimit, repositoryPath, changesMode, commitPaths, commitMessage) ->
+    | Ok(commandArgs, outputLimit, repositoryPath, repositoryExplicit, changesMode, commitPaths, commitMessage) ->
         match tryOperation commandArgs with
+        | Some AgentOperation.Commit when not repositoryExplicit ->
+            Error(Agent.invalidInput "commit" "commit requires an explicit --repo path")
         | Some operation ->
             Ok
                 { Operation = operation

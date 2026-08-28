@@ -142,8 +142,11 @@ The CLI is not a substitute for host permissions, but it must make safe behavior
 easy behavior:
 
 - mutations require an explicit operation and explicit repository;
-- `commit` accepts an exact non-empty path set and preserves unrelated changes by
-  routing through `Repo.CommitPaths`;
+- `commit` accepts an exact non-empty logical path set, expands a reported rename to one
+  old/new backend pair before mutation, and preserves unrelated changes through
+  `Repo.CommitPaths`;
+- a late mutating failure is explicitly ambiguous and retains bounded preflight plus
+  best-effort postflight identity without claiming an unverified created revision;
 - push/publication reports the local revision, remote revision, forge/account
   identity, and resulting PR/MR;
 - CI success is accepted only for the intended revision and a terminal conclusion;

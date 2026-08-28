@@ -144,11 +144,15 @@ vcs-agent commit --repo . --path src/App.fs --path tests/App.Tests.fs --message 
 vcs-agent commit --repo ./worktree --path docs/guide.md --message "Update guide" --output-budget 16384
 ```
 
-`commit` requires a non-empty repository path, a non-empty NUL-free message, and one or more
-repeated `--path` values in the forward-slash, repository-root-relative form returned by
+The CLI requires an explicitly supplied, non-empty `--repo` before it opens a repository;
+unlike `inspect` and `changes`, which intentionally default an omitted `--repo` to the process
+working directory, `commit` never uses that default. It also requires a non-empty NUL-free message and one or more repeated `--path`
+values in the forward-slash, repository-root-relative form returned by
 `changes`. Empty, duplicate, rooted, backslash, empty-segment, `.` and `..` traversal paths are rejected as
 `invalid-input` before the repository is opened or any backend command runs. Every selected
-path must be present in the preflight changed-path set. On Git, a newly untracked path is
+path must be present in the preflight changed-path set. Selecting the new path of a reported
+rename expands before mutation to the old/new backend path pair; a rename that cannot be
+represented by that pair is refused before `Repo.CommitPaths`. On Git, a newly untracked path is
 reported by `changes`, but the existing `Repo.CommitPaths` / `git commit --only` contract
 requires a path already known to Git; asking to commit an untracked path therefore returns a
 structured `backend` failure without adding it implicitly. Jujutsu automatically tracks new
@@ -157,18 +161,27 @@ working-copy files.
 After validation, `commit` reads the current snapshot and changed paths, refuses conflicts or
 another in-progress repository operation, and proves that the prospective complete success
 envelope fits the requested stdout budget. Only then does it invoke the existing
-`Repo.CommitPaths`; it does not select or switch a backend, branch, or bookmark, and it never
-adds another path. Postflight requires the branch/bookmark identity to remain unchanged, every
-selected path to leave the changed set, and the unrelated changed-path set to remain identical.
+`Repo.CommitPaths`; it does not select or switch a backend, branch, or bookmark. Its only path
+expansion is the preflight old/new pair for one selected rename. Postflight requires the
+branch/bookmark identity to remain unchanged, every selected backend path to leave the changed
+set, and the unrelated changed-path set to remain identical. It also reads the created revision's
+diff and requires that observed path set to equal the exact backend path set before success.
 
-Success data contains `backend`, the optional `sourceRevision`, `createdRevision`, and the
-ordered `paths` actually passed to `Repo.CommitPaths`. Git reports the new `HEAD`; Jujutsu
-reports the finalized parent of its new working-copy change. When unrelated dirt remains, the
-envelope includes an `unrelated-changes-preserved` warning. A backend failure, timeout, or
-cancellation is terminal and structured. If a command completed but its response was lost, a
-safe replay finds that the selected paths are no longer changed and stops with `invalid-input`
-instead of committing the unrelated work. `VcsToolkit.Agent.Tests` proves these behaviors with
-hermetic no-spawn/timeout checks and real `GitSandbox` / non-colocated `JjSandbox` repositories.
+Commit data binds the outcome to the canonical `root`, `backend`, `sourceRevision`, and
+`sourceBranch`. It distinguishes logical `requestedPaths` from the `backendPaths` sent to
+`Repo.CommitPaths`; `paths` comes from the observed created-revision diff rather than echoing the
+request. `observedRevision`, `observedBranch`, and `observedCreatedRevision` record bounded
+postflight facts, while `createdRevision` is populated only when the observed revision paths
+exactly match `backendPaths`. `completion` is `verified` on success.
+
+When unrelated dirt remains, the envelope includes an `unrelated-changes-preserved` warning. A
+backend failure, timeout, cancellation, or failed postflight is terminal and structured. Once a
+mutating call can have started, bounded best-effort postflight uses an independent cleanup token
+and returns the same commit data with `completion: "ambiguous"`; it never upgrades an observed
+candidate to `createdRevision` without exact revision-path verification. A caller can inspect that
+evidence before a replay, and a replay after a completed mutation stops with `invalid-input`
+instead of committing unrelated work. `VcsToolkit.Agent.Tests` proves these behaviors with
+hermetic no-spawn/timeout/path-mismatch checks and real Git/Jujutsu commit and rename sandboxes.
 
 The reusable API uses `CommitRequest.Create(repositoryPath, paths, message)`, optional
 `WithOutputLimit`, and a `CancellationToken`; its result and the CLI renderer share the same
@@ -183,7 +196,8 @@ and spelling are golden-tested. The top-level fields are:
 - `operation`: the canonical operation name;
 - `status`: `success` or `error`;
 - `terminal`: whether this outcome is terminal rather than still running;
-- `data`: operation-specific typed data, or `null` on error;
+- `data`: operation-specific typed data, including bounded ambiguous commit evidence after a
+  mutating call can have started; otherwise `null` on error;
 - `error`: structured error details, or `null` on success;
 - `warnings`: bounded `{ code, message }` diagnostics that do not change status;
 - `fallbackReason`: a machine-readable reason for visible lower-level fallback, or
@@ -199,10 +213,13 @@ capture budget passed to repository and forge clients. The default is 65,536 byt
 minimum accepted value is 512 bytes. Backend overflow is classified as `output-limit`
 before partial content can become typed operation data. The reusable `inspect`, `changes`, and `commit`
 APIs measure the complete envelope at their return boundary; if it would exceed the same
-budget, they discard that result and return a complete
+budget, they return a complete
 `output-limit` error envelope instead. Its error object sets `truncated: true` and reports
 both `limitBytes` and the complete result's `requiredBytes`; partial operation data is never
-presented as a valid typed result or valid JSON. Rendering preserves that same typed outcome.
+presented as a valid typed result or valid JSON. Before commit mutation, the prospective budget
+includes both verified-success and compact ambiguous-failure evidence, so a late failure can
+retain bounded evidence rather than discovering an undersized envelope after mutation. Rendering
+preserves that same typed outcome.
 
 The library and server golden/hermetic tests parse the bounded response again as JSON and
 assert that its UTF-8 byte count is within the requested limit.

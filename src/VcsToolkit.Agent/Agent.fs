@@ -501,22 +501,23 @@ module Agent =
     let internal changesWith (repo: Repo) mode (cancellationToken: CancellationToken) outputLimitBytes =
         changesCore repo mode cancellationToken outputLimitBytes
 
+    let private invalidCommitPath path =
+        String.IsNullOrWhiteSpace path
+        || path.IndexOf('\000') >= 0
+        || path.IndexOf('\r') >= 0
+        || path.IndexOf('\n') >= 0
+        || path.Contains('\\')
+        || path.StartsWith('/')
+        || (path.Length >= 2 && Char.IsLetter path.[0] && path.[1] = ':')
+        || (path.Split('/')
+            |> Array.exists (fun segment -> segment.Length = 0 || segment = "." || segment = ".."))
+
     let private validateCommitPaths paths =
-        let invalidPath path =
-            String.IsNullOrWhiteSpace path
-            || path.IndexOf('\000') >= 0
-            || path.IndexOf('\r') >= 0
-            || path.IndexOf('\n') >= 0
-            || path.Contains('\\')
-            || path.StartsWith('/')
-            || (path.Length >= 2 && Char.IsLetter path.[0] && path.[1] = ':')
-            || (path.Split('/')
-                |> Array.exists (fun segment -> segment.Length = 0 || segment = "." || segment = ".."))
 
         if obj.ReferenceEquals(paths, null) || List.isEmpty paths then
             Error "commit requires at least one repo-relative path"
         else
-            match paths |> List.tryFind invalidPath with
+            match paths |> List.tryFind invalidCommitPath with
             | Some path ->
                 Error $"commit path '{path}' must be a non-empty repo-relative forward-slash path without traversal"
             | None when (paths |> Set.ofList |> Set.count) <> List.length paths ->
@@ -531,8 +532,51 @@ module Agent =
         else
             Ok message
 
+    let private changePaths (change: FileChange) =
+        match change.OldPath with
+        | Some oldPath -> [ oldPath; change.Path ]
+        | None -> [ change.Path ]
+
     let private changedPathSet (changes: FileChange list) =
-        changes |> List.map _.Path |> Set.ofList
+        changes |> List.collect changePaths |> Set.ofList
+
+    let private prepareCommitPaths validatedPaths (changes: FileChange list) =
+        let trySelect path =
+            match changes |> List.filter (fun change -> change.Path = path) with
+            | [] -> Error $"commit path is not changed in the working copy: {path}"
+            | [ change ] ->
+                match change.OldPath with
+                | Some oldPath when invalidCommitPath oldPath || oldPath = change.Path ->
+                    Error $"commit cannot represent renamed path '{path}' atomically"
+                | _ -> Ok change
+            | _ -> Error $"commit path is ambiguous in the working copy: {path}"
+
+        let selected = validatedPaths |> List.map trySelect
+
+        match
+            selected
+            |> List.tryPick (function
+                | Error error -> Some error
+                | Ok _ -> None)
+        with
+        | Some error -> Error error
+        | None ->
+            let changes =
+                selected
+                |> List.choose (function
+                    | Ok change -> Some change
+                    | Error _ -> None)
+
+            let backendPaths = changes |> List.collect changePaths |> List.distinct
+            Ok(backendPaths, Set.ofList backendPaths)
+
+    let private diffPathSet (diffs: FileDiff list) =
+        diffs
+        |> List.collect (fun diff ->
+            match diff.OldPath with
+            | Some oldPath -> [ oldPath; diff.Path ]
+            | None -> [ diff.Path ])
+        |> Set.ofList
 
     let private commitWarnings unrelatedPaths =
         if Set.isEmpty unrelatedPaths then
@@ -540,6 +584,122 @@ module Agent =
         else
             [ { Code = "unrelated-changes-preserved"
                 Message = $"{Set.count unrelatedPaths} unrelated changed path(s) remain in the working copy." } ]
+
+    let private commitData
+        (repo: Repo)
+        before
+        requestedPaths
+        backendPaths
+        observedSnapshot
+        observedCreatedRevision
+        createdRevision
+        paths
+        selectedPathsRemaining
+        unrelatedPathsPreserved
+        completion
+        =
+        { Root = repo.Root
+          Backend = repo.Kind.AsString
+          SourceRevision = before.Head
+          SourceBranch = before.Branch
+          RequestedPaths = requestedPaths
+          BackendPaths = backendPaths
+          ObservedRevision = observedSnapshot |> Option.bind _.Head
+          ObservedBranch = observedSnapshot |> Option.bind _.Branch
+          ObservedCreatedRevision = observedCreatedRevision
+          CreatedRevision = createdRevision
+          Paths = paths
+          SelectedPathsRemaining = selectedPathsRemaining
+          UnrelatedPathsPreserved = unrelatedPathsPreserved
+          Completion = completion }
+
+    let private attachCommitData outputLimitBytes data warnings envelope =
+        let attached =
+            { envelope with
+                Data = Some(AgentPayload.Commit data)
+                Warnings = warnings }
+
+        if EnvelopeSerialization.byteCount attached <= outputLimitBytes then
+            attached
+        else
+            let compact =
+                { attached with
+                    Error =
+                        attached.Error
+                        |> Option.map (fun error ->
+                            { error with
+                                Message = "Commit completion is ambiguous; inspect the bounded commit evidence." }) }
+
+            if EnvelopeSerialization.byteCount compact <= outputLimitBytes then
+                compact
+            else
+                let preflightOnly =
+                    { data with
+                        ObservedRevision = None
+                        ObservedBranch = None
+                        ObservedCreatedRevision = None
+                        CreatedRevision = None
+                        Paths = []
+                        SelectedPathsRemaining = None
+                        UnrelatedPathsPreserved = None
+                        Completion = CommitCompletion.Ambiguous }
+
+                let minimal =
+                    { compact with
+                        Data = Some(AgentPayload.Commit preflightOnly) }
+
+                if EnvelopeSerialization.byteCount minimal <= outputLimitBytes then
+                    minimal
+                else
+                    outputLimit attached.Operation outputLimitBytes (EnvelopeSerialization.byteCount attached)
+
+    let private observedCommitPaths (repo: Repo) beforeRevision createdRevision =
+        task {
+            match repo.Kind with
+            | BackendKind.Git ->
+                match repo.Git with
+                | None -> return None
+                | Some git ->
+                    let! fromRevision =
+                        match beforeRevision with
+                        | Some revision -> task { return Some revision }
+                        | None ->
+                            task {
+                                match! git.EmptyTreeOid repo.Root with
+                                | Ok revision -> return Some revision
+                                | Error _ -> return None
+                            }
+
+                    match fromRevision with
+                    | None -> return None
+                    | Some revision ->
+                        match! git.DiffBetween(repo.Root, revision, createdRevision) with
+                        | Ok diffs -> return Some(diffPathSet diffs)
+                        | Error _ -> return None
+            | BackendKind.Jj ->
+                match repo.Jj with
+                | None -> return None
+                | Some jj ->
+                    match! jj.DiffBetween(repo.Cwd, $"{createdRevision}-", createdRevision) with
+                    | Ok diffs -> return Some(diffPathSet diffs)
+                    | Error _ -> return None
+        }
+
+    let private resolveObservedCreatedRevision (repo: Repo) observedSnapshot =
+        task {
+            match repo.Kind with
+            | BackendKind.Git ->
+                match observedSnapshot |> Option.bind _.Head with
+                | Some revision -> return Some revision
+                | None ->
+                    match! repo.Log("HEAD", 1) with
+                    | Ok(commit :: _) -> return Some commit.Id
+                    | _ -> return None
+            | BackendKind.Jj ->
+                match! repo.Log("@-", 1) with
+                | Ok(commit :: _) -> return Some commit.Id
+                | _ -> return None
+        }
 
     let private commitCoreUnbounded
         (repo: Repo)
@@ -580,122 +740,195 @@ module Agent =
                         match! configured.ChangedFiles() with
                         | Error error -> return repoFailure operation outputLimitBytes error
                         | Ok changesBefore ->
-                            let changedBefore = changedPathSet changesBefore
-                            let missing = validatedPaths |> List.filter (changedBefore.Contains >> not)
-
-                            if not (List.isEmpty missing) then
-                                let missingText = String.concat ", " missing
-
-                                return
-                                    invalidInput
-                                        operation
-                                        $"commit paths are not all changed in the working copy: {missingText}"
-                            else
-                                let selected = Set.ofList validatedPaths
-
+                            match prepareCommitPaths validatedPaths changesBefore with
+                            | Error error -> return invalidInput operation error
+                            | Ok(backendPaths, selected) ->
+                                let changedBefore = changedPathSet changesBefore
                                 let unrelatedBefore = changedBefore |> Set.filter (selected.Contains >> not)
 
                                 let warnings = commitWarnings unrelatedBefore
 
-                                let budgetPreview =
-                                    successWithWarnings
-                                        operation
-                                        (AgentPayload.Commit
-                                            { Backend = configured.Kind.AsString
-                                              SourceRevision = before.Head
-                                              CreatedRevision = String.replicate 128 "0"
-                                              Paths = validatedPaths })
-                                        warnings
+                                let previewRevision = String.replicate 128 "0"
 
-                                let previewBytes = EnvelopeSerialization.byteCount budgetPreview
+                                let previewData =
+                                    commitData
+                                        configured
+                                        before
+                                        validatedPaths
+                                        backendPaths
+                                        (Some before)
+                                        (Some previewRevision)
+                                        (Some previewRevision)
+                                        backendPaths
+                                        (Some false)
+                                        (Some true)
+                                        CommitCompletion.Verified
+
+                                let successPreview =
+                                    successWithWarnings operation (AgentPayload.Commit previewData) warnings
+
+                                let failurePreview =
+                                    { failure
+                                          operation
+                                          AgentErrorCode.Backend
+                                          "Commit completion is ambiguous; inspect the bounded commit evidence."
+                                          true
+                                          false
+                                          None
+                                          None
+                                          None with
+                                        Data =
+                                            Some(
+                                                AgentPayload.Commit
+                                                    { previewData with
+                                                        Completion = CommitCompletion.Ambiguous }
+                                            )
+                                        Warnings = warnings }
+
+                                let previewBytes =
+                                    max
+                                        (EnvelopeSerialization.byteCount successPreview)
+                                        (EnvelopeSerialization.byteCount failurePreview)
 
                                 if previewBytes > outputLimitBytes then
                                     return outputLimit operation outputLimitBytes previewBytes
                                 else
-                                    match! configured.CommitPaths(validatedPaths, message) with
-                                    | Error error -> return repoFailure operation outputLimitBytes error
-                                    | Ok() ->
-                                        match! configured.Snapshot() with
-                                        | Error error -> return repoFailure operation outputLimitBytes error
-                                        | Ok after when after.Branch <> before.Branch ->
-                                            return
-                                                failure
-                                                    operation
-                                                    AgentErrorCode.Backend
-                                                    "commit changed the current branch or bookmark unexpectedly"
-                                                    false
-                                                    false
-                                                    None
-                                                    None
-                                                    None
-                                        | Ok after ->
-                                            match! configured.ChangedFiles() with
-                                            | Error error -> return repoFailure operation outputLimitBytes error
-                                            | Ok changesAfter ->
-                                                let changedAfter = changedPathSet changesAfter
-                                                let stillSelected = selected |> Set.filter changedAfter.Contains
+                                    let! mutationResult = configured.CommitPaths(backendPaths, message)
 
-                                                let unrelatedAfter =
-                                                    changedAfter |> Set.filter (selected.Contains >> not)
+                                    use recoveryCts = new CancellationTokenSource(TimeSpan.FromSeconds 30.0)
 
-                                                if not (Set.isEmpty stillSelected) then
-                                                    let stillSelectedText = String.concat ", " stillSelected
+                                    let recovery = repo.WithAgentExecution(recoveryCts.Token, Some outputLimitBytes)
 
-                                                    return
-                                                        failure
-                                                            operation
-                                                            AgentErrorCode.Backend
-                                                            $"commit postflight found selected paths still changed: {stillSelectedText}"
-                                                            false
-                                                            false
-                                                            None
-                                                            None
-                                                            None
-                                                elif unrelatedAfter <> unrelatedBefore then
-                                                    return
-                                                        failure
-                                                            operation
-                                                            AgentErrorCode.Backend
-                                                            "commit postflight found that the unrelated changed-path set was modified"
-                                                            false
-                                                            false
-                                                            None
-                                                            None
-                                                            None
-                                                else
-                                                    let createdRevision =
-                                                        match configured.Kind with
-                                                        | BackendKind.Git -> after.Head
-                                                        | BackendKind.Jj -> None
+                                    let! observedSnapshotResult = recovery.Snapshot()
 
-                                                    let! createdRevisionResult =
-                                                        match createdRevision with
-                                                        | Some revision -> task { return Ok revision }
-                                                        | None ->
-                                                            task {
-                                                                match! configured.Log("@-", 1) with
-                                                                | Ok(commit :: _) -> return Ok commit.Id
-                                                                | Ok [] ->
-                                                                    return
-                                                                        Error(
-                                                                            RepoError.InvalidInput
-                                                                                "commit postflight could not resolve the created revision"
-                                                                        )
-                                                                | Error error -> return Error error
-                                                            }
+                                    let observedSnapshot =
+                                        match observedSnapshotResult with
+                                        | Ok snapshot -> Some snapshot
+                                        | Error _ -> None
 
-                                                    match createdRevisionResult with
-                                                    | Error error -> return repoFailure operation outputLimitBytes error
-                                                    | Ok createdRevision ->
-                                                        return
-                                                            successWithWarnings
-                                                                operation
-                                                                (AgentPayload.Commit
-                                                                    { Backend = configured.Kind.AsString
-                                                                      SourceRevision = before.Head
-                                                                      CreatedRevision = createdRevision
-                                                                      Paths = validatedPaths })
-                                                                warnings
+                                    let! observedChangesResult = recovery.ChangedFiles()
+
+                                    let observedChanges =
+                                        match observedChangesResult with
+                                        | Ok changes -> Some(changedPathSet changes)
+                                        | Error _ -> None
+
+                                    let selectedPathsRemaining =
+                                        observedChanges
+                                        |> Option.map (fun changedAfter -> selected |> Set.exists changedAfter.Contains)
+
+                                    let unrelatedPathsPreserved =
+                                        observedChanges
+                                        |> Option.map (fun changedAfter ->
+                                            changedAfter |> Set.filter (selected.Contains >> not) = unrelatedBefore)
+
+                                    let! observedCreatedRevision =
+                                        resolveObservedCreatedRevision recovery observedSnapshot
+
+                                    let mutationObserved =
+                                        match mutationResult, observedSnapshot with
+                                        | Ok(), _ -> true
+                                        | Error _, Some after -> after.Head <> before.Head
+                                        | Error _, None -> false
+
+                                    let! observedPaths =
+                                        match observedCreatedRevision with
+                                        | Some revision when mutationObserved ->
+                                            observedCommitPaths recovery before.Head revision
+                                        | _ -> task { return None }
+
+                                    let createdRevision =
+                                        match observedCreatedRevision, observedPaths with
+                                        | Some revision, Some paths when paths = selected -> Some revision
+                                        | _ -> None
+
+                                    let committedPaths =
+                                        match createdRevision, observedPaths with
+                                        | Some _, Some paths -> paths |> Set.toList
+                                        | _ -> []
+
+                                    let branchPreserved =
+                                        observedSnapshot |> Option.exists (fun after -> after.Branch = before.Branch)
+
+                                    let postflightVerified =
+                                        branchPreserved
+                                        && selectedPathsRemaining = Some false
+                                        && unrelatedPathsPreserved = Some true
+                                        && createdRevision.IsSome
+
+                                    let completion =
+                                        match mutationResult with
+                                        | Ok() when postflightVerified -> CommitCompletion.Verified
+                                        | _ -> CommitCompletion.Ambiguous
+
+                                    let data =
+                                        commitData
+                                            recovery
+                                            before
+                                            validatedPaths
+                                            backendPaths
+                                            observedSnapshot
+                                            observedCreatedRevision
+                                            createdRevision
+                                            committedPaths
+                                            selectedPathsRemaining
+                                            unrelatedPathsPreserved
+                                            completion
+
+                                    match mutationResult with
+                                    | Error error ->
+                                        return
+                                            repoFailure operation outputLimitBytes error
+                                            |> attachCommitData outputLimitBytes data warnings
+                                    | Ok() when not branchPreserved ->
+                                        return
+                                            failure
+                                                operation
+                                                AgentErrorCode.Backend
+                                                "commit changed the current branch or bookmark unexpectedly"
+                                                false
+                                                false
+                                                None
+                                                None
+                                                None
+                                            |> attachCommitData outputLimitBytes data warnings
+                                    | Ok() when selectedPathsRemaining <> Some false ->
+                                        return
+                                            failure
+                                                operation
+                                                AgentErrorCode.Backend
+                                                "commit postflight could not prove that every selected path left the working copy"
+                                                false
+                                                false
+                                                None
+                                                None
+                                                None
+                                            |> attachCommitData outputLimitBytes data warnings
+                                    | Ok() when unrelatedPathsPreserved <> Some true ->
+                                        return
+                                            failure
+                                                operation
+                                                AgentErrorCode.Backend
+                                                "commit postflight could not prove that unrelated changed paths were preserved"
+                                                false
+                                                false
+                                                None
+                                                None
+                                                None
+                                            |> attachCommitData outputLimitBytes data warnings
+                                    | Ok() when createdRevision.IsNone ->
+                                        return
+                                            failure
+                                                operation
+                                                AgentErrorCode.Backend
+                                                "commit postflight could not verify the created revision's exact changed-path set"
+                                                false
+                                                false
+                                                None
+                                                None
+                                                None
+                                            |> attachCommitData outputLimitBytes data warnings
+                                    | Ok() -> return successWithWarnings operation (AgentPayload.Commit data) warnings
         }
 
     let private commitCore repo paths message cancellationToken outputLimitBytes =

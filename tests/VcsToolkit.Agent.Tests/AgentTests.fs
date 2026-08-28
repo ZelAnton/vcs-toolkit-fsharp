@@ -56,11 +56,13 @@ module private CommitTest =
 
     type FailAfterSuccessfulCommitRunner(inner: IProcessRunner) =
         let mutable committed = false
+        let mutable failedPostflightRead = false
 
         interface IProcessRunner with
             member _.CaptureStringAsync(command, cancellationToken) =
                 task {
-                    if committed then
+                    if committed && not failedPostflightRead then
+                        failedPostflightRead <- true
                         return Error(ProcessError.Spawn(command.Program, "injected post-commit read failure"))
                     else
                         let! result = inner.CaptureStringAsync(command, cancellationToken)
@@ -71,6 +73,32 @@ module private CommitTest =
                             | Error _ -> ()
 
                         return result
+                }
+
+            member _.CaptureBytesAsync(command, cancellationToken) =
+                inner.CaptureBytesAsync(command, cancellationToken)
+
+            member _.SpawnAsync(command, cancellationToken) =
+                inner.SpawnAsync(command, cancellationToken)
+
+    type WrongRevisionRunner(inner: IProcessRunner, repositoryRoot: string) =
+        interface IProcessRunner with
+            member _.CaptureStringAsync(command, cancellationToken) =
+                task {
+                    let! result = inner.CaptureStringAsync(command, cancellationToken)
+
+                    if command.Arguments |> Seq.contains "commit" then
+                        match result with
+                        | Error _ -> ()
+                        | Ok _ ->
+                            let selected = File.ReadAllText(Path.Combine(repositoryRoot, "selected.txt"))
+                            let different = File.ReadAllText(Path.Combine(repositoryRoot, "different.txt"))
+                            Raw.git repositoryRoot [ "reset"; "--hard"; "HEAD~" ]
+                            File.WriteAllText(Path.Combine(repositoryRoot, "selected.txt"), selected)
+                            File.WriteAllText(Path.Combine(repositoryRoot, "different.txt"), different)
+                            Raw.git repositoryRoot [ "commit"; "-qm"; "wrong path"; "--only"; "--"; "different.txt" ]
+
+                    return result
                 }
 
             member _.CaptureBytesAsync(command, cancellationToken) =
@@ -215,10 +243,20 @@ type ContractTests() =
               Data =
                 Some(
                     AgentPayload.Commit
-                        { Backend = "git"
+                        { Root = "/repo"
+                          Backend = "git"
                           SourceRevision = Some "abc123"
-                          CreatedRevision = "def456"
-                          Paths = [ "src/App.fs"; "tests/App.Tests.fs" ] }
+                          SourceBranch = Some "main"
+                          RequestedPaths = [ "src/App.fs"; "tests/App.Tests.fs" ]
+                          BackendPaths = [ "src/App.fs"; "tests/App.Tests.fs" ]
+                          ObservedRevision = Some "def456"
+                          ObservedBranch = Some "main"
+                          ObservedCreatedRevision = Some "def456"
+                          CreatedRevision = Some "def456"
+                          Paths = [ "src/App.fs"; "tests/App.Tests.fs" ]
+                          SelectedPathsRemaining = Some false
+                          UnrelatedPathsPreserved = Some true
+                          Completion = CommitCompletion.Verified }
                 )
               Error = None
               Warnings =
@@ -295,10 +333,20 @@ type ContractTests() =
               Data =
                 Some(
                     AgentPayload.Commit
-                        { Backend = "git"
+                        { Root = $"https://user:{urlSecret}@example.test/root"
+                          Backend = "git"
                           SourceRevision = Some $"Bearer {bearerSecret}"
-                          CreatedRevision = $"https://user:{urlSecret}@example.test/revision"
-                          Paths = [ $"api_key={namedSecret}" ] }
+                          SourceBranch = Some $"api_key={namedSecret}"
+                          RequestedPaths = [ $"api_key={namedSecret}" ]
+                          BackendPaths = [ $"api_key={namedSecret}" ]
+                          ObservedRevision = Some $"Bearer {bearerSecret}"
+                          ObservedBranch = Some $"api_key={namedSecret}"
+                          ObservedCreatedRevision = Some $"https://user:{urlSecret}@example.test/revision"
+                          CreatedRevision = Some $"https://user:{urlSecret}@example.test/revision"
+                          Paths = [ $"api_key={namedSecret}" ]
+                          SelectedPathsRemaining = Some false
+                          UnrelatedPathsPreserved = Some true
+                          Completion = CommitCompletion.Verified }
                 )
               Error =
                 Some
@@ -522,6 +570,10 @@ type ReadOnlyOutcomeTests() =
                 Assert.That(envelope.Status, Is.EqualTo AgentStatus.Error)
                 Assert.That(envelope.Error.Value.Code, Is.EqualTo AgentErrorCode.Timeout)
                 Assert.That(envelope.Terminal, Is.True)
+                let data = CommitTest.expectCommit envelope
+                Assert.That(data.SourceRevision, Is.EqualTo(Some "abc123"))
+                Assert.That(data.SourceBranch, Is.EqualTo(Some "main"))
+                Assert.That(data.Completion, Is.EqualTo CommitCompletion.Ambiguous)
 
                 Assert.That(
                     runner.CountReceived(fun invocation -> invocation.Args |> Seq.contains "commit"),
@@ -569,6 +621,9 @@ type ReadOnlyOutcomeTests() =
                 Assert.That(envelope.Status, Is.EqualTo AgentStatus.Error)
                 Assert.That(envelope.Error.Value.Code, Is.EqualTo AgentErrorCode.Cancellation)
                 Assert.That(envelope.Terminal, Is.True)
+                let data = CommitTest.expectCommit envelope
+                Assert.That(data.SourceRevision, Is.EqualTo(Some "abc123"))
+                Assert.That(data.Completion, Is.EqualTo CommitCompletion.Ambiguous)
             finally
                 Directory.Delete(root, true)
         }
@@ -635,9 +690,12 @@ type ReadOnlyOutcomeTests() =
             let data = CommitTest.expectCommit envelope
 
             Assert.That(data.Backend, Is.EqualTo "git")
+            Assert.That(data.Root, Is.EqualTo(Path.GetFullPath sandbox.Path))
             Assert.That(data.SourceRevision, Is.EqualTo(Some source))
-            Assert.That(data.CreatedRevision, Is.EqualTo(sandbox.RevParse "HEAD"))
+            Assert.That(data.SourceBranch, Is.EqualTo(Some "main"))
+            Assert.That(data.CreatedRevision, Is.EqualTo(Some(sandbox.RevParse "HEAD")))
             Assert.That((data.Paths = [ "selected-a.txt"; "selected-b.txt" ]), Is.True)
+            Assert.That(data.Completion, Is.EqualTo CommitCompletion.Verified)
             Assert.That(envelope.Warnings |> List.map _.Code, Does.Contain "unrelated-changes-preserved")
 
             Assert.That(
@@ -664,15 +722,17 @@ type ReadOnlyOutcomeTests() =
 
                 Assert.That((remainingPaths = [ "tracked-unrelated.txt"; "untracked-unrelated.txt" ]), Is.True)
 
+            let createdRevision = data.CreatedRevision.Value
+
             for path in data.Paths do
-                match! opened.LogPaths(data.CreatedRevision, 1, [ path ]) with
+                match! opened.LogPaths(createdRevision, 1, [ path ]) with
                 | Error error -> Assert.Fail error.Message
-                | Ok(commit :: _) -> Assert.That(commit.Id, Is.EqualTo data.CreatedRevision)
+                | Ok(commit :: _) -> Assert.That(commit.Id, Is.EqualTo createdRevision)
                 | Ok [] -> Assert.Fail $"created Git revision did not include {path}"
 
-            match! opened.LogPaths(data.CreatedRevision, 1, [ "tracked-unrelated.txt" ]) with
+            match! opened.LogPaths(createdRevision, 1, [ "tracked-unrelated.txt" ]) with
             | Error error -> Assert.Fail error.Message
-            | Ok(commit :: _) -> Assert.That(commit.Id, Is.Not.EqualTo data.CreatedRevision)
+            | Ok(commit :: _) -> Assert.That(commit.Id, Is.Not.EqualTo createdRevision)
             | Ok [] -> ()
 
             let beforeRetry = sandbox.RevParse "HEAD"
@@ -710,8 +770,15 @@ type ReadOnlyOutcomeTests() =
                     Agent.DefaultOutputLimitBytes
 
             Assert.That(first.Error.Value.Code, Is.EqualTo AgentErrorCode.Backend)
+            let evidence = CommitTest.expectCommit first
+            Assert.That(evidence.Completion, Is.EqualTo CommitCompletion.Ambiguous)
+            Assert.That(evidence.SourceRevision, Is.EqualTo(Some before))
+            Assert.That(evidence.SourceBranch, Is.EqualTo(Some "main"))
             let afterMutation = sandbox.RevParse "HEAD"
             Assert.That(afterMutation, Is.Not.EqualTo before)
+            Assert.That(evidence.ObservedCreatedRevision, Is.EqualTo(Some afterMutation))
+            Assert.That(evidence.CreatedRevision, Is.EqualTo(Some afterMutation))
+            Assert.That((evidence.Paths = [ "selected.txt" ]), Is.True)
 
             let request =
                 CommitRequest.Create(sandbox.Path, [ "selected.txt" ], "selected only")
@@ -720,6 +787,74 @@ type ReadOnlyOutcomeTests() =
             Assert.That(retry.Error.Value.Code, Is.EqualTo AgentErrorCode.InvalidInput)
             Assert.That(sandbox.RevParse "HEAD", Is.EqualTo afterMutation)
             Assert.That(File.ReadAllText(Path.Combine(sandbox.Path, "unrelated.txt")), Is.EqualTo "unrelated\n")
+        }
+
+    [<Test>]
+    member _.``A backend success with a different revision path set is a structured ambiguous failure``() : Task =
+        task {
+            CommitTest.requireGit ()
+            use sandbox = GitSandbox.Init "agent-commit-wrong-revision"
+            sandbox.CommitFile("selected.txt", "before selected\n", "base selected")
+            sandbox.CommitFile("different.txt", "before different\n", "base different")
+            sandbox.Write("selected.txt", "selected\n")
+            sandbox.Write("different.txt", "different\n")
+
+            let runner =
+                CommitTest.WrongRevisionRunner(JobRunner() :> IProcessRunner, sandbox.Path)
+
+            let repo = Repo.FromGit(sandbox.Path, sandbox.Path, Git.WithRunner runner)
+
+            let! envelope =
+                Agent.commitWith
+                    repo
+                    [ "selected.txt" ]
+                    "selected only"
+                    CancellationToken.None
+                    Agent.DefaultOutputLimitBytes
+
+            Assert.That(envelope.Status, Is.EqualTo AgentStatus.Error)
+            Assert.That(envelope.Error.Value.Code, Is.EqualTo AgentErrorCode.Backend)
+            let evidence = CommitTest.expectCommit envelope
+            Assert.That(evidence.Completion, Is.EqualTo CommitCompletion.Ambiguous)
+            Assert.That(evidence.ObservedCreatedRevision, Is.EqualTo(Some(sandbox.RevParse "HEAD")))
+            Assert.That(evidence.CreatedRevision.IsNone, Is.True)
+            Assert.That(evidence.Paths, Is.Empty)
+            Assert.That(evidence.SelectedPathsRemaining, Is.EqualTo(Some true))
+        }
+
+    [<Test>]
+    member _.``Git rename expands to one verified old and new backend path pair``() : Task =
+        task {
+            CommitTest.requireGit ()
+            use sandbox = GitSandbox.Init "agent-commit-git-rename"
+            sandbox.CommitFile("old-name.txt", "content\n", "base rename")
+            sandbox.CommitFile("unrelated.txt", "before\n", "base unrelated")
+            sandbox.Git [ "mv"; "old-name.txt"; "new-name.txt" ]
+            sandbox.Write("unrelated.txt", "dirty\n")
+
+            let! envelope =
+                Agent.commit
+                    (CommitRequest.Create(sandbox.Path, [ "new-name.txt" ], "rename exactly"))
+                    CancellationToken.None
+
+            let data = CommitTest.expectCommit envelope
+            Assert.That(data.Completion, Is.EqualTo CommitCompletion.Verified)
+            Assert.That((data.RequestedPaths = [ "new-name.txt" ]), Is.True)
+            Assert.That((Set.ofList data.BackendPaths = set [ "old-name.txt"; "new-name.txt" ]), Is.True)
+            Assert.That((Set.ofList data.Paths = set [ "old-name.txt"; "new-name.txt" ]), Is.True)
+            Assert.That(File.Exists(Path.Combine(sandbox.Path, "old-name.txt")), Is.False)
+            Assert.That(File.ReadAllText(Path.Combine(sandbox.Path, "new-name.txt")), Is.EqualTo "content\n")
+            Assert.That(File.ReadAllText(Path.Combine(sandbox.Path, "unrelated.txt")), Is.EqualTo "dirty\n")
+
+            let createdRevision = sandbox.RevParse "HEAD"
+
+            let! replay =
+                Agent.commit
+                    (CommitRequest.Create(sandbox.Path, [ "new-name.txt" ], "rename exactly"))
+                    CancellationToken.None
+
+            Assert.That(replay.Error.Value.Code, Is.EqualTo AgentErrorCode.InvalidInput)
+            Assert.That(sandbox.RevParse "HEAD", Is.EqualTo createdRevision)
         }
 
     [<Test>]
@@ -748,7 +883,7 @@ type ReadOnlyOutcomeTests() =
 
             Assert.That(data.Backend, Is.EqualTo "jj")
             Assert.That(data.SourceRevision.IsSome, Is.True)
-            Assert.That(String.IsNullOrWhiteSpace data.CreatedRevision, Is.False)
+            Assert.That(data.CreatedRevision.IsSome, Is.True)
             Assert.That((data.Paths = [ "selected.txt" ]), Is.True)
             Assert.That(envelope.Warnings |> List.map _.Code, Does.Contain "unrelated-changes-preserved")
 
@@ -769,19 +904,21 @@ type ReadOnlyOutcomeTests() =
 
                 Assert.That((remainingPaths = [ "tracked-unrelated.txt"; "untracked-unrelated.txt" ]), Is.True)
 
+            let createdRevision = data.CreatedRevision.Value
+
             match! repo.Log("@-", 1) with
             | Error error -> Assert.Fail error.Message
-            | Ok(commit :: _) -> Assert.That(data.CreatedRevision, Is.EqualTo commit.Id)
+            | Ok(commit :: _) -> Assert.That(createdRevision, Is.EqualTo commit.Id)
             | Ok [] -> Assert.Fail "created jj revision was not found"
 
-            match! repo.LogPaths(data.CreatedRevision, 1, [ "selected.txt" ]) with
+            match! repo.LogPaths(createdRevision, 1, [ "selected.txt" ]) with
             | Error error -> Assert.Fail error.Message
-            | Ok(commit :: _) -> Assert.That(commit.Id, Is.EqualTo data.CreatedRevision)
+            | Ok(commit :: _) -> Assert.That(commit.Id, Is.EqualTo createdRevision)
             | Ok [] -> Assert.Fail "created Jujutsu revision did not include selected.txt"
 
-            match! repo.LogPaths(data.CreatedRevision, 1, [ "tracked-unrelated.txt" ]) with
+            match! repo.LogPaths(createdRevision, 1, [ "tracked-unrelated.txt" ]) with
             | Error error -> Assert.Fail error.Message
-            | Ok(commit :: _) -> Assert.That(commit.Id, Is.Not.EqualTo data.CreatedRevision)
+            | Ok(commit :: _) -> Assert.That(commit.Id, Is.Not.EqualTo createdRevision)
             | Ok [] -> ()
 
             let! retry =
@@ -830,6 +967,11 @@ type ReadOnlyOutcomeTests() =
                     Agent.DefaultOutputLimitBytes
 
             Assert.That(first.Error.Value.Code, Is.EqualTo AgentErrorCode.Backend)
+            let evidence = CommitTest.expectCommit first
+            Assert.That(evidence.Completion, Is.EqualTo CommitCompletion.Ambiguous)
+            Assert.That(evidence.SourceRevision, Is.EqualTo beforeRevision)
+            Assert.That(evidence.CreatedRevision.IsSome, Is.True)
+            Assert.That((evidence.Paths = [ "selected.txt" ]), Is.True)
 
             let openedAfter =
                 Repo.FromJj(sandbox.Path, sandbox.Path, Jj.WithRunner(CommitTest.isolatedJjRunner sandbox.Path))
@@ -854,6 +996,60 @@ type ReadOnlyOutcomeTests() =
             match! openedAfter.ChangedFiles() with
             | Error error -> Assert.Fail error.Message
             | Ok changes -> Assert.That((changes |> List.map _.Path) = [ "unrelated.txt" ], Is.True)
+        }
+
+    [<Test>]
+    member _.``Jujutsu rename expands to one verified old and new backend path pair``() : Task =
+        task {
+            CommitTest.requireJj ()
+            use sandbox = JjSandbox.InitNonColocated "agent-commit-jj-rename"
+            sandbox.Write("old-name.txt", "content\n")
+            sandbox.Write("unrelated.txt", "before\n")
+            sandbox.Describe "base"
+            sandbox.NewChange "rename"
+            File.Move(Path.Combine(sandbox.Path, "old-name.txt"), Path.Combine(sandbox.Path, "new-name.txt"))
+            sandbox.Write("unrelated.txt", "dirty\n")
+
+            let repo =
+                Repo.FromJj(sandbox.Path, sandbox.Path, Jj.WithRunner(CommitTest.isolatedJjRunner sandbox.Path))
+
+            let! envelope =
+                Agent.commitWith
+                    repo
+                    [ "new-name.txt" ]
+                    "rename exactly"
+                    CancellationToken.None
+                    Agent.DefaultOutputLimitBytes
+
+            let data = CommitTest.expectCommit envelope
+            Assert.That(data.Completion, Is.EqualTo CommitCompletion.Verified)
+            Assert.That((data.RequestedPaths = [ "new-name.txt" ]), Is.True)
+            Assert.That((Set.ofList data.BackendPaths = set [ "old-name.txt"; "new-name.txt" ]), Is.True)
+            Assert.That((Set.ofList data.Paths = set [ "old-name.txt"; "new-name.txt" ]), Is.True)
+            Assert.That(File.Exists(Path.Combine(sandbox.Path, "old-name.txt")), Is.False)
+            Assert.That(File.ReadAllText(Path.Combine(sandbox.Path, "new-name.txt")), Is.EqualTo "content\n")
+            Assert.That(File.ReadAllText(Path.Combine(sandbox.Path, "unrelated.txt")), Is.EqualTo "dirty\n")
+
+            let! afterCommit = repo.Snapshot()
+
+            let afterRevision =
+                match afterCommit with
+                | Ok snapshot -> snapshot.Head
+                | Error error -> failwith error.Message
+
+            let! replay =
+                Agent.commitWith
+                    repo
+                    [ "new-name.txt" ]
+                    "rename exactly"
+                    CancellationToken.None
+                    Agent.DefaultOutputLimitBytes
+
+            Assert.That(replay.Error.Value.Code, Is.EqualTo AgentErrorCode.InvalidInput)
+
+            match! repo.Snapshot() with
+            | Ok snapshot -> Assert.That(snapshot.Head, Is.EqualTo afterRevision)
+            | Error error -> Assert.Fail error.Message
         }
 
     [<Test>]

@@ -82,10 +82,14 @@ detected Git/Jujutsu backend, current revision and branch, working-copy and trac
 remotes, and typed forge authentication
 and capability facts. `changes` returns either a path list with a separately scoped diff stat,
 or parsed unified-diff hunks; on Git the path list includes untracked entries while the stat
-covers the tracked `HEAD` diff. `commit` validates a non-empty explicit repo-relative path set,
-preflights the complete result budget and repository state before mutation, delegates only to
-`Repo.CommitPaths`, and returns source/created revision identities plus the included paths while
-preserving unrelated dirt. `publish`, `ci status`, and `ci wait` are reserved in
+covers the tracked `HEAD` diff. Read-only `inspect` and `changes` default an omitted `--repo` to
+the process working directory; `commit` requires the option explicitly, validates a non-empty
+repo-relative path set, expands a selected rename to its old/new backend pair, and preflights the
+complete result budget and repository state before mutation. It delegates only to
+`Repo.CommitPaths`, verifies the created revision's observed path set, and returns canonical
+repository/ref evidence; a late failure is explicitly ambiguous and carries bounded best-effort
+postflight evidence without claiming an unverified revision. Unrelated dirt remains preserved.
+`publish`, `ci status`, and `ci wait` are reserved in
 the v1 taxonomy and return `unsupported` with the machine-readable fallback reason
 `operation-not-implemented`.
 

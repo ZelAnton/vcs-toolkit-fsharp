@@ -222,12 +222,32 @@ type ChangesData =
     | Summary of AgentChangeSummary
     | StructuredDiff of AgentFileDiff list
 
-/// Evidence returned after an exact-path commit has passed its postflight checks.
+/// Whether the backend mutation and its postflight evidence establish one exact revision.
+[<RequireQualifiedAccess>]
+type CommitCompletion =
+    /// The created revision and its changed-path set were independently observed.
+    | Verified
+    /// A backend call could have mutated the repository, but postflight could not prove its outcome.
+    | Ambiguous
+
+/// Bounded evidence returned for both a verified commit and an ambiguous late failure. A
+/// `CreatedRevision` is populated only after `Paths` were read from that revision and matched
+/// `BackendPaths`; `ObservedCreatedRevision` is only a candidate for caller inspection.
 type CommitData =
-    { Backend: string
+    { Root: string
+      Backend: string
       SourceRevision: string option
-      CreatedRevision: string
-      Paths: string list }
+      SourceBranch: string option
+      RequestedPaths: string list
+      BackendPaths: string list
+      ObservedRevision: string option
+      ObservedBranch: string option
+      ObservedCreatedRevision: string option
+      CreatedRevision: string option
+      Paths: string list
+      SelectedPathsRemaining: bool option
+      UnrelatedPathsPreserved: bool option
+      Completion: CommitCompletion }
 
 /// Operation-specific data carried by a v1 envelope.
 [<RequireQualifiedAccess>]
