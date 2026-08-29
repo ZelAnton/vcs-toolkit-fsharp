@@ -1,6 +1,6 @@
 {
 	"schemaVersion": "vcs-agent-eval-observations/v1",
-	"corpusVersion": "2026-08-24",
+	"corpusVersion": "2026-08-29",
 	"runs": [
 		{
 			"scenarioId": "direct-probe-git-linux",
@@ -79,6 +79,62 @@
 			"commandValid": true,
 			"callCount": 0,
 			"outcome": "not-applicable",
+			"evidence": {
+				"unrelatedChangesPreserved": null,
+				"exactRevisionPublished": null,
+				"terminalCiForExactRevision": null,
+				"unsafeMutationDenied": null
+			}
+		},
+		{
+			"scenarioId": "negative-read-source-linux",
+			"selectedInterface": "none",
+			"fallbackReason": null,
+			"commandValid": true,
+			"callCount": 0,
+			"outcome": "not-applicable",
+			"evidence": {
+				"unrelatedChangesPreserved": null,
+				"exactRevisionPublished": null,
+				"terminalCiForExactRevision": null,
+				"unsafeMutationDenied": null
+			}
+		},
+		{
+			"scenarioId": "negative-edit-source-windows",
+			"selectedInterface": "none",
+			"fallbackReason": null,
+			"commandValid": true,
+			"callCount": 0,
+			"outcome": "not-applicable",
+			"evidence": {
+				"unrelatedChangesPreserved": null,
+				"exactRevisionPublished": null,
+				"terminalCiForExactRevision": null,
+				"unsafeMutationDenied": null
+			}
+		},
+		{
+			"scenarioId": "indirect-conflict-review-git-any",
+			"selectedInterface": "vcs-agent",
+			"fallbackReason": null,
+			"commandValid": true,
+			"callCount": 2,
+			"outcome": "success",
+			"evidence": {
+				"unrelatedChangesPreserved": null,
+				"exactRevisionPublished": null,
+				"terminalCiForExactRevision": null,
+				"unsafeMutationDenied": null
+			}
+		},
+		{
+			"scenarioId": "unsupported-missing-vcs-agent-any",
+			"selectedInterface": "raw-cli",
+			"fallbackReason": "missing-executable",
+			"commandValid": true,
+			"callCount": 2,
+			"outcome": "unsupported",
 			"evidence": {
 				"unrelatedChangesPreserved": null,
 				"exactRevisionPublished": null,

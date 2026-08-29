@@ -1,0 +1,342 @@
+{
+	"skillContractVersion": "using-vcs-agent/v1",
+	"metadata": {
+		"name": "using-vcs-agent",
+		"description": "Use for repository inspection, VCS change review, exact-path commits, Git or Jujutsu publication, pull or merge request recovery, exact-revision terminal CI verification, and conflict diagnosis through vcs-agent. Do not use for ordinary file search, source reading, or editing files without a repository or revision outcome."
+	},
+	"agentContractVersion": "1",
+	"commands": [
+		"probe",
+		"inspect",
+		"changes",
+		"commit",
+		"publish",
+		"ci.status",
+		"ci.wait"
+	],
+	"requiredOptions": {
+		"probe": [
+			"--output-budget"
+		],
+		"inspect": [
+			"--repo",
+			"--output-budget"
+		],
+		"changes": [
+			"--repo",
+			"--view",
+			"--output-budget"
+		],
+		"commit": [
+			"--repo",
+			"--path",
+			"--message",
+			"--output-budget"
+		],
+		"publish": [
+			"--repo",
+			"--branch",
+			"--remote",
+			"--revision",
+			"--forge",
+			"--account",
+			"--target",
+			"--title",
+			"--body",
+			"--output-budget"
+		],
+		"ci.status": [
+			"--repo",
+			"--branch",
+			"--remote",
+			"--revision",
+			"--forge",
+			"--account",
+			"--output-budget"
+		],
+		"ci.wait": [
+			"--repo",
+			"--branch",
+			"--remote",
+			"--revision",
+			"--forge",
+			"--account",
+			"--poll-seconds",
+			"--deadline-seconds",
+			"--inactivity-seconds",
+			"--output-budget"
+		]
+	},
+	"errorExits": {
+		"unsupported": 20,
+		"denied": 21,
+		"invalid-input": 22,
+		"backend": 23,
+		"forge": 24,
+		"authentication": 25,
+		"timeout": 26,
+		"cancellation": 27,
+		"output-limit": 28,
+		"external-command": 29,
+		"revision-mismatch": 30
+	},
+	"terminalExits": {
+		"success": 0,
+		"nonTerminal": 10
+	},
+	"agentFallbackReasons": [
+		"operation-not-implemented",
+		"missing-executable",
+		"unsupported-backend",
+		"unsupported-forge",
+		"raw-diagnostic-required"
+	],
+	"rawCliFallbackClassifications": {
+		"unsupported": [
+			"operation-not-implemented",
+			"unsupported-backend",
+			"unsupported-forge"
+		],
+		"missing-executable": [
+			"missing-executable"
+		],
+		"diagnostic-output-required": [
+			"raw-diagnostic-required"
+		]
+	},
+	"processKitCli": {
+		"minimumExpectedDurationSeconds": 60,
+		"wrapOnDescendantCleanupRisk": true,
+		"probeVersion": 1,
+		"schemaVersion": 1,
+		"exitCodeBand": [
+			100,
+			119
+		],
+		"requiredSurface": [
+			"run",
+			"run:--jsonl",
+			"run:--run-id",
+			"run:--timeout",
+			"run:--idle-timeout",
+			"run:--grace",
+			"run:--capture-dir",
+			"run:--capture-max-bytes",
+			"run:--capture-overflow",
+			"run:--no-echo",
+			"run:--detach",
+			"run:resource-summary",
+			"cancel",
+			"cancel:--run-id",
+			"kill",
+			"kill:--run-id",
+			"inspect",
+			"inspect:--error-format",
+			"inspect:--run-id",
+			"inspect:--json",
+			"wait",
+			"wait:--run-id",
+			"wait:--timeout",
+			"wait:--report-outcome",
+			"events",
+			"events:--file",
+			"events:--validate"
+		],
+		"preflight": {
+			"command": "processkit-cli",
+			"argvPrefix": [
+				"probe",
+				"--json",
+				"--require-schema-version",
+				"1",
+				"--require-exit-code-band",
+				"100-119"
+			],
+			"repeatForEachRequiredSurface": [
+				"--require-surface",
+				"<surface>"
+			],
+			"success": {
+				"exit": 0,
+				"binary": "processkit-cli",
+				"probeVersion": 1,
+				"compatible": true,
+				"mismatchCount": 0
+			}
+		},
+		"supervisedRunTemplate": [
+			"processkit-cli",
+			"run",
+			"--jsonl",
+			"<events-path>",
+			"--capture-dir",
+			"<capture-dir>",
+			"--capture-max-bytes",
+			"64k",
+			"--no-echo",
+			"--",
+			"vcs-agent",
+			"<operation>",
+			"<arguments>"
+		],
+		"validateEventsTemplate": [
+			"processkit-cli",
+			"events",
+			"--file",
+			"<events-path>",
+			"--validate"
+		],
+		"readiness": {
+			"processGroupMembership": "tracked-root-only",
+			"exactIdentity": "pid-plus-start-identity"
+		},
+		"terminalEvent": "runner_exit",
+		"cleanup": {
+			"remaining": 0,
+			"killError": false,
+			"readError": false,
+			"allExactIdentitiesGone": true
+		}
+	},
+	"examples": [
+		{
+			"id": "probe",
+			"operation": "probe",
+			"argv": [
+				"probe",
+				"--output-budget",
+				"65536"
+			],
+			"expectedExit": 0,
+			"expectedError": null
+		},
+		{
+			"id": "inspect",
+			"operation": "inspect",
+			"argv": [
+				"inspect",
+				"--repo",
+				"__missing_repo__",
+				"--output-budget",
+				"65536"
+			],
+			"expectedExit": 23,
+			"expectedError": "backend"
+		},
+		{
+			"id": "changes",
+			"operation": "changes",
+			"argv": [
+				"changes",
+				"--repo",
+				"__missing_repo__",
+				"--view",
+				"diff",
+				"--output-budget",
+				"65536"
+			],
+			"expectedExit": 23,
+			"expectedError": "backend"
+		},
+		{
+			"id": "commit",
+			"operation": "commit",
+			"argv": [
+				"commit",
+				"--repo",
+				"__missing_repo__",
+				"--path",
+				"src/App.fs",
+				"--message",
+				"Selected paths",
+				"--output-budget",
+				"65536"
+			],
+			"expectedExit": 23,
+			"expectedError": "backend"
+		},
+		{
+			"id": "publish",
+			"operation": "publish",
+			"argv": [
+				"publish",
+				"--repo",
+				"__missing_repo__",
+				"--branch",
+				"feature",
+				"--remote",
+				"origin",
+				"--revision",
+				"0123456789abcdef0123456789abcdef01234567",
+				"--forge",
+				"github",
+				"--account",
+				"agent",
+				"--target",
+				"main",
+				"--title",
+				"Checked publish",
+				"--body",
+				"",
+				"--output-budget",
+				"65536"
+			],
+			"expectedExit": 23,
+			"expectedError": "backend"
+		},
+		{
+			"id": "ci-status",
+			"operation": "ci.status",
+			"argv": [
+				"ci",
+				"status",
+				"--repo",
+				"__missing_repo__",
+				"--branch",
+				"feature",
+				"--remote",
+				"origin",
+				"--revision",
+				"0123456789abcdef0123456789abcdef01234567",
+				"--forge",
+				"github",
+				"--account",
+				"agent",
+				"--output-budget",
+				"65536"
+			],
+			"expectedExit": 23,
+			"expectedError": "backend"
+		},
+		{
+			"id": "ci-wait",
+			"operation": "ci.wait",
+			"argv": [
+				"ci",
+				"wait",
+				"--repo",
+				"__missing_repo__",
+				"--branch",
+				"feature",
+				"--remote",
+				"origin",
+				"--revision",
+				"0123456789abcdef0123456789abcdef01234567",
+				"--forge",
+				"gitlab",
+				"--account",
+				"agent",
+				"--poll-seconds",
+				"2",
+				"--deadline-seconds",
+				"60",
+				"--inactivity-seconds",
+				"30",
+				"--output-budget",
+				"65536"
+			],
+			"expectedExit": 23,
+			"expectedError": "backend"
+		}
+	]
+}

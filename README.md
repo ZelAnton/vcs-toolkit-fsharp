@@ -61,6 +61,17 @@ dotnet pack VcsToolkit.slnx --configuration Release --output ./artifacts
 dotnet tool install --global vcs-agent --version 0.1.0 --add-source ./artifacts
 ```
 
+The repository also ships the standalone [`using-vcs-agent` Skill](skills/using-vcs-agent/SKILL.md).
+For Codex, copy the complete `skills/using-vcs-agent` directory to
+`$CODEX_HOME/skills/using-vcs-agent` (or `~/.codex/skills/using-vcs-agent` when
+`CODEX_HOME` is unset); the adjacent versioned reference is required. Its narrow trigger covers
+repository inspection, change review, exact-path commits, publication, exact-revision CI, and
+conflict diagnosis, while ordinary source search, reading, and editing remain outside the Skill.
+The tracked 20-scenario offline baseline selects `vcs-agent` for all 12 supported direct/indirect
+outcomes and records zero activations across four negative source-work scenarios. Run
+`scripts/check-vcs-agent-skill.ps1` against the built executable and
+`scripts/test-vcs-agent-skill.ps1` before installing a changed copy.
+
 The implemented v1 outcomes are `probe`, `inspect`, `changes`, checked exact-path `commit`, verified
 `publish`, and exact-revision `ci status` / `ci wait`. `probe` is
 deterministic and does not inspect a repository, executable, network, environment variable,
@@ -132,6 +143,11 @@ nested-owner teardown guarantee needed by that fallback; the fail-closed reprodu
 upstream request are [documented here](docs/processkit-cli-nested-posix-containment-request.md).
 CI runs that cross-binary proof on Windows, Linux, and Apple Silicon macOS; a missing or
 incompatible published binary fails closed instead of silently skipping supervision.
+
+The Skill is workflow guidance, not an authorization or command-policy boundary. It checks
+authorization immediately before each mutation and reports classified raw-CLI fallbacks, but a
+host that prohibits raw VCS mutations must enforce that restriction through its sandbox, command
+policy, or approval mechanism.
 
 See [docs/agent-interface.md](docs/agent-interface.md) for the complete envelope, operation,
 error, exit-code, output, redaction, compatibility, and direct/supervised execution contract.

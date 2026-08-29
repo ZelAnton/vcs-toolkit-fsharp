@@ -2323,3 +2323,82 @@ type PublicationAndCiOutcomeTests() =
             finally
                 Directory.Delete(root, true)
         }
+
+[<TestFixture>]
+type SkillContractTests() =
+
+    let readContract () =
+        let path = Path.Combine(AppContext.BaseDirectory, "Skill", "contract.v1.json")
+        JsonDocument.Parse(File.ReadAllText path)
+
+    [<Test>]
+    member _.``Skill reference matches built operation error and fallback facts``() =
+        use contract = readContract ()
+        let root = contract.RootElement
+        Assert.That(root.GetProperty("agentContractVersion").GetString(), Is.EqualTo Agent.ContractVersion)
+
+        let probe = Agent.probe "0.1.0-skill-test"
+
+        let actualOperations =
+            match probe.Data with
+            | Some(AgentPayload.Probe data) ->
+                data.Operations
+                |> List.filter _.Supported
+                |> List.map (fun capability -> Agent.operationName capability.Operation)
+            | _ -> failwith "probe payload expected"
+
+        let expectedOperations =
+            root.GetProperty("commands").EnumerateArray()
+            |> Seq.choose (fun element -> element.GetString() |> Option.ofObj)
+            |> Seq.toList
+
+        Assert.That((actualOperations = expectedOperations), Is.True)
+
+        let errorMappings =
+            [ AgentErrorCode.Unsupported
+              AgentErrorCode.Denied
+              AgentErrorCode.InvalidInput
+              AgentErrorCode.Backend
+              AgentErrorCode.Forge
+              AgentErrorCode.Authentication
+              AgentErrorCode.Timeout
+              AgentErrorCode.Cancellation
+              AgentErrorCode.OutputLimit
+              AgentErrorCode.ExternalCommand
+              AgentErrorCode.RevisionMismatch ]
+
+        let expectedErrors = root.GetProperty "errorExits"
+
+        for code in errorMappings do
+            let name = Agent.errorCodeName code
+            Assert.That(expectedErrors.GetProperty(name).GetInt32(), Is.EqualTo(Agent.exitCode code))
+
+        Assert.That(expectedErrors.EnumerateObject() |> Seq.length, Is.EqualTo errorMappings.Length)
+
+        let expectedTerminalExits = root.GetProperty "terminalExits"
+        let terminalExecution = AgentWire.render Agent.DefaultOutputLimitBytes probe
+
+        let nonTerminalExecution =
+            AgentWire.render Agent.DefaultOutputLimitBytes { probe with Terminal = false }
+
+        Assert.That(terminalExecution.ExitCode, Is.EqualTo(expectedTerminalExits.GetProperty("success").GetInt32()))
+
+        Assert.That(
+            nonTerminalExecution.ExitCode,
+            Is.EqualTo(expectedTerminalExits.GetProperty("nonTerminal").GetInt32())
+        )
+
+        let fallbackMappings =
+            [ AgentFallbackReason.OperationNotImplemented
+              AgentFallbackReason.MissingExecutable
+              AgentFallbackReason.UnsupportedBackend
+              AgentFallbackReason.UnsupportedForge
+              AgentFallbackReason.RawDiagnosticRequired ]
+            |> List.map Agent.fallbackReasonName
+
+        let expectedFallbacks =
+            root.GetProperty("agentFallbackReasons").EnumerateArray()
+            |> Seq.choose (fun element -> element.GetString() |> Option.ofObj)
+            |> Seq.toList
+
+        Assert.That((fallbackMappings = expectedFallbacks), Is.True)

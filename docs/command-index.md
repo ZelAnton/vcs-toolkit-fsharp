@@ -36,6 +36,27 @@ escape hatch reaches but no typed method models yet is a candidate for a future 
   to; see [Facade escape-hatch routers](#Facade-escape-hatch-routers) for how a facade caller
   drops back to the wrapper level.
 
+## Outcome interface (`vcs-agent`)
+
+The packaged `vcs-agent` tool intentionally exposes outcomes rather than the wrapper escape
+hatches indexed below. Its complete v1 command set is:
+
+| Outcome | Command |
+|---|---|
+| Capability discovery | `vcs-agent probe [--output-budget <bytes>]` |
+| Repository inspection | `vcs-agent inspect [--repo <path>] [--output-budget <bytes>]` |
+| Change review | `vcs-agent changes [--repo <path>] [--view <summary|diff>] [--output-budget <bytes>]` |
+| Exact-path commit | `vcs-agent commit --repo <path> --path <path>... --message <text> [--output-budget <bytes>]` |
+| Verified publication | `vcs-agent publish --repo <path> --branch <name> --remote <name> --revision <full-id> --forge <github|gitlab> --account <name> --target <name> --title <text> [--body <text>] [--output-budget <bytes>]` |
+| Exact-revision CI status | `vcs-agent ci status --repo <path> --branch <name> --remote <name> --revision <full-id> --forge <github|gitlab> --account <name> [--output-budget <bytes>]` |
+| Exact-revision CI wait | `vcs-agent ci wait --repo <path> --branch <name> --remote <name> --revision <full-id> --forge <github|gitlab> --account <name> [--poll-seconds <n>] [--deadline-seconds <n>] [--inactivity-seconds <n>] [--output-budget <bytes>]` |
+
+There is no raw-command outcome. Use the standalone
+[`using-vcs-agent` Skill](../skills/using-vcs-agent/SKILL.md) for workflow selection,
+pre-mutation inspection, exact-path preservation, classified fallback, and exact-revision
+verification; see the [v1 contract](agent-interface.md) for option defaults and structured
+result/error fields.
+
 ## git (`VcsToolkit.Git` — the `git` binary)
 
 Client: `Git` / `GitAt` (`src/VcsToolkit.Git/Git.fs`). See
@@ -557,3 +578,4 @@ that wrapper's "not modeled" list if it was mentioned there. `scripts/check-comm
   and the escape hatches this index cross-references.
 - [Examples cookbook](examples.md) — worked usage of the typed methods this index indexes.
 - [MCP server guide](mcp-server.md) — the agent-facing tool surface built on `Repo`/`Forge`.
+- [vcs-agent v1 contract](agent-interface.md) — outcome commands and standalone Skill guidance.

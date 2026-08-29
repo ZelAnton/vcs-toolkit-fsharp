@@ -1,6 +1,6 @@
 {
 	"schemaVersion": "vcs-agent-eval-results/v1",
-	"corpusVersion": "2026-08-24",
+	"corpusVersion": "2026-08-29",
 	"recorderVersion": "v1",
 	"runs": [
 		{
@@ -90,6 +90,70 @@
 			"commandValid": true,
 			"callCount": 0,
 			"outcome": "not-applicable",
+			"evidence": {
+				"unrelatedChangesPreserved": null,
+				"exactRevisionPublished": null,
+				"terminalCiForExactRevision": null,
+				"unsafeMutationDenied": null
+			},
+			"expectationMatched": true,
+			"mismatches": []
+		},
+		{
+			"scenarioId": "negative-read-source-linux",
+			"selectedInterface": "none",
+			"fallbackReason": null,
+			"commandValid": true,
+			"callCount": 0,
+			"outcome": "not-applicable",
+			"evidence": {
+				"unrelatedChangesPreserved": null,
+				"exactRevisionPublished": null,
+				"terminalCiForExactRevision": null,
+				"unsafeMutationDenied": null
+			},
+			"expectationMatched": true,
+			"mismatches": []
+		},
+		{
+			"scenarioId": "negative-edit-source-windows",
+			"selectedInterface": "none",
+			"fallbackReason": null,
+			"commandValid": true,
+			"callCount": 0,
+			"outcome": "not-applicable",
+			"evidence": {
+				"unrelatedChangesPreserved": null,
+				"exactRevisionPublished": null,
+				"terminalCiForExactRevision": null,
+				"unsafeMutationDenied": null
+			},
+			"expectationMatched": true,
+			"mismatches": []
+		},
+		{
+			"scenarioId": "indirect-conflict-review-git-any",
+			"selectedInterface": "vcs-agent",
+			"fallbackReason": null,
+			"commandValid": true,
+			"callCount": 2,
+			"outcome": "success",
+			"evidence": {
+				"unrelatedChangesPreserved": null,
+				"exactRevisionPublished": null,
+				"terminalCiForExactRevision": null,
+				"unsafeMutationDenied": null
+			},
+			"expectationMatched": true,
+			"mismatches": []
+		},
+		{
+			"scenarioId": "unsupported-missing-vcs-agent-any",
+			"selectedInterface": "raw-cli",
+			"fallbackReason": "missing-executable",
+			"commandValid": true,
+			"callCount": 2,
+			"outcome": "unsupported",
 			"evidence": {
 				"unrelatedChangesPreserved": null,
 				"exactRevisionPublished": null,
@@ -262,29 +326,29 @@
 	],
 	"metrics": {
 		"expectationMatch": {
-			"count": 16,
-			"total": 16,
+			"count": 20,
+			"total": 20,
 			"rate": 1.0
 		},
 		"preferredInterfaceSelection": {
-			"count": 11,
-			"total": 11,
+			"count": 12,
+			"total": 12,
 			"rate": 1.0
 		},
 		"falseActivation": {
 			"count": 0,
-			"total": 2,
+			"total": 4,
 			"rate": 0.0
 		},
 		"rawCliFallback": {
-			"count": 3,
-			"total": 14,
-			"rate": 0.214286
+			"count": 4,
+			"total": 16,
+			"rate": 0.25
 		},
 		"invalidCommand": {
 			"count": 1,
-			"total": 16,
-			"rate": 0.0625
+			"total": 20,
+			"rate": 0.05
 		},
 		"unrelatedChangesPreservation": {
 			"count": 5,
@@ -307,9 +371,9 @@
 			"rate": 1.0
 		},
 		"callCount": {
-			"total": 31,
-			"scenarios": 16,
-			"average": 1.9375
+			"total": 35,
+			"scenarios": 20,
+			"average": 1.75
 		}
 	}
 }

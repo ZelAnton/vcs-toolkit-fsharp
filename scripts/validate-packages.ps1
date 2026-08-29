@@ -80,6 +80,7 @@ $expectedTools = [ordered]@{
     'vcs-mcp'   = 'vcs-mcp'
     'vcs-agent' = 'vcs-agent'
 }
+$expectedPackageIds = @($expectedSiblings.Keys) + @($expectedTools.Keys)
 
 function Get-XPathAttr {
     param([System.Xml.XmlElement]$Node, [string]$AttrName)
@@ -126,6 +127,11 @@ foreach ($nupkg in $nupkgs) {
             continue
         }
         $id = $idNode.InnerText.Trim()
+
+        if ($seenIds.ContainsKey($id)) {
+            $failures.Add("${id}: more than one package with this ID was produced")
+        }
+
         $seenIds[$id] = $true
         Write-Host "  -- $id ($($nupkg.Name))" -ForegroundColor DarkGray
 
@@ -228,6 +234,10 @@ foreach ($toolPackageId in $expectedTools.Keys) {
     if (-not $seenIds.ContainsKey($toolPackageId)) {
         $failures.Add("${toolPackageId}: expected DotnetTool package was not found among the packed artifacts")
     }
+}
+
+if ($nupkgs.Count -ne $expectedPackageIds.Count) {
+    $failures.Add("artifact set contains $($nupkgs.Count) package(s), expected exactly $($expectedPackageIds.Count)")
 }
 
 Write-Host ""

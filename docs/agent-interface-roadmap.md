@@ -14,7 +14,9 @@ The executable and package name is now confirmed as `vcs-agent`, with
 global-tool adapter. Contract v1 implements the read-only `probe`, `inspect`, `changes`,
 `ci status`, and `ci wait` outcomes plus the exact-path checked `commit` and verified
 `publish` mutations. Backend/forge capability gaps return typed `unsupported`. The exact current
-contract is documented in [vcs-agent v1 contract](agent-interface.md).
+contract is documented in [vcs-agent v1 contract](agent-interface.md). The standalone
+`using-vcs-agent` Skill, its factual-drift proof, and the complete tool-package release gate are
+implemented.
 
 ## Problem statement
 
@@ -230,6 +232,12 @@ stale metrics, incomplete or reordered runs, and expectation mismatches. Optiona
 live observations belong under the ignored evals/vcs-agent/live-results/ tier and
 must be passed explicitly; the ordinary CI job never reads that directory.
 
+The current 20-scenario baseline selects the preferred interface for all 12 supported
+direct/indirect outcomes and has zero activations in four negative source-work scenarios. It also
+passes every recorded unrelated-state preservation, exact-revision publication, terminal-CI, and
+unsafe-mutation denial expectation. These are deterministic offline routing measurements, not a
+claim about an unrecorded live model.
+
 ## Delivery phases
 
 ### Phase 0 — Evidence and contract
@@ -320,6 +328,12 @@ raw CLI use on supported backend/forge combinations and cannot claim success for
 wrong revision.
 
 ### Phase 4 — Skill and packaging
+
+Implemented: the standalone Skill has narrow outcome triggers and linked versioned facts; its
+checker exercises every command against the built tool and rejects metadata, error/exit,
+fallback, example, or ProcessKit-CLI proof drift. The offline corpus includes direct, indirect,
+negative, unsupported, dirty-state, publication, CI, and conflict-oriented behavior. Release
+validation requires the exact complete package set before checksum generation or publication.
 
 - Add the umbrella Skill, references, and factual drift tests against the built CLI.
 - Evaluate the Skill against the golden corpus and tune its trigger/fallback language.

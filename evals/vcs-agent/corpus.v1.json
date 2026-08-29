@@ -1,6 +1,6 @@
 {
 	"schemaVersion": "vcs-agent-eval-corpus/v1",
-	"corpusVersion": "2026-08-24",
+	"corpusVersion": "2026-08-29",
 	"scenarios": [
 		{
 			"id": "direct-probe-git-linux",
@@ -138,6 +138,102 @@
 				"commandValid": true,
 				"outcome": "not-applicable",
 				"maxCalls": 0,
+				"evidence": {
+					"unrelatedChangesPreserved": "not-applicable",
+					"exactRevisionPublished": "not-applicable",
+					"terminalCiForExactRevision": "not-applicable",
+					"unsafeMutationDenied": "not-applicable"
+				}
+			}
+		},
+		{
+			"id": "negative-read-source-linux",
+			"category": "negative",
+			"prompt": "Read src/VcsToolkit.Agent/Agent.fs and explain how publication validation is structured.",
+			"backend": "none",
+			"forge": "none",
+			"platform": "linux",
+			"mutation": false,
+			"unrelatedDirtyState": false,
+			"expected": {
+				"selectedInterface": "none",
+				"shouldActivate": false,
+				"fallbackReason": null,
+				"commandValid": true,
+				"outcome": "not-applicable",
+				"maxCalls": 0,
+				"evidence": {
+					"unrelatedChangesPreserved": "not-applicable",
+					"exactRevisionPublished": "not-applicable",
+					"terminalCiForExactRevision": "not-applicable",
+					"unsafeMutationDenied": "not-applicable"
+				}
+			}
+		},
+		{
+			"id": "negative-edit-source-windows",
+			"category": "negative",
+			"prompt": "Rename a local variable in Program.fs without performing any repository operation.",
+			"backend": "none",
+			"forge": "none",
+			"platform": "windows",
+			"mutation": false,
+			"unrelatedDirtyState": false,
+			"expected": {
+				"selectedInterface": "none",
+				"shouldActivate": false,
+				"fallbackReason": null,
+				"commandValid": true,
+				"outcome": "not-applicable",
+				"maxCalls": 0,
+				"evidence": {
+					"unrelatedChangesPreserved": "not-applicable",
+					"exactRevisionPublished": "not-applicable",
+					"terminalCiForExactRevision": "not-applicable",
+					"unsafeMutationDenied": "not-applicable"
+				}
+			}
+		},
+		{
+			"id": "indirect-conflict-review-git-any",
+			"category": "indirect",
+			"prompt": "Show which paths in this repository are conflicted and summarize the VCS changes without resolving them.",
+			"backend": "git",
+			"forge": "none",
+			"platform": "any",
+			"mutation": false,
+			"unrelatedDirtyState": false,
+			"expected": {
+				"selectedInterface": "vcs-agent",
+				"shouldActivate": true,
+				"fallbackReason": null,
+				"commandValid": true,
+				"outcome": "success",
+				"maxCalls": 2,
+				"evidence": {
+					"unrelatedChangesPreserved": "not-applicable",
+					"exactRevisionPublished": "not-applicable",
+					"terminalCiForExactRevision": "not-applicable",
+					"unsafeMutationDenied": "not-applicable"
+				}
+			}
+		},
+		{
+			"id": "unsupported-missing-vcs-agent-any",
+			"category": "unsupported",
+			"prompt": "Inspect this repository state, but vcs-agent is not installed on this machine.",
+			"backend": "git",
+			"forge": "none",
+			"platform": "any",
+			"mutation": false,
+			"unrelatedDirtyState": false,
+			"expected": {
+				"selectedInterface": "raw-cli",
+				"shouldActivate": true,
+				"fallbackReason": "missing-executable",
+				"commandValid": true,
+				"outcome": "unsupported",
+				"maxCalls": 2,
 				"evidence": {
 					"unrelatedChangesPreserved": "not-applicable",
 					"exactRevisionPublished": "not-applicable",

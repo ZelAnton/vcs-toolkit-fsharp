@@ -117,6 +117,18 @@ jobs:
       - name: Pack
         run: dotnet pack VcsToolkit.slnx --configuration Release --output ./artifacts
 
+      - name: Validate the standalone vcs-agent Skill against the built tool
+        shell: pwsh
+        run: >-
+          ./scripts/check-vcs-agent-skill.ps1
+          -VcsAgentPath ./src/VcsToolkit.Agent.Server/bin/Release/net10.0/vcs-agent
+
+      - name: Run standalone vcs-agent Skill validator regressions
+        shell: pwsh
+        run: >-
+          ./scripts/test-vcs-agent-skill.ps1
+          -VcsAgentPath ./src/VcsToolkit.Agent.Server/bin/Release/net10.0/vcs-agent
+
       - name: Validate packages
         shell: pwsh
         run: ./scripts/validate-packages.ps1 -PackagesDir ./artifacts
