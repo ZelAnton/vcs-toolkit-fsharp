@@ -52,7 +52,7 @@ hatches indexed below. Its complete v1 command set is:
 | Exact-revision CI wait | `vcs-agent ci wait --repo <path> --branch <name> --remote <name> --revision <full-id> --forge <github|gitlab> --account <name> [--poll-seconds <n>] [--deadline-seconds <n>] [--inactivity-seconds <n>] [--output-budget <bytes>]` |
 
 There is no raw-command outcome. Use the standalone
-[`using-vcs-agent` Skill](../skills/using-vcs-agent/SKILL.md) for workflow selection,
+[`using-vcs-agent` Skill](https://github.com/ZelAnton/vcs-toolkit-fsharp/blob/main/skills/using-vcs-agent/SKILL.md) for workflow selection,
 pre-mutation inspection, exact-path preservation, classified fallback, and exact-revision
 verification; see the [v1 contract](agent-interface.md) for option defaults and structured
 result/error fields.

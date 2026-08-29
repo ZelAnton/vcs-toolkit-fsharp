@@ -30,10 +30,14 @@ function Invoke-Validator {
         -VcsAgentPath $AgentPath `
         -SkillPath $SkillPath `
         -ContractPath $ContractPath `
-        -ProcessKitProofPath $script:ProcessKitProofPath 2>&1 | Out-String
+        -ProcessKitProofPath $script:ProcessKitProofPath 2>&1 |
+        ForEach-Object { $_.ToString() } |
+        Out-String -Width 32767
+
+    $exitCode = $LASTEXITCODE
 
     [pscustomobject]@{
-        ExitCode = $LASTEXITCODE
+        ExitCode = $exitCode
         Output = $output
     }
 }
@@ -56,7 +60,10 @@ function Assert-Rejected {
         throw "$Context was accepted."
     }
 
-    if ($result.Output -notmatch [regex]::Escape($ExpectedText)) {
+    $plainOutput = [regex]::Replace($result.Output, "$([char] 27)\[[0-?]*[ -/]*[@-~]", '')
+    $normalizedOutput = [regex]::Replace($plainOutput, '\s+', ' ')
+
+    if (-not $normalizedOutput.Contains($ExpectedText, [System.StringComparison]::Ordinal)) {
         throw "$Context was rejected for an unexpected reason:`n$($result.Output)"
     }
 }
@@ -187,3 +194,5 @@ finally {
         Remove-Item -LiteralPath $scratch -Recurse -Force
     }
 }
+
+exit 0

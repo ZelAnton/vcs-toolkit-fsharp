@@ -26,7 +26,7 @@ dotnet tool install --global vcs-agent --version 0.1.0 --add-source ./artifacts
 
 ## Standalone Skill
 
-[`skills/using-vcs-agent`](../skills/using-vcs-agent/SKILL.md) is the standalone workflow layer
+[`skills/using-vcs-agent`](https://github.com/ZelAnton/vcs-toolkit-fsharp/blob/main/skills/using-vcs-agent/SKILL.md) is the standalone workflow layer
 for Codex-compatible Skill hosts. Install it by copying that complete directory to
 `$CODEX_HOME/skills/using-vcs-agent` (or `~/.codex/skills/using-vcs-agent` when `CODEX_HOME` is
 unset). The `references/contract.v1.json` file is part of the installation: the repository checker
