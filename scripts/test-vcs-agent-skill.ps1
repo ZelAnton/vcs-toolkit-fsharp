@@ -42,6 +42,17 @@ function Invoke-Validator {
     }
 }
 
+function Normalize-DiagnosticOutput {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $Text
+    )
+
+    $plainText = [regex]::Replace($Text, "$([char] 27)\[[0-?]*[ -/]*[@-~]", '')
+    $withoutGutters = [regex]::Replace($plainText, '(?m)^\s*(?:Line\s+\||(?:\d+\s+)?\|)\s?', '')
+    return [regex]::Replace($withoutGutters, '\s+', ' ').Trim()
+}
+
 function Assert-Rejected {
     param(
         [Parameter(Mandatory = $true)]
@@ -60,8 +71,7 @@ function Assert-Rejected {
         throw "$Context was accepted."
     }
 
-    $plainOutput = [regex]::Replace($result.Output, "$([char] 27)\[[0-?]*[ -/]*[@-~]", '')
-    $normalizedOutput = [regex]::Replace($plainOutput, '\s+', ' ')
+    $normalizedOutput = Normalize-DiagnosticOutput $result.Output
 
     if (-not $normalizedOutput.Contains($ExpectedText, [System.StringComparison]::Ordinal)) {
         throw "$Context was rejected for an unexpected reason:`n$($result.Output)"
@@ -110,6 +120,13 @@ $scratch = Join-Path ([System.IO.Path]::GetTempPath()) ('using-vcs-agent-skill-t
 [System.IO.Directory]::CreateDirectory($scratch) | Out-Null
 
 try {
+    $gutteredDiagnostic = "using-vcs-agent Skill validation failed: Option surface for 'inspect'`n    | differs from built vcs-agent contractFacts."
+    $normalizedDiagnostic = Normalize-DiagnosticOutput $gutteredDiagnostic
+
+    if (-not $normalizedDiagnostic.Contains("Option surface for 'inspect' differs", [System.StringComparison]::Ordinal)) {
+        throw 'PowerShell diagnostic gutter normalization regressed.'
+    }
+
     $baseline = Invoke-Validator $sourceSkill $sourceContract
     Assert-Success $baseline 'Committed Skill validation'
 
