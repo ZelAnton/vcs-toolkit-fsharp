@@ -27,10 +27,17 @@ namespace VcsToolkit.Mcp
     public sealed class VcsMcpServer : System.IDisposable
     {
         public VcsMcpServer(VcsToolkit.Core.Repo repo, Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Forge.Forge>? forge, VcsToolkit.Mcp.WriteGate writes, Microsoft.FSharp.Core.FSharpOption<int>? outputBudget) { }
+        public Microsoft.FSharp.Collections.FSharpList<string> AvailableAgentTools { get; }
         public Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Forge.Forge>? ForgeOpt { get; }
         public Microsoft.FSharp.Core.FSharpOption<int>? OutputBudget { get; }
         public VcsToolkit.Core.Repo Repo { get; }
         public VcsToolkit.Mcp.WriteGate Writes { get; }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> AgentChanges(VcsToolkit.Agent.ChangesMode mode) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> AgentCiStatus(string branch, string remote, string revision, string account) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> AgentCiWait(string branch, string remote, string revision, string account, System.TimeSpan pollInterval, System.TimeSpan deadline, System.TimeSpan inactivityDeadline) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> AgentCommit(Microsoft.FSharp.Collections.FSharpList<string> paths, string message) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> AgentInspect() { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> AgentPublish(string branch, string remote, string revision, string account, string targetBranch, string title, string body) { }
         public Microsoft.FSharp.Core.FSharpResult<VcsToolkit.Forge.Forge, VcsToolkit.Mcp.McpError> Forge() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> ForgeAuthStatus() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, VcsToolkit.Mcp.McpError>> ForgeInfo() { }

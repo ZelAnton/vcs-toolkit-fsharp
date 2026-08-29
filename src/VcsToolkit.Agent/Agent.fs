@@ -128,7 +128,7 @@ module Agent =
           FallbackReason = None }
 
     /// Construct a v1 structured refusal for a declared but unavailable operation.
-    let internal unsupported operation =
+    let unsupported operation =
         failure
             (operationName operation)
             AgentErrorCode.Unsupported
@@ -138,6 +138,11 @@ module Agent =
             None
             None
             (Some AgentFallbackReason.OperationNotImplemented)
+
+    /// Construct a v1 refusal for a transport authorization gate. Transport adapters use this
+    /// instead of changing the operation's wire semantics or returning an unstructured error.
+    let denied operation message =
+        failure (operationName operation) AgentErrorCode.Denied message false false None None None
 
     /// Construct a redacted v1 invalid-input failure.
     let internal invalidInput operation message =
@@ -173,6 +178,9 @@ module Agent =
 
     let private cancellation operation =
         failure operation AgentErrorCode.Cancellation "The operation was cancelled." false false None None None
+
+    /// Construct a v1 cancellation outcome before a transport enters shared orchestration.
+    let cancelled operation = cancellation (operationName operation)
 
     let private processFailure operation defaultCode limitBytes fallbackReason (error: ProcessError) =
         match error with
@@ -417,12 +425,10 @@ module Agent =
         inspectUnbounded request cancellationToken
         |> withBudget request.OutputLimitBytes
 
-    let internal inspectWith
-        (repo: Repo)
-        (forge: Forge option)
-        (cancellationToken: CancellationToken)
-        outputLimitBytes
-        =
+    /// Inspect through already-configured repository and forge handles. Transport adapters use
+    /// this overload to retain their command observer, timeout, and cancellation configuration
+    /// while sharing the same outcome orchestration as `inspect`.
+    let inspectWith (repo: Repo) (forge: Forge option) (cancellationToken: CancellationToken) outputLimitBytes =
         inspectCore repo (fun _ -> forge) cancellationToken outputLimitBytes
 
     let private changedPath (change: FileChange) =
@@ -523,7 +529,9 @@ module Agent =
         changesUnbounded request cancellationToken
         |> withBudget request.OutputLimitBytes
 
-    let internal changesWith (repo: Repo) mode (cancellationToken: CancellationToken) outputLimitBytes =
+    /// Read changes through an already-configured repository handle. The returned envelope uses
+    /// the same contract, redaction, cancellation, and complete-output budget as `changes`.
+    let changesWith (repo: Repo) mode (cancellationToken: CancellationToken) outputLimitBytes =
         changesCore repo mode cancellationToken outputLimitBytes
 
     let private invalidCommitPath path =
@@ -1017,7 +1025,9 @@ module Agent =
         }
         |> withBudget request.OutputLimitBytes
 
-    let internal commitWith (repo: Repo) paths message (cancellationToken: CancellationToken) outputLimitBytes =
+    /// Commit through an already-configured repository handle. A transport must still apply its
+    /// own authorization and repository-lock policy before calling this shared outcome service.
+    let commitWith (repo: Repo) paths message (cancellationToken: CancellationToken) outputLimitBytes =
         commitCore repo paths message cancellationToken outputLimitBytes
 
     let private forgeKindName forge =
@@ -1710,12 +1720,10 @@ module Agent =
         }
         |> withBudget request.OutputLimitBytes
 
-    let internal publishWith
-        (repo: Repo)
-        (forge: Forge)
-        (request: PublishRequest)
-        (cancellationToken: CancellationToken)
-        =
+    /// Publish through already-configured repository and forge handles. A transport must still
+    /// apply its own authorization and repository-lock policy before calling this shared outcome
+    /// service.
+    let publishWith (repo: Repo) (forge: Forge) (request: PublishRequest) (cancellationToken: CancellationToken) =
         publishCoreUnbounded repo forge request cancellationToken
         |> withBudget request.OutputLimitBytes
 
@@ -2016,7 +2024,8 @@ module Agent =
         }
         |> withBudget request.OutputLimitBytes
 
-    let internal ciStatusWith repo forge request cancellationToken =
+    /// Observe exact-revision CI through already-configured repository and forge handles.
+    let ciStatusWith repo forge request cancellationToken =
         ciStatusCore repo forge request cancellationToken
         |> withBudget request.OutputLimitBytes
 
@@ -2257,6 +2266,7 @@ module Agent =
         }
         |> withBudget request.OutputLimitBytes
 
-    let internal ciWaitWith repo forge request cancellationToken =
+    /// Wait for exact-revision CI through already-configured repository and forge handles.
+    let ciWaitWith repo forge request cancellationToken =
         ciWaitCore repo forge request cancellationToken
         |> withBudget request.OutputLimitBytes

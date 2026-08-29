@@ -1,0 +1,198 @@
+{
+  "schemaVersion": 1,
+  "corpusVersion": "outcomes-v1",
+  "contractVersion": "1",
+  "replay": {
+    "cliContractPath": "skills/using-vcs-agent/references/contract.v1.json",
+    "cliAdapter": "vcs-agent Main.runWithCancellation",
+    "mcpAdapter": "vcs-mcp stdio JSON-RPC tools/call",
+    "mcpLibraryAdapter": "VcsToolkit.Mcp Catalog.callToolWithCancellation",
+    "normalization": "CallToolResult text uses the complete JSON envelope with insignificant whitespace removed; MCP cancellation is a response-suppressing JSON-RPC request cancellation"
+  },
+  "provenance": [
+    {
+      "path": "src/VcsToolkit.Agent/Contract.fs",
+      "sha256": "8ff0e8ff7f1ce659121adf1dce58d532393ac9c0d1e7fa5d865b45795d022df0"
+    },
+    {
+      "path": "src/VcsToolkit.Agent/Agent.fs",
+      "sha256": "6b8f4fb07fd908830a2ce7e31d32e0a57939ab68c53c66112fc3b9cb759b32c8"
+    },
+    {
+      "path": "src/VcsToolkit.Agent.Server/Program.fs",
+      "sha256": "5dd04a34e6bc384836a180c0114b8755a37c3be177aa743b211b6b030c47eed6"
+    },
+    {
+      "path": "src/VcsToolkit.Mcp/Server.fs",
+      "sha256": "36f091bc126842f6e6d22b0bad12d8f10b9ab23097dc40e655d8429aa912de98"
+    },
+    {
+      "path": "src/VcsToolkit.Mcp/Catalog.fs",
+      "sha256": "8f8e163be7f5a61929a69e03cf3d52b645cab3a6bba9cb32325dba7138c821db"
+    },
+    {
+      "path": "src/VcsToolkit.Mcp.Server/Program.fs",
+      "sha256": "95095fa141273d596ce8047ec895f1cfe410cc3f6c7ecaa195a2dfeeb730beb4"
+    },
+    {
+      "path": "tests/VcsToolkit.Mcp.Tests/McpTests.fs",
+      "sha256": "13dee28254a7d25c1a9f9dcd38b6235f05e8501321022b0878b1c13b7ac4cf71"
+    },
+    {
+      "path": "tests/VcsToolkit.Mcp.Server.Tests/McpServerStdioE2eTests.fs",
+      "sha256": "74d716743177c1a5c1f6f248f0e91f5236f47f0ae7b56880c60981469577f7ca"
+    },
+    {
+      "path": "skills/using-vcs-agent/SKILL.md",
+      "sha256": "790055070fa8f0e45b1b7b59840e6e380186d74a5636a075e050f539374afd94"
+    },
+    {
+      "path": "skills/using-vcs-agent/references/contract.v1.json",
+      "sha256": "09ed413777b0f9b4a1cdba6fa99da1482566198f0a107e5b386e40bcdd2718bc"
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "write-denied",
+      "cli": {
+        "argv": [
+          "commit",
+          "--repo",
+          "<repo>",
+          "--path",
+          "a.txt",
+          "--message",
+          "Selected paths",
+          "--output-budget",
+          "65536"
+        ],
+        "expectedExit": 21,
+        "expectedError": "denied",
+        "cancellation": "none"
+      },
+      "mcpTool": "agent_commit",
+      "mcpConfiguration": "conflicted-git",
+      "mcpArguments": {
+        "paths": [
+          "a.txt"
+        ],
+        "message": "Selected paths"
+      },
+      "mcpTransportOutcome": "call-tool-result",
+      "operation": "commit",
+      "status": "error",
+      "terminal": true,
+      "errorCode": "denied",
+      "expectedExit": 21
+    },
+    {
+      "id": "unsupported-forge",
+      "cli": {
+        "argv": [
+          "publish",
+          "--repo",
+          "<repo>",
+          "--branch",
+          "main",
+          "--remote",
+          "origin",
+          "--revision",
+          "<revision>",
+          "--forge",
+          "gitea",
+          "--account",
+          "owner",
+          "--target",
+          "main",
+          "--title",
+          "Checked publish",
+          "--body",
+          "",
+          "--output-budget",
+          "65536"
+        ],
+        "expectedExit": 20,
+        "expectedError": "unsupported",
+        "cancellation": "none"
+      },
+      "mcpTool": "agent_publish",
+      "mcpConfiguration": "gitea-git",
+      "mcpArguments": {
+        "branch": "main",
+        "remote": "origin",
+        "revision": "<revision>",
+        "account": "owner",
+        "target": "main",
+        "title": "Checked publish",
+        "body": ""
+      },
+      "mcpTransportOutcome": "call-tool-result",
+      "operation": "publish",
+      "status": "error",
+      "terminal": true,
+      "errorCode": "unsupported",
+      "expectedExit": 20
+    },
+    {
+      "id": "cancellation",
+      "cli": {
+        "argv": [
+          "commit",
+          "--repo",
+          "<repo>",
+          "--path",
+          "a.txt",
+          "--message",
+          "Selected paths",
+          "--output-budget",
+          "65536"
+        ],
+        "expectedExit": 27,
+        "expectedError": "cancellation",
+        "cancellation": "pre-cancelled"
+      },
+      "mcpTool": "agent_commit",
+      "mcpConfiguration": "cancellation-git",
+      "mcpArguments": {
+        "paths": [
+          "a.txt"
+        ],
+        "message": "Selected paths"
+      },
+      "mcpTransportOutcome": "request-cancelled",
+      "operation": "commit",
+      "status": "error",
+      "terminal": true,
+      "errorCode": "cancellation",
+      "expectedExit": 27
+    },
+    {
+      "id": "output-limit",
+      "cli": {
+        "argv": [
+          "changes",
+          "--repo",
+          "<repo>",
+          "--view",
+          "summary",
+          "--output-budget",
+          "512"
+        ],
+        "expectedExit": 28,
+        "expectedError": "output-limit",
+        "cancellation": "none"
+      },
+      "mcpTool": "agent_changes",
+      "mcpConfiguration": "large-changes-git",
+      "mcpArguments": {
+        "view": "summary"
+      },
+      "mcpTransportOutcome": "call-tool-result",
+      "operation": "changes",
+      "status": "error",
+      "terminal": true,
+      "errorCode": "output-limit",
+      "expectedExit": 28
+    }
+  ]
+}

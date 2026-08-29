@@ -13,6 +13,18 @@ a model; it verifies the already-recorded observation and its exact input proven
 - corpus.v1.json holds direct, indirect, negative, unsupported, and mutating
   scenarios across Git/Jujutsu, GitHub/GitLab/Gitea, and
   Windows/Linux/macOS-specific cases.
+- outcome-corpus.v1.json is the transport-equivalence golden corpus. Its replays load the exact
+  CLI argv and cancellation mode from the corpus, verify each command, complete option set,
+  routing classification, error, and exit against the Skill contract, and execute
+  `vcs-agent`'s `Main.runWithCancellation` adapter against real repository fixtures. The stdio
+  replay launches the built `vcs-mcp`, performs the MCP initialize handshake, and sends the
+  matching JSON-RPC `tools/call`: denied, unsupported, and output-limit outcomes compare every
+  CallToolResult text-envelope field after removing only insignificant whitespace. MCP request
+  cancellation is intentionally recorded as a response-suppressing transport outcome because
+  the MCP SDK cancels the handler and pending client task without emitting a CallToolResult; the
+  in-process intent-seam replay separately compares its canonical structured cancellation
+  envelope with the CLI result. Both replays fail closed on mandatory-scenario, exit/stderr,
+  envelope or cancellation transport semantics, adapter identity, and exact SHA-256 provenance.
 - offline/observations.v1.json is the model-forward routing observation plus clearly
   separated supplemental command/outcome/evidence fixture fields.
 - offline/results.v1.json is the recorded baseline checked in ordinary CI.

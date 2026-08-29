@@ -57,6 +57,20 @@ pre-mutation inspection, exact-path preservation, classified fallback, and exact
 verification; see the [v1 contract](agent-interface.md) for option defaults and structured
 result/error fields.
 
+The MCP transport exposes the same services without adding another orchestration layer:
+
+| MCP intent tool | Shared outcome |
+|---|---|
+| `agent_inspect` | `inspect` |
+| `agent_changes` | `changes` |
+| `agent_commit` | `commit` |
+| `agent_publish` | `publish` |
+| `agent_ci_status` | `ci status` |
+| `agent_ci_wait` | `ci wait` |
+
+`tools/list` includes only intent tools supported by the configured forge and write policy;
+the low-level `repo_*`/`forge_*` composition surface below remains compatible and discoverable.
+
 ## git (`VcsToolkit.Git` — the `git` binary)
 
 Client: `Git` / `GitAt` (`src/VcsToolkit.Git/Git.fs`). See

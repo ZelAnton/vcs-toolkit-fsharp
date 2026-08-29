@@ -3,8 +3,12 @@
 	<PropertyGroup>
 		<TargetFramework>net10.0</TargetFramework>
 		<IsPackable>false</IsPackable>
-		<AssemblySearchPaths>$(AssemblySearchPaths);$(McpDir)bin\$(Configuration)\$(TargetFramework);$(CoreDir)bin\$(Configuration)\$(TargetFramework);$(ForgeDir)bin\$(Configuration)\$(TargetFramework);$(GitDir)bin\$(Configuration)\$(TargetFramework);$(JjDir)bin\$(Configuration)\$(TargetFramework);$(GitHubDir)bin\$(Configuration)\$(TargetFramework);$(GitLabDir)bin\$(Configuration)\$(TargetFramework);$(GiteaDir)bin\$(Configuration)\$(TargetFramework);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework);$(DiffDir)bin\$(Configuration)\$(TargetFramework);$(TestKitDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
+		<AssemblySearchPaths>$(AssemblySearchPaths);$(McpDir)bin\$(Configuration)\$(TargetFramework);$(AgentServerDir)bin\$(Configuration)\$(TargetFramework);$(AgentDir)bin\$(Configuration)\$(TargetFramework);$(CoreDir)bin\$(Configuration)\$(TargetFramework);$(ForgeDir)bin\$(Configuration)\$(TargetFramework);$(GitDir)bin\$(Configuration)\$(TargetFramework);$(JjDir)bin\$(Configuration)\$(TargetFramework);$(GitHubDir)bin\$(Configuration)\$(TargetFramework);$(GitLabDir)bin\$(Configuration)\$(TargetFramework);$(GiteaDir)bin\$(Configuration)\$(TargetFramework);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework);$(DiffDir)bin\$(Configuration)\$(TargetFramework);$(TestKitDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
 	</PropertyGroup>
+
+	<ItemGroup>
+		<AssemblyMetadata Include="RepoRoot" Value="$(RepoRoot)" />
+	</ItemGroup>
 
 	<ItemGroup>
 		<Compile Include="McpTests.fs" />
@@ -25,6 +29,8 @@
 
 	<ItemGroup>
 		<Reference Include="VcsToolkit.Mcp" />
+		<Reference Include="vcs-agent" />
+		<Reference Include="VcsToolkit.Agent" />
 		<Reference Include="VcsToolkit.Core" />
 		<Reference Include="VcsToolkit.Forge" />
 		<Reference Include="VcsToolkit.GitHub" />

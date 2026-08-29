@@ -18,6 +18,7 @@
 
 	<ItemGroup>
 		<InternalsVisibleTo Include="VcsToolkit.Agent.Server.Tests" />
+		<InternalsVisibleTo Include="VcsToolkit.Mcp.Tests" />
 	</ItemGroup>
 
 	<ItemGroup>

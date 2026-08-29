@@ -1,8 +1,10 @@
 namespace VcsToolkit.Mcp
 
+open System
 open System.Text.Json
 open System.Threading
 open System.Threading.Tasks
+open VcsToolkit.Agent
 
 /// One argument of a tool, for the advertised input schema.
 type internal ToolParam =
@@ -186,6 +188,30 @@ module internal Catalog =
           Description = "Labels to apply while creating the item; omit for none."
           Required = false }
 
+    let private pAgentBranch =
+        { Name = "branch"
+          JsonType = "string"
+          Description = "Exact source branch or bookmark selected for the outcome."
+          Required = true }
+
+    let private pAgentRemote =
+        { Name = "remote"
+          JsonType = "string"
+          Description = "Configured remote whose repository identity must be proven."
+          Required = true }
+
+    let private pAgentRevision =
+        { Name = "revision"
+          JsonType = "string"
+          Description = "Exact local or published revision identity to prove."
+          Required = true }
+
+    let private pAgentAccount =
+        { Name = "account"
+          JsonType = "string"
+          Description = "Explicit authenticated forge account identity."
+          Required = true }
+
     // --- the catalogue -----------------------------------------------------
 
     /// Every tool, in registration order (read tools first per group, then gated writes).
@@ -215,6 +241,74 @@ module internal Catalog =
               Params = ps }
 
         [ read
+              "agent_inspect"
+              "Inspect repository identity, working state, remotes, forge authentication, and available outcome capabilities through the shared VcsToolkit.Agent contract."
+              []
+          read
+              "agent_changes"
+              "Return the shared, bounded VcsToolkit.Agent changes outcome as a summary or structured diff."
+              [ { Name = "view"
+                  JsonType = "string"
+                  Description = "Outcome view: summary (default) or diff."
+                  Required = false } ]
+          write
+              "agent_commit"
+              "Commit exactly the selected changed paths through the shared VcsToolkit.Agent outcome service."
+              false
+              false
+              [ { Name = "paths"
+                  JsonType = "array"
+                  Description = "Non-empty repository-relative path set to commit."
+                  Required = true }
+                { Name = "message"
+                  JsonType = "string"
+                  Description = "Commit description."
+                  Required = true } ]
+          write
+              "agent_publish"
+              "Publish one exact revision and create or recover one proven pull/merge request through the shared VcsToolkit.Agent outcome service."
+              false
+              true
+              [ pAgentBranch
+                pAgentRemote
+                pAgentRevision
+                pAgentAccount
+                { Name = "target"
+                  JsonType = "string"
+                  Description = "Explicit pull/merge request target branch."
+                  Required = true }
+                { Name = "title"
+                  JsonType = "string"
+                  Description = "Pull/merge request title."
+                  Required = true }
+                { Name = "body"
+                  JsonType = "string"
+                  Description = "Pull/merge request body."
+                  Required = true } ]
+          read
+              "agent_ci_status"
+              "Observe CI for one proven branch and exact revision through the shared VcsToolkit.Agent outcome service."
+              [ pAgentBranch; pAgentRemote; pAgentRevision; pAgentAccount ]
+          read
+              "agent_ci_wait"
+              "Wait for CI on one proven branch and exact revision, with bounded overall and inactivity deadlines."
+              [ pAgentBranch
+                pAgentRemote
+                pAgentRevision
+                pAgentAccount
+                { Name = "poll_seconds"
+                  JsonType = "integer"
+                  Description = "Polling interval in seconds (default 5)."
+                  Required = false }
+                { Name = "deadline_seconds"
+                  JsonType = "integer"
+                  Description = "Overall deadline in seconds (default 1800)."
+                  Required = false }
+                { Name = "inactivity_seconds"
+                  JsonType = "integer"
+                  Description = "No-progress deadline in seconds (default 600)."
+                  Required = false } ]
+          read
               "repo_snapshot"
               "A batched snapshot of the repo state: branch, upstream, ahead/behind, HEAD, dirtiness, change count, conflict, and operation state."
               []
@@ -769,6 +863,22 @@ module internal Catalog =
                   Description = "The Git tag identifying the release to delete."
                   Required = true } ] ]
 
+    /// The capability-aware registration view. Intent tools are omitted when the server cannot
+    /// execute them under its configured forge/write policy; low-level tools remain compatible.
+    let available (server: VcsMcpServer) =
+        let agentNames = server.AvailableAgentTools |> Set.ofList
+
+        all
+        |> List.filter (fun spec ->
+            not (spec.Name.StartsWith("agent_", StringComparison.Ordinal))
+            || agentNames.Contains spec.Name)
+
+    /// Capability-specific server guidance for choosing intent outcomes before low-level tools.
+    let instructions (server: VcsMcpServer) =
+        let names = server.AvailableAgentTools |> String.concat ", "
+
+        $"Prefer intent-oriented VcsToolkit.Agent outcomes when available ({names}). They return the same bounded, redacted, cancellation-aware envelopes as vcs-agent. Use compatible low-level repo_*/forge_* tools for composition or operations outside that outcome set. Mutating tools still require --allow-write or --allow-tools and share the repository write lock."
+
     /// The JSON-Schema `inputSchema` object for a tool spec.
     let inputSchema (spec: ToolSpec) : string =
         let jsonStr (s: string) = JsonSerializer.Serialize s
@@ -804,6 +914,26 @@ module internal Catalog =
             | Ok v -> return! f v
         }
 
+    let private changesMode (value: string option) =
+        match value |> Option.map (fun text -> text.ToLowerInvariant()) with
+        | None
+        | Some "summary" -> Ok ChangesMode.Summary
+        | Some "diff"
+        | Some "structured-diff" -> Ok ChangesMode.StructuredDiff
+        | Some _ -> Error(McpError.InvalidParams "argument 'view' must be 'summary' or 'diff'")
+
+    let private seconds defaultValue value =
+        let seconds = value |> Option.defaultValue defaultValue
+
+        if seconds > 0 && float seconds <= Agent.MaxWaitDuration.TotalSeconds then
+            Ok(TimeSpan.FromSeconds(float seconds))
+        else
+            Error(
+                McpError.InvalidParams(
+                    $"duration must be positive and no greater than {Agent.MaxWaitDuration.TotalSeconds} seconds"
+                )
+            )
+
     /// Invoke the tool `name` on `server`, parsing `args` (the call's `arguments` object).
     /// An unknown tool or a bad/missing argument is an `InvalidParams` error.
     let private callToolCore
@@ -812,6 +942,55 @@ module internal Catalog =
         (args: JsonElement)
         : Task<Result<string, McpError>> =
         match name with
+        | "agent_inspect" -> server.AgentInspect()
+        | "agent_changes" -> bind (optStr args "view" |> Result.bind changesMode) server.AgentChanges
+        | "agent_commit" ->
+            bind (reqStrArray args "paths") (fun paths ->
+                bind (reqStr args "message") (fun message -> server.AgentCommit(paths, message)))
+        | "agent_publish" ->
+            bind (reqStr args "branch") (fun branch ->
+                bind (reqStr args "remote") (fun remote ->
+                    bind (reqStr args "revision") (fun revision ->
+                        bind (reqStr args "account") (fun account ->
+                            bind (reqStr args "target") (fun target ->
+                                bind (reqStr args "title") (fun title ->
+                                    bind (reqStr args "body") (fun body ->
+                                        server.AgentPublish(
+                                            branch,
+                                            remote,
+                                            revision,
+                                            account,
+                                            target,
+                                            title,
+                                            body
+                                        ))))))))
+        | "agent_ci_status" ->
+            bind (reqStr args "branch") (fun branch ->
+                bind (reqStr args "remote") (fun remote ->
+                    bind (reqStr args "revision") (fun revision ->
+                        bind (reqStr args "account") (fun account ->
+                            server.AgentCiStatus(branch, remote, revision, account)))))
+        | "agent_ci_wait" ->
+            bind (reqStr args "branch") (fun branch ->
+                bind (reqStr args "remote") (fun remote ->
+                    bind (reqStr args "revision") (fun revision ->
+                        bind (reqStr args "account") (fun account ->
+                            bind (optInt args "poll_seconds" |> Result.bind (seconds 5)) (fun poll ->
+                                bind
+                                    (optInt args "deadline_seconds" |> Result.bind (seconds 1800))
+                                    (fun deadline ->
+                                        bind
+                                            (optInt args "inactivity_seconds" |> Result.bind (seconds 600))
+                                            (fun inactivity ->
+                                                server.AgentCiWait(
+                                                    branch,
+                                                    remote,
+                                                    revision,
+                                                    account,
+                                                    poll,
+                                                    deadline,
+                                                    inactivity
+                                                ))))))))
         | "repo_snapshot" -> server.RepoSnapshot()
         | "repo_info" -> server.RepoInfo()
         | "repo_status" -> server.RepoStatus()

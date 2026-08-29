@@ -2,12 +2,16 @@ module VcsToolkit.Mcp.Tests
 
 open System
 open System.IO
+open System.Reflection
+open System.Security.Cryptography
+open System.Text.Json
 open System.Threading
 open System.Threading.Tasks
 open NUnit.Framework
 open ProcessKit
 open ProcessKit.Testing
 open VcsToolkit.CliSupport
+open VcsToolkit.Agent
 open VcsToolkit.Core
 open VcsToolkit.Forge
 open VcsToolkit.Git
@@ -71,7 +75,9 @@ type WriteGateTests() =
 
     [<Test>]
     member _.WriteToolsCoversTheGatedTools() =
-        Assert.That(List.length WriteTools.all, Is.EqualTo 36)
+        Assert.That(List.length WriteTools.all, Is.EqualTo 38)
+        Assert.That(WriteTools.asSet.Contains "agent_commit", Is.True)
+        Assert.That(WriteTools.asSet.Contains "agent_publish", Is.True)
         Assert.That(WriteTools.asSet.Contains "repo_commit", Is.True)
         Assert.That(WriteTools.asSet.Contains "repo_rebase", Is.True, "the new rebase tool is write-gated")
         Assert.That(WriteTools.asSet.Contains "forge_pr_checkout", Is.True, "the local-checkout tool is write-gated")
@@ -1872,8 +1878,9 @@ type CatalogTests() =
 
     [<Test>]
     member _.CatalogCoversEveryTool() =
-        // 19 repo-read + repo_try_merge + 16 repo-write + 12 forge-read + 19 forge-write = 66.
-        Assert.That(List.length Catalog.all, Is.EqualTo 66)
+        // 6 intent outcomes + 19 repo-read + repo_try_merge + 16 repo-write + 12 forge-read
+        // + 19 forge-write = 72.
+        Assert.That(List.length Catalog.all, Is.EqualTo 72)
         // Every write-gated tool name appears in the catalogue.
         let names = Catalog.all |> List.map (fun t -> t.Name) |> Set.ofList
         Assert.That(WriteTools.all |> List.forall names.Contains, Is.True, "every write tool is catalogued")
@@ -1886,7 +1893,9 @@ type CatalogTests() =
     [<Test>]
     member _.WriteToolAnnotationsMatchTheirSemantics() =
         let expected =
-            [ "repo_try_merge", false, true
+            [ "agent_commit", false, false
+              "agent_publish", false, true
+              "repo_try_merge", false, true
               "repo_commit", false, false
               "repo_checkout", false, true
               "repo_fetch", false, true
@@ -2914,3 +2923,360 @@ type CatalogTests() =
         for name in [ "repo_abort_in_progress"; "repo_continue_in_progress" ] do
             let tool = Catalog.all |> List.find (fun t -> t.Name = name)
             Assert.That(Catalog.inputSchema tool, Does.Contain "\"required\":[]", name)
+
+    [<Test>]
+    member _.``Intent catalog reflects write and forge capabilities without removing low-level tools``() =
+        let noWrites = gitServer (ScriptedRunner()) WriteGate.None
+        let noWriteNames = Catalog.available noWrites |> List.map _.Name
+        Assert.That(noWriteNames, Does.Contain "agent_inspect")
+        Assert.That(noWriteNames, Does.Contain "agent_changes")
+        Assert.That(noWriteNames, Does.Not.Contain "agent_commit")
+        Assert.That(noWriteNames, Does.Not.Contain "agent_publish")
+        Assert.That(noWriteNames, Does.Not.Contain "agent_ci_status")
+        Assert.That(noWriteNames, Does.Contain "repo_commit", "compatible low-level writes stay discoverable")
+
+        let github = gitServerWithForge (ScriptedRunner()) WriteGate.All
+        let githubNames = Catalog.available github |> List.map _.Name
+
+        for name in
+            [ "agent_inspect"
+              "agent_changes"
+              "agent_commit"
+              "agent_publish"
+              "agent_ci_status"
+              "agent_ci_wait" ] do
+            Assert.That(githubNames, Does.Contain name)
+
+        let gitea = gitServerWithGiteaForge (ScriptedRunner()) WriteGate.All
+        let giteaNames = Catalog.available gitea |> List.map _.Name
+        Assert.That(giteaNames, Does.Not.Contain "agent_publish")
+        Assert.That(giteaNames, Does.Not.Contain "agent_ci_status")
+        Assert.That(giteaNames, Does.Contain "forge_pr_create", "low-level Gitea tools remain compatible")
+
+    [<Test; NonParallelizable>]
+    member _.``Versioned outcome corpus also replays the CLI and in-process MCP intent seam``() : Task =
+        task {
+            try
+                Raw.git "." [ "--version" ]
+            with _ ->
+                Assert.Ignore "git not available on PATH"
+
+            let repoRoot =
+                Assembly.GetExecutingAssembly().GetCustomAttributes<AssemblyMetadataAttribute>()
+                |> Seq.find (fun attribute -> attribute.Key = "RepoRoot")
+                |> _.Value
+                |> function
+                    | null -> failwith "RepoRoot assembly metadata is null"
+                    | value -> value
+
+            let corpusPath =
+                Path.Combine(repoRoot, "evals", "vcs-agent", "outcome-corpus.v1.json")
+
+            use corpus = JsonDocument.Parse(File.ReadAllText corpusPath)
+            let corpusRoot = corpus.RootElement
+
+            let requiredString (element: JsonElement) (propertyName: string) : string =
+                match element.GetProperty(propertyName).GetString() with
+                | null -> failwith $"required corpus property '{propertyName}' is null"
+                | value -> value
+
+            Assert.That(corpusRoot.GetProperty("contractVersion").GetString(), Is.EqualTo Agent.ContractVersion)
+
+            let replay = corpusRoot.GetProperty "replay"
+
+            Assert.That(replay.GetProperty("cliAdapter").GetString(), Is.EqualTo "vcs-agent Main.runWithCancellation")
+
+            Assert.That(
+                replay.GetProperty("mcpLibraryAdapter").GetString(),
+                Is.EqualTo "VcsToolkit.Mcp Catalog.callToolWithCancellation"
+            )
+
+            Assert.That(
+                replay.GetProperty("normalization").GetString(),
+                Is.EqualTo(
+                    "CallToolResult text uses the complete JSON envelope with insignificant whitespace removed; MCP cancellation is a response-suppressing JSON-RPC request cancellation"
+                )
+            )
+
+            for provenance in corpusRoot.GetProperty("provenance").EnumerateArray() do
+                let relative = requiredString provenance "path"
+                let expectedHash = requiredString provenance "sha256"
+
+                let current =
+                    Path.Combine(repoRoot, relative)
+                    |> File.ReadAllBytes
+                    |> SHA256.HashData
+                    |> Convert.ToHexString
+                    |> _.ToLowerInvariant()
+
+                Assert.That(current, Is.EqualTo expectedHash, $"stale outcome provenance: {relative}")
+
+            let skillContractPath =
+                Path.Combine(repoRoot, requiredString replay "cliContractPath")
+
+            use skillContract = JsonDocument.Parse(File.ReadAllText skillContractPath)
+            let skillRoot = skillContract.RootElement
+
+            Assert.That(
+                skillRoot.GetProperty("agentContractVersion").GetString(),
+                Is.EqualTo Agent.ContractVersion,
+                "Skill and outcome corpus must target the current Agent contract"
+            )
+
+            let routingPolicy = skillRoot.GetProperty "routingPolicy"
+
+            Assert.That(
+                routingPolicy.GetProperty("authorizationDenied").GetProperty("mutationOutcome").GetString(),
+                Is.EqualTo "denied"
+            )
+
+            Assert.That(
+                routingPolicy.GetProperty("giteaPublication").GetProperty("agentCapability").GetString(),
+                Is.EqualTo "unsupported-forge"
+            )
+
+            let scenarios = corpusRoot.GetProperty("scenarios").EnumerateArray() |> Seq.toList
+
+            let scenarioIds values =
+                values
+                |> Seq.map (fun (scenario: JsonElement) -> requiredString scenario "id")
+                |> Set.ofSeq
+
+            let requiredScenarioIds =
+                Set.ofList [ "write-denied"; "unsupported-forge"; "cancellation"; "output-limit" ]
+
+            Assert.That(
+                (scenarioIds scenarios = requiredScenarioIds),
+                Is.True,
+                "the mandatory denial, unsupported, cancellation, and output-budget replay set cannot be narrowed"
+            )
+
+            let conflictedMerge () =
+                let sandbox = GitSandbox.Init "outcome-corpus-denied"
+                sandbox.CommitFile("a.txt", "base\n", "seed")
+                sandbox.Branch "feature"
+                sandbox.Checkout "feature"
+                sandbox.CommitFile("a.txt", "feature change\n", "feature")
+                sandbox.Checkout "main"
+                sandbox.CommitFile("a.txt", "main change\n", "main")
+
+                try
+                    sandbox.Git [ "merge"; "-q"; "--no-edit"; "feature" ]
+                with _ ->
+                    // The fixture deliberately leaves the merge unresolved so commit is denied.
+                    ()
+
+                sandbox
+
+            use deniedRepo = conflictedMerge ()
+            use giteaRepo = GitSandbox.Init "outcome-corpus-gitea"
+            giteaRepo.CommitFile("a.txt", "content\n", "seed")
+            giteaRepo.Git [ "remote"; "add"; "origin"; "https://gitea.example/owner/project.git" ]
+            let giteaRevision = giteaRepo.RevParse "HEAD"
+
+            use cancellationRepo = GitSandbox.Init "outcome-corpus-cancellation"
+            cancellationRepo.CommitFile("a.txt", "content\n", "seed")
+
+            use budgetRepo = GitSandbox.Init "outcome-corpus-budget"
+            budgetRepo.CommitFile("base.txt", "base\n", "seed")
+
+            for index in 0..39 do
+                budgetRepo.Write($"untracked-outcome-{index:D2}.txt", "changed\n")
+
+            let normalizeJson (json: string) =
+                use document = JsonDocument.Parse json
+                JsonSerializer.Serialize document.RootElement
+
+            let replacePlaceholders repo revision (value: string) =
+                value
+                    .Replace("<repo>", repo, StringComparison.Ordinal)
+                    .Replace("<revision>", revision, StringComparison.Ordinal)
+
+            for scenario in scenarios do
+                let id = requiredString scenario "id"
+                let cliScenario = scenario.GetProperty "cli"
+
+                let configuration = requiredString scenario "mcpConfiguration"
+
+                let repoPath, revision, forge, outputBudget =
+                    match configuration with
+                    | "conflicted-git" -> deniedRepo.Path, deniedRepo.RevParse "HEAD", Option.None, Some 65_536
+                    | "gitea-git" -> giteaRepo.Path, giteaRevision, Some(Forge.Gitea giteaRepo.Path), Some 65_536
+                    | "cancellation-git" ->
+                        cancellationRepo.Path, cancellationRepo.RevParse "HEAD", Option.None, Some 65_536
+                    | "large-changes-git" ->
+                        budgetRepo.Path, budgetRepo.RevParse "HEAD", Option.None, Some Agent.MinimumOutputLimitBytes
+                    | other -> failwith $"unknown outcome corpus configuration: {other}"
+
+                let argv =
+                    cliScenario.GetProperty("argv").EnumerateArray()
+                    |> Seq.map (fun argument ->
+                        match argument.GetString() with
+                        | null -> failwith $"{id}: CLI argv contains null"
+                        | value -> replacePlaceholders repoPath revision value)
+                    |> Seq.toArray
+
+                let operationName = argv |> Array.head
+
+                let skillCommands =
+                    skillRoot.GetProperty("commands").EnumerateArray()
+                    |> Seq.map (fun command ->
+                        match command.GetString() with
+                        | null -> failwith "Skill command is null"
+                        | value -> value)
+                    |> Set.ofSeq
+
+                Assert.That(skillCommands.Contains operationName, Is.True, $"{id}: command is absent from the Skill")
+
+                let skillOptions =
+                    skillRoot.GetProperty("requiredOptions").GetProperty(operationName).EnumerateArray()
+                    |> Seq.map (fun option ->
+                        match option.GetString() with
+                        | null -> failwith $"{id}: Skill option is null"
+                        | value -> value)
+                    |> Set.ofSeq
+
+                let cliOptions =
+                    argv |> Seq.filter _.StartsWith("--", StringComparison.Ordinal) |> Set.ofSeq
+
+                Assert.That(
+                    (cliOptions = skillOptions),
+                    Is.True,
+                    $"{id}: corpus argv must use the complete Skill-prescribed option surface"
+                )
+
+                let mcpArguments =
+                    scenario.GetProperty("mcpArguments").GetRawText()
+                    |> replacePlaceholders repoPath revision
+                    |> argsOf
+
+                use cancellation = new CancellationTokenSource()
+
+                match requiredString cliScenario "cancellation" with
+                | "none" -> ()
+                | "pre-cancelled" -> cancellation.Cancel()
+                | other -> failwith $"{id}: unknown Skill cancellation mode: {other}"
+
+                let! cli = Main.runWithCancellation argv cancellation.Token
+
+                use server =
+                    new VcsMcpServer(Repo.FromGit(repoPath, repoPath, Git.Create()), forge, WriteGate.All, outputBudget)
+
+                let tool = requiredString scenario "mcpTool"
+
+                let! mcpResult = Catalog.callToolWithCancellation server tool mcpArguments cancellation.Token
+
+                let mcp =
+                    match mcpResult with
+                    | Ok json -> json
+                    | Error error -> failwith $"{id}: MCP adapter returned protocol error: {error.Message}"
+
+                Assert.That(
+                    normalizeJson mcp,
+                    Is.EqualTo(normalizeJson cli.Stdout),
+                    $"{id}: complete normalized CLI and MCP envelopes diverged"
+                )
+
+                use actual = JsonDocument.Parse cli.Stdout
+                let root = actual.RootElement
+                let errorCode = requiredString scenario "errorCode"
+                let expectedExit = scenario.GetProperty("expectedExit").GetInt32()
+
+                Assert.That(cliScenario.GetProperty("expectedError").GetString(), Is.EqualTo errorCode, id)
+                Assert.That(cliScenario.GetProperty("expectedExit").GetInt32(), Is.EqualTo expectedExit, id)
+
+                Assert.That(
+                    skillRoot.GetProperty("errorExits").GetProperty(errorCode).GetInt32(),
+                    Is.EqualTo expectedExit,
+                    id
+                )
+
+                Assert.That(cli.ExitCode, Is.EqualTo expectedExit, id)
+                Assert.That(cli.Stderr, Is.EqualTo($"vcs-agent: {errorCode}\n"), id)
+
+                Assert.That(
+                    root.GetProperty("operation").GetString(),
+                    Is.EqualTo(scenario.GetProperty("operation").GetString()),
+                    id
+                )
+
+                Assert.That(
+                    root.GetProperty("status").GetString(),
+                    Is.EqualTo(scenario.GetProperty("status").GetString()),
+                    id
+                )
+
+                Assert.That(
+                    root.GetProperty("terminal").GetBoolean(),
+                    Is.EqualTo(scenario.GetProperty("terminal").GetBoolean()),
+                    id
+                )
+
+                Assert.That(root.GetProperty("error").GetProperty("code").GetString(), Is.EqualTo errorCode, id)
+        }
+
+    [<Test>]
+    member _.``Intent commit shares the low-level repository lock and cancels without mutation``() : Task =
+        task {
+            use checkoutStarted = new SemaphoreSlim(0)
+            use releaseCheckout = new SemaphoreSlim(0)
+
+            let runner =
+                ScriptedRunner()
+                    .When(
+                        (fun command ->
+                            let tokens = command.Program :: List.ofSeq command.Arguments
+
+                            if tokens |> List.contains "checkout" then
+                                checkoutStarted.Release() |> ignore
+                                releaseCheckout.Wait(TimeSpan.FromSeconds 5.0) |> ignore
+                                true
+                            else
+                                false),
+                        Reply.Ok ""
+                    )
+                    .Fallback(Reply.Ok "")
+
+            let server = gitServer runner WriteGate.All
+
+            let holder =
+                Task.Run<Result<string, McpError>>(fun () -> server.RepoCheckout "holder")
+
+            Assert.That(checkoutStarted.Wait(TimeSpan.FromSeconds 5.0), Is.True, "checkout must hold the lock")
+
+            use cancellation = new CancellationTokenSource()
+
+            let waiting =
+                Catalog.callToolWithCancellation
+                    server
+                    "agent_commit"
+                    (argsOf """{"paths":["src/App.fs"],"message":"message"}""")
+                    cancellation.Token
+
+            cancellation.Cancel()
+            let! completed = Task.WhenAny(waiting :> Task, Task.Delay(TimeSpan.FromSeconds 5.0))
+            Assert.That(Object.ReferenceEquals(completed, waiting), Is.True, "intent lock wait must cancel promptly")
+
+            match! waiting with
+            | Error error -> Assert.Fail $"intent cancellation must remain a structured outcome: {error.Message}"
+            | Ok json ->
+                use document = JsonDocument.Parse json
+
+                Assert.That(
+                    document.RootElement.GetProperty("error").GetProperty("code").GetString(),
+                    Is.EqualTo "cancellation"
+                )
+
+            Assert.That(
+                runner.CountReceived(fun invocation ->
+                    invocation.Program = "git" && (invocation.Args |> Seq.contains "commit")),
+                Is.Zero,
+                "a cancelled lock waiter must not reach the mutation"
+            )
+
+            releaseCheckout.Release() |> ignore
+
+            match! holder with
+            | Ok _ -> ()
+            | Error error -> Assert.Fail $"lock holder failed: {error.Message}"
+        }

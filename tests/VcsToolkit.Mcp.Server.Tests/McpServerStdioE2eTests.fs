@@ -6,13 +6,17 @@ open System.Diagnostics
 open System.IO
 open System.Net
 open System.Net.Sockets
+open System.Reflection
+open System.Security.Cryptography
 open System.Text.Json
 open System.Threading
+open System.Threading.Channels
 open System.Threading.Tasks
 open NUnit.Framework
 open ModelContextProtocol
 open ModelContextProtocol.Client
 open ModelContextProtocol.Protocol
+open VcsToolkit.Agent
 open VcsToolkit.Mcp
 open VcsToolkit.TestKit
 
@@ -115,6 +119,57 @@ let private resolveBinary () : Launch option =
         else
             None
     | _ -> None
+
+/// Resolve the built `vcs-agent` assembly that owns the CLI adapter. The outcome replay
+/// invokes its internal async entry point by reflection because both executable projects
+/// intentionally compile a global `Main` module; a direct assembly reference would make
+/// those two module types collide in this test assembly.
+let private resolveAgentAssembly () : string option =
+    let baseDir = AppContext.BaseDirectory
+
+    let segments =
+        baseDir
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            .Split(
+                [| Path.DirectorySeparatorChar; Path.AltDirectorySeparatorChar |],
+                StringSplitOptions.RemoveEmptyEntries
+            )
+
+    match repoRootFrom baseDir with
+    | Some root when segments.Length >= 2 ->
+        let tfm = segments.[segments.Length - 1]
+        let config = segments.[segments.Length - 2]
+
+        let assembly =
+            Path.Combine(root, "src", "VcsToolkit.Agent.Server", "bin", config, tfm, "vcs-agent.dll")
+
+        if File.Exists assembly then Some assembly else None
+    | _ -> None
+
+/// Execute the real `vcs-agent` argument/exit/wire adapter from its built assembly.
+let private runAgentCli
+    (assemblyPath: string)
+    (argv: string array)
+    (cancellationToken: CancellationToken)
+    : Task<AgentExecution> =
+    let assembly = Assembly.LoadFrom assemblyPath
+
+    let entryPoint =
+        assembly.GetType "Main"
+        |> Option.ofObj
+        |> Option.defaultWith (fun () -> failwith "vcs-agent assembly has no Main module")
+
+    let run =
+        entryPoint.GetMethod(
+            "runWithCancellation",
+            BindingFlags.Static ||| BindingFlags.Public ||| BindingFlags.NonPublic
+        )
+        |> Option.ofObj
+        |> Option.defaultWith (fun () -> failwith "vcs-agent Main has no runWithCancellation adapter")
+
+    match run.Invoke(null, [| box argv; box cancellationToken |]) with
+    | :? Task<AgentExecution> as execution -> execution
+    | _ -> failwith "vcs-agent Main.runWithCancellation returned an unexpected task type"
 
 /// Whether `git` is on PATH — the TestKit sandbox spawns the real `git`. Git-only, so
 /// (unlike the jj guards, see K-034) it always skips when absent rather than failing.
@@ -306,6 +361,258 @@ let private e2eWithSandbox
 let private e2e (extraArgs: string list) (body: McpClient -> CancellationToken -> Task<unit>) : Task =
     e2eWithSandbox extraArgs ignore (fun _ client ct -> body client ct)
 
+/// Send a cancellation notification through a raw initialized JSON-RPC stdio session and
+/// distinguish an actual CallToolResult from the SDK's specified response suppression. The
+/// ordinary client cancels its own pending task immediately, so this raw path is necessary to
+/// prove whether the host emitted a response rather than inferring that from client state.
+let private callCancelledToolOverRawStdio
+    (extraArgs: string list)
+    (repoPath: string)
+    (remote: BlockingHttpServer)
+    (tool: string)
+    (arguments: JsonElement)
+    (requestId: string)
+    (expectedRevision: string)
+    (cancellationToken: CancellationToken)
+    : Task<CallToolResult option> =
+    task {
+        match resolveBinary () with
+        | None -> return failwith "vcs-mcp build output disappeared during stdio replay"
+        | Some launch ->
+            let startInfo = ProcessStartInfo()
+            startInfo.FileName <- launch.Command
+            startInfo.WorkingDirectory <- repoPath
+            startInfo.UseShellExecute <- false
+            startInfo.CreateNoWindow <- true
+            startInfo.RedirectStandardInput <- true
+            startInfo.RedirectStandardOutput <- true
+            startInfo.RedirectStandardError <- true
+
+            for argument in launch.PrefixArgs @ [ "--repo"; repoPath ] @ extraArgs do
+                startInfo.ArgumentList.Add argument
+
+            use childProcess = new Process(StartInfo = startInfo)
+
+            if not (childProcess.Start()) then
+                failwith "failed to start vcs-mcp raw stdio replay process"
+
+            let stderrRead = childProcess.StandardError.ReadToEndAsync(cancellationToken)
+            let stdoutLines = Channel.CreateUnbounded<string>()
+
+            let stdoutPump =
+                task {
+                    try
+                        let mutable reading = true
+
+                        while reading do
+                            let! line = childProcess.StandardOutput.ReadLineAsync()
+
+                            match line with
+                            | null -> reading <- false
+                            | value -> do! stdoutLines.Writer.WriteAsync(value, CancellationToken.None)
+
+                        stdoutLines.Writer.TryComplete() |> ignore
+                    with ex ->
+                        stdoutLines.Writer.TryComplete ex |> ignore
+                        return raise ex
+                }
+
+            let sendJson (json: string) : Task =
+                task {
+                    do! childProcess.StandardInput.WriteLineAsync(json.AsMemory(), cancellationToken)
+                    do! childProcess.StandardInput.FlushAsync cancellationToken
+                }
+
+            let readJson (stage: string) : Task<string> =
+                task {
+                    try
+                        return! stdoutLines.Reader.ReadAsync(cancellationToken).AsTask()
+                    with :? ChannelClosedException ->
+                        let stderr = stderrRead.GetAwaiter().GetResult()
+                        return failwith $"vcs-mcp closed stdout during {stage}: {stderr}"
+                }
+
+            try
+                let initialize =
+                    JsonSerializer.Serialize(
+                        {| jsonrpc = "2.0"
+                           id = 1
+                           method = "initialize"
+                           ``params`` =
+                            {| protocolVersion = "2025-06-18"
+                               capabilities = Dictionary<string, obj>()
+                               clientInfo =
+                                {| name = "outcome-corpus-raw"
+                                   version = "1" |} |} |},
+                        McpJsonUtilities.DefaultOptions
+                    )
+
+                do! sendJson initialize
+                let! initializeResponse = readJson "initialize"
+                use initializeDocument = JsonDocument.Parse initializeResponse
+                let initializeRoot = initializeDocument.RootElement
+                Assert.That(initializeRoot.GetProperty("id").GetInt32(), Is.EqualTo 1)
+                Assert.That(initializeRoot.TryGetProperty("result") |> fst, Is.True, initializeResponse)
+
+                let initialized =
+                    JsonSerializer.Serialize(
+                        {| jsonrpc = "2.0"
+                           method = "notifications/initialized" |},
+                        McpJsonUtilities.DefaultOptions
+                    )
+
+                do! sendJson initialized
+
+                use emptyArguments = JsonDocument.Parse "{}"
+
+                let fetch =
+                    JsonSerializer.Serialize(
+                        {| jsonrpc = "2.0"
+                           id = "outcome-corpus-lock-holder"
+                           method = RequestMethods.ToolsCall
+                           ``params`` =
+                            {| name = "repo_fetch"
+                               arguments = emptyArguments.RootElement |} |},
+                        McpJsonUtilities.DefaultOptions
+                    )
+
+                do! sendJson fetch
+                let! started = remote.WaitForRequest(TimeSpan.FromSeconds 5.0)
+
+                Assert.That(started, Is.True, "raw cancellation replay must hold the real repository write lock")
+
+                let call =
+                    JsonSerializer.Serialize(
+                        {| jsonrpc = "2.0"
+                           id = requestId
+                           method = RequestMethods.ToolsCall
+                           ``params`` = {| name = tool; arguments = arguments |} |},
+                        McpJsonUtilities.DefaultOptions
+                    )
+
+                do! sendJson call
+                do! Task.Delay(250, cancellationToken)
+
+                let cancel =
+                    JsonSerializer.Serialize(
+                        {| jsonrpc = "2.0"
+                           method = NotificationMethods.CancelledNotification
+                           ``params`` =
+                            {| requestId = requestId
+                               reason = "versioned outcome replay" |} |},
+                        McpJsonUtilities.DefaultOptions
+                    )
+
+                do! sendJson cancel
+
+                let cancelLockHolder =
+                    JsonSerializer.Serialize(
+                        {| jsonrpc = "2.0"
+                           method = NotificationMethods.CancelledNotification
+                           ``params`` =
+                            {| requestId = "outcome-corpus-lock-holder"
+                               reason = "release outcome replay fixture" |} |},
+                        McpJsonUtilities.DefaultOptions
+                    )
+
+                do! sendJson cancelLockHolder
+                remote.Release()
+
+                let probe =
+                    JsonSerializer.Serialize(
+                        {| jsonrpc = "2.0"
+                           id = "outcome-corpus-after-cancel"
+                           method = RequestMethods.ToolsCall
+                           ``params`` =
+                            {| name = "repo_snapshot"
+                               arguments = emptyArguments.RootElement |} |},
+                        McpJsonUtilities.DefaultOptions
+                    )
+
+                do! sendJson probe
+                let mutable probeSeen = false
+
+                let inspectResponse (response: string) =
+                    use responseDocument = JsonDocument.Parse response
+                    let root = responseDocument.RootElement
+                    let hasId, idElement = root.TryGetProperty "id"
+
+                    if hasId then
+                        let responseId =
+                            match idElement.ValueKind with
+                            | JsonValueKind.String -> idElement.GetString()
+                            | JsonValueKind.Number -> string (idElement.GetInt64())
+                            | _ -> null
+
+                        match responseId with
+                        | value when value = requestId ->
+                            Assert.Fail($"cancelled target request produced a late response: {response}")
+                        | "outcome-corpus-lock-holder" ->
+                            Assert.Fail($"cancelled lock-holder request produced a late response: {response}")
+                        | "outcome-corpus-after-cancel" ->
+                            Assert.That(probeSeen, Is.False, "post-cancellation probe responded more than once")
+                            Assert.That(root.TryGetProperty("error") |> fst, Is.False, response)
+
+                            let probeResult =
+                                JsonSerializer.Deserialize<CallToolResult>(
+                                    root.GetProperty("result").GetRawText(),
+                                    McpJsonUtilities.DefaultOptions
+                                )
+                                |> Option.ofObj
+                                |> Option.defaultWith (fun () -> failwith "post-cancellation tools/call returned null")
+
+                            Assert.That(
+                                isError probeResult,
+                                Is.False,
+                                "the raw MCP session must remain usable after cancellation"
+                            )
+
+                            use snapshot = JsonDocument.Parse(textOf probeResult)
+                            let snapshotRoot = snapshot.RootElement
+                            Assert.That(snapshotRoot.GetProperty("head").GetString(), Is.EqualTo expectedRevision)
+                            Assert.That(snapshotRoot.GetProperty("dirty").GetBoolean(), Is.True)
+                            probeSeen <- true
+                        | _ -> Assert.Fail($"unexpected post-cancellation JSON-RPC response: {response}")
+
+                let mutable quiescent = false
+
+                while not quiescent do
+                    use quietPeriod = CancellationTokenSource.CreateLinkedTokenSource cancellationToken
+                    quietPeriod.CancelAfter(TimeSpan.FromSeconds 1.0)
+
+                    try
+                        let! response = stdoutLines.Reader.ReadAsync(quietPeriod.Token).AsTask()
+                        inspectResponse response
+                    with :? OperationCanceledException when not cancellationToken.IsCancellationRequested ->
+                        // One full second with no response bounds the live-session race window;
+                        // terminal shutdown below then drains anything that was still in flight.
+                        quiescent <- true
+
+                childProcess.StandardInput.Close()
+
+                if not (childProcess.WaitForExit 5000) then
+                    childProcess.Kill(entireProcessTree = true)
+                    childProcess.WaitForExit()
+                    Assert.Fail "vcs-mcp did not reach terminal shutdown after stdin closed"
+
+                do! stdoutPump
+                let mutable buffered = Unchecked.defaultof<string>
+
+                while stdoutLines.Reader.TryRead(&buffered) do
+                    inspectResponse buffered
+
+                Assert.That(probeSeen, Is.True, "post-cancellation probe response was not observed before shutdown")
+
+                return None
+            finally
+                remote.Release()
+                childProcess.StandardInput.Close()
+
+                if not (childProcess.WaitForExit 5000) then
+                    childProcess.Kill(entireProcessTree = true)
+                    childProcess.WaitForExit()
+    }
+
 [<TestFixture>]
 type McpServerStdioE2eTests() =
 
@@ -332,17 +639,26 @@ type McpServerStdioE2eTests() =
                 | None -> Assert.Fail "server binary path unresolved inside e2e (should not happen)"
             })
 
-    /// `tools/list` over the wire must advertise exactly `Catalog.all`, with each tool's
-    /// `ReadOnlyHint` matching the `WriteGate` contract (read-only iff not write-gated).
+    /// `tools/list` advertises the capability-aware intent subset plus every compatible
+    /// low-level tool. Annotation hints still match the independent WriteGate contract.
     [<Test>]
     member _.ToolsListMatchesCatalogAndWriteGateMarkup() : Task =
         e2e [] (fun client ct ->
             task {
                 let! (tools: IList<McpClientTool>) = client.ListToolsAsync(cancellationToken = ct)
                 let liveNames = tools |> Seq.map (fun t -> t.Name) |> Set.ofSeq
-                let catalogNames = Catalog.all |> List.map (fun t -> t.Name) |> Set.ofList
+
+                let catalogNames =
+                    Catalog.all
+                    |> List.filter (fun tool ->
+                        not (tool.Name.StartsWith("agent_", StringComparison.Ordinal))
+                        || tool.Name = "agent_inspect"
+                        || tool.Name = "agent_changes")
+                    |> List.map _.Name
+                    |> Set.ofList
+
                 // Compare via F# structural `=` (K-017: `Is.EqualTo` on collections is FS0041-ambiguous).
-                Assert.That((liveNames = catalogNames), Is.True, "tools/list must advertise exactly Catalog.all")
+                Assert.That((liveNames = catalogNames), Is.True, "tools/list must match server capabilities")
 
                 for tool in tools do
                     match tool.ProtocolTool.Annotations with
@@ -355,7 +671,18 @@ type McpServerStdioE2eTests() =
                         Assert.That(ann.ReadOnlyHint.Value, Is.EqualTo expectedReadOnly, tool.Name)
 
                 for writeTool in WriteTools.all do
-                    Assert.That(liveNames.Contains writeTool, Is.True, $"write tool {writeTool} must be present")
+                    if writeTool.StartsWith("agent_", StringComparison.Ordinal) then
+                        Assert.That(
+                            liveNames.Contains writeTool,
+                            Is.False,
+                            $"unavailable intent {writeTool} must be omitted"
+                        )
+                    else
+                        Assert.That(
+                            liveNames.Contains writeTool,
+                            Is.True,
+                            $"low-level write {writeTool} must remain present"
+                        )
             })
 
     /// A read tool (`repo_snapshot`) called against the sandbox returns a well-formed JSON
@@ -533,6 +860,409 @@ type McpServerStdioE2eTests() =
                 // If an implementation fails to cancel the fetch, release it before the client
                 // and sandbox teardown so the failed test cannot strand a child process.
                 blockingRemote.Release()
+        }
+
+    /// Replay the mandatory versioned outcomes through both executable transport adapters:
+    /// `vcs-agent`'s real argument/exit renderer and the spawned `vcs-mcp` host's initialized
+    /// JSON-RPC `tools/call` handler over stdio. Cancellation uses the protocol notification
+    /// for a known request id while the call is waiting for the real per-repository write lock,
+    /// and asserts the SDK's response-suppressing cancellation semantics explicitly rather than
+    /// pretending that this transport produces a CallToolResult for a cancelled request.
+    [<Test; NonParallelizable>]
+    member _.VersionedOutcomeCorpusConvergesAcrossCliAndMcpStdioTransports() : Task =
+        task {
+            match resolveAgentAssembly (), repoRootFrom AppContext.BaseDirectory with
+            | None, _ -> Assert.Ignore "vcs-agent build output not found (Agent.Server build dependency missing)"
+            | _, None -> Assert.Ignore "repository root not found from the MCP server test output"
+            | Some agentAssembly, Some repoRoot ->
+                let corpusPath =
+                    Path.Combine(repoRoot, "evals", "vcs-agent", "outcome-corpus.v1.json")
+
+                use corpus = JsonDocument.Parse(File.ReadAllText corpusPath)
+                let corpusRoot = corpus.RootElement
+
+                let requiredString (element: JsonElement) (propertyName: string) : string =
+                    match element.GetProperty(propertyName).GetString() with
+                    | null -> failwith $"required corpus property '{propertyName}' is null"
+                    | value -> value
+
+                Assert.That(corpusRoot.GetProperty("contractVersion").GetString(), Is.EqualTo Agent.ContractVersion)
+
+                let replay = corpusRoot.GetProperty "replay"
+
+                Assert.That(
+                    replay.GetProperty("cliAdapter").GetString(),
+                    Is.EqualTo "vcs-agent Main.runWithCancellation"
+                )
+
+                Assert.That(
+                    replay.GetProperty("mcpAdapter").GetString(),
+                    Is.EqualTo "vcs-mcp stdio JSON-RPC tools/call"
+                )
+
+                Assert.That(
+                    replay.GetProperty("normalization").GetString(),
+                    Is.EqualTo(
+                        "CallToolResult text uses the complete JSON envelope with insignificant whitespace removed; MCP cancellation is a response-suppressing JSON-RPC request cancellation"
+                    )
+                )
+
+                let provenance = corpusRoot.GetProperty("provenance").EnumerateArray() |> Seq.toList
+
+                let provenancePaths =
+                    provenance |> Seq.map (fun entry -> requiredString entry "path") |> Set.ofSeq
+
+                let mandatoryProvenance =
+                    Set.ofList
+                        [ "src/VcsToolkit.Agent/Contract.fs"
+                          "src/VcsToolkit.Agent/Agent.fs"
+                          "src/VcsToolkit.Agent.Server/Program.fs"
+                          "src/VcsToolkit.Mcp/Server.fs"
+                          "src/VcsToolkit.Mcp/Catalog.fs"
+                          "src/VcsToolkit.Mcp.Server/Program.fs"
+                          "tests/VcsToolkit.Mcp.Tests/McpTests.fs"
+                          "tests/VcsToolkit.Mcp.Server.Tests/McpServerStdioE2eTests.fs"
+                          "skills/using-vcs-agent/SKILL.md"
+                          "skills/using-vcs-agent/references/contract.v1.json" ]
+
+                Assert.That(
+                    (provenancePaths = mandatoryProvenance),
+                    Is.True,
+                    "outcome provenance cannot omit or substitute a transport, replay, or Skill authority"
+                )
+
+                for entry in provenance do
+                    let relative = requiredString entry "path"
+                    let expectedHash = requiredString entry "sha256"
+
+                    let currentHash =
+                        Path.Combine(repoRoot, relative)
+                        |> File.ReadAllBytes
+                        |> SHA256.HashData
+                        |> Convert.ToHexString
+                        |> _.ToLowerInvariant()
+
+                    Assert.That(currentHash, Is.EqualTo expectedHash, $"stale outcome provenance: {relative}")
+
+                let skillContractPath =
+                    Path.Combine(repoRoot, requiredString replay "cliContractPath")
+
+                use skillContract = JsonDocument.Parse(File.ReadAllText skillContractPath)
+                let skillRoot = skillContract.RootElement
+
+                Assert.That(
+                    skillRoot.GetProperty("agentContractVersion").GetString(),
+                    Is.EqualTo Agent.ContractVersion,
+                    "Skill and outcome corpus must target the current Agent contract"
+                )
+
+                let routingPolicy = skillRoot.GetProperty "routingPolicy"
+
+                Assert.That(
+                    routingPolicy.GetProperty("authorizationDenied").GetProperty("mutationOutcome").GetString(),
+                    Is.EqualTo "denied"
+                )
+
+                Assert.That(
+                    routingPolicy.GetProperty("giteaPublication").GetProperty("agentCapability").GetString(),
+                    Is.EqualTo "unsupported-forge"
+                )
+
+                let scenarios = corpusRoot.GetProperty("scenarios").EnumerateArray() |> Seq.toList
+
+                let scenarioIds =
+                    scenarios |> Seq.map (fun scenario -> requiredString scenario "id") |> Set.ofSeq
+
+                let mandatoryScenarioIds =
+                    Set.ofList [ "write-denied"; "unsupported-forge"; "cancellation"; "output-limit" ]
+
+                Assert.That(
+                    (scenarioIds = mandatoryScenarioIds),
+                    Is.True,
+                    "the mandatory denial, unsupported, cancellation, and output-budget replay set cannot be narrowed"
+                )
+
+                let normalizeJson (json: string) =
+                    use document = JsonDocument.Parse json
+                    JsonSerializer.Serialize document.RootElement
+
+                let replacePlaceholders repo revision (value: string) =
+                    value
+                        .Replace("<repo>", repo, StringComparison.Ordinal)
+                        .Replace("<revision>", revision, StringComparison.Ordinal)
+
+                let replayScenario (scenario: JsonElement) (blockingRemote: BlockingHttpServer option) : Task =
+                    let id = requiredString scenario "id"
+                    let configuration = requiredString scenario "mcpConfiguration"
+
+                    let prepare (sandbox: GitSandbox) =
+                        match configuration with
+                        | "conflicted-git" ->
+                            sandbox.CommitFile("a.txt", "base\n", "seed conflict fixture")
+                            sandbox.Branch "feature"
+                            sandbox.Checkout "feature"
+                            sandbox.CommitFile("a.txt", "feature change\n", "feature")
+                            sandbox.Checkout "main"
+                            sandbox.CommitFile("a.txt", "main change\n", "main")
+
+                            try
+                                sandbox.Git [ "merge"; "-q"; "--no-edit"; "feature" ]
+                            with _ ->
+                                // The fixture deliberately leaves the merge unresolved so commit is denied.
+                                ()
+                        | "gitea-git" ->
+                            sandbox.CommitFile("a.txt", "content\n", "seed Gitea fixture")
+                            sandbox.Git [ "remote"; "add"; "origin"; "https://gitea.example/owner/project.git" ]
+                        | "cancellation-git" ->
+                            sandbox.CommitFile("a.txt", "content\n", "seed cancellation fixture")
+                            sandbox.Write("a.txt", "selected change must remain uncommitted\n")
+
+                            match blockingRemote with
+                            | Some remote -> sandbox.Git [ "remote"; "add"; "origin"; remote.Url ]
+                            | None -> failwith "cancellation replay requires a blocking remote"
+                        | "large-changes-git" ->
+                            for index in 0..39 do
+                                sandbox.Write($"untracked-outcome-{index:D2}.txt", "changed\n")
+                        | other -> failwith $"unknown outcome corpus configuration: {other}"
+
+                    let outputBudget =
+                        if configuration = "large-changes-git" then
+                            Agent.MinimumOutputLimitBytes
+                        else
+                            65_536
+
+                    let extraArgs =
+                        [ "--allow-write"; "--output-budget"; string outputBudget ]
+                        @ if configuration = "gitea-git" then
+                              [ "--forge"; "gitea" ]
+                          else
+                              []
+
+                    e2eWithSandbox extraArgs prepare (fun sandbox client ct ->
+                        task {
+                            let revision = sandbox.RevParse "HEAD"
+                            let cliScenario = scenario.GetProperty "cli"
+
+                            let argv =
+                                cliScenario.GetProperty("argv").EnumerateArray()
+                                |> Seq.map (fun argument ->
+                                    match argument.GetString() with
+                                    | null -> failwith $"{id}: CLI argv contains null"
+                                    | value -> replacePlaceholders sandbox.Path revision value)
+                                |> Seq.toArray
+
+                            let operationName = argv |> Array.head
+
+                            let skillCommands =
+                                skillRoot.GetProperty("commands").EnumerateArray()
+                                |> Seq.map (fun command ->
+                                    match command.GetString() with
+                                    | null -> failwith "Skill command is null"
+                                    | value -> value)
+                                |> Set.ofSeq
+
+                            Assert.That(
+                                skillCommands.Contains operationName,
+                                Is.True,
+                                $"{id}: command is absent from the Skill"
+                            )
+
+                            let skillOptions =
+                                skillRoot.GetProperty("requiredOptions").GetProperty(operationName).EnumerateArray()
+                                |> Seq.map (fun option ->
+                                    match option.GetString() with
+                                    | null -> failwith $"{id}: Skill option is null"
+                                    | value -> value)
+                                |> Set.ofSeq
+
+                            let cliOptions =
+                                argv |> Seq.filter _.StartsWith("--", StringComparison.Ordinal) |> Set.ofSeq
+
+                            Assert.That(
+                                (cliOptions = skillOptions),
+                                Is.True,
+                                $"{id}: corpus argv must use the complete Skill-prescribed option surface"
+                            )
+
+                            use cliCancellation = new CancellationTokenSource()
+
+                            match requiredString cliScenario "cancellation" with
+                            | "none" -> ()
+                            | "pre-cancelled" -> cliCancellation.Cancel()
+                            | other -> failwith $"{id}: unknown Skill cancellation mode: {other}"
+
+                            let! cli = runAgentCli agentAssembly argv cliCancellation.Token
+
+                            let argumentsJson =
+                                scenario.GetProperty("mcpArguments").GetRawText()
+                                |> replacePlaceholders sandbox.Path revision
+
+                            use argumentsDocument = JsonDocument.Parse argumentsJson
+                            let arguments = Dictionary<string, JsonElement>()
+
+                            for property in argumentsDocument.RootElement.EnumerateObject() do
+                                arguments[property.Name] <- property.Value.Clone()
+
+                            let request =
+                                CallToolRequestParams(Name = requiredString scenario "mcpTool", Arguments = arguments)
+
+                            let requestId = RequestId($"outcome-corpus-{id}")
+
+                            let mutationStateBefore =
+                                match blockingRemote with
+                                | Some _ ->
+                                    let head = sandbox.RevParse "HEAD"
+                                    sandbox.Git [ "diff"; "--quiet"; "--cached"; "--"; "a.txt" ]
+                                    let selectedPathContent = File.ReadAllText(Path.Combine(sandbox.Path, "a.txt"))
+                                    Some(head, selectedPathContent)
+                                | None -> None
+
+                            let startMcpCall () =
+                                client
+                                    .SendRequestAsync<CallToolRequestParams, CallToolResult>(
+                                        RequestMethods.ToolsCall,
+                                        request,
+                                        McpJsonUtilities.DefaultOptions,
+                                        requestId,
+                                        CancellationToken.None
+                                    )
+                                    .AsTask()
+
+                            let! mcpResult =
+                                task {
+                                    match blockingRemote with
+                                    | None ->
+                                        let! result = startMcpCall ()
+                                        return Some result
+                                    | Some remote ->
+                                        return!
+                                            callCancelledToolOverRawStdio
+                                                extraArgs
+                                                sandbox.Path
+                                                remote
+                                                request.Name
+                                                argumentsDocument.RootElement
+                                                (requestId.ToString())
+                                                revision
+                                                ct
+                                }
+
+                            match mcpResult with
+                            | Some result ->
+                                Assert.That(
+                                    requiredString scenario "mcpTransportOutcome",
+                                    Is.EqualTo "call-tool-result",
+                                    id
+                                )
+
+                                Assert.That(
+                                    isError result,
+                                    Is.False,
+                                    $"{id}: Agent outcome is a successful tool result"
+                                )
+
+                                Assert.That(
+                                    result.Content.Count,
+                                    Is.EqualTo 1,
+                                    $"{id}: exact CallToolResult content shape"
+                                )
+
+                                Assert.That(
+                                    result.StructuredContent.HasValue,
+                                    Is.False,
+                                    $"{id}: outcome is carried only by the canonical text envelope"
+                                )
+
+                                let mcp = textOf result
+
+                                Assert.That(
+                                    normalizeJson mcp,
+                                    Is.EqualTo(normalizeJson cli.Stdout),
+                                    $"{id}: complete normalized CLI and MCP stdio envelopes diverged"
+                                )
+                            | None ->
+                                Assert.That(id, Is.EqualTo "cancellation")
+
+                                Assert.That(
+                                    requiredString scenario "mcpTransportOutcome",
+                                    Is.EqualTo "request-cancelled",
+                                    id
+                                )
+
+                                match mutationStateBefore with
+                                | Some(headBefore, selectedPathContentBefore) ->
+                                    Assert.That(
+                                        sandbox.RevParse "HEAD",
+                                        Is.EqualTo headBefore,
+                                        "cancelled agent_commit must not create a commit"
+                                    )
+
+                                    sandbox.Git [ "diff"; "--quiet"; "--cached"; "--"; "a.txt" ]
+
+                                    Assert.That(
+                                        File.ReadAllText(Path.Combine(sandbox.Path, "a.txt")),
+                                        Is.EqualTo selectedPathContentBefore,
+                                        "cancelled agent_commit must not alter the selected path"
+                                    )
+                                | None -> Assert.Fail "cancellation replay did not capture mutation state"
+
+                            use actual = JsonDocument.Parse cli.Stdout
+                            let root = actual.RootElement
+                            let errorCode = requiredString scenario "errorCode"
+                            let expectedExit = scenario.GetProperty("expectedExit").GetInt32()
+
+                            Assert.That(cliScenario.GetProperty("expectedError").GetString(), Is.EqualTo errorCode, id)
+
+                            Assert.That(
+                                cliScenario.GetProperty("expectedExit").GetInt32(),
+                                Is.EqualTo expectedExit,
+                                id
+                            )
+
+                            Assert.That(
+                                skillRoot.GetProperty("errorExits").GetProperty(errorCode).GetInt32(),
+                                Is.EqualTo expectedExit,
+                                id
+                            )
+
+                            Assert.That(cli.ExitCode, Is.EqualTo expectedExit, id)
+                            Assert.That(cli.Stderr, Is.EqualTo($"vcs-agent: {errorCode}\n"), id)
+
+                            Assert.That(
+                                root.GetProperty("operation").GetString(),
+                                Is.EqualTo(scenario.GetProperty("operation").GetString()),
+                                id
+                            )
+
+                            Assert.That(
+                                root.GetProperty("status").GetString(),
+                                Is.EqualTo(scenario.GetProperty("status").GetString()),
+                                id
+                            )
+
+                            Assert.That(
+                                root.GetProperty("terminal").GetBoolean(),
+                                Is.EqualTo(scenario.GetProperty("terminal").GetBoolean()),
+                                id
+                            )
+
+                            Assert.That(
+                                root.GetProperty("error").GetProperty("code").GetString(),
+                                Is.EqualTo errorCode,
+                                id
+                            )
+                        })
+
+                for scenario in scenarios do
+                    if requiredString scenario "id" = "cancellation" then
+                        use blockingRemote = new BlockingHttpServer()
+
+                        try
+                            do! replayScenario scenario (Some blockingRemote)
+                        finally
+                            blockingRemote.Release()
+                    else
+                        do! replayScenario scenario None
         }
 
     /// A file sink whose parent directory does not exist is a normal startup failure: the

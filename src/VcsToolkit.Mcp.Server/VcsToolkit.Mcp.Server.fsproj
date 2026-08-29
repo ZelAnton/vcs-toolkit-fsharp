@@ -24,10 +24,10 @@
 		<PackAsTool>true</PackAsTool>
 		<ToolCommandName>vcs-mcp</ToolCommandName>
 		<PackageId>vcs-mcp</PackageId>
-		<Description>The vcs-mcp Model Context Protocol server as a .NET global tool: drives a git/jj repository (and its GitHub/GitLab/Gitea forge) over stdio, exposing the toolkit's typed repo_*/forge_* operations as agent-callable MCP tools. Read tools are always available; mutating tools are gated by --allow-write/--allow-tools.</Description>
+		<Description>The vcs-mcp Model Context Protocol server as a .NET global tool: drives a git/jj repository and forge over stdio through capability-aware VcsToolkit.Agent intent outcomes plus compatible typed repo_*/forge_* tools. Mutations are gated by --allow-write/--allow-tools.</Description>
 		<PackageTags>fsharp;vcs;git;jujutsu;jj;forge;mcp;model-context-protocol;agent;tools;dotnet-tool</PackageTags>
 
-		<AssemblySearchPaths>$(AssemblySearchPaths);$(McpDir)bin\$(Configuration)\$(TargetFramework);$(CoreDir)bin\$(Configuration)\$(TargetFramework);$(ForgeDir)bin\$(Configuration)\$(TargetFramework);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework);$(DiffDir)bin\$(Configuration)\$(TargetFramework);$(GitDir)bin\$(Configuration)\$(TargetFramework);$(JjDir)bin\$(Configuration)\$(TargetFramework);$(GitHubDir)bin\$(Configuration)\$(TargetFramework);$(GitLabDir)bin\$(Configuration)\$(TargetFramework);$(GiteaDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
+		<AssemblySearchPaths>$(AssemblySearchPaths);$(McpDir)bin\$(Configuration)\$(TargetFramework);$(AgentDir)bin\$(Configuration)\$(TargetFramework);$(CoreDir)bin\$(Configuration)\$(TargetFramework);$(ForgeDir)bin\$(Configuration)\$(TargetFramework);$(CliSupportDir)bin\$(Configuration)\$(TargetFramework);$(DiffDir)bin\$(Configuration)\$(TargetFramework);$(GitDir)bin\$(Configuration)\$(TargetFramework);$(JjDir)bin\$(Configuration)\$(TargetFramework);$(GitHubDir)bin\$(Configuration)\$(TargetFramework);$(GitLabDir)bin\$(Configuration)\$(TargetFramework);$(GiteaDir)bin\$(Configuration)\$(TargetFramework)</AssemblySearchPaths>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -50,6 +50,7 @@
 
 	<ItemGroup>
 		<Reference Include="VcsToolkit.Mcp" />
+		<Reference Include="VcsToolkit.Agent" />
 		<Reference Include="VcsToolkit.Core" />
 		<Reference Include="VcsToolkit.Forge" />
 		<Reference Include="VcsToolkit.CliSupport" />

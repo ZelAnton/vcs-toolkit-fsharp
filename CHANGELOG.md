@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - External cancellation of Git/Jujutsu fetch, push and clone operations now gives the process a graceful two-second stop window before escalation.
 
 ### Added
+- Capability-aware MCP intent tools now share `VcsToolkit.Agent` inspection, changes, commit, publication, and exact-revision CI outcomes with `vcs-agent`, while preserving low-level tools and the existing write gate and repository lock.
 - A standalone `using-vcs-agent` Skill now guides repository inspection, exact-path commits, verified publication, and exact-revision CI through the packaged tool with executable option/exit/fallback facts, fail-closed supervision control templates, and provenance-bound blinded model-forward routing observations with deterministic offline replay.
 - Verified `vcs-agent publish`, `ci status`, and `ci wait` outcomes now route every forge call to the selected remote repository, prove recovered PR/MR source-project and head-revision identity, use complete fail-closed inventories, bound wait durations safely, expose an accurate operation/forge capability matrix, and accept success only for one exact revision.
 - Checked `vcs-agent commit` and `VcsToolkit.Agent.commit` outcomes commit only an explicit non-empty set of repo-relative paths on Git or Jujutsu and preserve unrelated changes.
