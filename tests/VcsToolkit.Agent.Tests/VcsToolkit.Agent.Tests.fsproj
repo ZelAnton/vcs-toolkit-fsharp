@@ -15,6 +15,10 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<None Include="$(RepoRoot)skills\using-vcs-agent\references\contract.v1.json" Link="Skill\contract.v1.json" CopyToOutputDirectory="PreserveNewest" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<PackageReference Include="FSharp.Core" />
 		<PackageReference Include="Microsoft.NET.Test.Sdk" />
 		<PackageReference Include="NUnit" />

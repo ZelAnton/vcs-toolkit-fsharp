@@ -13,6 +13,8 @@ param(
     [string] $RepoRoot = (Split-Path -Parent $PSScriptRoot),
     [string] $SchemaPath,
     [string] $CorpusPath,
+    [string] $SkillPath,
+    [string] $SkillContractPath,
     [string] $ResultsPath
 )
 
@@ -29,6 +31,12 @@ if ([string]::IsNullOrWhiteSpace($CorpusPath)) {
 if ([string]::IsNullOrWhiteSpace($ResultsPath)) {
     $ResultsPath = Join-Path $RepoRoot 'evals/vcs-agent/offline/results.v1.json'
 }
+if ([string]::IsNullOrWhiteSpace($SkillPath)) {
+    $SkillPath = Join-Path $RepoRoot 'skills/using-vcs-agent/SKILL.md'
+}
+if ([string]::IsNullOrWhiteSpace($SkillContractPath)) {
+    $SkillContractPath = Join-Path $RepoRoot 'skills/using-vcs-agent/references/contract.v1.json'
+}
 
 try {
     $schema = Read-VcsAgentEvalJson $SchemaPath 'schema'
@@ -39,6 +47,7 @@ try {
     Assert-VcsAgentEvalResultsDocument $results
     Assert-VcsAgentEvalSchemaMatch $CorpusPath $SchemaPath 'corpus'
     Assert-VcsAgentEvalSchemaMatch $ResultsPath $SchemaPath 'results'
+    Assert-VcsAgentEvalCurrentProvenance $results.provenance $SkillPath $SkillContractPath $CorpusPath 'results'
     Test-VcsAgentEvalResultDocument $corpus $results
     Write-Output "OK checker schema=v1 corpus=$($corpus.corpusVersion) scenarios=$($results.runs.Count) mismatches=0"
     exit 0

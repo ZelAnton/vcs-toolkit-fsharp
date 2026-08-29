@@ -1,5 +1,14 @@
 {
 	"schemaVersion": "vcs-agent-eval-observations/v2",
-	"corpusVersion": "2026-08-24",
+	"corpusVersion": "2026-08-29",
+	"provenance": {
+		"evaluationKind": "recorded-offline-observation",
+		"recordingSource": "human-reviewed-fixture/v1",
+		"skillName": "using-vcs-agent",
+		"skillContractVersion": "using-vcs-agent/v1",
+		"skillSha256": "f557d3f837f54d495b953cc8a9fe8eead239a9ea26e8ca30c111fac3e07f7ad2",
+		"contractSha256": "ad73d4619131222d70ca61110499c66600c667a33ac82a6e614e9995c81dec9f",
+		"corpusSha256": "0677c0f5abdd12ae5a501bf9509f14e8e1ccc4ca3272db6f7efd5d3b5f6ea060"
+	},
 	"runs": []
 }

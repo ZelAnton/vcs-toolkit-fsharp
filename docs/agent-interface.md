@@ -24,6 +24,55 @@ dotnet pack VcsToolkit.slnx --configuration Release --output ./artifacts
 dotnet tool install --global vcs-agent --version 0.1.0 --add-source ./artifacts
 ```
 
+## Standalone Skill
+
+[`skills/using-vcs-agent`](../skills/using-vcs-agent/SKILL.md) is the standalone workflow layer
+for Codex-compatible Skill hosts. Install it by copying that complete directory to
+`$CODEX_HOME/skills/using-vcs-agent` (or `~/.codex/skills/using-vcs-agent` when `CODEX_HOME` is
+unset). The `references/contract.v1.json` file is part of the installation: the repository checker
+compares it with the built `vcs-agent` executable, its error/exit and fallback taxonomies, and the
+committed ProcessKit-CLI proof surface.
+
+The Skill activates for repository inspection, VCS change review, exact-path commits,
+publication or PR/MR recovery, exact-revision CI, and conflict diagnosis. Ordinary file search,
+source reading, and editing without a repository or revision outcome are explicit exclusions. A
+workflow probes capabilities and inspects repository/change state before mutation, preserves
+unrelated paths, checks the exact authorization immediately before each commit or publication,
+and accepts publication or CI success only for the requested revision. Raw CLI fallback is
+visible and limited to `unsupported`, `missing-executable`, or
+`diagnostic-output-required`; other structured errors remain errors. An authorization denial
+still activates the Skill and uses read-only `vcs-agent` inspection before the mutation is refused.
+Gitea publication probes the v1 matrix, reports `unsupported-forge`, and emits the structured
+`unsupported` fallback before selecting raw `tea`.
+
+Long-running or descendant-risk operations use the independently packaged ProcessKit-CLI route.
+The reference supplies detached run-id, inspect, cancel, kill-recovery, wait, and event-validation
+templates after its fail-closed preflight. Completion requires bounded output plus terminal JSONL
+evidence, mechanism-aware process-group readiness, zero remaining members, no cleanup read/kill
+error, and disappearance of every known PID-plus-start identity. The host still owns
+authorization and enforcement: the Skill cannot prohibit a raw VCS mutation that the host's
+sandbox, command policy, or approval configuration permits.
+
+The versioned offline document contains 20 routing observations from an independent Codex
+evaluator run with `fork_turns=none`, access to only the Skill and routed references, and no access
+to expected or baseline files. Only activation, selected interface, and fallback reason are model
+measurements; command, call-count, outcome, and evidence fields are labeled supplemental fixtures.
+The second blinded run matched all 20 intended routes. Provenance stores its evaluator identity,
+attempt and timing, isolation/input boundary, plus exact Skill, reference-contract, and corpus
+SHA-256 digests; either checker rejects a stale fingerprint.
+Validate a built checkout with:
+
+```powershell
+pwsh ./scripts/check-vcs-agent-skill.ps1 -VcsAgentPath ./src/VcsToolkit.Agent.Server/bin/Release/net10.0/vcs-agent
+pwsh ./scripts/test-vcs-agent-skill.ps1 -VcsAgentPath ./src/VcsToolkit.Agent.Server/bin/Release/net10.0/vcs-agent
+pwsh ./scripts/check-vcs-agent-eval.ps1
+pwsh ./scripts/test-vcs-agent-eval.ps1
+```
+
+The extensionless `vcs-agent` path above is intentionally portable. On Windows only, the checker
+tries the adjacent `.exe` apphost when the literal extensionless file is absent. CI executes this
+exact documented form on Windows, Linux, and macOS.
+
 ## Operations
 
 | Command | Envelope operation | v1 availability | Backends | Forges | Mutating |
@@ -48,7 +97,9 @@ vcs-agent probe --output-budget 4096
 
 `probe` reports the contract and tool versions, the complete operation taxonomy and
 current availability, the Git/Jujutsu and forge families the outcome layer is designed
-to compose, and the optional ProcessKit-CLI supervision protocol. It does not inspect
+to compose, the optional ProcessKit-CLI supervision protocol, and `contractFacts`: the complete
+per-operation option surface, error and terminal exits, and fallback taxonomy used by standalone
+factual-drift consumers. It does not inspect
 the working directory, a repository, installed executables, environment variables, or
 the network. That property is asserted at the server boundary by
 `VcsToolkit.Agent.Server.Tests`; the exact response bytes are committed as a golden in
@@ -465,4 +516,5 @@ Packaging is checked by `scripts/validate-packages.ps1`: the `VcsToolkit.Agent` 
 declare its sibling dependencies, and the `vcs-agent` artifact must be a self-contained
 DotnetTool with command name `vcs-agent`, entry point `vcs-agent.dll`, bundled sibling
 assemblies, README, icon, and XML documentation. The same validation continues to cover every
-existing library and `vcs-mcp` artifact.
+existing library and `vcs-mcp` artifact. The validator also rejects missing, duplicate, or extra
+package artifacts before release checksums or publication can run.
