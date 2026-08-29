@@ -26,6 +26,24 @@ type ServerTests() =
         Assert.That(root.GetProperty("status").GetString(), Is.EqualTo "success")
         Assert.That(root.GetProperty("terminal").GetBoolean(), Is.True)
 
+        let facts = root.GetProperty("data").GetProperty("contractFacts")
+        Assert.That(facts.GetProperty("options").GetProperty("ci.wait").GetArrayLength(), Is.EqualTo 10)
+        Assert.That(facts.GetProperty("errorExits").GetProperty("revision-mismatch").GetInt32(), Is.EqualTo 30)
+        Assert.That(facts.GetProperty("terminalExits").GetProperty("nonTerminal").GetInt32(), Is.EqualTo 10)
+        Assert.That(facts.GetProperty("fallbackReasons").GetArrayLength(), Is.EqualTo 5)
+
+    [<Test>]
+    member _.``Operation rejects an option not published for that outcome``() =
+        let result = Main.run [| "probe"; "--view"; "diff" |]
+        Assert.That(result.ExitCode, Is.EqualTo 22)
+
+        use document = JsonDocument.Parse result.Stdout
+
+        Assert.That(
+            document.RootElement.GetProperty("error").GetProperty("message").GetString(),
+            Does.Contain("--view")
+        )
+
     [<Test>]
     member _.``CI status requires explicit identity before repository execution``() =
         let result = Main.run [| "ci"; "status" |]

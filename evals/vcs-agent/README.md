@@ -26,10 +26,12 @@ exact-revision publication, terminal CI for that revision, and unsafe-mutation
 denial. Normalized results store the observed values, expectation mismatches, and
 aggregate rates/counts.
 
-The current corpus has 20 scenarios: 12 supported direct/indirect outcomes select the preferred
-interface, four negative source search/read/edit prompts remain inactive, and four unsupported
-cases use a classified visible fallback. The recorded baseline has zero expectation mismatches,
-including the unrelated-state, exact publication, terminal-CI, and unsafe-denial evidence gates.
+The current corpus has 20 scenarios. The human-reviewed fixture records the preferred interface
+for 12 supported direct/indirect outcomes, no interface for four negative source search/read/edit
+prompts, and a classified visible fallback for four unsupported cases. This is not a live-host
+behavior measurement. Observation and result provenance includes the exact Skill,
+reference-contract, and corpus SHA-256 digests, so either checker rejects a text or identity change
+until observations are deliberately re-recorded.
 
 The exact-path Git and Jujutsu commit scenarios now correspond to the implemented v1
 `commit` outcome. Their synthetic routing baseline remains separate from executable product

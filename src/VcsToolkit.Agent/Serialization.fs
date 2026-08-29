@@ -72,6 +72,35 @@ module internal EnvelopeSerialization =
         writer.WriteString("lifecycleProtocol", probe.Supervisor.LifecycleProtocol)
         writer.WriteBoolean("required", probe.Supervisor.Required)
         writer.WriteEndObject()
+        writer.WriteStartObject("contractFacts")
+        writer.WriteStartObject("options")
+
+        for capability in probe.Operations do
+            writer.WriteStartArray(ContractNames.operation capability.Operation)
+
+            for optionName in AgentContractFacts.cliOptions capability.Operation do
+                writer.WriteStringValue optionName
+
+            writer.WriteEndArray()
+
+        writer.WriteEndObject()
+        writer.WriteStartObject("errorExits")
+
+        for code in AgentContractFacts.errorCodes do
+            writer.WriteNumber(ContractNames.errorCode code, AgentContractFacts.errorExit code)
+
+        writer.WriteEndObject()
+        writer.WriteStartObject("terminalExits")
+        writer.WriteNumber("success", AgentContractFacts.successExitCode)
+        writer.WriteNumber("nonTerminal", AgentContractFacts.nonTerminalExitCode)
+        writer.WriteEndObject()
+        writer.WriteStartArray("fallbackReasons")
+
+        for reason in AgentContractFacts.fallbackReasons do
+            writer.WriteStringValue(ContractNames.fallbackReason reason)
+
+        writer.WriteEndArray()
+        writer.WriteEndObject()
         writer.WriteEndObject()
 
     let private forgeStatusName status =

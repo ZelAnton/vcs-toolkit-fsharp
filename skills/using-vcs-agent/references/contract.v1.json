@@ -167,6 +167,9 @@
 		"supervisedRunTemplate": [
 			"processkit-cli",
 			"run",
+			"--detach",
+			"--run-id",
+			"<run-id>",
 			"--jsonl",
 			"<events-path>",
 			"--capture-dir",
@@ -178,6 +181,36 @@
 			"vcs-agent",
 			"<operation>",
 			"<arguments>"
+		],
+		"inspectTemplate": [
+			"processkit-cli",
+			"inspect",
+			"--run-id",
+			"<run-id>",
+			"--json",
+			"--error-format",
+			"json"
+		],
+		"cancelTemplate": [
+			"processkit-cli",
+			"cancel",
+			"--run-id",
+			"<run-id>"
+		],
+		"killTemplate": [
+			"processkit-cli",
+			"kill",
+			"--run-id",
+			"<run-id>"
+		],
+		"waitTemplate": [
+			"processkit-cli",
+			"wait",
+			"--run-id",
+			"<run-id>",
+			"--timeout",
+			"<wait-timeout>",
+			"--report-outcome"
 		],
 		"validateEventsTemplate": [
 			"processkit-cli",

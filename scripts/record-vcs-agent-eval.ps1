@@ -14,6 +14,8 @@ param(
     [string] $SchemaPath,
     [string] $CorpusPath,
     [string] $ObservationsPath,
+    [string] $SkillPath,
+    [string] $SkillContractPath,
     [string] $OutputPath
 )
 
@@ -30,6 +32,12 @@ if ([string]::IsNullOrWhiteSpace($CorpusPath)) {
 if ([string]::IsNullOrWhiteSpace($ObservationsPath)) {
     $ObservationsPath = Join-Path $RepoRoot 'evals/vcs-agent/offline/observations.v1.json'
 }
+if ([string]::IsNullOrWhiteSpace($SkillPath)) {
+    $SkillPath = Join-Path $RepoRoot 'skills/using-vcs-agent/SKILL.md'
+}
+if ([string]::IsNullOrWhiteSpace($SkillContractPath)) {
+    $SkillContractPath = Join-Path $RepoRoot 'skills/using-vcs-agent/references/contract.v1.json'
+}
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
     $OutputPath = Join-Path $RepoRoot 'evals/vcs-agent/offline/results.v1.json'
 }
@@ -43,6 +51,7 @@ try {
     Assert-VcsAgentEvalObservationsDocument $observations
     Assert-VcsAgentEvalSchemaMatch $CorpusPath $SchemaPath 'corpus'
     Assert-VcsAgentEvalSchemaMatch $ObservationsPath $SchemaPath 'observations'
+    Assert-VcsAgentEvalCurrentProvenance $observations.provenance $SkillPath $SkillContractPath $CorpusPath 'observations'
     $results = New-VcsAgentEvalResultDocument $corpus $observations
     Write-VcsAgentEvalJson $results $OutputPath
     Assert-VcsAgentEvalSchemaMatch $OutputPath $SchemaPath 'results'

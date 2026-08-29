@@ -28,6 +28,7 @@ type private ParsedCommand =
 
 type private ParsedOptions =
     { CommandArgs: string list
+      SpecifiedOptions: Set<string>
       OutputLimitBytes: int
       RepositoryPath: string
       RepositoryExplicit: bool
@@ -94,7 +95,11 @@ let private parseOptions args =
         | "--output-budget" :: value :: rest ->
             match Int32.TryParse value with
             | true, parsed when parsed >= Agent.MinimumOutputLimitBytes ->
-                loop { state with OutputLimitBytes = parsed } rest
+                loop
+                    { state with
+                        OutputLimitBytes = parsed
+                        SpecifiedOptions = state.SpecifiedOptions.Add "--output-budget" }
+                    rest
             | _ ->
                 Error(
                     Agent.invalidInput
@@ -109,7 +114,8 @@ let private parseOptions args =
                 loop
                     { state with
                         RepositoryPath = value
-                        RepositoryExplicit = true }
+                        RepositoryExplicit = true
+                        SpecifiedOptions = state.SpecifiedOptions.Add "--repo" }
                     rest
         | "--repo" :: [] -> Error(Agent.invalidInput "command" "--repo requires a path value")
         | "--view" :: value :: rest ->
@@ -117,20 +123,23 @@ let private parseOptions args =
             | "summary" ->
                 loop
                     { state with
-                        ChangesMode = ChangesMode.Summary }
+                        ChangesMode = ChangesMode.Summary
+                        SpecifiedOptions = state.SpecifiedOptions.Add "--view" }
                     rest
             | "diff"
             | "structured-diff" ->
                 loop
                     { state with
-                        ChangesMode = ChangesMode.StructuredDiff }
+                        ChangesMode = ChangesMode.StructuredDiff
+                        SpecifiedOptions = state.SpecifiedOptions.Add "--view" }
                     rest
             | _ -> Error(Agent.invalidInput "command" "--view must be 'summary' or 'diff'")
         | "--view" :: [] -> Error(Agent.invalidInput "command" "--view requires a value")
         | "--path" :: value :: rest ->
             loop
                 { state with
-                    CommitPaths = value :: state.CommitPaths }
+                    CommitPaths = value :: state.CommitPaths
+                    SpecifiedOptions = state.SpecifiedOptions.Add "--path" }
                 rest
         | "--path" :: [] -> Error(Agent.invalidInput "command" "--path requires a repo-relative path value")
         | "--message" :: value :: rest ->
@@ -139,23 +148,39 @@ let private parseOptions args =
             | None ->
                 loop
                     { state with
-                        CommitMessage = Some value }
+                        CommitMessage = Some value
+                        SpecifiedOptions = state.SpecifiedOptions.Add "--message" }
                     rest
         | "--message" :: [] -> Error(Agent.invalidInput "command" "--message requires a value")
         | "--branch" :: value :: rest ->
             match state.Branch with
             | Some _ -> duplicate "--branch"
-            | None -> loop { state with Branch = Some value } rest
+            | None ->
+                loop
+                    { state with
+                        Branch = Some value
+                        SpecifiedOptions = state.SpecifiedOptions.Add "--branch" }
+                    rest
         | "--branch" :: [] -> Error(Agent.invalidInput "command" "--branch requires a value")
         | "--remote" :: value :: rest ->
             match state.Remote with
             | Some _ -> duplicate "--remote"
-            | None -> loop { state with Remote = Some value } rest
+            | None ->
+                loop
+                    { state with
+                        Remote = Some value
+                        SpecifiedOptions = state.SpecifiedOptions.Add "--remote" }
+                    rest
         | "--remote" :: [] -> Error(Agent.invalidInput "command" "--remote requires a value")
         | "--revision" :: value :: rest ->
             match state.Revision with
             | Some _ -> duplicate "--revision"
-            | None -> loop { state with Revision = Some value } rest
+            | None ->
+                loop
+                    { state with
+                        Revision = Some value
+                        SpecifiedOptions = state.SpecifiedOptions.Add "--revision" }
+                    rest
         | "--revision" :: [] -> Error(Agent.invalidInput "command" "--revision requires a value")
         | "--forge" :: value :: rest ->
             match state.Forge with
@@ -165,39 +190,62 @@ let private parseOptions args =
                 | "github" ->
                     loop
                         { state with
-                            Forge = Some AgentForgeKind.GitHub }
+                            Forge = Some AgentForgeKind.GitHub
+                            SpecifiedOptions = state.SpecifiedOptions.Add "--forge" }
                         rest
                 | "gitlab" ->
                     loop
                         { state with
-                            Forge = Some AgentForgeKind.GitLab }
+                            Forge = Some AgentForgeKind.GitLab
+                            SpecifiedOptions = state.SpecifiedOptions.Add "--forge" }
                         rest
                 | "gitea" ->
                     loop
                         { state with
-                            Forge = Some AgentForgeKind.Gitea }
+                            Forge = Some AgentForgeKind.Gitea
+                            SpecifiedOptions = state.SpecifiedOptions.Add "--forge" }
                         rest
                 | _ -> Error(Agent.invalidInput "command" "--forge must be 'github', 'gitlab', or 'gitea'")
         | "--forge" :: [] -> Error(Agent.invalidInput "command" "--forge requires a value")
         | "--account" :: value :: rest ->
             match state.Account with
             | Some _ -> duplicate "--account"
-            | None -> loop { state with Account = Some value } rest
+            | None ->
+                loop
+                    { state with
+                        Account = Some value
+                        SpecifiedOptions = state.SpecifiedOptions.Add "--account" }
+                    rest
         | "--account" :: [] -> Error(Agent.invalidInput "command" "--account requires a value")
         | "--target" :: value :: rest ->
             match state.TargetBranch with
             | Some _ -> duplicate "--target"
-            | None -> loop { state with TargetBranch = Some value } rest
+            | None ->
+                loop
+                    { state with
+                        TargetBranch = Some value
+                        SpecifiedOptions = state.SpecifiedOptions.Add "--target" }
+                    rest
         | "--target" :: [] -> Error(Agent.invalidInput "command" "--target requires a value")
         | "--title" :: value :: rest ->
             match state.Title with
             | Some _ -> duplicate "--title"
-            | None -> loop { state with Title = Some value } rest
+            | None ->
+                loop
+                    { state with
+                        Title = Some value
+                        SpecifiedOptions = state.SpecifiedOptions.Add "--title" }
+                    rest
         | "--title" :: [] -> Error(Agent.invalidInput "command" "--title requires a value")
         | "--body" :: value :: rest ->
             match state.Body with
             | Some _ -> duplicate "--body"
-            | None -> loop { state with Body = Some value } rest
+            | None ->
+                loop
+                    { state with
+                        Body = Some value
+                        SpecifiedOptions = state.SpecifiedOptions.Add "--body" }
+                    rest
         | "--body" :: [] -> Error(Agent.invalidInput "command" "--body requires a value")
         | "--poll-seconds" :: value :: rest ->
             match state.PollInterval with
@@ -207,7 +255,8 @@ let private parseOptions args =
                 | Ok parsed ->
                     loop
                         { state with
-                            PollInterval = Some parsed }
+                            PollInterval = Some parsed
+                            SpecifiedOptions = state.SpecifiedOptions.Add "--poll-seconds" }
                         rest
                 | Error error -> Error error
         | "--poll-seconds" :: [] -> Error(Agent.invalidInput "command" "--poll-seconds requires a value")
@@ -216,7 +265,12 @@ let private parseOptions args =
             | Some _ -> duplicate "--deadline-seconds"
             | None ->
                 match parseSeconds "--deadline-seconds" value with
-                | Ok parsed -> loop { state with Deadline = Some parsed } rest
+                | Ok parsed ->
+                    loop
+                        { state with
+                            Deadline = Some parsed
+                            SpecifiedOptions = state.SpecifiedOptions.Add "--deadline-seconds" }
+                        rest
                 | Error error -> Error error
         | "--deadline-seconds" :: [] -> Error(Agent.invalidInput "command" "--deadline-seconds requires a value")
         | "--inactivity-seconds" :: value :: rest ->
@@ -227,7 +281,8 @@ let private parseOptions args =
                 | Ok parsed ->
                     loop
                         { state with
-                            InactivityDeadline = Some parsed }
+                            InactivityDeadline = Some parsed
+                            SpecifiedOptions = state.SpecifiedOptions.Add "--inactivity-seconds" }
                         rest
                 | Error error -> Error error
         | "--inactivity-seconds" :: [] -> Error(Agent.invalidInput "command" "--inactivity-seconds requires a value")
@@ -239,6 +294,7 @@ let private parseOptions args =
 
     loop
         { CommandArgs = []
+          SpecifiedOptions = Set.empty
           OutputLimitBytes = Agent.DefaultOutputLimitBytes
           RepositoryPath = Directory.GetCurrentDirectory()
           RepositoryExplicit = false
@@ -329,6 +385,13 @@ let private parse args =
             hasIdentityOptions
             ->
             Error(Agent.invalidInput "command" "identity options require publish, ci status, or ci wait")
+        | Some operation when not (Set.isSubset options.SpecifiedOptions (Agent.cliOptions operation |> Set.ofList)) ->
+            let invalid =
+                Set.difference options.SpecifiedOptions (Agent.cliOptions operation |> Set.ofList)
+                |> Set.toList
+                |> String.concat ", "
+
+            Error(Agent.invalidInput (Agent.operationName operation) $"operation does not accept: {invalid}")
         | Some operation ->
             match requiredIdentity (Agent.operationName operation), operation with
             | Error error, (AgentOperation.Publish | AgentOperation.CiStatus | AgentOperation.CiWait) -> Error error

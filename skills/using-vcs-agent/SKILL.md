@@ -63,15 +63,19 @@ threshold.
 
 Before the first supervised command, run `processKitCli.preflight.argvPrefix` from the
 reference, appending `processKitCli.preflight.repeatForEachRequiredSurface` once for every
-entry in `requiredSurface`. Require every fact in `preflight.success`, then launch with the
-reference's `supervisedRunTemplate` and validate with `validateEventsTemplate`. Consume the
-agent envelope from bounded capture and the lifecycle
-from JSONL; success requires the terminal `runner_exit`, not child output alone.
+entry in `requiredSurface`. Require every fact in `preflight.success`, choose a unique run id,
+then launch the detached `supervisedRunTemplate`. Poll `inspectTemplate` within a bounded host
+deadline until readiness or a terminal state. Use `cancelTemplate` for requested cancellation,
+`waitTemplate` for the terminal outcome, and `killTemplate` only as bounded fail-closed recovery
+when cancellation cannot complete cleanup. Validate with `validateEventsTemplate`. Consume the
+agent envelope from bounded capture and the lifecycle from JSONL; success requires the terminal
+`runner_exit`, not child output alone.
 Readiness is mechanism-aware: `process_group` inspection attests the tracked root or
 leader, not every descendant. Track every known PID plus start-identity separately,
 extend that set from live inspection, and require exact-identity cleanup. Completion
-fails closed unless cleanup reports no remaining members or read/kill error and every
-known exact identity is gone.
+succeeds only when cleanup reports zero remaining members, `readError=false`,
+`killError=false`, and every known exact identity is gone. Any unavailable or malformed
+inspection, control, wait, event, or identity evidence fails closed.
 
 ## Fall back visibly and narrowly
 

@@ -88,6 +88,22 @@ try {
     $generatedCheck = Invoke-EvalScript $checker @('-RepoRoot', $RepoRoot, '-ResultsPath', $firstResult)
     Assert-EvalSuccess $generatedCheck 'mismatches=0'
 
+    $staleSkill = Join-Path $testRoot 'stale-SKILL.md'
+    $skillSource = Get-Content -Raw -LiteralPath (Join-Path $RepoRoot 'skills/using-vcs-agent/SKILL.md') -Encoding UTF8
+    [System.IO.File]::WriteAllText($staleSkill, $skillSource + "`n", [System.Text.UTF8Encoding]::new($false))
+    $staleCheck = Invoke-EvalScript $checker @(
+        '-RepoRoot', $RepoRoot,
+        '-ResultsPath', $firstResult,
+        '-SkillPath', $staleSkill
+    )
+    Assert-EvalFailure $staleCheck 'provenance is stale'
+    $staleRecord = Invoke-EvalScript $recorder @(
+        '-RepoRoot', $RepoRoot,
+        '-SkillPath', $staleSkill,
+        '-OutputPath', (Join-Path $testRoot 'stale-results.json')
+    )
+    Assert-EvalFailure $staleRecord 'provenance is stale'
+
     $invalidRecord = Invoke-EvalScript $recorder @(
         '-RepoRoot', $RepoRoot,
         '-ObservationsPath', (Join-Path $fixtures 'invalid-observations.v1.json'),

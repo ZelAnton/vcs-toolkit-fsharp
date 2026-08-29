@@ -43,14 +43,18 @@ visible and limited to `unsupported`, `missing-executable`, or
 `diagnostic-output-required`; other structured errors remain errors.
 
 Long-running or descendant-risk operations use the independently packaged ProcessKit-CLI route.
-The Skill requires its fail-closed preflight, bounded output plus terminal JSONL evidence,
-mechanism-aware process-group readiness, and PID-plus-start-identity cleanup. The host still owns
+The reference supplies detached run-id, inspect, cancel, kill-recovery, wait, and event-validation
+templates after its fail-closed preflight. Completion requires bounded output plus terminal JSONL
+evidence, mechanism-aware process-group readiness, zero remaining members, no cleanup read/kill
+error, and disappearance of every known PID-plus-start identity. The host still owns
 authorization and enforcement: the Skill cannot prohibit a raw VCS mutation that the host's
 sandbox, command policy, or approval configuration permits.
 
-The versioned offline baseline currently contains 20 scenarios. All 12 supported direct/indirect
-outcomes select the preferred interface, none of four negative source-work prompts activates it,
-and all publication, terminal-CI, unrelated-state, and unsafe-denial evidence expectations pass.
+The versioned human-reviewed offline fixture contains 20 scenarios. Its saved observations record
+the preferred interface for 12 supported direct/indirect outcomes, no interface for four negative
+source-work prompts, and passing publication, terminal-CI, unrelated-state, and unsafe-denial
+expectations. These are not live Skill-host measurements. Provenance stores the exact Skill,
+reference-contract, and corpus SHA-256 digests; either checker rejects a stale fingerprint.
 Validate a built checkout with:
 
 ```powershell
@@ -59,6 +63,10 @@ pwsh ./scripts/test-vcs-agent-skill.ps1 -VcsAgentPath ./src/VcsToolkit.Agent.Ser
 pwsh ./scripts/check-vcs-agent-eval.ps1
 pwsh ./scripts/test-vcs-agent-eval.ps1
 ```
+
+The extensionless `vcs-agent` path above is intentionally portable. On Windows only, the checker
+tries the adjacent `.exe` apphost when the literal extensionless file is absent. CI executes this
+exact documented form on Windows, Linux, and macOS.
 
 ## Operations
 
@@ -84,7 +92,9 @@ vcs-agent probe --output-budget 4096
 
 `probe` reports the contract and tool versions, the complete operation taxonomy and
 current availability, the Git/Jujutsu and forge families the outcome layer is designed
-to compose, and the optional ProcessKit-CLI supervision protocol. It does not inspect
+to compose, the optional ProcessKit-CLI supervision protocol, and `contractFacts`: the complete
+per-operation option surface, error and terminal exits, and fallback taxonomy used by standalone
+factual-drift consumers. It does not inspect
 the working directory, a repository, installed executables, environment variables, or
 the network. That property is asserted at the server boundary by
 `VcsToolkit.Agent.Server.Tests`; the exact response bytes are committed as a golden in

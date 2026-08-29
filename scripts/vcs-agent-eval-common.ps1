@@ -24,6 +24,44 @@ $script:MismatchCodes = @(
     'unsafe-mutation-denied'
 )
 
+function Get-VcsAgentEvalSha256 {
+    param([Parameter(Mandatory)] [string] $Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "provenance input '$Path' is missing"
+    }
+
+    return [System.Convert]::ToHexString(
+        [System.Security.Cryptography.SHA256]::HashData([System.IO.File]::ReadAllBytes($Path))
+    ).ToLowerInvariant()
+}
+
+function Get-VcsAgentEvalCurrentProvenance {
+    param(
+        [Parameter(Mandatory)] [string] $SkillPath,
+        [Parameter(Mandatory)] [string] $SkillContractPath,
+        [Parameter(Mandatory)] [string] $CorpusPath
+    )
+
+    $skillText = Get-Content -Raw -LiteralPath $SkillPath -Encoding UTF8
+    $nameMatch = [regex]::Match($skillText, '(?m)^name:\s*(?<value>[^\r\n]+)$')
+    if (-not $nameMatch.Success) {
+        throw 'Skill provenance input has no scalar name metadata'
+    }
+
+    $contract = Read-VcsAgentEvalJson $SkillContractPath 'Skill contract provenance'
+
+    return [pscustomobject][ordered]@{
+        evaluationKind = 'recorded-offline-observation'
+        recordingSource = 'human-reviewed-fixture/v1'
+        skillName = $nameMatch.Groups['value'].Value.Trim()
+        skillContractVersion = [string]$contract.skillContractVersion
+        skillSha256 = Get-VcsAgentEvalSha256 $SkillPath
+        contractSha256 = Get-VcsAgentEvalSha256 $SkillContractPath
+        corpusSha256 = Get-VcsAgentEvalSha256 $CorpusPath
+    }
+}
+
 function Read-VcsAgentEvalJson {
     param(
         [Parameter(Mandatory)] [string] $Path,
@@ -230,9 +268,49 @@ function Assert-VcsAgentEvalSchemaDocument {
     }
     Assert-VcsAgentEvalObject $Document.'$defs' 'schema definitions'
     Assert-VcsAgentEvalExactProperties $Document.'$defs' @(
-        'evidenceExpectation', 'observedEvidence', 'scenario', 'corpus',
+        'evidenceExpectation', 'observedEvidence', 'provenance', 'scenario', 'corpus',
         'observationRun', 'observations', 'rateMetric', 'resultRun', 'metrics', 'results'
     ) @() 'schema definitions'
+}
+
+function Assert-VcsAgentEvalProvenance {
+    param(
+        [Parameter(Mandatory)] [pscustomobject] $Provenance,
+        [Parameter(Mandatory)] [string] $Context
+    )
+
+    Assert-VcsAgentEvalObject $Provenance $Context
+    Assert-VcsAgentEvalExactProperties $Provenance @(
+        'evaluationKind', 'recordingSource', 'skillName', 'skillContractVersion',
+        'skillSha256', 'contractSha256', 'corpusSha256'
+    ) @() $Context
+    Assert-VcsAgentEvalEnum $Provenance.evaluationKind @('recorded-offline-observation') "$Context.evaluationKind"
+    Assert-VcsAgentEvalEnum $Provenance.recordingSource @('human-reviewed-fixture/v1') "$Context.recordingSource"
+    Assert-VcsAgentEvalString $Provenance.skillName "$Context.skillName"
+    Assert-VcsAgentEvalString $Provenance.skillContractVersion "$Context.skillContractVersion"
+
+    foreach ($name in @('skillSha256', 'contractSha256', 'corpusSha256')) {
+        Assert-VcsAgentEvalString $Provenance.$name "$Context.$name"
+        if ($Provenance.$name -cnotmatch '^[0-9a-f]{64}$') {
+            throw "$Context.$name must be a lowercase SHA-256 digest"
+        }
+    }
+}
+
+function Assert-VcsAgentEvalCurrentProvenance {
+    param(
+        [Parameter(Mandatory)] [pscustomobject] $Provenance,
+        [Parameter(Mandatory)] [string] $SkillPath,
+        [Parameter(Mandatory)] [string] $SkillContractPath,
+        [Parameter(Mandatory)] [string] $CorpusPath,
+        [Parameter(Mandatory)] [string] $Context
+    )
+
+    $current = Get-VcsAgentEvalCurrentProvenance $SkillPath $SkillContractPath $CorpusPath
+
+    if ((Get-VcsAgentEvalCanonicalJson $Provenance) -cne (Get-VcsAgentEvalCanonicalJson $current)) {
+        throw "$Context provenance is stale for the current Skill, contract, or corpus"
+    }
 }
 
 function Assert-VcsAgentEvalEvidenceExpectation {
@@ -361,11 +439,12 @@ function Assert-VcsAgentEvalObservationsDocument {
     param([Parameter(Mandatory)] [pscustomobject] $Document)
 
     Assert-VcsAgentEvalObject $Document 'observations'
-    Assert-VcsAgentEvalExactProperties $Document @('schemaVersion', 'corpusVersion', 'runs') @() 'observations'
+    Assert-VcsAgentEvalExactProperties $Document @('schemaVersion', 'corpusVersion', 'provenance', 'runs') @() 'observations'
     if ($Document.schemaVersion -cne $script:ObservationSchemaVersion) {
         throw "observations.schemaVersion has unsupported value '$($Document.schemaVersion)'"
     }
     Assert-VcsAgentEvalString $Document.corpusVersion 'observations.corpusVersion'
+    Assert-VcsAgentEvalProvenance $Document.provenance 'observations.provenance'
     Assert-VcsAgentEvalArray $Document.runs 'observations.runs'
 
     $ids = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
@@ -539,6 +618,7 @@ function New-VcsAgentEvalResultDocument {
         schemaVersion = $script:ResultSchemaVersion
         corpusVersion = $Corpus.corpusVersion
         recorderVersion = $script:RecorderVersion
+        provenance = $Observations.provenance
         runs = $runs
         metrics = Get-VcsAgentEvalMetrics $Corpus.scenarios $runs
     }
@@ -564,7 +644,7 @@ function Assert-VcsAgentEvalResultsDocument {
     param([Parameter(Mandatory)] [pscustomobject] $Document)
 
     Assert-VcsAgentEvalObject $Document 'results'
-    Assert-VcsAgentEvalExactProperties $Document @('schemaVersion', 'corpusVersion', 'recorderVersion', 'runs', 'metrics') @() 'results'
+    Assert-VcsAgentEvalExactProperties $Document @('schemaVersion', 'corpusVersion', 'recorderVersion', 'provenance', 'runs', 'metrics') @() 'results'
     if ($Document.schemaVersion -cne $script:ResultSchemaVersion) {
         throw "results.schemaVersion has unsupported value '$($Document.schemaVersion)'"
     }
@@ -572,6 +652,7 @@ function Assert-VcsAgentEvalResultsDocument {
         throw "results.recorderVersion has unsupported value '$($Document.recorderVersion)'"
     }
     Assert-VcsAgentEvalString $Document.corpusVersion 'results.corpusVersion'
+    Assert-VcsAgentEvalProvenance $Document.provenance 'results.provenance'
     Assert-VcsAgentEvalArray $Document.runs 'results.runs'
 
     $ids = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)

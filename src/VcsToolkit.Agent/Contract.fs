@@ -42,6 +42,82 @@ type AgentFallbackReason =
     | UnsupportedForge
     | RawDiagnosticRequired
 
+module internal AgentContractFacts =
+    let successExitCode = 0
+
+    let nonTerminalExitCode = 10
+
+    let errorCodes =
+        [ AgentErrorCode.Unsupported
+          AgentErrorCode.Denied
+          AgentErrorCode.InvalidInput
+          AgentErrorCode.Backend
+          AgentErrorCode.Forge
+          AgentErrorCode.Authentication
+          AgentErrorCode.Timeout
+          AgentErrorCode.Cancellation
+          AgentErrorCode.OutputLimit
+          AgentErrorCode.ExternalCommand
+          AgentErrorCode.RevisionMismatch ]
+
+    let errorExit code =
+        match code with
+        | AgentErrorCode.Unsupported -> 20
+        | AgentErrorCode.Denied -> 21
+        | AgentErrorCode.InvalidInput -> 22
+        | AgentErrorCode.Backend -> 23
+        | AgentErrorCode.Forge -> 24
+        | AgentErrorCode.Authentication -> 25
+        | AgentErrorCode.Timeout -> 26
+        | AgentErrorCode.Cancellation -> 27
+        | AgentErrorCode.OutputLimit -> 28
+        | AgentErrorCode.ExternalCommand -> 29
+        | AgentErrorCode.RevisionMismatch -> 30
+
+    let fallbackReasons =
+        [ AgentFallbackReason.OperationNotImplemented
+          AgentFallbackReason.MissingExecutable
+          AgentFallbackReason.UnsupportedBackend
+          AgentFallbackReason.UnsupportedForge
+          AgentFallbackReason.RawDiagnosticRequired ]
+
+    let cliOptions operation =
+        match operation with
+        | AgentOperation.Probe -> [ "--output-budget" ]
+        | AgentOperation.Inspect -> [ "--repo"; "--output-budget" ]
+        | AgentOperation.Changes -> [ "--repo"; "--view"; "--output-budget" ]
+        | AgentOperation.Commit -> [ "--repo"; "--path"; "--message"; "--output-budget" ]
+        | AgentOperation.Publish ->
+            [ "--repo"
+              "--branch"
+              "--remote"
+              "--revision"
+              "--forge"
+              "--account"
+              "--target"
+              "--title"
+              "--body"
+              "--output-budget" ]
+        | AgentOperation.CiStatus ->
+            [ "--repo"
+              "--branch"
+              "--remote"
+              "--revision"
+              "--forge"
+              "--account"
+              "--output-budget" ]
+        | AgentOperation.CiWait ->
+            [ "--repo"
+              "--branch"
+              "--remote"
+              "--revision"
+              "--forge"
+              "--account"
+              "--poll-seconds"
+              "--deadline-seconds"
+              "--inactivity-seconds"
+              "--output-budget" ]
+
 /// One operation advertised by `probe`.
 type AgentCapability =
     {

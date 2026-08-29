@@ -284,6 +284,14 @@ jobs:
       - name: Build
         run: dotnet build --no-restore --configuration Release
 
+      # Use the extensionless path published in the docs on every platform. The checker
+      # resolves the Windows .exe apphost only when that literal path is absent.
+      - name: Validate documented vcs-agent Skill command
+        shell: pwsh
+        run: >-
+          ./scripts/test-vcs-agent-skill.ps1
+          -VcsAgentPath ./src/VcsToolkit.Agent.Server/bin/Release/net10.0/vcs-agent
+
       - name: Install jj (Unix)
         if: runner.os != 'Windows'
         shell: bash

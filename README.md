@@ -67,8 +67,10 @@ For Codex, copy the complete `skills/using-vcs-agent` directory to
 `CODEX_HOME` is unset); the adjacent versioned reference is required. Its narrow trigger covers
 repository inspection, change review, exact-path commits, publication, exact-revision CI, and
 conflict diagnosis, while ordinary source search, reading, and editing remain outside the Skill.
-The tracked 20-scenario offline baseline selects `vcs-agent` for all 12 supported direct/indirect
-outcomes and records zero activations across four negative source-work scenarios. Run
+The tracked human-reviewed 20-scenario fixture records `vcs-agent` for all 12 supported
+direct/indirect outcomes and no activation across four negative source-work scenarios. It is not
+a live Skill-host measurement. SHA-256 provenance binds those observations to the exact Skill,
+reference contract, and corpus bytes, so changing routing text makes the baseline stale. Run
 `scripts/check-vcs-agent-skill.ps1` against the built executable and
 `scripts/test-vcs-agent-skill.ps1` before installing a changed copy.
 

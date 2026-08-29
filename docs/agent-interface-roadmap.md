@@ -232,11 +232,12 @@ stale metrics, incomplete or reordered runs, and expectation mismatches. Optiona
 live observations belong under the ignored evals/vcs-agent/live-results/ tier and
 must be passed explicitly; the ordinary CI job never reads that directory.
 
-The current 20-scenario baseline selects the preferred interface for all 12 supported
-direct/indirect outcomes and has zero activations in four negative source-work scenarios. It also
-passes every recorded unrelated-state preservation, exact-revision publication, terminal-CI, and
-unsafe-mutation denial expectation. These are deterministic offline routing measurements, not a
-claim about an unrecorded live model.
+The current human-reviewed 20-scenario fixture records the preferred interface for all 12
+supported direct/indirect outcomes and no interface in four negative source-work scenarios. It
+also records every unrelated-state preservation, exact-revision publication, terminal-CI, and
+unsafe-mutation denial expectation. These are deterministic fixture results, not a live-host
+behavior measurement. Skill, reference-contract, and corpus SHA-256 provenance makes any changed
+routing text stale until observations are deliberately re-recorded.
 
 ## Delivery phases
 

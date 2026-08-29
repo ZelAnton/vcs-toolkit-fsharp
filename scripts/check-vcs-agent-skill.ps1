@@ -49,6 +49,29 @@ function Read-JsonObject {
     $value
 }
 
+function Resolve-VcsAgentBinary {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $Path
+    )
+
+    $literal = [System.IO.Path]::GetFullPath($Path)
+
+    if (Test-Path -LiteralPath $literal -PathType Leaf) {
+        return $literal
+    }
+
+    if ([System.OperatingSystem]::IsWindows() -and [string]::IsNullOrEmpty([System.IO.Path]::GetExtension($literal))) {
+        $windowsApphost = $literal + '.exe'
+
+        if (Test-Path -LiteralPath $windowsApphost -PathType Leaf) {
+            return $windowsApphost
+        }
+    }
+
+    throw "Built vcs-agent binary '$literal' does not exist."
+}
+
 function Read-SkillMetadata {
     param(
         [Parameter(Mandatory = $true)]
@@ -146,14 +169,20 @@ function Invoke-VcsAgent {
 }
 
 try {
-    $binary = [System.IO.Path]::GetFullPath($VcsAgentPath)
+    $binary = Resolve-VcsAgentBinary $VcsAgentPath
     $skillFile = [System.IO.Path]::GetFullPath($SkillPath)
     $contractFile = [System.IO.Path]::GetFullPath($ContractPath)
     $proofFile = [System.IO.Path]::GetFullPath($ProcessKitProofPath)
-    Assert-Condition (Test-Path -LiteralPath $binary -PathType Leaf) "Built vcs-agent binary '$binary' does not exist."
-
     $contract = Read-JsonObject $contractFile
     $skill = Read-SkillMetadata $skillFile
+
+    $probeResult = Invoke-VcsAgent $binary @('probe')
+    Assert-Condition ($probeResult.ExitCode -eq 0) 'vcs-agent probe failed.'
+    $probe = $probeResult.Stdout | ConvertFrom-Json -Depth 100
+    Assert-Condition ($null -ne $probe.data.contractFacts) 'Built vcs-agent probe omits contractFacts authority.'
+    $productFacts = $probe.data.contractFacts
+    $probeCommands = @($probe.data.operations | ForEach-Object { $_.name })
+
     Assert-Condition ($contract.skillContractVersion -ceq 'using-vcs-agent/v1') 'Skill contract version must be using-vcs-agent/v1.'
     Assert-Condition ($skill.Metadata.Count -eq 2) 'SKILL.md frontmatter must contain only name and description.'
     Assert-Condition ($skill.Metadata.name -ceq $contract.metadata.name) 'SKILL.md name differs from the reference contract.'
@@ -166,7 +195,10 @@ try {
             'at least 60 seconds',
             'tracked root or',
             'PID plus start-identity',
-            'terminal `runner_exit`',
+            '`runner_exit`',
+            'zero remaining members',
+            '`readError=false`',
+            '`killError=false`',
             'host''s sandbox',
             'fallbackReason'
         )) {
@@ -177,14 +209,35 @@ try {
     $actualClassifications = @($contract.rawCliFallbackClassifications.PSObject.Properties.Name)
     Assert-Condition (($actualClassifications -join "`n") -ceq ($expectedClassifications -join "`n")) 'Raw CLI fallback classifications differ from the three allowed grounds.'
 
-    $expectedAgentFallbacks = @(
-        'operation-not-implemented',
-        'missing-executable',
-        'unsupported-backend',
-        'unsupported-forge',
-        'raw-diagnostic-required'
-    )
-    Assert-Condition ((@($contract.agentFallbackReasons) -join "`n") -ceq ($expectedAgentFallbacks -join "`n")) 'Agent fallback facts drifted.'
+    Assert-Condition ((@($contract.commands) -join "`n") -ceq ($probeCommands -join "`n")) 'Skill command set drifted from vcs-agent probe.'
+
+    $referenceOptionOperations = @($contract.requiredOptions.PSObject.Properties.Name)
+    $productOptionOperations = @($productFacts.options.PSObject.Properties.Name)
+    Assert-Condition (($referenceOptionOperations -join "`n") -ceq ($productOptionOperations -join "`n")) 'Skill option operation set differs from built vcs-agent contractFacts.'
+
+    foreach ($operation in $productOptionOperations) {
+        $referenceOptions = @($contract.requiredOptions.$operation)
+        $productOptions = @($productFacts.options.$operation)
+        Assert-Condition (($referenceOptions -join "`n") -ceq ($productOptions -join "`n")) "Option surface for '$operation' differs from built vcs-agent contractFacts."
+    }
+
+    $referenceErrorNames = @($contract.errorExits.PSObject.Properties.Name)
+    $productErrorNames = @($productFacts.errorExits.PSObject.Properties.Name)
+    Assert-Condition (($referenceErrorNames -join "`n") -ceq ($productErrorNames -join "`n")) 'Error taxonomy differs from built vcs-agent contractFacts.'
+
+    foreach ($errorName in $productErrorNames) {
+        Assert-Condition ($contract.errorExits.$errorName -eq $productFacts.errorExits.$errorName) "Exit for error '$errorName' differs from built vcs-agent contractFacts."
+    }
+
+    $referenceTerminalNames = @($contract.terminalExits.PSObject.Properties.Name)
+    $productTerminalNames = @($productFacts.terminalExits.PSObject.Properties.Name)
+    Assert-Condition (($referenceTerminalNames -join "`n") -ceq ($productTerminalNames -join "`n")) 'Terminal exit taxonomy differs from built vcs-agent contractFacts.'
+
+    foreach ($terminalName in $productTerminalNames) {
+        Assert-Condition ($contract.terminalExits.$terminalName -eq $productFacts.terminalExits.$terminalName) "Terminal exit '$terminalName' differs from built vcs-agent contractFacts."
+    }
+
+    Assert-Condition ((@($contract.agentFallbackReasons) -join "`n") -ceq (@($productFacts.fallbackReasons) -join "`n")) 'Agent fallback facts differ from built vcs-agent contractFacts.'
 
     $processKit = $contract.processKitCli
     Assert-Condition ($processKit.minimumExpectedDurationSeconds -eq 60) 'ProcessKit-CLI duration threshold must remain 60 seconds.'
@@ -205,10 +258,17 @@ try {
     Assert-Condition ((@($processKit.preflight.argvPrefix) -join "`n") -ceq ($expectedPreflightPrefix -join "`n")) 'Skill ProcessKit-CLI preflight prefix drifted from the executable proof.'
     Assert-Condition ((@($processKit.preflight.repeatForEachRequiredSurface) -join "`n") -ceq "--require-surface`n<surface>") 'Skill preflight no longer requires every published surface.'
     Assert-Condition ($processKit.preflight.command -ceq 'processkit-cli' -and $processKit.preflight.success.exit -eq 0 -and $processKit.preflight.success.binary -ceq 'processkit-cli' -and $processKit.preflight.success.probeVersion -eq 1 -and $processKit.preflight.success.compatible -and $processKit.preflight.success.mismatchCount -eq 0) 'Skill ProcessKit-CLI preflight success gate drifted.'
-    Assert-Condition ((@($processKit.supervisedRunTemplate) -join ' ') -ceq 'processkit-cli run --jsonl <events-path> --capture-dir <capture-dir> --capture-max-bytes 64k --no-echo -- vcs-agent <operation> <arguments>') 'Skill supervised-run template drifted.'
+    Assert-Condition ((@($processKit.supervisedRunTemplate) -join ' ') -ceq 'processkit-cli run --detach --run-id <run-id> --jsonl <events-path> --capture-dir <capture-dir> --capture-max-bytes 64k --no-echo -- vcs-agent <operation> <arguments>') 'Skill supervised-run template drifted.'
+    Assert-Condition ((@($processKit.inspectTemplate) -join ' ') -ceq 'processkit-cli inspect --run-id <run-id> --json --error-format json') 'Skill live-inspection template drifted.'
+    Assert-Condition ((@($processKit.cancelTemplate) -join ' ') -ceq 'processkit-cli cancel --run-id <run-id>') 'Skill cancellation template drifted.'
+    Assert-Condition ((@($processKit.killTemplate) -join ' ') -ceq 'processkit-cli kill --run-id <run-id>') 'Skill fail-closed kill template drifted.'
+    Assert-Condition ((@($processKit.waitTemplate) -join ' ') -ceq 'processkit-cli wait --run-id <run-id> --timeout <wait-timeout> --report-outcome') 'Skill terminal-wait template drifted.'
     Assert-Condition ((@($processKit.validateEventsTemplate) -join ' ') -ceq 'processkit-cli events --file <events-path> --validate') 'Skill lifecycle-validation template drifted.'
     Assert-Condition $proofSource.Contains("snapshot.mechanism -eq 'process_group'", [StringComparison]::Ordinal) 'ProcessKit-CLI proof lost mechanism-aware process_group readiness.'
     Assert-Condition $proofSource.Contains('Assert-ProcessIdentitiesGone', [StringComparison]::Ordinal) 'ProcessKit-CLI proof lost exact-identity cleanup.'
+    Assert-Condition $proofSource.Contains('(-not $cleanup.kill_error)', [StringComparison]::Ordinal) 'ProcessKit-CLI proof lost fail-closed kill_error rejection.'
+    Assert-Condition $proofSource.Contains('(-not $cleanup.read_error)', [StringComparison]::Ordinal) 'ProcessKit-CLI proof lost fail-closed read_error rejection.'
+    Assert-Condition $proofSource.Contains('($cleanup.remaining -eq 0)', [StringComparison]::Ordinal) 'ProcessKit-CLI proof lost zero-remaining cleanup rejection.'
 
     $missingRepository = Join-Path ([System.IO.Path]::GetTempPath()) ('vcs-agent-skill-missing-' + [Guid]::NewGuid().ToString('N'))
     $examplesByOperation = @{}
@@ -237,12 +297,6 @@ try {
 
         $examplesByOperation[$example.operation] = $arguments
     }
-
-    $probeResult = Invoke-VcsAgent $binary @('probe')
-    Assert-Condition ($probeResult.ExitCode -eq 0) 'vcs-agent probe failed.'
-    $probe = $probeResult.Stdout | ConvertFrom-Json -Depth 100
-    $probeCommands = @($probe.data.operations | ForEach-Object { $_.name })
-    Assert-Condition (($probeCommands -join "`n") -ceq (@($contract.commands) -join "`n")) 'Skill command set drifted from vcs-agent probe.'
 
     foreach ($operationProperty in $contract.requiredOptions.PSObject.Properties) {
         $operation = $operationProperty.Name

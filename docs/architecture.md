@@ -254,8 +254,10 @@ mapping, and probe non-mutation are covered by the two Agent test projects; pack
 checks the global-tool metadata and bundled layout.
 
 The standalone `skills/using-vcs-agent` directory is a guidance layer beside, not inside, the
-executable. Its versioned reference is checked against the built contract, stable exits and
-fallback reasons, executable examples, and the ProcessKit-CLI proof surface. The Skill chooses
+executable. The built probe publishes an additive `contractFacts` authority for its complete
+option, error/terminal-exit, and fallback surfaces. The versioned Skill reference is checked
+bidirectionally against those facts, executable examples, and the ProcessKit-CLI proof surface.
+The Skill chooses
 the outcome interface, sequences probe/inspection before mutations, keeps raw fallbacks visible,
 and verifies exact revision evidence. Authorization and prohibition of raw VCS mutations remain
 host responsibilities enforced by sandbox, command policy, or approvals; Skill text is not a

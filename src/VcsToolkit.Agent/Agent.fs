@@ -31,19 +31,17 @@ module Agent =
 
     let internal fallbackReasonName reason = ContractNames.fallbackReason reason
 
-    let internal exitCode code =
-        match code with
-        | AgentErrorCode.Unsupported -> 20
-        | AgentErrorCode.Denied -> 21
-        | AgentErrorCode.InvalidInput -> 22
-        | AgentErrorCode.Backend -> 23
-        | AgentErrorCode.Forge -> 24
-        | AgentErrorCode.Authentication -> 25
-        | AgentErrorCode.Timeout -> 26
-        | AgentErrorCode.Cancellation -> 27
-        | AgentErrorCode.OutputLimit -> 28
-        | AgentErrorCode.ExternalCommand -> 29
-        | AgentErrorCode.RevisionMismatch -> 30
+    let internal successExitCode = AgentContractFacts.successExitCode
+
+    let internal nonTerminalExitCode = AgentContractFacts.nonTerminalExitCode
+
+    let internal errorCodes = AgentContractFacts.errorCodes
+
+    let internal fallbackReasons = AgentContractFacts.fallbackReasons
+
+    let internal cliOptions operation = AgentContractFacts.cliOptions operation
+
+    let internal exitCode code = AgentContractFacts.errorExit code
 
     let private capabilities =
         [ { Operation = AgentOperation.Probe
