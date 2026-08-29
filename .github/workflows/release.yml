@@ -204,7 +204,7 @@ jobs:
           git tag "$PREV_TAG" "$ROOT"
 
       - name: Install git-cliff
-        uses: taiki-e/install-action@3d7d7cd5ac7f994c1892ae0c06165095b9139094 # v2
+        uses: taiki-e/install-action@fcf5432d9f50d67e37ee6e29bdb7a224ff67b4a7 # v2
         with:
           tool: git-cliff@2
 
