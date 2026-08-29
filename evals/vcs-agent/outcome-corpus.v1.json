@@ -40,7 +40,7 @@
     },
     {
       "path": "tests/VcsToolkit.Mcp.Server.Tests/McpServerStdioE2eTests.fs",
-      "sha256": "dc571e4c7e24fb1b75e108fd959466e88a4354d833020218c58dc4b0160fd692"
+      "sha256": "74d716743177c1a5c1f6f248f0e91f5236f47f0ae7b56880c60981469577f7ca"
     },
     {
       "path": "skills/using-vcs-agent/SKILL.md",

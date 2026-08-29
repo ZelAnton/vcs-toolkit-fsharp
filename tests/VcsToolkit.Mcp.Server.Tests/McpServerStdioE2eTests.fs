@@ -10,6 +10,7 @@ open System.Reflection
 open System.Security.Cryptography
 open System.Text.Json
 open System.Threading
+open System.Threading.Channels
 open System.Threading.Tasks
 open NUnit.Framework
 open ModelContextProtocol
@@ -371,6 +372,7 @@ let private callCancelledToolOverRawStdio
     (tool: string)
     (arguments: JsonElement)
     (requestId: string)
+    (expectedRevision: string)
     (cancellationToken: CancellationToken)
     : Task<CallToolResult option> =
     task {
@@ -395,6 +397,25 @@ let private callCancelledToolOverRawStdio
                 failwith "failed to start vcs-mcp raw stdio replay process"
 
             let stderrRead = childProcess.StandardError.ReadToEndAsync(cancellationToken)
+            let stdoutLines = Channel.CreateUnbounded<string>()
+
+            let stdoutPump =
+                task {
+                    try
+                        let mutable reading = true
+
+                        while reading do
+                            let! line = childProcess.StandardOutput.ReadLineAsync()
+
+                            match line with
+                            | null -> reading <- false
+                            | value -> do! stdoutLines.Writer.WriteAsync(value, CancellationToken.None)
+
+                        stdoutLines.Writer.TryComplete() |> ignore
+                    with ex ->
+                        stdoutLines.Writer.TryComplete ex |> ignore
+                        return raise ex
+                }
 
             let sendJson (json: string) : Task =
                 task {
@@ -404,13 +425,11 @@ let private callCancelledToolOverRawStdio
 
             let readJson (stage: string) : Task<string> =
                 task {
-                    let! line = childProcess.StandardOutput.ReadLineAsync().WaitAsync cancellationToken
-
-                    match line with
-                    | null ->
+                    try
+                        return! stdoutLines.Reader.ReadAsync(cancellationToken).AsTask()
+                    with :? ChannelClosedException ->
                         let stderr = stderrRead.GetAwaiter().GetResult()
                         return failwith $"vcs-mcp closed stdout during {stage}: {stderr}"
-                    | value -> return value
                 }
 
             try
@@ -511,27 +530,78 @@ let private callCancelledToolOverRawStdio
                     )
 
                 do! sendJson probe
-                let! probeResponse = readJson "post-cancellation tools/call"
-                use probeDocument = JsonDocument.Parse probeResponse
-                let probeRoot = probeDocument.RootElement
+                let mutable probeSeen = false
 
-                Assert.That(
-                    probeRoot.GetProperty("id").GetString(),
-                    Is.EqualTo "outcome-corpus-after-cancel",
-                    probeResponse
-                )
+                let inspectResponse (response: string) =
+                    use responseDocument = JsonDocument.Parse response
+                    let root = responseDocument.RootElement
+                    let hasId, idElement = root.TryGetProperty "id"
 
-                Assert.That(probeRoot.TryGetProperty("error") |> fst, Is.False, probeResponse)
+                    if hasId then
+                        let responseId =
+                            match idElement.ValueKind with
+                            | JsonValueKind.String -> idElement.GetString()
+                            | JsonValueKind.Number -> string (idElement.GetInt64())
+                            | _ -> null
 
-                let probeResult =
-                    JsonSerializer.Deserialize<CallToolResult>(
-                        probeRoot.GetProperty("result").GetRawText(),
-                        McpJsonUtilities.DefaultOptions
-                    )
-                    |> Option.ofObj
-                    |> Option.defaultWith (fun () -> failwith "post-cancellation tools/call returned null")
+                        match responseId with
+                        | value when value = requestId ->
+                            Assert.Fail($"cancelled target request produced a late response: {response}")
+                        | "outcome-corpus-lock-holder" ->
+                            Assert.Fail($"cancelled lock-holder request produced a late response: {response}")
+                        | "outcome-corpus-after-cancel" ->
+                            Assert.That(probeSeen, Is.False, "post-cancellation probe responded more than once")
+                            Assert.That(root.TryGetProperty("error") |> fst, Is.False, response)
 
-                Assert.That(isError probeResult, Is.False, "the raw MCP session must remain usable after cancellation")
+                            let probeResult =
+                                JsonSerializer.Deserialize<CallToolResult>(
+                                    root.GetProperty("result").GetRawText(),
+                                    McpJsonUtilities.DefaultOptions
+                                )
+                                |> Option.ofObj
+                                |> Option.defaultWith (fun () -> failwith "post-cancellation tools/call returned null")
+
+                            Assert.That(
+                                isError probeResult,
+                                Is.False,
+                                "the raw MCP session must remain usable after cancellation"
+                            )
+
+                            use snapshot = JsonDocument.Parse(textOf probeResult)
+                            let snapshotRoot = snapshot.RootElement
+                            Assert.That(snapshotRoot.GetProperty("head").GetString(), Is.EqualTo expectedRevision)
+                            Assert.That(snapshotRoot.GetProperty("dirty").GetBoolean(), Is.True)
+                            probeSeen <- true
+                        | _ -> Assert.Fail($"unexpected post-cancellation JSON-RPC response: {response}")
+
+                let mutable quiescent = false
+
+                while not quiescent do
+                    use quietPeriod = CancellationTokenSource.CreateLinkedTokenSource cancellationToken
+                    quietPeriod.CancelAfter(TimeSpan.FromSeconds 1.0)
+
+                    try
+                        let! response = stdoutLines.Reader.ReadAsync(quietPeriod.Token).AsTask()
+                        inspectResponse response
+                    with :? OperationCanceledException when not cancellationToken.IsCancellationRequested ->
+                        // One full second with no response bounds the live-session race window;
+                        // terminal shutdown below then drains anything that was still in flight.
+                        quiescent <- true
+
+                childProcess.StandardInput.Close()
+
+                if not (childProcess.WaitForExit 5000) then
+                    childProcess.Kill(entireProcessTree = true)
+                    childProcess.WaitForExit()
+                    Assert.Fail "vcs-mcp did not reach terminal shutdown after stdin closed"
+
+                do! stdoutPump
+                let mutable buffered = Unchecked.defaultof<string>
+
+                while stdoutLines.Reader.TryRead(&buffered) do
+                    inspectResponse buffered
+
+                Assert.That(probeSeen, Is.True, "post-cancellation probe response was not observed before shutdown")
 
                 return None
             finally
@@ -945,6 +1015,7 @@ type McpServerStdioE2eTests() =
                             sandbox.Git [ "remote"; "add"; "origin"; "https://gitea.example/owner/project.git" ]
                         | "cancellation-git" ->
                             sandbox.CommitFile("a.txt", "content\n", "seed cancellation fixture")
+                            sandbox.Write("a.txt", "selected change must remain uncommitted\n")
 
                             match blockingRemote with
                             | Some remote -> sandbox.Git [ "remote"; "add"; "origin"; remote.Url ]
@@ -1037,6 +1108,15 @@ type McpServerStdioE2eTests() =
 
                             let requestId = RequestId($"outcome-corpus-{id}")
 
+                            let mutationStateBefore =
+                                match blockingRemote with
+                                | Some _ ->
+                                    let head = sandbox.RevParse "HEAD"
+                                    sandbox.Git [ "diff"; "--quiet"; "--cached"; "--"; "a.txt" ]
+                                    let selectedPathContent = File.ReadAllText(Path.Combine(sandbox.Path, "a.txt"))
+                                    Some(head, selectedPathContent)
+                                | None -> None
+
                             let startMcpCall () =
                                 client
                                     .SendRequestAsync<CallToolRequestParams, CallToolResult>(
@@ -1063,6 +1143,7 @@ type McpServerStdioE2eTests() =
                                                 request.Name
                                                 argumentsDocument.RootElement
                                                 (requestId.ToString())
+                                                revision
                                                 ct
                                 }
 
@@ -1107,6 +1188,23 @@ type McpServerStdioE2eTests() =
                                     Is.EqualTo "request-cancelled",
                                     id
                                 )
+
+                                match mutationStateBefore with
+                                | Some(headBefore, selectedPathContentBefore) ->
+                                    Assert.That(
+                                        sandbox.RevParse "HEAD",
+                                        Is.EqualTo headBefore,
+                                        "cancelled agent_commit must not create a commit"
+                                    )
+
+                                    sandbox.Git [ "diff"; "--quiet"; "--cached"; "--"; "a.txt" ]
+
+                                    Assert.That(
+                                        File.ReadAllText(Path.Combine(sandbox.Path, "a.txt")),
+                                        Is.EqualTo selectedPathContentBefore,
+                                        "cancelled agent_commit must not alter the selected path"
+                                    )
+                                | None -> Assert.Fail "cancellation replay did not capture mutation state"
 
                             use actual = JsonDocument.Parse cli.Stdout
                             let root = actual.RootElement
