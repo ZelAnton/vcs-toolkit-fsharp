@@ -2954,7 +2954,7 @@ type CatalogTests() =
         Assert.That(giteaNames, Does.Contain "forge_pr_create", "low-level Gitea tools remain compatible")
 
     [<Test; NonParallelizable>]
-    member _.``Versioned outcome corpus replays the Skill CLI and MCP intent adapters``() : Task =
+    member _.``Versioned outcome corpus also replays the CLI and in-process MCP intent seam``() : Task =
         task {
             try
                 Raw.git "." [ "--version" ]
@@ -2987,13 +2987,15 @@ type CatalogTests() =
             Assert.That(replay.GetProperty("cliAdapter").GetString(), Is.EqualTo "vcs-agent Main.runWithCancellation")
 
             Assert.That(
-                replay.GetProperty("mcpAdapter").GetString(),
+                replay.GetProperty("mcpLibraryAdapter").GetString(),
                 Is.EqualTo "VcsToolkit.Mcp Catalog.callToolWithCancellation"
             )
 
             Assert.That(
                 replay.GetProperty("normalization").GetString(),
-                Is.EqualTo "complete JSON envelope with insignificant whitespace removed"
+                Is.EqualTo(
+                    "CallToolResult text uses the complete JSON envelope with insignificant whitespace removed; MCP cancellation is a response-suppressing JSON-RPC request cancellation"
+                )
             )
 
             for provenance in corpusRoot.GetProperty("provenance").EnumerateArray() do
@@ -3100,7 +3102,7 @@ type CatalogTests() =
                     match configuration with
                     | "conflicted-git" -> deniedRepo.Path, deniedRepo.RevParse "HEAD", Option.None, Some 65_536
                     | "gitea-git" -> giteaRepo.Path, giteaRevision, Some(Forge.Gitea giteaRepo.Path), Some 65_536
-                    | "pre-cancelled-git" ->
+                    | "cancellation-git" ->
                         cancellationRepo.Path, cancellationRepo.RevParse "HEAD", Option.None, Some 65_536
                     | "large-changes-git" ->
                         budgetRepo.Path, budgetRepo.RevParse "HEAD", Option.None, Some Agent.MinimumOutputLimitBytes

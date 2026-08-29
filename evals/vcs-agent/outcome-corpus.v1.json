@@ -5,8 +5,9 @@
   "replay": {
     "cliContractPath": "skills/using-vcs-agent/references/contract.v1.json",
     "cliAdapter": "vcs-agent Main.runWithCancellation",
-    "mcpAdapter": "VcsToolkit.Mcp Catalog.callToolWithCancellation",
-    "normalization": "complete JSON envelope with insignificant whitespace removed"
+    "mcpAdapter": "vcs-mcp stdio JSON-RPC tools/call",
+    "mcpLibraryAdapter": "VcsToolkit.Mcp Catalog.callToolWithCancellation",
+    "normalization": "CallToolResult text uses the complete JSON envelope with insignificant whitespace removed; MCP cancellation is a response-suppressing JSON-RPC request cancellation"
   },
   "provenance": [
     {
@@ -35,7 +36,11 @@
     },
     {
       "path": "tests/VcsToolkit.Mcp.Tests/McpTests.fs",
-      "sha256": "a4d149e56b3b1ac4a65da2563448a2d1e795391f79f11e218219b7ae7792f6be"
+      "sha256": "13dee28254a7d25c1a9f9dcd38b6235f05e8501321022b0878b1c13b7ac4cf71"
+    },
+    {
+      "path": "tests/VcsToolkit.Mcp.Server.Tests/McpServerStdioE2eTests.fs",
+      "sha256": "dc571e4c7e24fb1b75e108fd959466e88a4354d833020218c58dc4b0160fd692"
     },
     {
       "path": "skills/using-vcs-agent/SKILL.md",
@@ -73,6 +78,7 @@
         ],
         "message": "Selected paths"
       },
+      "mcpTransportOutcome": "call-tool-result",
       "operation": "commit",
       "status": "error",
       "terminal": true,
@@ -120,6 +126,7 @@
         "title": "Checked publish",
         "body": ""
       },
+      "mcpTransportOutcome": "call-tool-result",
       "operation": "publish",
       "status": "error",
       "terminal": true,
@@ -130,11 +137,13 @@
       "id": "cancellation",
       "cli": {
         "argv": [
-          "changes",
+          "commit",
           "--repo",
           "<repo>",
-          "--view",
-          "summary",
+          "--path",
+          "a.txt",
+          "--message",
+          "Selected paths",
           "--output-budget",
           "65536"
         ],
@@ -142,12 +151,16 @@
         "expectedError": "cancellation",
         "cancellation": "pre-cancelled"
       },
-      "mcpTool": "agent_changes",
-      "mcpConfiguration": "pre-cancelled-git",
+      "mcpTool": "agent_commit",
+      "mcpConfiguration": "cancellation-git",
       "mcpArguments": {
-        "view": "summary"
+        "paths": [
+          "a.txt"
+        ],
+        "message": "Selected paths"
       },
-      "operation": "changes",
+      "mcpTransportOutcome": "request-cancelled",
+      "operation": "commit",
       "status": "error",
       "terminal": true,
       "errorCode": "cancellation",
@@ -174,6 +187,7 @@
       "mcpArguments": {
         "view": "summary"
       },
+      "mcpTransportOutcome": "call-tool-result",
       "operation": "changes",
       "status": "error",
       "terminal": true,
