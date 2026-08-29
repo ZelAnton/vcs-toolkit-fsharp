@@ -1,5 +1,6 @@
 module VcsToolkit.GitHub.Tests
 
+open System
 open System.Threading.Tasks
 open NUnit.Framework
 open ProcessKit
@@ -135,13 +136,14 @@ type ParseTests() =
     member _.RunListParsesDatabaseIdAndEmptyConclusion() =
         // A still-running run reports an empty-string conclusion (not null).
         let json =
-            """[{"databaseId":123,"name":"CI","displayTitle":"fix stuff","status":"in_progress","conclusion":"","workflowName":"CI","headBranch":"main","event":"push","url":"u","createdAt":"t"}]"""
+            """[{"databaseId":123,"name":"CI","displayTitle":"fix stuff","status":"in_progress","conclusion":"","workflowName":"CI","headBranch":"main","headSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","event":"push","url":"u","createdAt":"t"}]"""
 
         match expectOk (GitHubParse.parseRunList json) with
         | [ run ] ->
             Assert.That(run.DatabaseId, Is.EqualTo 123UL)
             Assert.That(run.Status, Is.EqualTo "in_progress")
             Assert.That(run.Conclusion, Is.EqualTo "")
+            Assert.That(run.HeadSha, Is.EqualTo(String('a', 40)))
             Assert.That(run.Event, Is.EqualTo "push")
         | other -> Assert.Fail $"expected one run, got {other.Length}"
 
@@ -677,6 +679,46 @@ type ClientTests() =
             match! all.RunList(".", 5, None) with
             | Ok xs -> Assert.That(xs, Is.Empty)
             | Error e -> Assert.Fail $"run list (all) failed: {e}"
+        }
+
+    [<Test>]
+    member _.RunListForRevisionRoutesTheExactCommitAndParsesHeadSha() : Task =
+        task {
+            let revision = String('a', 40)
+
+            let json =
+                $"""[{{"databaseId":123,"name":"CI","displayTitle":"exact","status":"completed","conclusion":"success","workflowName":"CI","headBranch":"feature","headSha":"{revision}","event":"push","url":"u","createdAt":"t"}}]"""
+
+            let github, args = capturing (Reply.Ok json)
+
+            match! github.RunListForRevision(".", 100, revision) with
+            | Ok [ run ] ->
+                Assert.That(run.HeadSha, Is.EqualTo revision)
+
+                assertArgs
+                    [ "run"
+                      "list"
+                      "--limit"
+                      "100"
+                      "--commit"
+                      revision
+                      "--json"
+                      "databaseId,name,displayTitle,status,conclusion,workflowName,headBranch,headSha,event,url,createdAt" ]
+                    args
+            | Ok other -> Assert.Fail $"expected one run, got {other.Length}"
+            | Error error -> Assert.Fail $"exact revision run list failed: {error}"
+        }
+
+    [<Test>]
+    member _.AuthIdentityUsesTheTypedUserEndpoint() : Task =
+        task {
+            let github, args = capturing (Reply.Ok """{"login":"alice"}""")
+
+            match! github.AuthIdentity() with
+            | Ok login ->
+                Assert.That(login, Is.EqualTo "alice")
+                assertArgs [ "api"; "user" ] args
+            | Error error -> Assert.Fail $"auth identity failed: {error}"
         }
 
     [<Test>]

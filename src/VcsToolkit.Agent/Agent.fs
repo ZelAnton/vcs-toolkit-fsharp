@@ -2,6 +2,7 @@ namespace VcsToolkit.Agent
 
 open System
 open System.Threading
+open System.Threading.Tasks
 open ProcessKit
 open VcsToolkit.Core
 open VcsToolkit.Diff
@@ -37,6 +38,7 @@ module Agent =
         | AgentErrorCode.Cancellation -> 27
         | AgentErrorCode.OutputLimit -> 28
         | AgentErrorCode.ExternalCommand -> 29
+        | AgentErrorCode.RevisionMismatch -> 30
 
     let private capabilities =
         [ { Operation = AgentOperation.Probe
@@ -52,13 +54,13 @@ module Agent =
             Supported = true
             Mutating = true }
           { Operation = AgentOperation.Publish
-            Supported = false
+            Supported = true
             Mutating = true }
           { Operation = AgentOperation.CiStatus
-            Supported = false
+            Supported = true
             Mutating = false }
           { Operation = AgentOperation.CiWait
-            Supported = false
+            Supported = true
             Mutating = false } ]
 
     let private failure operation code message retryable truncated limitBytes requiredBytes fallbackReason =
@@ -244,6 +246,7 @@ module Agent =
           PullRequestComment = false
           PullRequestEdit = false
           PullRequestChecks = false
+          ExactRevisionCi = false
           PullRequestMerge = false
           IssueCreate = false
           IssueReopen = false
@@ -291,6 +294,7 @@ module Agent =
                                   PullRequestComment = capabilities.PrComment
                                   PullRequestEdit = capabilities.PrEdit
                                   PullRequestChecks = capabilities.PrChecks
+                                  ExactRevisionCi = capabilities.ExactRevisionCi
                                   PullRequestMerge = capabilities.PrMerge
                                   IssueCreate = capabilities.IssueCreate
                                   IssueReopen = capabilities.IssueReopen
@@ -994,3 +998,1046 @@ module Agent =
 
     let internal commitWith (repo: Repo) paths message (cancellationToken: CancellationToken) outputLimitBytes =
         commitCore repo paths message cancellationToken outputLimitBytes
+
+    let private forgeKindName forge =
+        match forge with
+        | AgentForgeKind.GitHub -> "github"
+        | AgentForgeKind.GitLab -> "gitlab"
+        | AgentForgeKind.Gitea -> "gitea"
+
+    let private forgeKind forge =
+        match forge with
+        | AgentForgeKind.GitHub -> ForgeKind.GitHub
+        | AgentForgeKind.GitLab -> ForgeKind.GitLab
+        | AgentForgeKind.Gitea -> ForgeKind.Gitea
+
+    let private forgeForKind root forge =
+        match forge with
+        | AgentForgeKind.GitHub -> Forge.GitHub root
+        | AgentForgeKind.GitLab -> Forge.GitLab root
+        | AgentForgeKind.Gitea -> Forge.Gitea root
+
+    let private validIdentity (value: string) =
+        not (String.IsNullOrWhiteSpace value)
+        && value.Length <= 256
+        && not (value.StartsWith("-", StringComparison.Ordinal))
+        && not (value.EndsWith("/", StringComparison.Ordinal))
+        && not (value.EndsWith(".", StringComparison.Ordinal))
+        && not (value.Contains("..", StringComparison.Ordinal))
+        && not (value.Contains("//", StringComparison.Ordinal))
+        && (value
+            |> Seq.forall (fun character ->
+                Char.IsAsciiLetterOrDigit character
+                || character = '-'
+                || character = '_'
+                || character = '.'
+                || character = '/'))
+
+    let private validRevision (value: string) =
+        (value.Length = 40 || value.Length = 64) && value |> Seq.forall Uri.IsHexDigit
+
+    let private validatePublicationIdentity repositoryPath branch remote revision account targetBranch =
+        if String.IsNullOrWhiteSpace repositoryPath then
+            Error "repository path must not be empty"
+        elif not (validIdentity branch) then
+            Error "branch/bookmark must be one explicit, well-formed ref name"
+        elif not (validIdentity remote) || remote.Contains("/", StringComparison.Ordinal) then
+            Error "remote must be one explicit configured remote name"
+        elif not (validRevision revision) then
+            Error "revision must be one full 40- or 64-character hexadecimal commit id"
+        elif not (validIdentity account) || account.Contains("/", StringComparison.Ordinal) then
+            Error "account must be one explicit forge login/username"
+        elif not (validIdentity targetBranch) then
+            Error "target branch must be one explicit, well-formed ref name"
+        else
+            Ok()
+
+    let private configuredRemote operation outputLimitBytes (repo: Repo) remote expectedForge =
+        task {
+            match! repo.Remotes() with
+            | Error error -> return Error(repoFailure operation outputLimitBytes error)
+            | Ok remotes ->
+                match remotes |> List.filter (fun configured -> configured.Name = remote) with
+                | [ configured ] ->
+                    match ForgeKind.OfRemoteUrl configured.Url with
+                    | Some kind when kind = expectedForge -> return Ok()
+                    | Some kind ->
+                        return
+                            Error(
+                                invalidInput
+                                    operation
+                                    $"remote '{remote}' identifies {kind.AsString}, not {expectedForge.AsString}"
+                            )
+                    | None ->
+                        return
+                            Error(
+                                failure
+                                    operation
+                                    AgentErrorCode.Unsupported
+                                    $"remote '{remote}' does not expose a verifiable forge identity"
+                                    false
+                                    false
+                                    None
+                                    None
+                                    (Some AgentFallbackReason.UnsupportedForge)
+                            )
+                | [] -> return Error(invalidInput operation $"remote '{remote}' is not configured")
+                | _ -> return Error(invalidInput operation $"remote '{remote}' is ambiguous")
+        }
+
+    let private resolvedRevision (repo: Repo) reference =
+        task {
+            match! repo.Log(reference, 1) with
+            | Error error -> return Error error
+            | Ok(commit :: _) -> return Ok(Some commit.Id)
+            | Ok [] -> return Ok None
+        }
+
+    let private remoteReference (repo: Repo) remote branch =
+        match repo.Kind with
+        | BackendKind.Git -> $"refs/remotes/{remote}/{branch}"
+        | BackendKind.Jj -> $"{branch}@{remote}"
+
+    let private observeRemoteRevision (repo: Repo) remote branch =
+        task {
+            match! repo.FetchFrom remote with
+            | Error error -> return Error error
+            | Ok() ->
+                match! resolvedRevision repo (remoteReference repo remote branch) with
+                | Ok revision -> return Ok revision
+                | Error _ ->
+                    // A successful fetch with no matching remote ref is the expected preflight
+                    // state for first publication; postflight still requires an exact value.
+                    return Ok None
+        }
+
+    let private publicationEvidence forge account branch remote revision (repo: Repo) remoteRevision =
+        { Root = repo.Root
+          Backend = repo.Kind.AsString
+          Forge = forgeKindName forge
+          Account = account
+          Branch = branch
+          Remote = remote
+          LocalRevision = revision
+          RemoteRevision = remoteRevision }
+
+    let private attachPayload payload envelope = { envelope with Data = Some payload }
+
+    let private ambiguousPublishFailure outputLimitBytes data envelope =
+        envelope
+        |> attachPayload (
+            AgentPayload.Publish
+                { data with
+                    Completion = PublishCompletion.Ambiguous }
+        )
+        |> enforceBudget outputLimitBytes
+
+    let private matchingOpenChangeRequests branch target (requests: ForgePr list) =
+        requests
+        |> List.filter (fun request ->
+            request.State = ForgePrState.Open
+            && request.SourceBranch = branch
+            && request.TargetBranch = target)
+
+    let private publishCoreUnbounded
+        (repo: Repo)
+        (forge: Forge)
+        (request: PublishRequest)
+        (cancellationToken: CancellationToken)
+        =
+        task {
+            let operation = operationName AgentOperation.Publish
+            let outputLimitBytes = request.OutputLimitBytes
+
+            if outputLimitBytes < MinimumOutputLimitBytes then
+                return invalidInput operation $"output budget must be at least {MinimumOutputLimitBytes} bytes"
+            elif cancellationToken.IsCancellationRequested then
+                return cancellation operation
+            elif String.IsNullOrWhiteSpace request.Title then
+                return invalidInput operation "pull/merge request title must not be empty"
+            else
+                match
+                    validatePublicationIdentity
+                        request.RepositoryPath
+                        request.Branch
+                        request.Remote
+                        request.Revision
+                        request.Account
+                        request.TargetBranch
+                with
+                | Error message -> return invalidInput operation message
+                | Ok() ->
+                    let configuredRepo =
+                        repo.WithAgentExecution(cancellationToken, Some outputLimitBytes)
+
+                    let configuredForge =
+                        forge.WithAgentExecution(cancellationToken, Some outputLimitBytes)
+
+                    if configuredForge.Kind <> forgeKind request.Forge then
+                        return invalidInput operation "selected forge handle does not match the request"
+                    else
+                        match!
+                            configuredRemote
+                                operation
+                                outputLimitBytes
+                                configuredRepo
+                                request.Remote
+                                configuredForge.Kind
+                        with
+                        | Error envelope -> return envelope
+                        | Ok() ->
+                            match! configuredForge.AuthIdentity() with
+                            | Error error -> return forgeFailure operation outputLimitBytes error
+                            | Ok observedAccount when
+                                not (
+                                    String.Equals(observedAccount, request.Account, StringComparison.OrdinalIgnoreCase)
+                                )
+                                ->
+                                return
+                                    failure
+                                        operation
+                                        AgentErrorCode.Authentication
+                                        $"authenticated forge account '{observedAccount}' does not match requested account '{request.Account}'"
+                                        false
+                                        false
+                                        None
+                                        None
+                                        None
+                            | Ok _ ->
+                                match! resolvedRevision configuredRepo request.Revision with
+                                | Error error -> return repoFailure operation outputLimitBytes error
+                                | Ok(Some localRevision) when localRevision <> request.Revision ->
+                                    return
+                                        failure
+                                            operation
+                                            AgentErrorCode.RevisionMismatch
+                                            "the requested local revision did not resolve to itself"
+                                            false
+                                            false
+                                            None
+                                            None
+                                            None
+                                | Ok None -> return invalidInput operation "the requested local revision does not exist"
+                                | Ok(Some _) ->
+                                    match! resolvedRevision configuredRepo request.Branch with
+                                    | Error error -> return repoFailure operation outputLimitBytes error
+                                    | Ok branchRevision when branchRevision <> Some request.Revision ->
+                                        return
+                                            failure
+                                                operation
+                                                AgentErrorCode.RevisionMismatch
+                                                "the selected branch/bookmark does not resolve to the requested local revision"
+                                                false
+                                                false
+                                                None
+                                                None
+                                                None
+                                    | Ok _ ->
+                                        match! observeRemoteRevision configuredRepo request.Remote request.Branch with
+                                        | Error error -> return repoFailure operation outputLimitBytes error
+                                        | Ok beforeRemote ->
+                                            let preflight =
+                                                publicationEvidence
+                                                    request.Forge
+                                                    request.Account
+                                                    request.Branch
+                                                    request.Remote
+                                                    request.Revision
+                                                    configuredRepo
+                                                    beforeRemote
+
+                                            let prospective: PublishData =
+                                                { Preflight = preflight
+                                                  Postflight = Some preflight
+                                                  ChangeRequest =
+                                                    Some
+                                                        { Number = UInt64.MaxValue
+                                                          Url = String('x', 2048)
+                                                          SourceBranch = request.Branch
+                                                          TargetBranch = request.TargetBranch
+                                                          Disposition = PublicationChangeRequestDisposition.Created }
+                                                  Completion = PublishCompletion.Verified }
+
+                                            let prospectiveEnvelope =
+                                                success operation (AgentPayload.Publish prospective)
+
+                                            let requiredBytes = EnvelopeSerialization.byteCount prospectiveEnvelope
+
+                                            if requiredBytes > outputLimitBytes then
+                                                return outputLimit operation outputLimitBytes requiredBytes
+                                            else
+                                                let! pushed =
+                                                    if beforeRemote = Some request.Revision then
+                                                        task { return Ok() }
+                                                    else
+                                                        match configuredRepo.Git, configuredRepo.Jj with
+                                                        | Some git, None ->
+                                                            git.Push(
+                                                                configuredRepo.Cwd,
+                                                                VcsToolkit.Git.GitPush
+                                                                    .ForRefspec(request.Revision, request.Branch)
+                                                                    .WithRemote(request.Remote)
+                                                            )
+                                                        | None, Some jj when request.Remote = "origin" ->
+                                                            jj.GitPush(configuredRepo.Cwd, Some request.Branch)
+                                                        | None, Some _ ->
+                                                            task {
+                                                                return
+                                                                    Error(
+                                                                        ProcessError.Spawn(
+                                                                            "jj",
+                                                                            "checked publication currently supports only the explicit origin remote on Jujutsu"
+                                                                        )
+                                                                    )
+                                                            }
+                                                        | _ ->
+                                                            task {
+                                                                return
+                                                                    Error(
+                                                                        ProcessError.Spawn(
+                                                                            "vcs-agent",
+                                                                            "repository backend is unavailable"
+                                                                        )
+                                                                    )
+                                                            }
+
+                                                let! afterRemoteResult =
+                                                    observeRemoteRevision configuredRepo request.Remote request.Branch
+
+                                                let afterRemote =
+                                                    match afterRemoteResult with
+                                                    | Ok revision -> revision
+                                                    | Error _ -> None
+
+                                                let postflight =
+                                                    publicationEvidence
+                                                        request.Forge
+                                                        request.Account
+                                                        request.Branch
+                                                        request.Remote
+                                                        request.Revision
+                                                        configuredRepo
+                                                        afterRemote
+
+                                                let ambiguousData: PublishData =
+                                                    { Preflight = preflight
+                                                      Postflight = Some postflight
+                                                      ChangeRequest = None
+                                                      Completion = PublishCompletion.Ambiguous }
+
+                                                match pushed, afterRemoteResult with
+                                                | Error pushError, _ when afterRemote <> Some request.Revision ->
+                                                    return
+                                                        processFailure
+                                                            operation
+                                                            AgentErrorCode.Backend
+                                                            outputLimitBytes
+                                                            None
+                                                            pushError
+                                                        |> ambiguousPublishFailure outputLimitBytes ambiguousData
+                                                | _, Error error ->
+                                                    return
+                                                        repoFailure operation outputLimitBytes error
+                                                        |> ambiguousPublishFailure outputLimitBytes ambiguousData
+                                                | _, Ok observed when observed <> Some request.Revision ->
+                                                    return
+                                                        failure
+                                                            operation
+                                                            AgentErrorCode.RevisionMismatch
+                                                            "the observed remote revision does not match the requested publication revision"
+                                                            false
+                                                            false
+                                                            None
+                                                            None
+                                                            None
+                                                        |> ambiguousPublishFailure outputLimitBytes ambiguousData
+                                                | _ ->
+                                                    match! configuredForge.PrForBranch request.Branch with
+                                                    | Error error ->
+                                                        return
+                                                            forgeFailure operation outputLimitBytes error
+                                                            |> ambiguousPublishFailure outputLimitBytes ambiguousData
+                                                    | Ok existing ->
+                                                        match
+                                                            matchingOpenChangeRequests
+                                                                request.Branch
+                                                                request.TargetBranch
+                                                                existing
+                                                        with
+                                                        | [ changeRequest ] ->
+                                                            let data =
+                                                                { ambiguousData with
+                                                                    ChangeRequest =
+                                                                        Some
+                                                                            { Number = changeRequest.Number
+                                                                              Url = changeRequest.Url
+                                                                              SourceBranch = changeRequest.SourceBranch
+                                                                              TargetBranch = changeRequest.TargetBranch
+                                                                              Disposition =
+                                                                                PublicationChangeRequestDisposition.Existing }
+                                                                    Completion = PublishCompletion.Verified }
+
+                                                            return success operation (AgentPayload.Publish data)
+                                                        | _ :: _ :: _ ->
+                                                            return
+                                                                failure
+                                                                    operation
+                                                                    AgentErrorCode.Forge
+                                                                    "more than one open PR/MR matches the selected source and target branches"
+                                                                    false
+                                                                    false
+                                                                    None
+                                                                    None
+                                                                    None
+                                                                |> ambiguousPublishFailure
+                                                                    outputLimitBytes
+                                                                    ambiguousData
+                                                        | [] ->
+                                                            let spec =
+                                                                PrCreate
+                                                                    .Create(request.Title, request.Body)
+                                                                    .WithSource(request.Branch)
+                                                                    .WithTarget(request.TargetBranch)
+
+                                                            let! created = configuredForge.PrCreate spec
+                                                            let! recovered = configuredForge.PrForBranch request.Branch
+
+                                                            match recovered with
+                                                            | Ok requests ->
+                                                                match
+                                                                    matchingOpenChangeRequests
+                                                                        request.Branch
+                                                                        request.TargetBranch
+                                                                        requests
+                                                                with
+                                                                | [ changeRequest ] ->
+                                                                    let data =
+                                                                        { ambiguousData with
+                                                                            ChangeRequest =
+                                                                                Some
+                                                                                    { Number = changeRequest.Number
+                                                                                      Url = changeRequest.Url
+                                                                                      SourceBranch =
+                                                                                        changeRequest.SourceBranch
+                                                                                      TargetBranch =
+                                                                                        changeRequest.TargetBranch
+                                                                                      Disposition =
+                                                                                        match created with
+                                                                                        | Ok _ ->
+                                                                                            PublicationChangeRequestDisposition.Created
+                                                                                        | Error _ ->
+                                                                                            PublicationChangeRequestDisposition.Existing }
+                                                                            Completion = PublishCompletion.Verified }
+
+                                                                    return success operation (AgentPayload.Publish data)
+                                                                | _ ->
+                                                                    let envelope =
+                                                                        match created with
+                                                                        | Error error ->
+                                                                            forgeFailure
+                                                                                operation
+                                                                                outputLimitBytes
+                                                                                error
+                                                                        | Ok _ ->
+                                                                            failure
+                                                                                operation
+                                                                                AgentErrorCode.Forge
+                                                                                "PR/MR creation completed but exact recovery was not unique"
+                                                                                false
+                                                                                false
+                                                                                None
+                                                                                None
+                                                                                None
+
+                                                                    return
+                                                                        envelope
+                                                                        |> ambiguousPublishFailure
+                                                                            outputLimitBytes
+                                                                            ambiguousData
+                                                            | Error error ->
+                                                                let envelope =
+                                                                    match created with
+                                                                    | Error createError ->
+                                                                        forgeFailure
+                                                                            operation
+                                                                            outputLimitBytes
+                                                                            createError
+                                                                    | Ok _ ->
+                                                                        forgeFailure operation outputLimitBytes error
+
+                                                                return
+                                                                    envelope
+                                                                    |> ambiguousPublishFailure
+                                                                        outputLimitBytes
+                                                                        ambiguousData
+        }
+
+    /// Publish one explicit revision and recover one matching PR/MR without duplicate creation.
+    let publish (request: PublishRequest) (cancellationToken: CancellationToken) =
+        task {
+            let operation = operationName AgentOperation.Publish
+
+            if request.OutputLimitBytes < MinimumOutputLimitBytes then
+                return invalidInput operation $"output budget must be at least {MinimumOutputLimitBytes} bytes"
+            elif cancellationToken.IsCancellationRequested then
+                return cancellation operation
+            elif String.IsNullOrWhiteSpace request.Title then
+                return invalidInput operation "pull/merge request title must not be empty"
+            else
+                match
+                    validatePublicationIdentity
+                        request.RepositoryPath
+                        request.Branch
+                        request.Remote
+                        request.Revision
+                        request.Account
+                        request.TargetBranch
+                with
+                | Error message -> return invalidInput operation message
+                | Ok() ->
+                    match Repo.Open request.RepositoryPath with
+                    | Error error -> return repoFailure operation request.OutputLimitBytes error
+                    | Ok repo ->
+                        return!
+                            publishCoreUnbounded repo (forgeForKind repo.Root request.Forge) request cancellationToken
+        }
+        |> withBudget request.OutputLimitBytes
+
+    let internal publishWith
+        (repo: Repo)
+        (forge: Forge)
+        (request: PublishRequest)
+        (cancellationToken: CancellationToken)
+        =
+        publishCoreUnbounded repo forge request cancellationToken
+        |> withBudget request.OutputLimitBytes
+
+    let internal ciState (runs: ForgeCiRun list) =
+        let lower (value: string) = value.ToLowerInvariant()
+
+        let statuses =
+            runs
+            |> List.map (fun run -> lower run.Status, run.Conclusion |> Option.map lower)
+
+        if List.isEmpty statuses then
+            AgentCiState.NoRuns
+        elif
+            statuses
+            |> List.exists (fun (status, _) ->
+                status <> "completed"
+                && status <> "success"
+                && status <> "failed"
+                && status <> "canceled"
+                && status <> "cancelled"
+                && status <> "skipped")
+        then
+            AgentCiState.Pending
+        elif
+            statuses
+            |> List.exists (fun (status, conclusion) ->
+                status = "canceled"
+                || status = "cancelled"
+                || conclusion = Some "cancelled"
+                || conclusion = Some "canceled")
+        then
+            AgentCiState.Cancelled
+        elif
+            statuses
+            |> List.exists (fun (status, conclusion) ->
+                status = "failed"
+                || conclusion = Some "failure"
+                || conclusion = Some "failed"
+                || conclusion = Some "timed_out"
+                || conclusion = Some "action_required")
+        then
+            AgentCiState.Failure
+        elif
+            statuses
+            |> List.exists (fun (status, conclusion) ->
+                status = "skipped"
+                || conclusion = Some "skipped"
+                || conclusion = Some "neutral"
+                || conclusion = Some "stale")
+        then
+            AgentCiState.Skipped
+        elif
+            statuses
+            |> List.forall (fun (status, conclusion) ->
+                status = "success" || (status = "completed" && conclusion = Some "success"))
+        then
+            AgentCiState.Success
+        else
+            AgentCiState.Failure
+
+    let private ciTerminal state =
+        match state with
+        | AgentCiState.Success
+        | AgentCiState.Failure
+        | AgentCiState.Cancelled
+        | AgentCiState.Skipped
+        | AgentCiState.RevisionMismatch -> true
+        | AgentCiState.NoRuns
+        | AgentCiState.Pending -> false
+
+    let private ciEnvelope operation (data: CiData) =
+        { ContractVersion = ContractVersion
+          Operation = operation
+          Status = AgentStatus.Success
+          Terminal = ciTerminal data.State
+          Data = Some(AgentPayload.Ci data)
+          Error = None
+          Warnings = []
+          FallbackReason = None }
+
+    let private ciFailureWithData data envelope =
+        attachPayload (AgentPayload.Ci data) envelope
+
+    let private ciObservation
+        operation
+        outputLimitBytes
+        (repo: Repo)
+        (forge: Forge)
+        forgeSelection
+        account
+        branch
+        remote
+        revision
+        pollCount
+        =
+        task {
+            match! forge.ExactRevisionCi revision with
+            | Error error -> return Error(forgeFailure operation outputLimitBytes error)
+            | Ok observed ->
+                let exact =
+                    observed
+                    |> List.filter (fun run -> run.Revision = revision && run.Branch = branch)
+
+                let mapped =
+                    exact
+                    |> List.map (fun run ->
+                        { Id = run.Id
+                          Name = run.Name
+                          Status = run.Status
+                          Conclusion = run.Conclusion
+                          Revision = run.Revision
+                          Url = run.Url }
+                        : AgentCiRun)
+
+                let mismatch =
+                    observed |> List.exists (fun run -> run.Revision <> revision)
+                    || (not (List.isEmpty observed) && List.isEmpty exact)
+
+                let data =
+                    { Root = repo.Root
+                      Forge = forgeKindName forgeSelection
+                      Account = account
+                      Branch = branch
+                      Remote = remote
+                      Revision = revision
+                      State =
+                        if mismatch then
+                            AgentCiState.RevisionMismatch
+                        else
+                            ciState exact
+                      Runs = mapped
+                      PollCount = pollCount }
+
+                if mismatch then
+                    return
+                        Error(
+                            failure
+                                operation
+                                AgentErrorCode.RevisionMismatch
+                                "forge CI results did not belong to the requested branch and exact revision"
+                                false
+                                false
+                                None
+                                None
+                                None
+                            |> ciFailureWithData data
+                        )
+                else
+                    return Ok data
+        }
+
+    let private ciPreflight
+        operation
+        outputLimitBytes
+        (repo: Repo)
+        (forge: Forge)
+        forgeSelection
+        account
+        branch
+        remote
+        revision
+        cancellationToken
+        =
+        task {
+            let configuredRepo =
+                repo.WithAgentExecution(cancellationToken, Some outputLimitBytes)
+
+            match! configuredRemote operation outputLimitBytes configuredRepo remote (forgeKind forgeSelection) with
+            | Error envelope -> return Error envelope
+            | Ok() ->
+                match! forge.AuthIdentity() with
+                | Error error -> return Error(forgeFailure operation outputLimitBytes error)
+                | Ok observedAccount when
+                    not (String.Equals(observedAccount, account, StringComparison.OrdinalIgnoreCase))
+                    ->
+                    return
+                        Error(
+                            failure
+                                operation
+                                AgentErrorCode.Authentication
+                                $"authenticated forge account '{observedAccount}' does not match requested account '{account}'"
+                                false
+                                false
+                                None
+                                None
+                                None
+                        )
+                | Ok _ ->
+                    match! observeRemoteRevision configuredRepo remote branch with
+                    | Error error -> return Error(repoFailure operation outputLimitBytes error)
+                    | Ok observed when observed <> Some revision ->
+                        return
+                            Error(
+                                failure
+                                    operation
+                                    AgentErrorCode.RevisionMismatch
+                                    "the selected remote branch/bookmark is not at the requested published revision"
+                                    false
+                                    false
+                                    None
+                                    None
+                                    None
+                            )
+                    | Ok _ -> return Ok configuredRepo
+        }
+
+    let private ciStatusCore
+        (repo: Repo)
+        (forge: Forge)
+        (request: CiStatusRequest)
+        (cancellationToken: CancellationToken)
+        =
+        task {
+            let operation = operationName AgentOperation.CiStatus
+
+            if request.OutputLimitBytes < MinimumOutputLimitBytes then
+                return invalidInput operation $"output budget must be at least {MinimumOutputLimitBytes} bytes"
+            elif cancellationToken.IsCancellationRequested then
+                return cancellation operation
+            else
+                match
+                    validatePublicationIdentity
+                        request.RepositoryPath
+                        request.Branch
+                        request.Remote
+                        request.Revision
+                        request.Account
+                        request.Branch
+                with
+                | Error message -> return invalidInput operation message
+                | Ok() ->
+                    let configuredForge =
+                        forge.WithAgentExecution(cancellationToken, Some request.OutputLimitBytes)
+
+                    if configuredForge.Kind <> forgeKind request.Forge then
+                        return invalidInput operation "selected forge handle does not match the request"
+                    else
+                        match!
+                            ciPreflight
+                                operation
+                                request.OutputLimitBytes
+                                repo
+                                configuredForge
+                                request.Forge
+                                request.Account
+                                request.Branch
+                                request.Remote
+                                request.Revision
+                                cancellationToken
+                        with
+                        | Error envelope -> return envelope
+                        | Ok configuredRepo ->
+                            match!
+                                ciObservation
+                                    operation
+                                    request.OutputLimitBytes
+                                    configuredRepo
+                                    configuredForge
+                                    request.Forge
+                                    request.Account
+                                    request.Branch
+                                    request.Remote
+                                    request.Revision
+                                    1UL
+                            with
+                            | Error envelope -> return envelope
+                            | Ok data -> return ciEnvelope operation data
+        }
+
+    /// Observe CI runs/pipelines for one proven published revision.
+    let ciStatus (request: CiStatusRequest) (cancellationToken: CancellationToken) =
+        task {
+            let operation = operationName AgentOperation.CiStatus
+
+            if request.OutputLimitBytes < MinimumOutputLimitBytes then
+                return invalidInput operation $"output budget must be at least {MinimumOutputLimitBytes} bytes"
+            elif cancellationToken.IsCancellationRequested then
+                return cancellation operation
+            else
+                match
+                    validatePublicationIdentity
+                        request.RepositoryPath
+                        request.Branch
+                        request.Remote
+                        request.Revision
+                        request.Account
+                        request.Branch
+                with
+                | Error message -> return invalidInput operation message
+                | Ok() ->
+                    match Repo.Open request.RepositoryPath with
+                    | Error error -> return repoFailure operation request.OutputLimitBytes error
+                    | Ok repo ->
+                        return! ciStatusCore repo (forgeForKind repo.Root request.Forge) request cancellationToken
+        }
+        |> withBudget request.OutputLimitBytes
+
+    let internal ciStatusWith repo forge request cancellationToken =
+        ciStatusCore repo forge request cancellationToken
+        |> withBudget request.OutputLimitBytes
+
+    let rec private ciPoll
+        operation
+        (request: CiWaitRequest)
+        (configuredRepo: Repo)
+        (configuredForge: Forge)
+        (cancellationToken: CancellationToken)
+        (executionToken: CancellationToken)
+        (clock: System.Diagnostics.Stopwatch)
+        pollCount
+        (previousSignature: (AgentCiState * (string * string * string option) list) option)
+        (lastActivity: TimeSpan)
+        (lastData: CiData option)
+        =
+        task {
+            if cancellationToken.IsCancellationRequested then
+                return
+                    cancellation operation
+                    |> (fun envelope ->
+                        match lastData with
+                        | Some data -> ciFailureWithData data envelope
+                        | None -> envelope)
+            elif executionToken.IsCancellationRequested || clock.Elapsed >= request.Deadline then
+                return
+                    failure
+                        operation
+                        AgentErrorCode.Timeout
+                        "CI wait reached its overall deadline"
+                        true
+                        false
+                        None
+                        None
+                        None
+                    |> (fun envelope ->
+                        match lastData with
+                        | Some data -> ciFailureWithData data envelope
+                        | None -> envelope)
+            else
+                match!
+                    ciObservation
+                        operation
+                        request.OutputLimitBytes
+                        configuredRepo
+                        configuredForge
+                        request.Forge
+                        request.Account
+                        request.Branch
+                        request.Remote
+                        request.Revision
+                        pollCount
+                with
+                | Error _ when cancellationToken.IsCancellationRequested ->
+                    return
+                        cancellation operation
+                        |> (fun envelope ->
+                            match lastData with
+                            | Some data -> ciFailureWithData data envelope
+                            | None -> envelope)
+                | Error _ when executionToken.IsCancellationRequested || clock.Elapsed >= request.Deadline ->
+                    return
+                        failure
+                            operation
+                            AgentErrorCode.Timeout
+                            "CI wait reached its overall deadline"
+                            true
+                            false
+                            None
+                            None
+                            None
+                        |> (fun envelope ->
+                            match lastData with
+                            | Some data -> ciFailureWithData data envelope
+                            | None -> envelope)
+                | Error envelope -> return envelope
+                | Ok data when ciTerminal data.State -> return ciEnvelope operation data
+                | Ok data ->
+                    let signature =
+                        data.State, (data.Runs |> List.map (fun run -> run.Id, run.Status, run.Conclusion))
+
+                    let activity =
+                        if previousSignature = Some signature then
+                            lastActivity
+                        else
+                            clock.Elapsed
+
+                    if clock.Elapsed - activity >= request.InactivityDeadline then
+                        return
+                            failure
+                                operation
+                                AgentErrorCode.Timeout
+                                "CI wait reached its inactivity deadline"
+                                true
+                                false
+                                None
+                                None
+                                None
+                            |> ciFailureWithData data
+                    else
+                        let delay = Task.Delay(request.PollInterval, executionToken)
+                        let! _ = Task.WhenAny [| delay |]
+
+                        return!
+                            ciPoll
+                                operation
+                                request
+                                configuredRepo
+                                configuredForge
+                                cancellationToken
+                                executionToken
+                                clock
+                                (pollCount + 1UL)
+                                (Some signature)
+                                activity
+                                (Some data)
+        }
+
+    let private ciWaitCore (repo: Repo) (forge: Forge) (request: CiWaitRequest) (cancellationToken: CancellationToken) =
+        task {
+            let operation = operationName AgentOperation.CiWait
+
+            if request.OutputLimitBytes < MinimumOutputLimitBytes then
+                return invalidInput operation $"output budget must be at least {MinimumOutputLimitBytes} bytes"
+            elif request.PollInterval <= TimeSpan.Zero then
+                return invalidInput operation "poll interval must be positive"
+            elif request.Deadline <= TimeSpan.Zero then
+                return invalidInput operation "deadline must be positive"
+            elif request.InactivityDeadline <= TimeSpan.Zero then
+                return invalidInput operation "inactivity deadline must be positive"
+            elif cancellationToken.IsCancellationRequested then
+                return cancellation operation
+            else
+                match
+                    validatePublicationIdentity
+                        request.RepositoryPath
+                        request.Branch
+                        request.Remote
+                        request.Revision
+                        request.Account
+                        request.Branch
+                with
+                | Error message -> return invalidInput operation message
+                | Ok() ->
+                    use executionCts = CancellationTokenSource.CreateLinkedTokenSource cancellationToken
+                    executionCts.CancelAfter request.Deadline
+                    let executionToken = executionCts.Token
+                    let clock = System.Diagnostics.Stopwatch.StartNew()
+
+                    let configuredForge =
+                        forge.WithAgentExecution(executionToken, Some request.OutputLimitBytes)
+
+                    if configuredForge.Kind <> forgeKind request.Forge then
+                        return invalidInput operation "selected forge handle does not match the request"
+                    else
+                        match!
+                            ciPreflight
+                                operation
+                                request.OutputLimitBytes
+                                repo
+                                configuredForge
+                                request.Forge
+                                request.Account
+                                request.Branch
+                                request.Remote
+                                request.Revision
+                                executionToken
+                        with
+                        | Error _ when cancellationToken.IsCancellationRequested -> return cancellation operation
+                        | Error _ when executionToken.IsCancellationRequested || clock.Elapsed >= request.Deadline ->
+                            return
+                                failure
+                                    operation
+                                    AgentErrorCode.Timeout
+                                    "CI wait reached its overall deadline"
+                                    true
+                                    false
+                                    None
+                                    None
+                                    None
+                        | Error envelope -> return envelope
+                        | Ok configuredRepo ->
+                            return!
+                                ciPoll
+                                    operation
+                                    request
+                                    configuredRepo
+                                    configuredForge
+                                    cancellationToken
+                                    executionToken
+                                    clock
+                                    1UL
+                                    None
+                                    TimeSpan.Zero
+                                    None
+        }
+
+    /// Poll one exact-revision CI source until a terminal conclusion or a bounded stop.
+    let ciWait (request: CiWaitRequest) (cancellationToken: CancellationToken) =
+        task {
+            let operation = operationName AgentOperation.CiWait
+
+            if request.OutputLimitBytes < MinimumOutputLimitBytes then
+                return invalidInput operation $"output budget must be at least {MinimumOutputLimitBytes} bytes"
+            elif request.PollInterval <= TimeSpan.Zero then
+                return invalidInput operation "poll interval must be positive"
+            elif request.Deadline <= TimeSpan.Zero then
+                return invalidInput operation "deadline must be positive"
+            elif request.InactivityDeadline <= TimeSpan.Zero then
+                return invalidInput operation "inactivity deadline must be positive"
+            elif cancellationToken.IsCancellationRequested then
+                return cancellation operation
+            else
+                match
+                    validatePublicationIdentity
+                        request.RepositoryPath
+                        request.Branch
+                        request.Remote
+                        request.Revision
+                        request.Account
+                        request.Branch
+                with
+                | Error message -> return invalidInput operation message
+                | Ok() ->
+                    match Repo.Open request.RepositoryPath with
+                    | Error error -> return repoFailure operation request.OutputLimitBytes error
+                    | Ok repo ->
+                        return! ciWaitCore repo (forgeForKind repo.Root request.Forge) request cancellationToken
+        }
+        |> withBudget request.OutputLimitBytes
+
+    let internal ciWaitWith repo forge request cancellationToken =
+        ciWaitCore repo forge request cancellationToken
+        |> withBudget request.OutputLimitBytes

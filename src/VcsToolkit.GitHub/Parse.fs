@@ -86,6 +86,8 @@ type WorkflowRun =
         WorkflowName: string
         /// Branch the run was triggered for.
         HeadBranch: string
+        /// Full commit id the run was triggered for.
+        HeadSha: string
         /// Triggering event, e.g. `"push"`, `"workflow_dispatch"`.
         Event: string
         /// Web URL.
@@ -292,6 +294,7 @@ module internal GitHubParse =
           Conclusion = Json.strOr el "conclusion"
           WorkflowName = Json.strOr el "workflowName"
           HeadBranch = Json.strOr el "headBranch"
+          HeadSha = Json.strOr el "headSha"
           Event = Json.strOr el "event"
           Url = Json.strOr el "url"
           CreatedAt = Json.strOr el "createdAt" }
@@ -376,6 +379,8 @@ module internal GitHubParse =
     let parseRunList = Json.parseArray toRun
     /// Parse a single `gh run view` object.
     let parseRun = Json.parseObject toRun
+    /// Parse the authenticated user's login from `gh api user`.
+    let parseUserLogin = Json.parseObject (fun el -> Json.strOr el "login")
     /// Parse a `gh workflow list` array.
     let parseWorkflowList = Json.parseArray toWorkflow
     /// Parse a single workflow definition object.

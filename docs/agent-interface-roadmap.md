@@ -11,9 +11,9 @@ the product's only agent-facing entry point.
 
 The executable and package name is now confirmed as `vcs-agent`, with
 `VcsToolkit.Agent` as the reusable library and `VcsToolkit.Agent.Server` as the thin
-global-tool adapter. Contract v1 and the read-only `probe`, `inspect`, and `changes`
-outcomes and the exact-path checked `commit` mutation are implemented; the remaining outcomes below are reserved in the taxonomy and
-return structured `unsupported` until their delivery phases land. The exact current
+global-tool adapter. Contract v1 implements the read-only `probe`, `inspect`, `changes`,
+`ci status`, and `ci wait` outcomes plus the exact-path checked `commit` and verified
+`publish` mutations. Backend/forge capability gaps return typed `unsupported`. The exact current
 contract is documented in [vcs-agent v1 contract](agent-interface.md).
 
 ## Problem statement
@@ -307,11 +307,13 @@ and without weakening ProcessKit containment.
   preflight, before/after revision evidence, unchanged branch/bookmark and unrelated-dirt
   postconditions, and safe replay after an ambiguous completed mutation. Hermetic and real
   Git/Jujutsu sandbox tests are the executable evidence.
-- Add checked push and PR/MR publication with explicit account/forge identity.
-- Add exact-revision CI status and terminal wait where typed backend capabilities
-  support them, returning structured `unsupported` elsewhere.
-- Preserve cancellation and inactivity handling inherited from ProcessKit.
-- Prove idempotent recovery where a remote step succeeded before a later step failed.
+- Checked push and PR/MR publication is implemented with explicit account/forge identity,
+  pre/post remote evidence, exact revision-to-ref routing, and duplicate-safe recovery.
+- Exact-revision CI status and terminal wait are implemented for GitHub and GitLab; Gitea
+  returns typed `unsupported` for the missing exact-revision capability.
+- CI wait preserves cancellation and adds explicit overall and inactivity deadlines.
+- Scripted and Git sandbox tests prove mismatch refusal and idempotent already-pushed/
+  already-open recovery.
 
 Exit condition: the common "prepare, publish, wait for CI" workflow completes without
 raw CLI use on supported backend/forge combinations and cannot claim success for the

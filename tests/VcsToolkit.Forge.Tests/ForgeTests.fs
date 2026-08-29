@@ -256,8 +256,9 @@ type ForgeKindTests() =
 
     [<Test>]
     member _.ForgeOpAllEnumeratesTheVaryingOps() =
-        Assert.That(ForgeOp.All.Length, Is.EqualTo 11)
+        Assert.That(ForgeOp.All.Length, Is.EqualTo 12)
         Assert.That(List.contains ForgeOp.PrChecks ForgeOp.All, Is.True)
+        Assert.That(List.contains ForgeOp.ExactRevisionCi ForgeOp.All, Is.True)
         Assert.That(List.contains ForgeOp.PrDiff ForgeOp.All, Is.True)
         Assert.That(List.contains ForgeOp.IssueReopen ForgeOp.All, Is.True)
         Assert.That(List.contains ForgeOp.ReleaseDelete ForgeOp.All, Is.True)
@@ -340,12 +341,14 @@ type DispatchTests() =
         Assert.That(unknown.Kind, Is.EqualTo ForgeKind.Unknown)
         // An Unknown handle supports nothing — agrees with its all-Unsupported dispatch.
         Assert.That(unknown.Supports ForgeOp.PrChecks, Is.False)
+        Assert.That(unknown.Supports ForgeOp.ExactRevisionCi, Is.False)
         Assert.That(unknown.Supports ForgeOp.RepoView, Is.False)
         Assert.That(unknown.Supports ForgeOp.PrDiff, Is.False)
 
         let gh = ghForge [ "pr"; "list" ] (Reply.Ok "[]")
         Assert.That(gh.Kind, Is.EqualTo ForgeKind.GitHub)
         Assert.That(gh.Supports ForgeOp.PrChecks, Is.True)
+        Assert.That(gh.Supports ForgeOp.ExactRevisionCi, Is.True)
         Assert.That(gh.Supports ForgeOp.PrDiff, Is.True)
         Assert.That(gh.Supports ForgeOp.PrEdit, Is.True)
         Assert.That(gh.Supports ForgeOp.IssueEdit, Is.True)
@@ -355,6 +358,7 @@ type DispatchTests() =
 
         let gl = glForge [ "mr"; "list" ] (Reply.Ok "[]")
         Assert.That(gl.Kind, Is.EqualTo ForgeKind.GitLab)
+        Assert.That(gl.Supports ForgeOp.ExactRevisionCi, Is.True)
         Assert.That(gl.Supports ForgeOp.PrDiff, Is.True)
         Assert.That(gl.Supports ForgeOp.PrEdit, Is.True)
         Assert.That(gl.Supports ForgeOp.IssueEdit, Is.True)
@@ -365,6 +369,7 @@ type DispatchTests() =
         // Gitea supports NONE of the varying ops.
         Assert.That(tea.Supports ForgeOp.RepoView, Is.False)
         Assert.That(tea.Supports ForgeOp.PrChecks, Is.False)
+        Assert.That(tea.Supports ForgeOp.ExactRevisionCi, Is.False)
         Assert.That(tea.Supports ForgeOp.ReleaseView, Is.False)
         Assert.That(tea.Supports ForgeOp.PrDiff, Is.False)
         Assert.That(tea.Supports ForgeOp.IssueReopen, Is.False)
@@ -373,6 +378,33 @@ type DispatchTests() =
         Assert.That(tea.Supports ForgeOp.IssueEdit, Is.False)
         Assert.That(tea.Supports ForgeOp.PrLabels, Is.False)
         Assert.That(tea.Supports ForgeOp.IssueLabels, Is.False)
+
+    [<Test>]
+    member _.ExactRevisionCiMapsGitHubEvidenceAndRefusesGiteaWithoutSpawning() : Task =
+        task {
+            let revision = String('a', 40)
+
+            let json =
+                $"""[{{"databaseId":42,"name":"CI","displayTitle":"exact","status":"completed","conclusion":"success","workflowName":"CI","headBranch":"feature","headSha":"{revision}","event":"push","url":"u","createdAt":"t"}}]"""
+
+            let github = ghForge [ "run"; "list"; "--commit"; revision ] (Reply.Ok json)
+
+            match! github.ExactRevisionCi revision with
+            | Ok [ run ] ->
+                Assert.That(run.Revision, Is.EqualTo revision)
+                Assert.That(run.Branch, Is.EqualTo "feature")
+                Assert.That(run.Conclusion, Is.EqualTo(Some "success"))
+            | Ok other -> Assert.Fail $"expected one run, got {other.Length}"
+            | Error error -> Assert.Fail $"exact revision CI failed: {error.Message}"
+
+            let noSpawn =
+                Forge.FromGitea(".", VcsToolkit.Gitea.Gitea.WithRunner(ScriptedRunner().Fallback(Reply.Ok "")))
+
+            match! noSpawn.ExactRevisionCi revision with
+            | Error(ForgeError.Unsupported(ForgeKind.Gitea, "exactRevisionCi")) -> ()
+            | Error error -> Assert.Fail $"unexpected Gitea refusal: {error.Message}"
+            | Ok _ -> Assert.Fail "Gitea exact-revision CI must be refused before spawning"
+        }
 
     [<Test>]
     member _.SupportsReviewMergeOptionsAndCloseReflectTheBackend() =

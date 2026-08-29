@@ -44,6 +44,15 @@ type MergeRequest =
         Milestone: string
     }
 
+/// One GitLab pipeline returned by the project pipelines API for an exact revision.
+type Pipeline =
+    { Id: uint64
+      Name: string
+      Status: string
+      Sha: string
+      Ref: string
+      WebUrl: string }
+
 /// A project, returned by `repoView` (`glab repo view --output json`) — the fields are
 /// GitLab's REST `Project` object. Named `Repo` for consistency with the GitHub wrapper.
 type Repo =
@@ -178,6 +187,14 @@ module internal GitLabParse =
             else
                 "")
 
+    let private toPipeline (el: JsonElement) : Pipeline =
+        { Id = Json.u64Or el "id"
+          Name = Json.strOr el "name"
+          Status = Json.strOr el "status"
+          Sha = Json.strOr el "sha"
+          Ref = Json.strOr el "ref"
+          WebUrl = Json.strOr el "web_url" }
+
     let private toMr (el: JsonElement) : MergeRequest =
         { Iid = Json.u64Or el "iid"
           Title = Json.strOr el "title"
@@ -254,6 +271,12 @@ module internal GitLabParse =
     /// Parse the CI/pipeline status out of a `glab mr view <id> --output json` object.
     let parseCiStatus =
         Json.parseObject (fun el -> CiStatus.OfGitLab(pipelineStatus el))
+
+    /// Parse the project pipelines API response.
+    let parsePipelineList = Json.parseArray toPipeline
+
+    /// Parse the authenticated user's username from `glab api user`.
+    let parseUserName = Json.parseObject (fun el -> Json.strOr el "username")
 
     /// Parse `glab --version` output into the shared `Version`; `None` when no `N.N[.N]`
     /// token is present (an unrecognised/empty banner degrades to "unknown", never a throw).

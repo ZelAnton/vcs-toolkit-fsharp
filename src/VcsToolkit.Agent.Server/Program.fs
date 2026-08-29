@@ -1,6 +1,7 @@
 module Main
 
 open System
+open System.Globalization
 open System.IO
 open System.Reflection
 open System.Threading
@@ -12,7 +13,38 @@ type private ParsedCommand =
       RepositoryPath: string
       ChangesMode: ChangesMode
       CommitPaths: string list
-      CommitMessage: string }
+      CommitMessage: string
+      Branch: string
+      Remote: string
+      Revision: string
+      Forge: AgentForgeKind
+      Account: string
+      TargetBranch: string
+      Title: string
+      Body: string
+      PollInterval: TimeSpan
+      Deadline: TimeSpan
+      InactivityDeadline: TimeSpan }
+
+type private ParsedOptions =
+    { CommandArgs: string list
+      OutputLimitBytes: int
+      RepositoryPath: string
+      RepositoryExplicit: bool
+      ChangesMode: ChangesMode
+      CommitPaths: string list
+      CommitMessage: string option
+      Branch: string option
+      Remote: string option
+      Revision: string option
+      Forge: AgentForgeKind option
+      Account: string option
+      TargetBranch: string option
+      Title: string option
+      Body: string option
+      PollInterval: TimeSpan option
+      Deadline: TimeSpan option
+      InactivityDeadline: TimeSpan option }
 
 let internal readVersionFromAssembly (assembly: Assembly | null) =
     match assembly with
@@ -38,31 +70,21 @@ let private tryOperation (args: string list) =
     | _ -> None
 
 let private parseOptions args =
-    let rec loop
-        commandArgs
-        outputLimit
-        repositoryPath
-        repositoryExplicit
-        changesMode
-        commitPaths
-        commitMessage
-        remaining
-        =
+    let duplicate optionName =
+        Error(Agent.invalidInput "command" $"{optionName} may be specified only once")
+
+    let parseSeconds optionName (value: string) =
+        match Double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture) with
+        | true, seconds when Double.IsFinite seconds && seconds > 0.0 -> Ok(TimeSpan.FromSeconds seconds)
+        | _ -> Error(Agent.invalidInput "command" $"{optionName} must be a positive number of seconds")
+
+    let rec loop (state: ParsedOptions) remaining =
         match remaining with
-        | [] ->
-            Ok(
-                List.rev commandArgs,
-                outputLimit,
-                repositoryPath,
-                repositoryExplicit,
-                changesMode,
-                List.rev commitPaths,
-                commitMessage
-            )
+        | [] -> Ok state
         | "--output-budget" :: value :: rest ->
             match Int32.TryParse value with
             | true, parsed when parsed >= Agent.MinimumOutputLimitBytes ->
-                loop commandArgs parsed repositoryPath repositoryExplicit changesMode commitPaths commitMessage rest
+                loop { state with OutputLimitBytes = parsed } rest
             | _ ->
                 Error(
                     Agent.invalidInput
@@ -71,75 +93,266 @@ let private parseOptions args =
                 )
         | "--output-budget" :: [] -> Error(Agent.invalidInput "command" "--output-budget requires an integer value")
         | "--repo" :: value :: rest ->
-            loop commandArgs outputLimit value true changesMode commitPaths commitMessage rest
+            if state.RepositoryExplicit then
+                duplicate "--repo"
+            else
+                loop
+                    { state with
+                        RepositoryPath = value
+                        RepositoryExplicit = true }
+                    rest
         | "--repo" :: [] -> Error(Agent.invalidInput "command" "--repo requires a path value")
         | "--view" :: value :: rest ->
             match value with
             | "summary" ->
                 loop
-                    commandArgs
-                    outputLimit
-                    repositoryPath
-                    repositoryExplicit
-                    ChangesMode.Summary
-                    commitPaths
-                    commitMessage
+                    { state with
+                        ChangesMode = ChangesMode.Summary }
                     rest
             | "diff"
             | "structured-diff" ->
                 loop
-                    commandArgs
-                    outputLimit
-                    repositoryPath
-                    repositoryExplicit
-                    ChangesMode.StructuredDiff
-                    commitPaths
-                    commitMessage
+                    { state with
+                        ChangesMode = ChangesMode.StructuredDiff }
                     rest
             | _ -> Error(Agent.invalidInput "command" "--view must be 'summary' or 'diff'")
         | "--view" :: [] -> Error(Agent.invalidInput "command" "--view requires a value")
         | "--path" :: value :: rest ->
             loop
-                commandArgs
-                outputLimit
-                repositoryPath
-                repositoryExplicit
-                changesMode
-                (value :: commitPaths)
-                commitMessage
+                { state with
+                    CommitPaths = value :: state.CommitPaths }
                 rest
         | "--path" :: [] -> Error(Agent.invalidInput "command" "--path requires a repo-relative path value")
         | "--message" :: value :: rest ->
-            loop commandArgs outputLimit repositoryPath repositoryExplicit changesMode commitPaths value rest
+            match state.CommitMessage with
+            | Some _ -> duplicate "--message"
+            | None ->
+                loop
+                    { state with
+                        CommitMessage = Some value }
+                    rest
         | "--message" :: [] -> Error(Agent.invalidInput "command" "--message requires a value")
+        | "--branch" :: value :: rest ->
+            match state.Branch with
+            | Some _ -> duplicate "--branch"
+            | None -> loop { state with Branch = Some value } rest
+        | "--branch" :: [] -> Error(Agent.invalidInput "command" "--branch requires a value")
+        | "--remote" :: value :: rest ->
+            match state.Remote with
+            | Some _ -> duplicate "--remote"
+            | None -> loop { state with Remote = Some value } rest
+        | "--remote" :: [] -> Error(Agent.invalidInput "command" "--remote requires a value")
+        | "--revision" :: value :: rest ->
+            match state.Revision with
+            | Some _ -> duplicate "--revision"
+            | None -> loop { state with Revision = Some value } rest
+        | "--revision" :: [] -> Error(Agent.invalidInput "command" "--revision requires a value")
+        | "--forge" :: value :: rest ->
+            match state.Forge with
+            | Some _ -> duplicate "--forge"
+            | None ->
+                match value.ToLowerInvariant() with
+                | "github" ->
+                    loop
+                        { state with
+                            Forge = Some AgentForgeKind.GitHub }
+                        rest
+                | "gitlab" ->
+                    loop
+                        { state with
+                            Forge = Some AgentForgeKind.GitLab }
+                        rest
+                | "gitea" ->
+                    loop
+                        { state with
+                            Forge = Some AgentForgeKind.Gitea }
+                        rest
+                | _ -> Error(Agent.invalidInput "command" "--forge must be 'github', 'gitlab', or 'gitea'")
+        | "--forge" :: [] -> Error(Agent.invalidInput "command" "--forge requires a value")
+        | "--account" :: value :: rest ->
+            match state.Account with
+            | Some _ -> duplicate "--account"
+            | None -> loop { state with Account = Some value } rest
+        | "--account" :: [] -> Error(Agent.invalidInput "command" "--account requires a value")
+        | "--target" :: value :: rest ->
+            match state.TargetBranch with
+            | Some _ -> duplicate "--target"
+            | None -> loop { state with TargetBranch = Some value } rest
+        | "--target" :: [] -> Error(Agent.invalidInput "command" "--target requires a value")
+        | "--title" :: value :: rest ->
+            match state.Title with
+            | Some _ -> duplicate "--title"
+            | None -> loop { state with Title = Some value } rest
+        | "--title" :: [] -> Error(Agent.invalidInput "command" "--title requires a value")
+        | "--body" :: value :: rest ->
+            match state.Body with
+            | Some _ -> duplicate "--body"
+            | None -> loop { state with Body = Some value } rest
+        | "--body" :: [] -> Error(Agent.invalidInput "command" "--body requires a value")
+        | "--poll-seconds" :: value :: rest ->
+            match state.PollInterval with
+            | Some _ -> duplicate "--poll-seconds"
+            | None ->
+                match parseSeconds "--poll-seconds" value with
+                | Ok parsed ->
+                    loop
+                        { state with
+                            PollInterval = Some parsed }
+                        rest
+                | Error error -> Error error
+        | "--poll-seconds" :: [] -> Error(Agent.invalidInput "command" "--poll-seconds requires a value")
+        | "--deadline-seconds" :: value :: rest ->
+            match state.Deadline with
+            | Some _ -> duplicate "--deadline-seconds"
+            | None ->
+                match parseSeconds "--deadline-seconds" value with
+                | Ok parsed -> loop { state with Deadline = Some parsed } rest
+                | Error error -> Error error
+        | "--deadline-seconds" :: [] -> Error(Agent.invalidInput "command" "--deadline-seconds requires a value")
+        | "--inactivity-seconds" :: value :: rest ->
+            match state.InactivityDeadline with
+            | Some _ -> duplicate "--inactivity-seconds"
+            | None ->
+                match parseSeconds "--inactivity-seconds" value with
+                | Ok parsed ->
+                    loop
+                        { state with
+                            InactivityDeadline = Some parsed }
+                        rest
+                | Error error -> Error error
+        | "--inactivity-seconds" :: [] -> Error(Agent.invalidInput "command" "--inactivity-seconds requires a value")
         | token :: rest ->
             loop
-                (token :: commandArgs)
-                outputLimit
-                repositoryPath
-                repositoryExplicit
-                changesMode
-                commitPaths
-                commitMessage
+                { state with
+                    CommandArgs = token :: state.CommandArgs }
                 rest
 
-    loop [] Agent.DefaultOutputLimitBytes (Directory.GetCurrentDirectory()) false ChangesMode.Summary [] "" args
+    loop
+        { CommandArgs = []
+          OutputLimitBytes = Agent.DefaultOutputLimitBytes
+          RepositoryPath = Directory.GetCurrentDirectory()
+          RepositoryExplicit = false
+          ChangesMode = ChangesMode.Summary
+          CommitPaths = []
+          CommitMessage = None
+          Branch = None
+          Remote = None
+          Revision = None
+          Forge = None
+          Account = None
+          TargetBranch = None
+          Title = None
+          Body = None
+          PollInterval = None
+          Deadline = None
+          InactivityDeadline = None }
+        args
 
 let private parse args =
     match parseOptions (List.ofArray args) with
     | Error envelope -> Error envelope
-    | Ok(commandArgs, outputLimit, repositoryPath, repositoryExplicit, changesMode, commitPaths, commitMessage) ->
-        match tryOperation commandArgs with
-        | Some AgentOperation.Commit when not repositoryExplicit ->
+    | Ok options ->
+        let operation = tryOperation (List.rev options.CommandArgs)
+
+        let hasIdentityOptions =
+            [ options.Branch.IsSome
+              options.Remote.IsSome
+              options.Revision.IsSome
+              options.Forge.IsSome
+              options.Account.IsSome
+              options.TargetBranch.IsSome
+              options.Title.IsSome
+              options.Body.IsSome
+              options.PollInterval.IsSome
+              options.Deadline.IsSome
+              options.InactivityDeadline.IsSome ]
+            |> List.exists id
+
+        let hasCommitOptions =
+            not (List.isEmpty options.CommitPaths) || options.CommitMessage.IsSome
+
+        let requiredIdentity operationName =
+            match options.Branch, options.Remote, options.Revision, options.Forge, options.Account with
+            | Some branch, Some remote, Some revision, Some forge, Some account ->
+                Ok(branch, remote, revision, forge, account)
+            | _ ->
+                Error(
+                    Agent.invalidInput
+                        operationName
+                        "--repo, --branch, --remote, --revision, --forge, and --account are required"
+                )
+
+        match operation with
+        | Some AgentOperation.Commit when not options.RepositoryExplicit ->
             Error(Agent.invalidInput "commit" "commit requires an explicit --repo path")
+        | Some AgentOperation.Publish when not options.RepositoryExplicit ->
+            Error(Agent.invalidInput "publish" "publish requires an explicit --repo path")
+        | Some AgentOperation.CiStatus when not options.RepositoryExplicit ->
+            Error(Agent.invalidInput "ci.status" "ci status requires an explicit --repo path")
+        | Some AgentOperation.CiWait when not options.RepositoryExplicit ->
+            Error(Agent.invalidInput "ci.wait" "ci wait requires an explicit --repo path")
+        | Some AgentOperation.Publish when
+            hasCommitOptions
+            || options.PollInterval.IsSome
+            || options.Deadline.IsSome
+            || options.InactivityDeadline.IsSome
+            ->
+            Error(Agent.invalidInput "publish" "publish received options for another operation")
+        | Some AgentOperation.CiStatus when
+            hasCommitOptions
+            || options.TargetBranch.IsSome
+            || options.Title.IsSome
+            || options.Body.IsSome
+            || options.PollInterval.IsSome
+            || options.Deadline.IsSome
+            || options.InactivityDeadline.IsSome
+            ->
+            Error(Agent.invalidInput "ci.status" "ci status received options for another operation")
+        | Some AgentOperation.CiWait when
+            hasCommitOptions
+            || options.TargetBranch.IsSome
+            || options.Title.IsSome
+            || options.Body.IsSome
+            ->
+            Error(Agent.invalidInput "ci.wait" "ci wait received options for another operation")
+        | Some(AgentOperation.Probe | AgentOperation.Inspect | AgentOperation.Changes | AgentOperation.Commit) when
+            hasIdentityOptions
+            ->
+            Error(Agent.invalidInput "command" "identity options require publish, ci status, or ci wait")
         | Some operation ->
-            Ok
-                { Operation = operation
-                  OutputLimitBytes = outputLimit
-                  RepositoryPath = repositoryPath
-                  ChangesMode = changesMode
-                  CommitPaths = commitPaths
-                  CommitMessage = commitMessage }
+            match requiredIdentity (Agent.operationName operation), operation with
+            | Error error, (AgentOperation.Publish | AgentOperation.CiStatus | AgentOperation.CiWait) -> Error error
+            | identity, _ ->
+                let branch, remote, revision, forge, account =
+                    match identity with
+                    | Ok values -> values
+                    | Error _ -> "", "", "", AgentForgeKind.GitHub, ""
+
+                match operation, options.TargetBranch, options.Title with
+                | AgentOperation.Publish, None, _ ->
+                    Error(Agent.invalidInput "publish" "publish requires an explicit --target branch")
+                | AgentOperation.Publish, _, None ->
+                    Error(Agent.invalidInput "publish" "publish requires an explicit --title")
+                | _ ->
+                    Ok
+                        { Operation = operation
+                          OutputLimitBytes = options.OutputLimitBytes
+                          RepositoryPath = options.RepositoryPath
+                          ChangesMode = options.ChangesMode
+                          CommitPaths = List.rev options.CommitPaths
+                          CommitMessage = options.CommitMessage |> Option.defaultValue ""
+                          Branch = branch
+                          Remote = remote
+                          Revision = revision
+                          Forge = forge
+                          Account = account
+                          TargetBranch = options.TargetBranch |> Option.defaultValue ""
+                          Title = options.Title |> Option.defaultValue ""
+                          Body = options.Body |> Option.defaultValue ""
+                          PollInterval = options.PollInterval |> Option.defaultValue (TimeSpan.FromSeconds 5.0)
+                          Deadline = options.Deadline |> Option.defaultValue (TimeSpan.FromMinutes 30.0)
+                          InactivityDeadline =
+                            options.InactivityDeadline |> Option.defaultValue (TimeSpan.FromMinutes 10.0) }
         | None -> Error(Agent.invalidInput "command" "unknown or incomplete operation")
 
 let internal runWithCancellation args cancellationToken =
@@ -168,7 +381,42 @@ let internal runWithCancellation args cancellationToken =
                           Message = command.CommitMessage
                           OutputLimitBytes = command.OutputLimitBytes }
                         cancellationToken
-                | operation -> task { return Agent.unsupported operation }
+                | AgentOperation.Publish ->
+                    Agent.publish
+                        { RepositoryPath = command.RepositoryPath
+                          Branch = command.Branch
+                          Remote = command.Remote
+                          Revision = command.Revision
+                          Forge = command.Forge
+                          Account = command.Account
+                          TargetBranch = command.TargetBranch
+                          Title = command.Title
+                          Body = command.Body
+                          OutputLimitBytes = command.OutputLimitBytes }
+                        cancellationToken
+                | AgentOperation.CiStatus ->
+                    Agent.ciStatus
+                        { RepositoryPath = command.RepositoryPath
+                          Forge = command.Forge
+                          Account = command.Account
+                          Branch = command.Branch
+                          Remote = command.Remote
+                          Revision = command.Revision
+                          OutputLimitBytes = command.OutputLimitBytes }
+                        cancellationToken
+                | AgentOperation.CiWait ->
+                    Agent.ciWait
+                        { RepositoryPath = command.RepositoryPath
+                          Forge = command.Forge
+                          Account = command.Account
+                          Branch = command.Branch
+                          Remote = command.Remote
+                          Revision = command.Revision
+                          PollInterval = command.PollInterval
+                          Deadline = command.Deadline
+                          InactivityDeadline = command.InactivityDeadline
+                          OutputLimitBytes = command.OutputLimitBytes }
+                        cancellationToken
 
             return AgentWire.render command.OutputLimitBytes envelope
     }

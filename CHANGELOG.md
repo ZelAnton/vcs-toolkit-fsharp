@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - External cancellation of Git/Jujutsu fetch, push and clone operations now gives the process a graceful two-second stop window before escalation.
 
 ### Added
+- Verified `vcs-agent publish`, `ci status`, and `ci wait` outcomes now bind explicit repository/remote/forge/account identities to one exact revision, recover an existing PR/MR without duplication, and accept CI success only from a terminal GitHub or GitLab run for that revision.
 - Checked `vcs-agent commit` and `VcsToolkit.Agent.commit` outcomes commit only an explicit non-empty set of repo-relative paths on Git or Jujutsu and preserve unrelated changes.
 - `vcs-agent commit` requires an explicit `--repo`, while a selected rename expands before mutation to its atomic old/new backend path pair.
 - Commit results bind verified success to the canonical repository, source ref, one direct created revision, and that revision's own observed changed paths; late failures carry bounded ambiguous pre/post evidence without claiming an unchanged or unverified revision.

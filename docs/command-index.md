@@ -342,6 +342,7 @@ Client: `GitHub` / `GitHubAt` (`src/VcsToolkit.GitHub/GitHub.fs`). See
 | Method | Runs | Notes |
 |---|---|---|
 | `AuthStatus` | `auth status` | exit code only; unscoped across hosts |
+| `AuthIdentity` | `api user` | parses the selected account's `login` |
 | `AuthStatusFor` | `auth status --hostname <host>` | scoped to a `GitHubHost` |
 | `RepoView` | `repo view --json …` | |
 | `Api` | `api <endpoint>` | raw REST/GraphQL body; flag-guarded endpoint |
@@ -373,6 +374,7 @@ Client: `GitHub` / `GitHubAt` (`src/VcsToolkit.GitHub/GitHub.fs`). See
 | `WorkflowList` | `workflow list --limit <limit> [--all] --json id,name,path,state` | via `WorkflowListOptions`; active workflows ≤50 by default, `--all` includes disabled workflows, and non-positive limits are rejected before spawning |
 | `WorkflowView` | `workflow list --limit 2147483647 --all --json id,name,path,state` | resolves id, case-insensitive name, filename, or path from a complete JSON inventory; missing/ambiguous selectors are parse errors and human output is never scraped |
 | `RunList` | `run list --limit <n> [--branch <b>] --json …` | Actions runs, newest first |
+| `RunListForRevision` | `run list --limit <n> --commit <revision> --json …` | every row includes `headSha` for caller-side exact-revision verification |
 | `RunView` | `run view <id> --json …` | id is `WorkflowRun`'s database id |
 | `RunWatch` | `run watch <id>`, then `run view <id>` | **blocks** until the run finishes; stdout capture bounded to the last 256 lines/256 KiB |
 | `WorkflowDispatch` | `workflow run <workflow> [--ref <ref>] [--raw-field key=value …]` | via `WorkflowDispatch`; inputs go through `--raw-field` (never `--field`, whose `@`-syntax reads local files) |
@@ -406,6 +408,7 @@ not its breadth. See
 | Method | Runs | Notes |
 |---|---|---|
 | `AuthStatus` | `auth status` | exit code only; glab#911 can make this a false positive — see the source doc comment |
+| `AuthIdentity` | `api user` | parses the selected account's `username` |
 | `RepoView` | `repo view --output json` | |
 | `Api` | `api <endpoint>` | raw REST/GraphQL body; flag-guarded endpoint |
 | `MrList` | `mr list [state flags] --per-page <limit> --output json` | via `MrListOptions`; open ≤100 by default |
@@ -423,6 +426,7 @@ not its breadth. See
 | `MrApprove` | `mr approve <id>` | records the current user's approval |
 | `MrRevoke` | `mr revoke <id>` | withdraws an approval |
 | `MrChecks` | `mr view <id> --output json` (reads `head_pipeline.status`) | bucketed `CiStatus` |
+| `PipelineListForRevision` | `api projects/:id/pipelines?sha=<revision>&per_page=100` | typed pipeline identity/status rows selected by the exact commit filter |
 | `MrDiff` | `mr diff <n>` | parsed `FileDiff list` |
 | `IssueList` | `issue list [state flags] --per-page <limit> --output json` | via `IssueListOptions`; open ≤100 by default |
 | `IssueView` | `issue view <number> --output json` | |

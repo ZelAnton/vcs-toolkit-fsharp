@@ -43,6 +43,7 @@ module private ForgeCaps =
           PrComment = true
           PrEdit = true
           PrChecks = true
+          ExactRevisionCi = true
           PrMerge = true
           IssueCreate = true
           IssueReopen = true
@@ -61,6 +62,7 @@ module private ForgeCaps =
     let staticGiteaCaps: ForgeCapabilities =
         { staticGitHubCaps with
             PrChecks = false
+            ExactRevisionCi = false
             IssueReopen = false
             ReleaseDelete = false
             PrEdit = false }
@@ -272,6 +274,7 @@ type Forge private (cwd: string, backend: Backend) =
             | ForgeOp.RepoView
             | ForgeOp.PrMarkReady
             | ForgeOp.PrChecks
+            | ForgeOp.ExactRevisionCi
             | ForgeOp.ReleaseView
             | ForgeOp.PrDiff
             | ForgeOp.IssueReopen
@@ -285,6 +288,7 @@ type Forge private (cwd: string, backend: Backend) =
             | ForgeOp.RepoView
             | ForgeOp.PrMarkReady
             | ForgeOp.PrChecks
+            | ForgeOp.ExactRevisionCi
             | ForgeOp.ReleaseView
             | ForgeOp.PrDiff
             | ForgeOp.IssueReopen
@@ -298,6 +302,7 @@ type Forge private (cwd: string, backend: Backend) =
             | ForgeOp.RepoView
             | ForgeOp.PrMarkReady
             | ForgeOp.PrChecks
+            | ForgeOp.ExactRevisionCi
             | ForgeOp.ReleaseView
             | ForgeOp.PrDiff
             | ForgeOp.IssueReopen
@@ -311,6 +316,7 @@ type Forge private (cwd: string, backend: Backend) =
             | ForgeOp.RepoView
             | ForgeOp.PrMarkReady
             | ForgeOp.PrChecks
+            | ForgeOp.ExactRevisionCi
             | ForgeOp.ReleaseView
             | ForgeOp.PrDiff
             | ForgeOp.IssueReopen
@@ -358,6 +364,21 @@ type Forge private (cwd: string, backend: Backend) =
         | Backend.GitLab(c, _) -> GitLabForge.authStatus c
         | Backend.Gitea(c, _) -> GiteaForge.authStatus c
         | Backend.Unknown -> task { return Ok false }
+
+    /// The authenticated login/username selected by the client. Gitea and Unknown are
+    /// structurally unsupported because their available CLI surfaces do not prove one account.
+    member _.AuthIdentity() =
+        task {
+            match backend with
+            | Backend.GitHub(client, _) ->
+                let! result = client.AuthIdentity()
+                return ofForge result
+            | Backend.GitLab(client, _) ->
+                let! result = client.AuthIdentity()
+                return ofForge result
+            | Backend.Gitea _ -> return Error(ForgeError.Unsupported(ForgeKind.Gitea, "authIdentity"))
+            | Backend.Unknown -> return Error(ForgeError.Unsupported(ForgeKind.Unknown, "authIdentity"))
+        }
 
     /// The repository/project for the bound directory. **`Unsupported` on Gitea** (`tea`
     /// has no current-repo view).
@@ -668,6 +689,57 @@ type Forge private (cwd: string, backend: Backend) =
         | Backend.GitLab(c, _) -> GitLabForge.prChecks c cwd number
         | Backend.Gitea _ -> task { return Error(ForgeError.Unsupported(ForgeKind.Gitea, "prChecks")) }
         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prChecks")) }
+
+    /// CI runs/pipelines selected by one exact commit id. GitHub uses `gh run list --commit`;
+    /// GitLab uses the project pipelines API's `sha` filter. Gitea is unsupported.
+    member _.ExactRevisionCi(revision: string) =
+        task {
+            match backend with
+            | Backend.GitHub(client, _) ->
+                match! client.RunListForRevision(cwd, 100, revision) with
+                | Error error -> return Error(ForgeError.Forge error)
+                | Ok runs ->
+                    return
+                        Ok(
+                            runs
+                            |> List.map (fun run ->
+                                { Id = string run.DatabaseId
+                                  Name = run.WorkflowName
+                                  Status = run.Status
+                                  Conclusion =
+                                    if System.String.IsNullOrWhiteSpace run.Conclusion then
+                                        None
+                                    else
+                                        Some run.Conclusion
+                                  Revision = run.HeadSha
+                                  Branch = run.HeadBranch
+                                  Url = run.Url }
+                                : ForgeCiRun)
+                        )
+            | Backend.GitLab(client, _) ->
+                match! client.PipelineListForRevision(cwd, revision) with
+                | Error error -> return Error(ForgeError.Forge error)
+                | Ok pipelines ->
+                    return
+                        Ok(
+                            pipelines
+                            |> List.map (fun pipeline ->
+                                { Id = string pipeline.Id
+                                  Name =
+                                    if System.String.IsNullOrWhiteSpace pipeline.Name then
+                                        "pipeline"
+                                    else
+                                        pipeline.Name
+                                  Status = pipeline.Status
+                                  Conclusion = None
+                                  Revision = pipeline.Sha
+                                  Branch = pipeline.Ref
+                                  Url = pipeline.WebUrl }
+                                : ForgeCiRun)
+                        )
+            | Backend.Gitea _ -> return Error(ForgeError.Unsupported(ForgeKind.Gitea, "exactRevisionCi"))
+            | Backend.Unknown -> return Error(ForgeError.Unsupported(ForgeKind.Unknown, "exactRevisionCi"))
+        }
 
     /// The PR/MR's unified diff, parsed into per-file `FileDiff` values (`gh pr diff <n>` /
     /// `glab mr diff <n>`, through the selected backend adapter).

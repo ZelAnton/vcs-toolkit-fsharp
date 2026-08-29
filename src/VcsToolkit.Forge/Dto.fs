@@ -158,12 +158,16 @@ type ForgeOp =
     | PrLabels
     /// `issueLabels` — add/remove labels on an existing issue. **Unsupported on Gitea**.
     | IssueLabels
+    /// `exactRevisionCi` — CI runs/pipelines filtered and verified by full commit id.
+    /// Supported on GitHub and GitLab; unsupported on Gitea.
+    | ExactRevisionCi
 
     /// Every capability-varying operation — iterate it to build a full support matrix.
     static member All =
         [ ForgeOp.RepoView
           ForgeOp.PrMarkReady
           ForgeOp.PrChecks
+          ForgeOp.ExactRevisionCi
           ForgeOp.ReleaseView
           ForgeOp.PrDiff
           ForgeOp.IssueReopen
@@ -461,6 +465,16 @@ type CiStatus =
     /// No checks/pipeline ran.
     | None
 
+/// One forge-neutral CI run/pipeline selected by an exact revision.
+type ForgeCiRun =
+    { Id: string
+      Name: string
+      Status: string
+      Conclusion: string option
+      Revision: string
+      Branch: string
+      Url: string }
+
 /// Options for `prCreate` — the unified open-a-PR/MR spec, mapped to each CLI's own
 /// flags. Build it through `PrCreate.Create` and the chained setters.
 type PrCreate =
@@ -718,6 +732,8 @@ type ForgeCapabilities =
         PrEdit: bool
         /// The CLI can report a PR/MR's CI status.
         PrChecks: bool
+        /// The CLI/API can select CI runs by exact commit id.
+        ExactRevisionCi: bool
         /// The CLI can merge a PR/MR.
         PrMerge: bool
         /// The CLI can open an issue.
@@ -745,6 +761,7 @@ type ForgeCapabilities =
           PrComment = false
           PrEdit = false
           PrChecks = false
+          ExactRevisionCi = false
           PrMerge = false
           IssueCreate = false
           IssueReopen = false

@@ -12,8 +12,12 @@ module AgentWire =
 
     let private execution envelope stdout =
         match envelope.Error with
-        | None ->
+        | None when envelope.Terminal ->
             { ExitCode = 0
+              Stdout = stdout
+              Stderr = "" }
+        | None ->
+            { ExitCode = 10
               Stdout = stdout
               Stderr = "" }
         | Some error ->

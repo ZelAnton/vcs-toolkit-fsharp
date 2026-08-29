@@ -218,6 +218,10 @@ type GitHub private (core: ManagedClient) =
             | Ok code -> return Ok(code = 0)
         }
 
+    /// The login selected by this client's authentication context (`gh api user`).
+    member _.AuthIdentity() =
+        core.TryParse(core.Command [ "api"; "user" ], GitHubParse.parseUserLogin)
+
     /// Whether the user is authenticated for `host` specifically (`gh auth status
     /// --hostname <host>` exits zero). Scoping the probe to one host means a broken session
     /// on a DIFFERENT host can't flip this false: the unscoped `AuthStatus` inspects every
@@ -580,6 +584,32 @@ type GitHub private (core: ManagedClient) =
 
         core.TryParse(core.CommandIn(dir, args), GitHubParse.parseRunList)
 
+    /// Workflow runs selected by one exact commit id (`gh run list --commit <sha>`).
+    member _.RunListForRevision(dir: string, limit: int, revision: string) =
+        task {
+            if limit <= 0 then
+                return Error(ProcessError.Spawn(BINARY, "run list limit must be positive"))
+            else
+                match checkFlags BINARY [ "revision", revision ] with
+                | Error error -> return Error error
+                | Ok() ->
+                    return!
+                        core.TryParse(
+                            core.CommandIn(
+                                dir,
+                                [ "run"
+                                  "list"
+                                  "--limit"
+                                  string limit
+                                  "--commit"
+                                  revision
+                                  "--json"
+                                  RUN_FIELDS ]
+                            ),
+                            GitHubParse.parseRunList
+                        )
+        }
+
     /// A single workflow run by id (`gh run view <id> --json …`).
     member _.RunView(dir: string, id: uint64) =
         core.TryParse(core.CommandIn(dir, [ "run"; "view"; string id; "--json"; RUN_FIELDS ]), GitHubParse.parseRun)
@@ -851,6 +881,9 @@ and [<Sealed>] GitHubAt internal (github: GitHub, dir: string) =
     /// Whether the user is authenticated (`gh auth status` exits zero).
     member _.AuthStatus() = github.AuthStatus()
 
+    /// The login selected by this client's authentication context.
+    member _.AuthIdentity() = github.AuthIdentity()
+
     /// Whether the user is authenticated for `host` specifically
     /// (`gh auth status --hostname <host>`).
     member _.AuthStatusFor(host: GitHubHost) = github.AuthStatusFor host
@@ -933,6 +966,10 @@ and [<Sealed>] GitHubAt internal (github: GitHub, dir: string) =
 
     /// Recent workflow runs, newest first (`gh run list …`).
     member _.RunList(limit: int, branch: string option) = github.RunList(dir, limit, branch)
+
+    /// Workflow runs selected by one exact commit id.
+    member _.RunListForRevision(limit: int, revision: string) =
+        github.RunListForRevision(dir, limit, revision)
 
     /// Active GitHub Actions workflow definitions, up to 50 (`gh workflow list …`).
     member _.WorkflowList() = github.WorkflowList(dir)

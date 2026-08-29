@@ -5,9 +5,8 @@
 application outcomes; `VcsToolkit.Agent.Server` is only the argv/stdout/stderr/exit-code
 adapter packaged as a .NET global tool.
 
-The implemented operations are the read-only `probe`, `inspect`, and `changes` outcomes plus
-the checked mutation `commit`. The other v1 names are reserved now so an agent can distinguish a planned capability from an
-unknown command without relying on human-readable diagnostics. The broader delivery
+The implemented operations are the read-only `probe`, `inspect`, `changes`, `ci status`, and
+`ci wait` outcomes plus the checked `commit` and `publish` mutations. The broader delivery
 sequence is documented in the [agent interface roadmap](agent-interface-roadmap.md).
 
 ## Installation
@@ -33,14 +32,12 @@ dotnet tool install --global vcs-agent --version 0.1.0 --add-source ./artifacts
 | `inspect` | `inspect` | supported | no |
 | `changes` | `changes` | supported | no |
 | `commit` | `commit` | supported | yes |
-| `publish` | `publish` | planned; returns `unsupported` | yes |
-| `ci status` | `ci.status` | planned; returns `unsupported` | no |
-| `ci wait` | `ci.wait` | planned; returns `unsupported` | no |
+| `publish` | `publish` | supported | yes |
+| `ci status` | `ci.status` | supported | no |
+| `ci wait` | `ci.wait` | supported | no |
 
-There is no general raw-command operation. A declared but unavailable outcome returns
-`unsupported` before any VCS command can run, with `fallbackReason` set to
-`operation-not-implemented`. An unrecognized or incomplete command returns
-`invalid-input` instead.
+There is no general raw-command operation. An unavailable backend or forge capability returns
+typed `unsupported`; an unrecognized or incomplete command returns `invalid-input` instead.
 
 ## Probe
 
@@ -192,6 +189,71 @@ The reusable API uses `CommitRequest.Create(repositoryPath, paths, message)`, op
 `WithOutputLimit`, and a `CancellationToken`; its result and the CLI renderer share the same
 v1 envelope and full-output budget.
 
+## Publish
+
+```sh
+vcs-agent publish --repo . --branch feature --remote origin \
+  --revision 0123456789abcdef0123456789abcdef01234567 \
+  --forge github --account alice --target main --title "Add feature" --body "Details"
+```
+
+`publish` requires every identity input shown above except the optional body. Singleton options
+cannot be repeated. The revision must be a full 40- or 64-hex commit id, the selected local
+branch/bookmark must resolve to that revision, and the named remote must exist and identify the
+selected public forge host. The authenticated GitHub or GitLab username must match `--account`.
+Gitea and an unclassifiable/self-hosted remote return typed `unsupported` where the available CLI
+surface cannot prove that identity. Checked Jujutsu publication currently supports only an
+explicit `origin` remote; another named Jujutsu remote is refused instead of being silently
+substituted.
+
+Before the first remote mutation, the outcome records the canonical root, detected backend,
+forge/account, source branch/bookmark, remote, requested local revision, and observed remote
+revision. Git publishes the exact revision with an explicit revision-to-branch refspec. After the
+push (or when the remote was already exact), it fetches the named remote and requires the observed
+remote ref to equal the requested revision. A mismatch cannot produce success.
+
+The workflow then queries open PRs/MRs for the exact source and target pair. One existing match is
+returned with disposition `existing`; when there is no match, it creates one and queries again; multiple matches
+are an error. This makes a retry after an already-completed push or PR/MR creation idempotent and
+prevents duplicate creation. A late push, fetch, or forge error carries bounded pre/post evidence
+with `completion: "ambiguous"`; only a proven remote revision plus one exact PR/MR yields
+`completion: "verified"`.
+
+The reusable form is `Agent.publish (PublishRequest.Create(...)) cancellationToken`. It applies
+the same validation, cancellation, output-budget, and evidence rules before returning an
+`AgentEnvelope`.
+
+## Exact-revision CI
+
+```sh
+vcs-agent ci status --repo . --branch feature --remote origin \
+  --revision 0123456789abcdef0123456789abcdef01234567 \
+  --forge github --account alice
+
+vcs-agent ci wait --repo . --branch feature --remote origin \
+  --revision 0123456789abcdef0123456789abcdef01234567 \
+  --forge gitlab --account alice --poll-seconds 5 \
+  --deadline-seconds 1800 --inactivity-seconds 600
+```
+
+Both commands require the same explicit repository, branch/bookmark, remote, full revision,
+forge, and account identity. Preflight fetches the selected remote and proves that its selected ref
+is at the requested revision before consulting CI. GitHub uses `gh run list --commit <revision>`;
+GitLab uses the project pipelines API with its `sha` filter. Every returned run is checked again
+for both the exact revision and selected branch. Gitea exact-revision CI is typed `unsupported`.
+
+CI data distinguishes `no-runs`, `pending`, terminal `success`, `failure`, `cancelled`, and
+`skipped`, plus a terminal structured `revision-mismatch` error if the forge returns another
+revision or branch. Unknown completed conclusions fail closed as `failure`; only completed/passing
+evidence is `success`. `ci status` returns one observation. `ci wait` polls the same source until a
+terminal state, caller cancellation, the overall deadline, or the period without a changed state or
+run signature reaches the inactivity deadline. Timeout and cancellation preserve the last bounded
+CI observation when one exists.
+
+The reusable requests are `CiStatusRequest.Create(...)` and `CiWaitRequest.Create(...)`.
+`CiWaitRequest` additionally exposes `WithPolling`, `WithDeadline`, and
+`WithInactivityDeadline`; all three durations must be positive.
+
 ## Envelope and stream rules
 
 Every invocation writes exactly one LF-terminated JSON document to stdout. Property order
@@ -201,8 +263,8 @@ and spelling are golden-tested. The top-level fields are:
 - `operation`: the canonical operation name;
 - `status`: `success` or `error`;
 - `terminal`: whether this outcome is terminal rather than still running;
-- `data`: operation-specific typed data, including bounded ambiguous commit evidence after a
-  mutating call can have started; otherwise `null` on error;
+- `data`: operation-specific typed data, including bounded ambiguous commit/publication evidence
+  and the last CI observation on a bounded wait stop; otherwise `null` on error;
 - `error`: structured error details, or `null` on success;
 - `warnings`: bounded `{ code, message }` diagnostics that do not change status;
 - `fallbackReason`: a machine-readable reason for visible lower-level fallback, or
@@ -219,7 +281,8 @@ minimum accepted value is 512 bytes. Backend overflow is classified as `output-l
 before partial content can become typed operation data. The reusable `inspect`, `changes`, and `commit`
 APIs measure the complete envelope at their return boundary; if it would exceed the same
 budget, they return a complete
-`output-limit` error envelope instead. Its error object sets `truncated: true` and reports
+`publish`, `ci status`, and `ci wait` apply the same reusable-API and renderer boundary. An
+oversized complete outcome becomes an `output-limit` error envelope. Its error object sets `truncated: true` and reports
 both `limitBytes` and the complete result's `requiredBytes`; partial operation data is never
 presented as a valid typed result or valid JSON. Before commit mutation, the prospective budget
 includes both verified-success and compact ambiguous-failure evidence, so a late failure can
@@ -245,13 +308,15 @@ The error code is part of contract v1 and maps to one stable process exit code:
 | `cancellation` | 27 | The caller cancelled the operation. |
 | `output-limit` | 28 | Complete output would exceed the stdout budget. |
 | `external-command` | 29 | A typed underlying CLI execution failed outside the narrower categories. |
+| `revision-mismatch` | 30 | Local, remote, or forge evidence belongs to another revision/ref. |
 
-Success exits 0. Tests enumerate all ten error mappings and require each exit code to be
-distinct.
+Terminal success exits 0. A successful non-terminal CI observation (`pending` or `no-runs`) exits
+10 with the normal JSON envelope and empty stderr. Tests enumerate all error mappings and require
+each exit code to be distinct.
 
 ## Redaction and process boundary
 
-Every string in inspect, changes, and commit data, envelope errors, and warnings passes through the
+Every string in inspect, changes, commit, publication, and CI data, envelope errors, and warnings passes through the
 contract redactor again at final serialization. It removes URL userinfo, bearer values, and
 named token/password/secret/API-key/authorization values from remote URLs, paths, revision
 text, forge metadata, and diff content even when a caller constructs a public envelope
@@ -304,8 +369,8 @@ same published binary before consuming it:
 processkit-cli events --file ./run/events.jsonl --validate
 ```
 
-The supervised process exit preserves a child exit unchanged. Consequently, `0` and the
-`vcs-agent` error range `20`–`29` retain their direct meanings. ProcessKit-CLI owns the
+The supervised process exit preserves a child exit unchanged. Consequently, `0`, non-terminal
+`10`, and the `vcs-agent` error range `20`–`30` retain their direct meanings. ProcessKit-CLI owns the
 separate reserved range `100`–`119`; for the boundaries used here, `106` is an overall or
 idle timeout (distinguished by `timeout.reason`) and `108` is control-plane cancellation.
 The terminal `runner_exit` record repeats the final `code`, its `source`, and the optional

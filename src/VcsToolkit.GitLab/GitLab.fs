@@ -144,6 +144,10 @@ type GitLab private (core: ManagedClient) =
             | Ok code -> return Ok(code = 0)
         }
 
+    /// The username selected by this client's authentication context (`glab api user`).
+    member _.AuthIdentity() =
+        core.TryParse(core.Command [ "api"; "user" ], GitLabParse.parseUserName)
+
     /// Raw GitLab REST/GraphQL response body (`glab api <endpoint>`), run in the bound repo
     /// `dir` so a relative endpoint resolves against *that* project rather than whatever repo
     /// the process cwd happens to be in.
@@ -349,6 +353,18 @@ type GitLab private (core: ManagedClient) =
             core.CommandIn(dir, [ "mr"; "view"; string number; "--output"; "json" ]),
             GitLabParse.parseCiStatus
         )
+
+    /// Project pipelines selected by one exact commit id through GitLab's typed JSON API.
+    member _.PipelineListForRevision(dir: string, revision: string) =
+        task {
+            match checkFlags BINARY [ "revision", revision ] with
+            | Error error -> return Error error
+            | Ok() ->
+                let endpoint =
+                    $"projects/:id/pipelines?sha={Uri.EscapeDataString revision}&per_page=100"
+
+                return! core.TryParse(core.CommandIn(dir, [ "api"; endpoint ]), GitLabParse.parsePipelineList)
+        }
 
     /// The merge request's unified diff, parsed into per-file `FileDiff` values
     /// (`glab mr diff <n>`, then `VcsToolkit.Diff.parseDiff`). The number is a positional
@@ -576,6 +592,9 @@ and [<Sealed>] GitLabAt internal (gitlab: GitLab, dir: string) =
     /// Whether the user is authenticated (`glab auth status` exits zero).
     member _.AuthStatus() = gitlab.AuthStatus()
 
+    /// The username selected by this client's authentication context.
+    member _.AuthIdentity() = gitlab.AuthIdentity()
+
     // --- Modelled methods (dir injected as the first argument) ----------------
 
     /// Raw GitLab REST/GraphQL response body for the bound `dir` (`glab api <endpoint>`).
@@ -636,6 +655,10 @@ and [<Sealed>] GitLabAt internal (gitlab: GitLab, dir: string) =
 
     /// The MR's pipeline status, bucketed (`glab mr view <id> --output json`).
     member _.MrChecks(number: uint64) = gitlab.MrChecks(dir, number)
+
+    /// Project pipelines selected by one exact commit id.
+    member _.PipelineListForRevision(revision: string) =
+        gitlab.PipelineListForRevision(dir, revision)
 
     /// The merge request's unified diff, parsed into per-file `FileDiff` values
     /// (`glab mr diff <n>`).

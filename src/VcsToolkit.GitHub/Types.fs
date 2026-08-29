@@ -44,7 +44,7 @@ module internal Constants =
     /// `--json` field set for a workflow run (`run list`/`run view`).
     [<Literal>]
     let RUN_FIELDS =
-        "databaseId,name,displayTitle,status,conclusion,workflowName,headBranch,event,url,createdAt"
+        "databaseId,name,displayTitle,status,conclusion,workflowName,headBranch,headSha,event,url,createdAt"
 
     /// `--json` field set for a GitHub Actions workflow definition (`workflow list`).
     [<Literal>]
