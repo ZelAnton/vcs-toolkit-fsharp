@@ -214,7 +214,16 @@ module internal GitHubForge =
         task {
             match! gh.PrListForBranchesComplete(dir, repository, sourceBranch, targetBranch) with
             | Error error -> return Error(ForgeError.Forge error)
-            | Ok pullRequests -> return Ok(pullRequests |> List.map mapPr)
+            | Ok pullRequests ->
+                return
+                    Ok(
+                        pullRequests
+                        |> List.map (fun candidate ->
+                            { ChangeRequest = mapPr candidate.PullRequest
+                              SourceRepository = candidate.SourceRepository
+                              TargetRepository = None
+                              HeadRevision = candidate.HeadRevision })
+                    )
         }
 
     let prView (gh: VcsToolkit.GitHub.GitHub) (dir: string) (number: uint64) =

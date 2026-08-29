@@ -216,10 +216,13 @@ remote ref to equal the requested revision. A mismatch cannot produce success.
 
 The workflow queries the complete open PR/MR inventory for the exact source and target pair.
 GitLab follows every API page; GitHub requests up to a bounded safety limit and fails closed if that
-limit is reached because absence or uniqueness is then unproved. One existing match is returned
-with disposition `existing`; when the proven-complete search has no match, it creates one and
-queries again; multiple matches are an error. This makes a retry after an already-completed push or
-PR/MR creation idempotent and prevents duplicate creation. A late push, fetch, or forge error carries bounded pre/post evidence
+limit is reached because absence or uniqueness is then unproved. Every candidate must also prove
+that its source repository/project is the selected remote project and that its head revision is the
+requested revision. A proven foreign-project or wrong-revision row is not a match; a row missing
+either proof fails closed before creation. One exact existing match is returned with disposition
+`existing`; when the proven-complete search has no exact match, it creates one and queries again;
+multiple exact matches are an error. This makes a retry after an already-completed push or PR/MR
+creation idempotent and prevents duplicate creation. A late push, fetch, or forge error carries bounded pre/post evidence
 with `completion: "ambiguous"`; only a proven remote revision plus one exact PR/MR yields
 `completion: "verified"`.
 

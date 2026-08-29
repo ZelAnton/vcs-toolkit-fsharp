@@ -44,6 +44,14 @@ type MergeRequest =
         Milestone: string
     }
 
+/// Internal recovery row whose source/target project ids and head revision are required before
+/// the Agent may treat a merge request as idempotent recovery evidence.
+type internal RecoveryMergeRequest =
+    { MergeRequest: MergeRequest
+      SourceProjectId: uint64
+      TargetProjectId: uint64
+      HeadRevision: string }
+
 /// One GitLab pipeline returned by the project pipelines API for an exact revision.
 type Pipeline =
     { Id: uint64
@@ -212,6 +220,28 @@ module internal GitLabParse =
           UpdatedAt = Json.strOr el "updated_at"
           Milestone = Json.nestedStr el "milestone" "title" }
 
+    let private toRecoveryMr (el: JsonElement) : Result<RecoveryMergeRequest, string> =
+        let sourceProjectId = Json.u64Or el "source_project_id"
+        let targetProjectId = Json.u64Or el "target_project_id"
+
+        let revision =
+            match Json.strOr el "sha" with
+            | value when not (System.String.IsNullOrWhiteSpace value) -> value
+            | _ -> Json.nestedStr el "diff_refs" "head_sha"
+
+        if sourceProjectId = 0UL then
+            Error "merge request recovery candidate has no provable source project"
+        elif targetProjectId = 0UL then
+            Error "merge request recovery candidate has no provable target project"
+        elif System.String.IsNullOrWhiteSpace revision then
+            Error "merge request recovery candidate has no provable head revision"
+        else
+            Ok
+                { MergeRequest = toMr el
+                  SourceProjectId = sourceProjectId
+                  TargetProjectId = targetProjectId
+                  HeadRevision = revision }
+
     let private toRepo (el: JsonElement) : Repo =
         { Name = Json.strOr el "name"
           PathWithNamespace = Json.strOr el "path_with_namespace"
@@ -255,6 +285,8 @@ module internal GitLabParse =
 
     /// Parse a `glab mr list` array.
     let parseMrList = Json.parseArray toMr
+    /// Parse Agent recovery candidates, requiring project and exact revision evidence.
+    let parseRecoveryMrList = Json.parseArrayResult toRecoveryMr
     /// Parse a single `glab mr view` object.
     let parseMr = Json.parseObject toMr
     /// Parse a `glab repo view` object.

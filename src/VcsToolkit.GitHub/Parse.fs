@@ -37,6 +37,13 @@ type PullRequest =
         Milestone: string
     }
 
+/// Internal recovery row whose required source repository and head revision are proven by
+/// GitHub's typed JSON fields before the Agent may treat a PR as idempotent recovery evidence.
+type internal RecoveryPullRequest =
+    { PullRequest: PullRequest
+      SourceRepository: string
+      HeadRevision: string }
+
 /// An issue (`gh issue list --json …`; `gh issue view` additionally fills `Body`/`Url`).
 type Issue =
     {
@@ -273,6 +280,31 @@ module internal GitHubParse =
           UpdatedAt = Json.strOr el "updatedAt"
           Milestone = Json.nestedStr el "milestone" "title" }
 
+    let private toRecoveryPr (el: JsonElement) : Result<RecoveryPullRequest, string> =
+        let repository =
+            match Json.nestedStr el "headRepository" "nameWithOwner" with
+            | value when not (System.String.IsNullOrWhiteSpace value) -> value
+            | _ ->
+                let owner = Json.nestedStr el "headRepositoryOwner" "login"
+                let name = Json.nestedStr el "headRepository" "name"
+
+                if System.String.IsNullOrWhiteSpace owner || System.String.IsNullOrWhiteSpace name then
+                    ""
+                else
+                    $"{owner}/{name}"
+
+        let revision = Json.strOr el "headRefOid"
+
+        if System.String.IsNullOrWhiteSpace repository then
+            Error "pull request recovery candidate has no provable head repository"
+        elif System.String.IsNullOrWhiteSpace revision then
+            Error "pull request recovery candidate has no provable head revision"
+        else
+            Ok
+                { PullRequest = toPr el
+                  SourceRepository = repository
+                  HeadRevision = revision }
+
     let private toIssue (el: JsonElement) : Issue =
         { Number = Json.u64Or el "number"
           Title = Json.strOr el "title"
@@ -369,6 +401,8 @@ module internal GitHubParse =
 
     /// Parse a `gh pr list` array.
     let parsePrList = Json.parseArray toPr
+    /// Parse Agent recovery candidates, requiring head repository and exact revision evidence.
+    let parseRecoveryPrList = Json.parseArrayResult toRecoveryPr
     /// Parse a single `gh pr view` object.
     let parsePr = Json.parseObject toPr
     /// Parse a `gh issue list` array.

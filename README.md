@@ -97,7 +97,8 @@ ambiguous and carries bounded best-effort postflight evidence without claiming a
 revision. Unrelated dirt remains preserved. `publish` requires explicit repository,
 branch/bookmark, remote, full revision, forge/account, target, and title; it pushes only that
 revision, proves the selected remote ref, pins every forge call to that remote's exact repository,
-and creates or recovers one exact PR/MR only after a complete no-duplicate search. CI status/wait
+and creates or recovers one exact PR/MR only after a complete search proves the candidate's source
+project and head revision. CI status/wait
 prove the same published revision before consuming complete GitHub/GitLab inventories by commit
 id; wait adds caller cancellation plus bounded overall and inactivity deadlines. `probe` reports
 the operation-by-backend/forge matrix, so Gitea is excluded from publish and exact-revision CI

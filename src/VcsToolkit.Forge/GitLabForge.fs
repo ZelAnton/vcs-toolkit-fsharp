@@ -215,7 +215,16 @@ module internal GitLabForge =
         task {
             match! glab.MrListForBranchesComplete(dir, host, projectPath, sourceBranch, targetBranch) with
             | Error error -> return Error(ForgeError.Forge error)
-            | Ok mergeRequests -> return Ok(mergeRequests |> List.map mapMr)
+            | Ok mergeRequests ->
+                return
+                    Ok(
+                        mergeRequests
+                        |> List.map (fun candidate ->
+                            { ChangeRequest = mapMr candidate.MergeRequest
+                              SourceRepository = string candidate.SourceProjectId
+                              TargetRepository = Some(string candidate.TargetProjectId)
+                              HeadRevision = candidate.HeadRevision })
+                    )
         }
 
     let prCreate (glab: VcsToolkit.GitLab.GitLab) (dir: string) (spec: PrCreate) =

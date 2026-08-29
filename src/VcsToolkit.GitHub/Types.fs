@@ -27,6 +27,11 @@ module internal Constants =
     let PR_FIELDS =
         "number,title,state,headRefName,baseRefName,url,labels,assignees,author,createdAt,updatedAt,milestone"
 
+    /// Agent recovery additionally proves the head repository and exact revision for every
+    /// candidate. Kept separate so the general PR surface and its public DTO stay unchanged.
+    let RECOVERY_PR_FIELDS =
+        PR_FIELDS + ",headRepository,headRepositoryOwner,headRefOid"
+
     /// `--json` field set for `repo view`.
     [<Literal>]
     let REPO_FIELDS = "name,owner,description,url,isPrivate,defaultBranchRef"

@@ -1233,12 +1233,50 @@ module Agent =
         )
         |> enforceBudget outputLimitBytes
 
-    let private matchingOpenChangeRequests branch target (requests: ForgePr list) =
-        requests
-        |> List.filter (fun request ->
-            request.State = ForgePrState.Open
-            && request.SourceBranch = branch
-            && request.TargetBranch = target)
+    let private matchingOpenChangeRequests
+        forge
+        selectedRepository
+        branch
+        target
+        revision
+        (candidates: AgentChangeRequestCandidate list)
+        =
+        let sameBranches candidate =
+            candidate.ChangeRequest.State = ForgePrState.Open
+            && candidate.ChangeRequest.SourceBranch = branch
+            && candidate.ChangeRequest.TargetBranch = target
+
+        let relevant = candidates |> List.filter sameBranches
+
+        let missingProof candidate =
+            String.IsNullOrWhiteSpace candidate.SourceRepository
+            || String.IsNullOrWhiteSpace candidate.HeadRevision
+            || (forge = AgentForgeKind.GitLab
+                && (candidate.TargetRepository |> Option.forall String.IsNullOrWhiteSpace))
+
+        if relevant |> List.exists missingProof then
+            Error "open PR/MR recovery candidate is missing source repository or exact head revision evidence"
+        else
+            relevant
+            |> List.filter (fun candidate ->
+                let sameRepository =
+                    match forge with
+                    | AgentForgeKind.GitHub ->
+                        String.Equals(
+                            candidate.SourceRepository,
+                            selectedRepository,
+                            StringComparison.OrdinalIgnoreCase
+                        )
+                    | AgentForgeKind.GitLab ->
+                        candidate.TargetRepository
+                        |> Option.exists (fun targetRepository ->
+                            String.Equals(candidate.SourceRepository, targetRepository, StringComparison.Ordinal))
+                    | AgentForgeKind.Gitea -> false
+
+                sameRepository
+                && String.Equals(candidate.HeadRevision, revision, StringComparison.OrdinalIgnoreCase))
+            |> List.map _.ChangeRequest
+            |> Ok
 
     let private publishCoreUnbounded
         (repo: Repo)
@@ -1473,11 +1511,28 @@ module Agent =
                                                     | Ok existing ->
                                                         match
                                                             matchingOpenChangeRequests
+                                                                request.Forge
+                                                                repository.ProjectPath
                                                                 request.Branch
                                                                 request.TargetBranch
+                                                                request.Revision
                                                                 existing
                                                         with
-                                                        | [ changeRequest ] ->
+                                                        | Error message ->
+                                                            return
+                                                                failure
+                                                                    operation
+                                                                    AgentErrorCode.Forge
+                                                                    message
+                                                                    false
+                                                                    false
+                                                                    None
+                                                                    None
+                                                                    None
+                                                                |> ambiguousPublishFailure
+                                                                    outputLimitBytes
+                                                                    ambiguousData
+                                                        | Ok [ changeRequest ] ->
                                                             let data =
                                                                 { ambiguousData with
                                                                     ChangeRequest =
@@ -1491,7 +1546,7 @@ module Agent =
                                                                     Completion = PublishCompletion.Verified }
 
                                                             return success operation (AgentPayload.Publish data)
-                                                        | _ :: _ :: _ ->
+                                                        | Ok(_ :: _ :: _) ->
                                                             return
                                                                 failure
                                                                     operation
@@ -1505,7 +1560,7 @@ module Agent =
                                                                 |> ambiguousPublishFailure
                                                                     outputLimitBytes
                                                                     ambiguousData
-                                                        | [] ->
+                                                        | Ok [] ->
                                                             let spec =
                                                                 PrCreate
                                                                     .Create(request.Title, request.Body)
@@ -1524,11 +1579,14 @@ module Agent =
                                                             | Ok requests ->
                                                                 match
                                                                     matchingOpenChangeRequests
+                                                                        request.Forge
+                                                                        repository.ProjectPath
                                                                         request.Branch
                                                                         request.TargetBranch
+                                                                        request.Revision
                                                                         requests
                                                                 with
-                                                                | [ changeRequest ] ->
+                                                                | Ok [ changeRequest ] ->
                                                                     let data =
                                                                         { ambiguousData with
                                                                             ChangeRequest =
@@ -1548,7 +1606,21 @@ module Agent =
                                                                             Completion = PublishCompletion.Verified }
 
                                                                     return success operation (AgentPayload.Publish data)
-                                                                | _ ->
+                                                                | Error message ->
+                                                                    return
+                                                                        failure
+                                                                            operation
+                                                                            AgentErrorCode.Forge
+                                                                            message
+                                                                            false
+                                                                            false
+                                                                            None
+                                                                            None
+                                                                            None
+                                                                        |> ambiguousPublishFailure
+                                                                            outputLimitBytes
+                                                                            ambiguousData
+                                                                | Ok _ ->
                                                                     let envelope =
                                                                         match created with
                                                                         | Error error ->

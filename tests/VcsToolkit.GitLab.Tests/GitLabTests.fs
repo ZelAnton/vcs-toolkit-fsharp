@@ -69,6 +69,27 @@ type ParseTests() =
         | other -> Assert.Fail $"expected one MR, got {other.Length}"
 
     [<Test>]
+    member _.RecoveryMrListRequiresProjectIdsAndHeadRevision() =
+        let revision = String('b', 40)
+
+        let json =
+            $"""[{{"iid":12,"title":"Add feature","state":"opened","source_branch":"feat","target_branch":"main","source_project_id":17,"target_project_id":17,"sha":"{revision}"}}]"""
+
+        match expectOk (GitLabParse.parseRecoveryMrList json) with
+        | [ candidate ] ->
+            Assert.That(candidate.SourceProjectId, Is.EqualTo 17UL)
+            Assert.That(candidate.TargetProjectId, Is.EqualTo 17UL)
+            Assert.That(candidate.HeadRevision, Is.EqualTo revision)
+            Assert.That(candidate.MergeRequest.Iid, Is.EqualTo 12UL)
+        | other -> Assert.Fail $"expected one recovery candidate, got {other.Length}"
+
+        for incomplete in
+            [ $"""[{{"iid":12,"target_project_id":17,"sha":"{revision}"}}]"""
+              $"""[{{"iid":12,"source_project_id":17,"sha":"{revision}"}}]"""
+              """[{"iid":12,"source_project_id":17,"target_project_id":17}]""" ] do
+            Assert.That(Result.isError (GitLabParse.parseRecoveryMrList incomplete), Is.True)
+
+    [<Test>]
     member _.MrToleratesMissingOptionalFields() =
         let json = """{"iid":5,"title":"wip","state":"opened","draft":true}"""
         let mr = expectOk (GitLabParse.parseMr json)
@@ -309,13 +330,19 @@ type ClientTests() =
     [<Test>]
     member _.MrListForBranchesCompletePinsHostProjectAndAllPages() : Task =
         task {
+            let revision = String('b', 40)
+
             let json =
-                """[{"iid":1,"title":"t","state":"opened","source_branch":"feat","target_branch":"main"}]"""
+                $"""[{{"iid":1,"title":"t","state":"opened","source_branch":"feat","target_branch":"main","source_project_id":17,"target_project_id":17,"sha":"{revision}"}}]"""
 
             let glab, args = capturing (Reply.Ok json)
 
             match! glab.MrListForBranchesComplete(".", "gitlab.com", "group/project", "feat", "main") with
-            | Ok [ mr ] -> Assert.That(mr.Iid, Is.EqualTo 1UL)
+            | Ok [ candidate ] ->
+                Assert.That(candidate.MergeRequest.Iid, Is.EqualTo 1UL)
+                Assert.That(candidate.SourceProjectId, Is.EqualTo 17UL)
+                Assert.That(candidate.TargetProjectId, Is.EqualTo 17UL)
+                Assert.That(candidate.HeadRevision, Is.EqualTo revision)
             | Ok xs -> Assert.Fail $"expected one exact MR, got {xs.Length}"
             | Error e -> Assert.Fail $"complete MR search failed: {e}"
 

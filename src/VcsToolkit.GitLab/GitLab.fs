@@ -233,7 +233,7 @@ type GitLab private (core: ManagedClient) =
                 return!
                     core.TryParse(
                         core.CommandIn(dir, [ "api"; "--hostname"; host; "--paginate"; endpoint ]),
-                        GitLabParse.parseMrList
+                        GitLabParse.parseRecoveryMrList
                     )
         }
 

@@ -303,6 +303,15 @@ type ForgePr =
         Milestone: string option
     }
 
+/// Internal PR/MR recovery evidence. `SourceRepository` is GitHub's canonical
+/// `owner/repository` or GitLab's canonical numeric project id. GitLab also supplies the
+/// target project id, whose equality proves that the source is the selected target project.
+type internal AgentChangeRequestCandidate =
+    { ChangeRequest: ForgePr
+      SourceRepository: string
+      TargetRepository: string option
+      HeadRevision: string }
+
 /// A repository (GitHub) / project (GitLab), unified. (Gitea's `tea` has no current-repo
 /// view, so `repoView` is `Unsupported` there.)
 type ForgeRepo =

@@ -371,11 +371,11 @@ type GitHub private (core: ManagedClient) =
                               "--limit"
                               string CompleteInventoryLimit
                               "--json"
-                              PR_FIELDS
+                              RECOVERY_PR_FIELDS
                               "--repo"
                               repository ]
                         ),
-                        GitHubParse.parsePrList
+                        GitHubParse.parseRecoveryPrList
                     )
 
                 match result with

@@ -72,6 +72,25 @@ type ParseTests() =
         | other -> Assert.Fail $"expected one PR, got {other.Length}"
 
     [<Test>]
+    member _.RecoveryPrListRequiresCanonicalHeadRepositoryAndRevision() =
+        let revision = String('a', 40)
+
+        let json =
+            $"""[{{"number":42,"title":"Add feature","state":"OPEN","headRefName":"feat","baseRefName":"main","url":"u","headRepository":{{"name":"repo","nameWithOwner":"Example/Repo"}},"headRepositoryOwner":{{"login":"Example"}},"headRefOid":"{revision}"}}]"""
+
+        match expectOk (GitHubParse.parseRecoveryPrList json) with
+        | [ candidate ] ->
+            Assert.That(candidate.SourceRepository, Is.EqualTo "Example/Repo")
+            Assert.That(candidate.HeadRevision, Is.EqualTo revision)
+            Assert.That(candidate.PullRequest.Number, Is.EqualTo 42UL)
+        | other -> Assert.Fail $"expected one recovery candidate, got {other.Length}"
+
+        for incomplete in
+            [ """[{"number":42,"headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]"""
+              """[{"number":42,"headRepository":{"nameWithOwner":"example/repo"}}]""" ] do
+            Assert.That(Result.isError (GitHubParse.parseRecoveryPrList incomplete), Is.True)
+
+    [<Test>]
     member _.PrReadsNullHeadRefNameAsEmpty() =
         // gh sends a present `null` for a deleted head branch — that must read as "".
         let json =
@@ -435,13 +454,18 @@ type ClientTests() =
     [<Test>]
     member _.PrListForBranchesCompletePinsExactRepositoryAndPair() : Task =
         task {
+            let revision = String('a', 40)
+
             let json =
-                """[{"number":1,"title":"t","state":"OPEN","headRefName":"feat","baseRefName":"main","url":"u"}]"""
+                $"""[{{"number":1,"title":"t","state":"OPEN","headRefName":"feat","baseRefName":"main","url":"u","headRepository":{{"name":"repo","nameWithOwner":"example/repo"}},"headRepositoryOwner":{{"login":"example"}},"headRefOid":"{revision}"}}]"""
 
             let gh, args = capturing (Reply.Ok json)
 
             match! gh.PrListForBranchesComplete(".", "github.com/example/repo", "feat", "main") with
-            | Ok [ pr ] -> Assert.That(pr.Number, Is.EqualTo 1UL)
+            | Ok [ candidate ] ->
+                Assert.That(candidate.PullRequest.Number, Is.EqualTo 1UL)
+                Assert.That(candidate.SourceRepository, Is.EqualTo "example/repo")
+                Assert.That(candidate.HeadRevision, Is.EqualTo revision)
             | Ok xs -> Assert.Fail $"expected one exact PR, got {xs.Length}"
             | Error e -> Assert.Fail $"complete PR search failed: {e}"
 
@@ -457,7 +481,7 @@ type ClientTests() =
                   "--limit"
                   "1000"
                   "--json"
-                  PR_FIELDS
+                  RECOVERY_PR_FIELDS
                   "--repo"
                   "github.com/example/repo" ]
                 args
