@@ -16,7 +16,9 @@ global-tool adapter. Contract v1 implements the read-only `probe`, `inspect`, `c
 `publish` mutations. Backend/forge capability gaps return typed `unsupported`. The exact current
 contract is documented in [vcs-agent v1 contract](agent-interface.md). The standalone
 `using-vcs-agent` Skill, its factual-drift proof, and the complete tool-package release gate are
-implemented.
+implemented. MCP convergence is also complete: both transports call the same configured-handle
+outcome services, capability-aware server instructions reduce discovery noise, and compatible
+low-level tools remain available for composition.
 
 ## Problem statement
 
@@ -347,6 +349,10 @@ Exit condition: direct and indirect repository prompts select the intended workf
 at an acceptable measured rate, while negative prompts remain precise.
 
 ### Phase 5 — MCP convergence
+
+Implemented. The shared, versioned outcome corpus exercises Agent wire and MCP intent boundaries
+for unsupported, denied, output-limit, and cancellation results while binding its provenance to
+the current Skill contract and adapter sources.
 
 - Move shared outcome orchestration below both CLI and MCP adapters, with
   `VcsToolkit.Agent` as the transport-neutral boundary rather than duplicating

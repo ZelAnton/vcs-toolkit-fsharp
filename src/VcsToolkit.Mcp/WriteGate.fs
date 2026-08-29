@@ -15,7 +15,9 @@ module WriteTools =
 
     /// Every write-gated tool name.
     let all =
-        [ "repo_try_merge"
+        [ "agent_commit"
+          "agent_publish"
+          "repo_try_merge"
           "repo_commit"
           "repo_checkout"
           "repo_fetch"

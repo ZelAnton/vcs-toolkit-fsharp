@@ -13,6 +13,10 @@ a model; it verifies the already-recorded observation and its exact input proven
 - corpus.v1.json holds direct, indirect, negative, unsupported, and mutating
   scenarios across Git/Jujutsu, GitHub/GitLab/Gitea, and
   Windows/Linux/macOS-specific cases.
+- outcome-corpus.v1.json is the transport-equivalence golden corpus. The MCP tests run its
+  denied, unsupported, cancellation, and complete-envelope output-limit cases against both the
+  Agent wire used by CLI/Skill and the MCP intent adapter, then fail closed if any envelope or
+  SHA-256 provenance input differs.
 - offline/observations.v1.json is the model-forward routing observation plus clearly
   separated supplemental command/outcome/evidence fixture fields.
 - offline/results.v1.json is the recorded baseline checked in ordinary CI.

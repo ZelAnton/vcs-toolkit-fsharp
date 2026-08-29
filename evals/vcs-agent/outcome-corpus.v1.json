@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "corpusVersion": "outcomes-v1",
+  "contractVersion": "1",
+  "provenance": [
+    {
+      "path": "src/VcsToolkit.Agent/Contract.fs",
+      "sha256": "8ff0e8ff7f1ce659121adf1dce58d532393ac9c0d1e7fa5d865b45795d022df0"
+    },
+    {
+      "path": "src/VcsToolkit.Agent/Agent.fs",
+      "sha256": "6b8f4fb07fd908830a2ce7e31d32e0a57939ab68c53c66112fc3b9cb759b32c8"
+    },
+    {
+      "path": "src/VcsToolkit.Agent.Server/Program.fs",
+      "sha256": "5dd04a34e6bc384836a180c0114b8755a37c3be177aa743b211b6b030c47eed6"
+    },
+    {
+      "path": "src/VcsToolkit.Mcp/Server.fs",
+      "sha256": "a217d7e806cb453773eaefeee0681192385d04c8348e4dbdd593d2bf91dee6af"
+    },
+    {
+      "path": "src/VcsToolkit.Mcp/Catalog.fs",
+      "sha256": "8f8e163be7f5a61929a69e03cf3d52b645cab3a6bba9cb32325dba7138c821db"
+    },
+    {
+      "path": "src/VcsToolkit.Mcp.Server/Program.fs",
+      "sha256": "95095fa141273d596ce8047ec895f1cfe410cc3f6c7ecaa195a2dfeeb730beb4"
+    },
+    {
+      "path": "skills/using-vcs-agent/SKILL.md",
+      "sha256": "790055070fa8f0e45b1b7b59840e6e380186d74a5636a075e050f539374afd94"
+    },
+    {
+      "path": "skills/using-vcs-agent/references/contract.v1.json",
+      "sha256": "09ed413777b0f9b4a1cdba6fa99da1482566198f0a107e5b386e40bcdd2718bc"
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "write-denied",
+      "operation": "commit",
+      "status": "error",
+      "terminal": true,
+      "errorCode": "denied"
+    },
+    {
+      "id": "unsupported-forge",
+      "operation": "publish",
+      "status": "error",
+      "terminal": true,
+      "errorCode": "unsupported"
+    },
+    {
+      "id": "cancellation",
+      "operation": "changes",
+      "status": "error",
+      "terminal": true,
+      "errorCode": "cancellation"
+    },
+    {
+      "id": "output-limit",
+      "operation": "changes",
+      "status": "error",
+      "terminal": true,
+      "errorCode": "output-limit"
+    }
+  ]
+}

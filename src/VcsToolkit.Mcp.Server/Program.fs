@@ -178,10 +178,10 @@ let internal buildServerInfo () : Implementation =
     Implementation(Name = "vcs-mcp", Version = serverVersion ())
 
 /// Build the MCP `Tool` list from the library's catalogue (schema + annotation hints).
-let private buildTools () : ResizeArray<Tool> =
+let internal buildTools (server: VcsMcpServer) : ResizeArray<Tool> =
     let tools = ResizeArray<Tool>()
 
-    for spec in Catalog.all do
+    for spec in Catalog.available server do
         let t = Tool(Name = spec.Name, Description = spec.Description)
         t.InputSchema <- JsonDocument.Parse(Catalog.inputSchema spec).RootElement.Clone()
 
@@ -212,7 +212,7 @@ let private runServer (server: VcsMcpServer) : Task =
     builder.Logging.AddConsole(fun o -> o.LogToStandardErrorThreshold <- LogLevel.Trace)
     |> ignore
 
-    let tools = buildTools ()
+    let tools = buildTools server
 
     let listHandler =
         McpRequestHandler<ListToolsRequestParams, ListToolsResult>(fun _ctx _ct ->
@@ -257,8 +257,7 @@ let private runServer (server: VcsMcpServer) : Task =
             caps.Tools <- ToolsCapability()
             options.Capabilities <- caps
 
-            options.ServerInstructions <-
-                "Drive a git/jj repository (and its forge) through typed tools. Read tools (repo_*/forge_* queries) are always available; mutating tools require the server to have been started with --allow-write or --allow-tools name,..., and reject calls otherwise.")
+            options.ServerInstructions <- Catalog.instructions server)
         .WithStdioServerTransport()
         .WithListToolsHandler(listHandler)
         .WithCallToolHandler(callHandler)

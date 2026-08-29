@@ -5,6 +5,7 @@ open System.IO
 open System.Text
 open System.Threading
 open System.Threading.Tasks
+open VcsToolkit.Agent
 open VcsToolkit.Core
 open VcsToolkit.Forge
 
@@ -415,6 +416,19 @@ type VcsMcpServer
             | Option.None, Option.None, Option.None -> Forge.FromUnknown f.Cwd
             | _ -> invalidOp "forge backend handles are inconsistent")
 
+    let agentOutputLimit = outputBudget |> Option.defaultValue Int32.MaxValue
+
+    let agentForge =
+        forge
+        |> Option.bind (fun configured ->
+            match configured.Kind with
+            | ForgeKind.GitHub -> Some(AgentForgeKind.GitHub, configured)
+            | ForgeKind.GitLab -> Some(AgentForgeKind.GitLab, configured)
+            | ForgeKind.Gitea
+            | ForgeKind.Unknown -> None)
+
+    let agentResult envelope : Result<string, McpError> = Ok(AgentWire.serialize envelope)
+
     // Serializes repo-mutating tools, including request-scoped views, so concurrent calls cannot
     // interleave operations on the same working copy.
     new(repo: Repo, forge: Forge option, writes: WriteGate, outputBudget: int option) =
@@ -432,6 +446,24 @@ type VcsMcpServer
     /// The output-size budget (bytes) applied to large-content read tools; `None` means
     /// no limit.
     member _.OutputBudget = outputBudget
+
+    /// Intent-oriented Agent tools that are meaningful under this server's configured forge and
+    /// write policy. Low-level repo/forge tools remain independently discoverable.
+    member _.AvailableAgentTools =
+        [ "agent_inspect"
+          "agent_changes"
+
+          if writes.Allows "agent_commit" then
+              "agent_commit"
+
+          match agentForge with
+          | Some _ ->
+              if writes.Allows "agent_publish" then
+                  "agent_publish"
+
+              "agent_ci_status"
+              "agent_ci_wait"
+          | None -> () ]
 
     /// Build request-scoped client handles while retaining this server's shared repo lock. The
     /// command clients already compose their configured timeout and cancellation independently,
@@ -531,6 +563,133 @@ type VcsMcpServer
                         return! action f
                     finally
                         writeLock.Release() |> ignore
+        }
+
+    /// Gate and serialize an Agent mutation without translating its typed outcome into an MCP
+    /// protocol error. The same per-repository lock covers low-level and intent writes.
+    member private _.WithAgentRepoWrite
+        (tool: string)
+        (operation: AgentOperation)
+        (action: unit -> Task<Result<string, McpError>>)
+        =
+        task {
+            if not (writes.Allows tool) then
+                return
+                    Agent.denied
+                        operation
+                        $"write tool '{tool}' is disabled; restart the server with --allow-write or --allow-tools naming it"
+                    |> agentResult
+            elif requestCancellation.IsCancellationRequested then
+                return Agent.cancelled operation |> agentResult
+            else
+                try
+                    do! writeLock.WaitAsync requestCancellation
+
+                    try
+                        return! action ()
+                    finally
+                        writeLock.Release() |> ignore
+                with :? OperationCanceledException ->
+                    return Agent.cancelled operation |> agentResult
+        }
+
+    // --- intent outcomes --------------------------------------------------
+
+    /// One transport-neutral inspection outcome for the configured repository.
+    member _.AgentInspect() : Task<Result<string, McpError>> =
+        task {
+            let! envelope = Agent.inspectWith repo forge requestCancellation agentOutputLimit
+            return agentResult envelope
+        }
+
+    /// One transport-neutral changes outcome for the configured repository.
+    member _.AgentChanges(mode: ChangesMode) : Task<Result<string, McpError>> =
+        task {
+            let! envelope = Agent.changesWith repo mode requestCancellation agentOutputLimit
+            return agentResult envelope
+        }
+
+    /// One write-gated, repository-locked commit outcome.
+    member this.AgentCommit(paths: string list, message: string) : Task<Result<string, McpError>> =
+        this.WithAgentRepoWrite "agent_commit" AgentOperation.Commit (fun () ->
+            task {
+                let! envelope = Agent.commitWith repo paths message requestCancellation agentOutputLimit
+                return agentResult envelope
+            })
+
+    /// One write-gated, repository-locked publication outcome. Gitea is intentionally omitted
+    /// until Agent can prove repository identity and exact-revision CI through that forge.
+    member this.AgentPublish
+        (
+            branch: string,
+            remote: string,
+            revision: string,
+            account: string,
+            targetBranch: string,
+            title: string,
+            body: string
+        ) : Task<Result<string, McpError>> =
+        match agentForge with
+        | None -> Task.FromResult(Agent.unsupported AgentOperation.Publish |> agentResult)
+        | Some(kind, configuredForge) ->
+            this.WithAgentRepoWrite "agent_publish" AgentOperation.Publish (fun () ->
+                task {
+                    let request =
+                        PublishRequest.Create(
+                            repo.Root,
+                            branch,
+                            remote,
+                            revision,
+                            kind,
+                            account,
+                            targetBranch,
+                            title,
+                            body
+                        )
+                        |> fun value -> value.WithOutputLimit agentOutputLimit
+
+                    let! envelope = Agent.publishWith repo configuredForge request requestCancellation
+                    return agentResult envelope
+                })
+
+    /// One exact-revision CI observation outcome.
+    member _.AgentCiStatus(branch: string, remote: string, revision: string, account: string) =
+        task {
+            match agentForge with
+            | None -> return Agent.unsupported AgentOperation.CiStatus |> agentResult
+            | Some(kind, configuredForge) ->
+                let request =
+                    CiStatusRequest.Create(repo.Root, kind, account, branch, remote, revision)
+                    |> fun value -> value.WithOutputLimit agentOutputLimit
+
+                let! envelope = Agent.ciStatusWith repo configuredForge request requestCancellation
+                return agentResult envelope
+        }
+
+    /// One exact-revision CI wait outcome.
+    member _.AgentCiWait
+        (
+            branch: string,
+            remote: string,
+            revision: string,
+            account: string,
+            pollInterval: TimeSpan,
+            deadline: TimeSpan,
+            inactivityDeadline: TimeSpan
+        ) =
+        task {
+            match agentForge with
+            | None -> return Agent.unsupported AgentOperation.CiWait |> agentResult
+            | Some(kind, configuredForge) ->
+                let request =
+                    CiWaitRequest.Create(repo.Root, kind, account, branch, remote, revision)
+                    |> fun value -> value.WithPolling pollInterval
+                    |> fun value -> value.WithDeadline deadline
+                    |> fun value -> value.WithInactivityDeadline inactivityDeadline
+                    |> fun value -> value.WithOutputLimit agentOutputLimit
+
+                let! envelope = Agent.ciWaitWith repo configuredForge request requestCancellation
+                return agentResult envelope
         }
 
     /// A repo read tool: call the facade and serialize its DTO (mapping the error).

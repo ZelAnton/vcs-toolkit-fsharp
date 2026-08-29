@@ -1,8 +1,9 @@
 # `vcs-mcp` — the Model Context Protocol server
 
 `vcs-mcp` is a [Model Context Protocol](https://modelcontextprotocol.io/) server that drives a
-single git/jj repository — and, optionally, its GitHub/GitLab/Gitea forge — through the typed
-operations of `VcsToolkit.Core` and `VcsToolkit.Forge`. It speaks MCP over stdio, so an MCP
+single git/jj repository — and, optionally, its GitHub/GitLab/Gitea forge — through shared
+`VcsToolkit.Agent` outcomes and compatible typed operations of `VcsToolkit.Core` and
+`VcsToolkit.Forge`. It speaks MCP over stdio, so an MCP
 client (an IDE, a CLI tool, or any other MCP-capable host) launches it as a subprocess and calls
 its tools instead of shelling out to raw `git`/`jj`/`gh`/`glab`/`tea` commands.
 
@@ -304,9 +305,13 @@ Each mutating tool method checks `WriteGate.Allows <its own name>` before doing 
 the gate is enforced per-call, not as a one-time startup switch that could be bypassed by some
 other code path.
 
+Intent mutations use the same gate under `agent_commit` and `agent_publish`. A denied intent call
+returns the v1 Agent `denied` envelope; it does not fall through to a low-level mutation.
+
 **Per-repo write lock.** In addition to the gate, the server holds a single `SemaphoreSlim(1,
 1)` (`writeLock`) that serializes every tool call that touches the *local working copy*: all
-`repo_*` mutations, the local-checkout-affecting forge tools (`forge_pr_checkout`, and
+`repo_*` mutations, the shared `agent_commit` and `agent_publish` outcomes, the
+local-checkout-affecting forge tools (`forge_pr_checkout`, and
 **every** `forge_pr_merge`/`forge_pr_close` call — the lock is taken unconditionally for both,
 not only when `delete_branch` is set; `delete_branch=true` is what can actually switch/delete the
 local checkout, but the server holds the same lock regardless, to keep the locking decision
@@ -339,6 +344,29 @@ Legend: **R/W** = read tool (always available) or write tool (gated, see above);
 = the call, or one of its optional parameters, can irrecoverably discard data; **Idempotent** =
 calling twice with the same arguments leaves the same end state as calling once. Every write
 tool additionally requires `--allow-write`, or `--allow-tools` naming it.
+
+### `agent_*` — shared outcome tools (via `VcsToolkit.Agent`)
+
+These tools are thin MCP adapters over the same v1 orchestration and serialized envelopes as
+`vcs-agent`. The server instructions prefer them for complete inspection, change, commit,
+publication, and CI outcomes. `tools/list` always includes `agent_inspect` and `agent_changes`,
+includes `agent_commit` only when its write gate is enabled, and includes publication/CI only for
+a configured GitHub or GitLab forge (`agent_publish` also requires its write gate). Gitea and
+write-disabled outcomes are omitted to reduce discovery noise; a stale direct call still returns
+a structured `unsupported` or `denied` Agent envelope.
+
+| Tool | R/W | Purpose | Arguments |
+|---|---|---|---|
+| `agent_inspect` | R | Repository identity, working state, remotes, forge authentication, and available outcome capabilities. | — |
+| `agent_changes` | R | Bounded change summary or structured diff. | `view` (`summary` or `diff`, optional) |
+| `agent_commit` | W | Commit exactly a non-empty selected path set and verify the created revision. | `paths` (string array, required), `message` (string, required) |
+| `agent_publish` | W | Publish one exact revision and create or recover one proven PR/MR. | `branch`, `remote`, `revision`, `account`, `target`, `title`, `body` (strings, required) |
+| `agent_ci_status` | R | Observe CI for one proven branch and exact revision. | `branch`, `remote`, `revision`, `account` (strings, required) |
+| `agent_ci_wait` | R | Wait for terminal exact-revision CI with overall and inactivity deadlines. | `branch`, `remote`, `revision`, `account` (strings, required); `poll_seconds`, `deadline_seconds`, `inactivity_seconds` (positive integers, optional) |
+
+Agent envelopes remain normal MCP text results even when `status` is `error`; inspect their
+machine-readable `error.code`. MCP protocol errors remain reserved for malformed JSON arguments
+and unknown low-level calls.
 
 ### `repo_*` — repository tools (git/jj, via `VcsToolkit.Core`)
 

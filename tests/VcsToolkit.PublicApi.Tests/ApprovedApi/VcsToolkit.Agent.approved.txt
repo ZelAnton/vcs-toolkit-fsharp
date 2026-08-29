@@ -15,31 +15,74 @@ namespace VcsToolkit.Agent
         public const int MinimumOutputLimitBytes = 512;
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Value)]
         public static System.TimeSpan MaxWaitDuration { get; }
+        public static VcsToolkit.Agent.AgentEnvelope cancelled(VcsToolkit.Agent.AgentOperation operation) { }
         [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
                 1,
                 1})]
         public static System.Threading.Tasks.Task<VcsToolkit.Agent.AgentEnvelope> changes(VcsToolkit.Agent.ChangesRequest request, System.Threading.CancellationToken cancellationToken) { }
         [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
                 1,
+                1,
+                1,
+                1})]
+        public static System.Threading.Tasks.Task<VcsToolkit.Agent.AgentEnvelope> changesWith(VcsToolkit.Core.Repo repo, VcsToolkit.Agent.ChangesMode mode, System.Threading.CancellationToken cancellationToken, int outputLimitBytes) { }
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
                 1})]
         public static System.Threading.Tasks.Task<VcsToolkit.Agent.AgentEnvelope> ciStatus(VcsToolkit.Agent.CiStatusRequest request, System.Threading.CancellationToken cancellationToken) { }
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1,
+                1,
+                1})]
+        public static System.Threading.Tasks.Task<VcsToolkit.Agent.AgentEnvelope> ciStatusWith(VcsToolkit.Core.Repo repo, VcsToolkit.Forge.Forge forge, VcsToolkit.Agent.CiStatusRequest request, System.Threading.CancellationToken cancellationToken) { }
         [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
                 1,
                 1})]
         public static System.Threading.Tasks.Task<VcsToolkit.Agent.AgentEnvelope> ciWait(VcsToolkit.Agent.CiWaitRequest request, System.Threading.CancellationToken cancellationToken) { }
         [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
                 1,
+                1,
+                1,
+                1})]
+        public static System.Threading.Tasks.Task<VcsToolkit.Agent.AgentEnvelope> ciWaitWith(VcsToolkit.Core.Repo repo, VcsToolkit.Forge.Forge forge, VcsToolkit.Agent.CiWaitRequest request, System.Threading.CancellationToken cancellationToken) { }
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
                 1})]
         public static System.Threading.Tasks.Task<VcsToolkit.Agent.AgentEnvelope> commit(VcsToolkit.Agent.CommitRequest request, System.Threading.CancellationToken cancellationToken) { }
         [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
                 1,
+                1,
+                1,
+                1,
+                1})]
+        public static System.Threading.Tasks.Task<VcsToolkit.Agent.AgentEnvelope> commitWith(VcsToolkit.Core.Repo repo, Microsoft.FSharp.Collections.FSharpList<string> paths, string message, System.Threading.CancellationToken cancellationToken, int outputLimitBytes) { }
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1})]
+        public static VcsToolkit.Agent.AgentEnvelope denied(VcsToolkit.Agent.AgentOperation operation, string message) { }
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
                 1})]
         public static System.Threading.Tasks.Task<VcsToolkit.Agent.AgentEnvelope> inspect(VcsToolkit.Agent.InspectRequest request, System.Threading.CancellationToken cancellationToken) { }
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1,
+                1,
+                1})]
+        public static System.Threading.Tasks.Task<VcsToolkit.Agent.AgentEnvelope> inspectWith(VcsToolkit.Core.Repo repo, Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Forge.Forge>? forge, System.Threading.CancellationToken cancellationToken, int outputLimitBytes) { }
         public static VcsToolkit.Agent.AgentEnvelope probe(string? toolVersion) { }
         [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
                 1,
                 1})]
         public static System.Threading.Tasks.Task<VcsToolkit.Agent.AgentEnvelope> publish(VcsToolkit.Agent.PublishRequest request, System.Threading.CancellationToken cancellationToken) { }
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1,
+                1,
+                1})]
+        public static System.Threading.Tasks.Task<VcsToolkit.Agent.AgentEnvelope> publishWith(VcsToolkit.Core.Repo repo, VcsToolkit.Forge.Forge forge, VcsToolkit.Agent.PublishRequest request, System.Threading.CancellationToken cancellationToken) { }
+        public static VcsToolkit.Agent.AgentEnvelope unsupported(VcsToolkit.Agent.AgentOperation operation) { }
     }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
     [System.Serializable]

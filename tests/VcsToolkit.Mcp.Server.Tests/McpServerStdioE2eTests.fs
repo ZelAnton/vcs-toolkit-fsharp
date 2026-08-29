@@ -332,17 +332,26 @@ type McpServerStdioE2eTests() =
                 | None -> Assert.Fail "server binary path unresolved inside e2e (should not happen)"
             })
 
-    /// `tools/list` over the wire must advertise exactly `Catalog.all`, with each tool's
-    /// `ReadOnlyHint` matching the `WriteGate` contract (read-only iff not write-gated).
+    /// `tools/list` advertises the capability-aware intent subset plus every compatible
+    /// low-level tool. Annotation hints still match the independent WriteGate contract.
     [<Test>]
     member _.ToolsListMatchesCatalogAndWriteGateMarkup() : Task =
         e2e [] (fun client ct ->
             task {
                 let! (tools: IList<McpClientTool>) = client.ListToolsAsync(cancellationToken = ct)
                 let liveNames = tools |> Seq.map (fun t -> t.Name) |> Set.ofSeq
-                let catalogNames = Catalog.all |> List.map (fun t -> t.Name) |> Set.ofList
+
+                let catalogNames =
+                    Catalog.all
+                    |> List.filter (fun tool ->
+                        not (tool.Name.StartsWith("agent_", StringComparison.Ordinal))
+                        || tool.Name = "agent_inspect"
+                        || tool.Name = "agent_changes")
+                    |> List.map _.Name
+                    |> Set.ofList
+
                 // Compare via F# structural `=` (K-017: `Is.EqualTo` on collections is FS0041-ambiguous).
-                Assert.That((liveNames = catalogNames), Is.True, "tools/list must advertise exactly Catalog.all")
+                Assert.That((liveNames = catalogNames), Is.True, "tools/list must match server capabilities")
 
                 for tool in tools do
                     match tool.ProtocolTool.Annotations with
@@ -355,7 +364,18 @@ type McpServerStdioE2eTests() =
                         Assert.That(ann.ReadOnlyHint.Value, Is.EqualTo expectedReadOnly, tool.Name)
 
                 for writeTool in WriteTools.all do
-                    Assert.That(liveNames.Contains writeTool, Is.True, $"write tool {writeTool} must be present")
+                    if writeTool.StartsWith("agent_", StringComparison.Ordinal) then
+                        Assert.That(
+                            liveNames.Contains writeTool,
+                            Is.False,
+                            $"unavailable intent {writeTool} must be omitted"
+                        )
+                    else
+                        Assert.That(
+                            liveNames.Contains writeTool,
+                            Is.True,
+                            $"low-level write {writeTool} must remain present"
+                        )
             })
 
     /// A read tool (`repo_snapshot`) called against the sandbox returns a well-formed JSON

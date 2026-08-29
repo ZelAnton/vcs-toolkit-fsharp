@@ -27,10 +27,11 @@ Layer 2   VcsToolkit.GitHub   VcsToolkit.GitLab   VcsToolkit.Gitea
               |                     |                   |
 Layer 3   VcsToolkit.Core (Git+Jj)   VcsToolkit.Forge (GitHub+GitLab+Gitea)
               |                     |
-Layer 4   VcsToolkit.Watch (on Core)   VcsToolkit.Mcp (on Core+Forge)
-              VcsToolkit.Agent (on Core+Forge+CliSupport)
-                       |                         |
-Layer 5   VcsToolkit.Agent.Server      VcsToolkit.Mcp.Server
+Layer 4   VcsToolkit.Watch (on Core)   VcsToolkit.Agent (on Core+Forge+CliSupport)
+                                                |
+Layer 5   VcsToolkit.Agent.Server      VcsToolkit.Mcp (on Agent+Core+Forge)
+                                                |
+Layer 6                                 VcsToolkit.Mcp.Server
 
 VcsToolkit.TestKit — no dependency on any of the above, and none of the above
 depend on it either; it is a leaf that any test project may reference without
@@ -234,7 +235,7 @@ do so forever, on a timer.
 
 `Agent` is the transport-neutral application boundary above both facades. It owns the
 versioned machine envelope, stable operation and error taxonomies, output budgeting,
-redaction, and outcome orchestration that can later be shared by command-line and MCP
+redaction, and configured-handle outcome orchestration shared by command-line and MCP
 adapters. It references `Core`, `Forge`, and `CliSupport`; any future VCS or forge child
 must therefore remain on those typed ProcessKit-backed routes. There is deliberately no
 general raw-command escape hatch at this layer.
@@ -267,10 +268,12 @@ observations and rejects them as stale after either input changes.
 
 ### `VcsToolkit.Mcp` / `VcsToolkit.Mcp.Server` — the agent-facing tool surface
 
-`Mcp` is the hermetically-testable core of a Model Context Protocol server: it
-depends on both facades (`Core` and `Forge`) and exposes their operations as a
-catalogue of named, agent-callable `repo_*`/`forge_*` tools
-(`VcsMcpServer` + `Catalog.callTool`), gated by a `WriteGate` write policy —
+`Mcp` is the hermetically-testable transport adapter for the shared `Agent` outcomes and both
+facades. Its capability-aware `agent_*` catalogue invokes the same configured-handle services
+used by `vcs-agent`; unavailable forge/write outcomes are omitted from discovery, while stale
+calls receive structured Agent envelopes. The compatible low-level surface remains available as
+named `repo_*`/`forge_*` tools (`VcsMcpServer` + `Catalog.callTool`), gated by one `WriteGate`
+write policy —
 read tools are always available, but a mutating tool only runs when the server
 was started with `--allow-write` (every mutation) or `--allow-tools` naming it
 explicitly. Keeping this policy and the dispatcher in a library with no
@@ -278,8 +281,8 @@ dependency on the actual MCP SDK is what makes it testable without spinning up
 a real MCP transport. `Mcp.Server` is the thin binary on top: it wires
 `VcsMcpServer` to the `ModelContextProtocol` SDK over stdio, and is the one
 place that layers on operational hardening a library shouldn't impose by
-itself — a git client with repo hooks/config disabled, and a per-command
-timeout. Splitting the SDK dependency into the binary, rather than pulling it
+itself — a git client with repo hooks/config disabled, a per-command timeout, and
+capability-specific server instructions. Splitting the SDK dependency into the binary, rather than pulling it
 into `Mcp`, is what keeps the tool-dispatch logic testable in-process.
 
 ## Cross-cutting design principles
