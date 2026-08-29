@@ -1,5 +1,6 @@
 module VcsToolkit.GitLab.Tests
 
+open System
 open System.Threading.Tasks
 open NUnit.Framework
 open ProcessKit
@@ -66,6 +67,27 @@ type ParseTests() =
             Assert.That(mr.Url, Is.EqualTo "https://gl/mr/12")
             Assert.That(mr.Draft, Is.False)
         | other -> Assert.Fail $"expected one MR, got {other.Length}"
+
+    [<Test>]
+    member _.RecoveryMrListRequiresProjectIdsAndHeadRevision() =
+        let revision = String('b', 40)
+
+        let json =
+            $"""[{{"iid":12,"title":"Add feature","state":"opened","source_branch":"feat","target_branch":"main","source_project_id":17,"target_project_id":17,"sha":"{revision}"}}]"""
+
+        match expectOk (GitLabParse.parseRecoveryMrList json) with
+        | [ candidate ] ->
+            Assert.That(candidate.SourceProjectId, Is.EqualTo 17UL)
+            Assert.That(candidate.TargetProjectId, Is.EqualTo 17UL)
+            Assert.That(candidate.HeadRevision, Is.EqualTo revision)
+            Assert.That(candidate.MergeRequest.Iid, Is.EqualTo 12UL)
+        | other -> Assert.Fail $"expected one recovery candidate, got {other.Length}"
+
+        for incomplete in
+            [ $"""[{{"iid":12,"target_project_id":17,"sha":"{revision}"}}]"""
+              $"""[{{"iid":12,"source_project_id":17,"sha":"{revision}"}}]"""
+              """[{"iid":12,"source_project_id":17,"target_project_id":17}]""" ] do
+            Assert.That(Result.isError (GitLabParse.parseRecoveryMrList incomplete), Is.True)
 
     [<Test>]
     member _.MrToleratesMissingOptionalFields() =
@@ -228,6 +250,20 @@ type ParseTests() =
         )
 
     [<Test>]
+    member _.PipelineListParsesExactRevisionEvidence() =
+        let revision = String('b', 40)
+
+        let json =
+            $"""[{{"id":42,"name":"verify","status":"running","sha":"{revision}","ref":"feature","web_url":"https://gitlab.com/example/repo/-/pipelines/42"}}]"""
+
+        match expectOk (GitLabParse.parsePipelineList json) with
+        | [ pipeline ] ->
+            Assert.That(pipeline.Id, Is.EqualTo 42UL)
+            Assert.That(pipeline.Sha, Is.EqualTo revision)
+            Assert.That(pipeline.Ref, Is.EqualTo "feature")
+        | other -> Assert.Fail $"expected one pipeline, got {other.Length}"
+
+    [<Test>]
     member _.MalformedJsonIsError() =
         match GitLabParse.parseMrList "not json" with
         | Error _ -> ()
@@ -289,6 +325,34 @@ type ClientTests() =
             | Error e -> Assert.Fail $"mr list for branch failed: {e}"
 
             assertArgs [ "mr"; "list"; "--source-branch"; "feat"; "--all"; "--output"; "json" ] args
+        }
+
+    [<Test>]
+    member _.MrListForBranchesCompletePinsHostProjectAndAllPages() : Task =
+        task {
+            let revision = String('b', 40)
+
+            let json =
+                $"""[{{"iid":1,"title":"t","state":"opened","source_branch":"feat","target_branch":"main","source_project_id":17,"target_project_id":17,"sha":"{revision}"}}]"""
+
+            let glab, args = capturing (Reply.Ok json)
+
+            match! glab.MrListForBranchesComplete(".", "gitlab.com", "group/project", "feat", "main") with
+            | Ok [ candidate ] ->
+                Assert.That(candidate.MergeRequest.Iid, Is.EqualTo 1UL)
+                Assert.That(candidate.SourceProjectId, Is.EqualTo 17UL)
+                Assert.That(candidate.TargetProjectId, Is.EqualTo 17UL)
+                Assert.That(candidate.HeadRevision, Is.EqualTo revision)
+            | Ok xs -> Assert.Fail $"expected one exact MR, got {xs.Length}"
+            | Error e -> Assert.Fail $"complete MR search failed: {e}"
+
+            assertArgs
+                [ "api"
+                  "--hostname"
+                  "gitlab.com"
+                  "--paginate"
+                  "projects/group%2Fproject/merge_requests?state=opened&source_branch=feat&target_branch=main&per_page=100" ]
+                args
         }
 
     [<Test>]
@@ -508,6 +572,37 @@ type ClientTests() =
             match! glab.MrChecks(".", 7UL) with
             | Ok status -> Assert.That((status = CiStatus.Failing))
             | Error e -> Assert.Fail $"mr checks failed: {e}"
+        }
+
+    [<Test>]
+    member _.PipelineListForRevisionRoutesTheExactCommit() : Task =
+        task {
+            let revision = String('b', 40)
+
+            let json =
+                $"""[{{"id":42,"name":"verify","status":"success","sha":"{revision}","ref":"feature","web_url":"u"}}]"""
+
+            let gitlab, args = capturing (Reply.Ok json)
+
+            match! gitlab.PipelineListForRevision(".", revision) with
+            | Ok [ pipeline ] ->
+                Assert.That(pipeline.Sha, Is.EqualTo revision)
+
+                assertArgs [ "api"; "--paginate"; $"projects/:id/pipelines?sha={revision}&per_page=100" ] args
+            | Ok other -> Assert.Fail $"expected one pipeline, got {other.Length}"
+            | Error error -> Assert.Fail $"exact revision pipeline list failed: {error}"
+        }
+
+    [<Test>]
+    member _.AuthIdentityUsesTheTypedUserEndpoint() : Task =
+        task {
+            let gitlab, args = capturing (Reply.Ok """{"username":"alice"}""")
+
+            match! gitlab.AuthIdentity() with
+            | Ok username ->
+                Assert.That(username, Is.EqualTo "alice")
+                assertArgs [ "api"; "user" ] args
+            | Error error -> Assert.Fail $"auth identity failed: {error}"
         }
 
     [<Test>]

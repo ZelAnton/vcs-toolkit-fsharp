@@ -25,6 +25,7 @@ type AgentErrorCode =
     | Cancellation
     | OutputLimit
     | ExternalCommand
+    | RevisionMismatch
 
 /// Terminal outcome classification carried by every envelope.
 [<RequireQualifiedAccess>]
@@ -43,9 +44,15 @@ type AgentFallbackReason =
 
 /// One operation advertised by `probe`.
 type AgentCapability =
-    { Operation: AgentOperation
-      Supported: bool
-      Mutating: bool }
+    {
+        Operation: AgentOperation
+        Supported: bool
+        Mutating: bool
+        /// Repository backends on which this operation can run.
+        Backends: string list
+        /// Forge kinds on which this operation can run; empty when it is forge-independent.
+        Forges: string list
+    }
 
 /// Compatibility declaration for optional ProcessKit-CLI supervision.
 type SupervisorCompatibility =
@@ -151,14 +158,19 @@ type AgentForgeStatus =
 
 /// Stable capability subset needed by outcome workflows.
 type AgentForgeCapabilities =
-    { PullRequestCreate: bool
-      PullRequestComment: bool
-      PullRequestEdit: bool
-      PullRequestChecks: bool
-      PullRequestMerge: bool
-      IssueCreate: bool
-      IssueReopen: bool
-      ReleaseDelete: bool }
+    {
+        /// Whether the forge can prove auth and an explicitly selected repository identity.
+        RepositoryIdentity: bool
+        PullRequestCreate: bool
+        PullRequestComment: bool
+        PullRequestEdit: bool
+        PullRequestChecks: bool
+        ExactRevisionCi: bool
+        PullRequestMerge: bool
+        IssueCreate: bool
+        IssueReopen: bool
+        ReleaseDelete: bool
+    }
 
 /// Detected forge, authentication and capabilities.
 type AgentForgeInfo =
@@ -251,6 +263,204 @@ type CommitData =
       UnrelatedPathsPreserved: bool option
       Completion: CommitCompletion }
 
+/// Explicit forge selection for publication and CI. The value is never inferred from another
+/// remote when a mutating operation is requested.
+[<RequireQualifiedAccess>]
+type AgentForgeKind =
+    | GitHub
+    | GitLab
+    | Gitea
+
+/// Request for verified publication of one local revision to one named remote branch/bookmark.
+/// The authenticated forge account and PR/MR target are explicit identity inputs.
+type PublishRequest =
+    { RepositoryPath: string
+      Branch: string
+      Remote: string
+      Revision: string
+      Forge: AgentForgeKind
+      Account: string
+      TargetBranch: string
+      Title: string
+      Body: string
+      OutputLimitBytes: int }
+
+    static member Create
+        (
+            repositoryPath: string,
+            branch: string,
+            remote: string,
+            revision: string,
+            forge: AgentForgeKind,
+            account: string,
+            targetBranch: string,
+            title: string,
+            body: string
+        ) =
+        { RepositoryPath = repositoryPath
+          Branch = branch
+          Remote = remote
+          Revision = revision
+          Forge = forge
+          Account = account
+          TargetBranch = targetBranch
+          Title = title
+          Body = body
+          OutputLimitBytes = 65_536 }
+
+    member this.WithOutputLimit(outputLimitBytes: int) =
+        { this with
+            OutputLimitBytes = outputLimitBytes }
+
+/// Evidence captured before the first remote mutation and after recovery/verification.
+type PublicationEvidence =
+    { Root: string
+      Backend: string
+      Forge: string
+      Account: string
+      Branch: string
+      Remote: string
+      LocalRevision: string
+      RemoteRevision: string option }
+
+/// Whether the matching PR/MR was opened by this call or recovered from existing forge state.
+[<RequireQualifiedAccess>]
+type PublicationChangeRequestDisposition =
+    | Created
+    | Existing
+
+/// One verified PR/MR bound to the published source branch and requested target branch.
+type PublicationChangeRequest =
+    { Number: uint64
+      Url: string
+      SourceBranch: string
+      TargetBranch: string
+      Disposition: PublicationChangeRequestDisposition }
+
+/// Whether all publication postconditions were proven or a late step may have completed.
+[<RequireQualifiedAccess>]
+type PublishCompletion =
+    | Verified
+    | Ambiguous
+
+/// Bounded publication evidence. Error envelopes may carry `Ambiguous` data after a remote
+/// mutation so a caller can safely retry and recover the already-pushed/already-open result.
+type PublishData =
+    { Preflight: PublicationEvidence
+      Postflight: PublicationEvidence option
+      ChangeRequest: PublicationChangeRequest option
+      Completion: PublishCompletion }
+
+/// Request for one exact-revision CI observation.
+type CiStatusRequest =
+    { RepositoryPath: string
+      Forge: AgentForgeKind
+      Account: string
+      Branch: string
+      Remote: string
+      Revision: string
+      OutputLimitBytes: int }
+
+    static member Create
+        (
+            repositoryPath: string,
+            forge: AgentForgeKind,
+            account: string,
+            branch: string,
+            remote: string,
+            revision: string
+        ) =
+        { RepositoryPath = repositoryPath
+          Forge = forge
+          Account = account
+          Branch = branch
+          Remote = remote
+          Revision = revision
+          OutputLimitBytes = 65_536 }
+
+    member this.WithOutputLimit(outputLimitBytes: int) =
+        { this with
+            OutputLimitBytes = outputLimitBytes }
+
+/// Request for polling the exact-revision CI source to a terminal conclusion.
+type CiWaitRequest =
+    { RepositoryPath: string
+      Forge: AgentForgeKind
+      Account: string
+      Branch: string
+      Remote: string
+      Revision: string
+      PollInterval: System.TimeSpan
+      Deadline: System.TimeSpan
+      InactivityDeadline: System.TimeSpan
+      OutputLimitBytes: int }
+
+    static member Create
+        (
+            repositoryPath: string,
+            forge: AgentForgeKind,
+            account: string,
+            branch: string,
+            remote: string,
+            revision: string
+        ) =
+        { RepositoryPath = repositoryPath
+          Forge = forge
+          Account = account
+          Branch = branch
+          Remote = remote
+          Revision = revision
+          PollInterval = System.TimeSpan.FromSeconds 5.0
+          Deadline = System.TimeSpan.FromMinutes 30.0
+          InactivityDeadline = System.TimeSpan.FromMinutes 10.0
+          OutputLimitBytes = 65_536 }
+
+    member this.WithPolling(pollInterval: System.TimeSpan) =
+        { this with
+            PollInterval = pollInterval }
+
+    member this.WithDeadline(deadline: System.TimeSpan) = { this with Deadline = deadline }
+
+    member this.WithInactivityDeadline(inactivityDeadline: System.TimeSpan) =
+        { this with
+            InactivityDeadline = inactivityDeadline }
+
+    member this.WithOutputLimit(outputLimitBytes: int) =
+        { this with
+            OutputLimitBytes = outputLimitBytes }
+
+/// Exact-revision CI state. Only `Success`, `Failure`, `Cancelled`, and `Skipped` are terminal.
+[<RequireQualifiedAccess>]
+type AgentCiState =
+    | NoRuns
+    | Pending
+    | Success
+    | Failure
+    | Cancelled
+    | Skipped
+    | RevisionMismatch
+
+/// One bounded forge CI run/pipeline observation.
+type AgentCiRun =
+    { Id: string
+      Name: string
+      Status: string
+      Conclusion: string option
+      Revision: string
+      Url: string }
+
+/// Exact-revision CI evidence returned by both status and wait.
+type CiData =
+    { Root: string
+      Forge: string
+      Account: string
+      Branch: string
+      Remote: string
+      Revision: string
+      State: AgentCiState
+      Runs: AgentCiRun list
+      PollCount: uint64 }
+
 /// Operation-specific data carried by a v1 envelope.
 [<RequireQualifiedAccess>]
 type AgentPayload =
@@ -258,6 +468,8 @@ type AgentPayload =
     | Inspect of InspectData
     | Changes of ChangesData
     | Commit of CommitData
+    | Publish of PublishData
+    | Ci of CiData
 
 /// Structured failure details. `LimitBytes` and `RequiredBytes` are populated only for
 /// `OutputLimit`; `Truncated` makes refusal of oversized content explicit.
@@ -311,6 +523,7 @@ module internal ContractNames =
         | AgentErrorCode.Authentication -> "authentication"
         | AgentErrorCode.Timeout -> "timeout"
         | AgentErrorCode.Cancellation -> "cancellation"
+        | AgentErrorCode.RevisionMismatch -> "revision-mismatch"
         | AgentErrorCode.OutputLimit -> "output-limit"
         | AgentErrorCode.ExternalCommand -> "external-command"
 

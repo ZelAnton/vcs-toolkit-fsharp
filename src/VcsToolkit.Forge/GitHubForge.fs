@@ -204,6 +204,28 @@ module internal GitHubForge =
             | Ok prs -> return Ok(prs |> List.map mapPr)
         }
 
+    let prForBranchesComplete
+        (gh: VcsToolkit.GitHub.GitHub)
+        (dir: string)
+        (repository: string)
+        (sourceBranch: string)
+        (targetBranch: string)
+        =
+        task {
+            match! gh.PrListForBranchesComplete(dir, repository, sourceBranch, targetBranch) with
+            | Error error -> return Error(ForgeError.Forge error)
+            | Ok pullRequests ->
+                return
+                    Ok(
+                        pullRequests
+                        |> List.map (fun candidate ->
+                            { ChangeRequest = mapPr candidate.PullRequest
+                              SourceRepository = candidate.SourceRepository
+                              TargetRepository = None
+                              HeadRevision = candidate.HeadRevision })
+                    )
+        }
+
     let prView (gh: VcsToolkit.GitHub.GitHub) (dir: string) (number: uint64) =
         task {
             match! gh.PrView(dir, number) with
@@ -228,6 +250,24 @@ module internal GitHubForge =
 
             let! r = gh.PrCreate(dir, create)
             return ofForge r
+        }
+
+    let prCreateForRepository (gh: VcsToolkit.GitHub.GitHub) (dir: string) (repository: string) (spec: PrCreate) =
+        task {
+            let create =
+                VcsToolkit.GitHub.PrCreate.Create(spec.Title, spec.Body)
+                |> fun value ->
+                    match spec.Source with
+                    | Some source -> value.WithHead source
+                    | None -> value
+                |> fun value ->
+                    match spec.Target with
+                    | Some target -> value.WithBase target
+                    | None -> value
+                |> fun value -> value.WithLabels spec.Labels
+
+            let! result = gh.PrCreateForRepository(dir, repository, create)
+            return ofForge result
         }
 
     let prAddLabels (gh: VcsToolkit.GitHub.GitHub) (dir: string) (number: uint64) (labels: string list) =

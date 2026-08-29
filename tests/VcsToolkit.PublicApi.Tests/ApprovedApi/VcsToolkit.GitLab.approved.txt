@@ -21,6 +21,7 @@ namespace VcsToolkit.GitLab
     {
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> Api(string dir, string endpoint) { }
         public VcsToolkit.GitLab.GitLabAt At(string dir) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> AuthIdentity() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<bool, ProcessKit.ProcessError>> AuthStatus() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitLab.GitLabCapabilities, ProcessKit.ProcessError>> Capabilities() { }
         public VcsToolkit.GitLab.GitLab DefaultCancelOn(System.Threading.CancellationToken token) { }
@@ -55,6 +56,7 @@ namespace VcsToolkit.GitLab
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> MrRemoveLabels(string dir, ulong number, Microsoft.FSharp.Collections.FSharpList<string> labels) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> MrRevoke(string dir, ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitLab.MergeRequest, ProcessKit.ProcessError>> MrView(string dir, ulong number) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitLab.Pipeline>, ProcessKit.ProcessError>> PipelineListForRevision(string dir, string revision) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> ReleaseCreate(string dir, VcsToolkit.GitLab.ReleaseCreate spec) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> ReleaseDelete(string dir, string tag) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitLab.Release>, ProcessKit.ProcessError>> ReleaseList(string dir) { }
@@ -80,6 +82,7 @@ namespace VcsToolkit.GitLab
     public sealed class GitLabAt
     {
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> Api(string endpoint) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> AuthIdentity() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<bool, ProcessKit.ProcessError>> AuthStatus() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitLab.GitLabCapabilities, ProcessKit.ProcessError>> Capabilities() { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> IssueAddLabels(ulong number, Microsoft.FSharp.Collections.FSharpList<string> labels) { }
@@ -110,6 +113,7 @@ namespace VcsToolkit.GitLab
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> MrRemoveLabels(ulong number, Microsoft.FSharp.Collections.FSharpList<string> labels) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> MrRevoke(ulong number) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<VcsToolkit.GitLab.MergeRequest, ProcessKit.ProcessError>> MrView(ulong number) { }
+        public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitLab.Pipeline>, ProcessKit.ProcessError>> PipelineListForRevision(string revision) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<string, ProcessKit.ProcessError>> ReleaseCreate(VcsToolkit.GitLab.ReleaseCreate spec) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, ProcessKit.ProcessError>> ReleaseDelete(string tag) { }
         public System.Threading.Tasks.Task<Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Collections.FSharpList<VcsToolkit.GitLab.Release>, ProcessKit.ProcessError>> ReleaseList() { }
@@ -310,6 +314,25 @@ namespace VcsToolkit.GitLab
             public const int Merged = 2;
             public const int Open = 0;
         }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class Pipeline : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.GitLab.Pipeline>, System.IEquatable<VcsToolkit.GitLab.Pipeline>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.GitLab.Pipeline))]
+        public Pipeline(ulong id, string name, string status, string sha, string @ref, string webUrl) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public ulong Id { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public string Name { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+        public string Ref { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+        public string Sha { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public string Status { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 5)]
+        public string WebUrl { get; }
     }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
     [System.Serializable]

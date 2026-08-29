@@ -20,6 +20,7 @@
 	<!-- The parse module is internal (Rust: `mod parse` / `pub(crate)`); the tests exercise it directly. -->
 	<ItemGroup>
 		<InternalsVisibleTo Include="VcsToolkit.GitLab.Tests" />
+		<InternalsVisibleTo Include="VcsToolkit.Forge" />
 	</ItemGroup>
 
 	<ItemGroup>

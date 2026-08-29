@@ -2,6 +2,7 @@ namespace VcsToolkit.Forge
 
 open System.IO
 open System.Threading.Tasks
+open ProcessKit
 
 /// The per-CLI client behind a `Forge`, paired with that handle's one-shot version-probe
 /// cache (`GitHubVersionProbe`/`GitLabVersionProbe`/`GiteaVersionProbe` — see
@@ -17,6 +18,11 @@ type internal Backend =
     | GitLab of client: VcsToolkit.GitLab.GitLab * versionProbe: GitLabVersionProbe
     | Gitea of client: VcsToolkit.Gitea.Gitea * versionProbe: GiteaVersionProbe
     | Unknown
+
+type internal AgentRepositoryRoute =
+    { Host: string
+      Selector: string
+      ProjectPath: string }
 
 /// Build the `Backend` case for a freshly created client, wiring up its version-probe
 /// cache. Kept in one place so every construction site (below) gets the caching wired
@@ -43,6 +49,7 @@ module private ForgeCaps =
           PrComment = true
           PrEdit = true
           PrChecks = true
+          ExactRevisionCi = true
           PrMerge = true
           IssueCreate = true
           IssueReopen = true
@@ -61,6 +68,7 @@ module private ForgeCaps =
     let staticGiteaCaps: ForgeCapabilities =
         { staticGitHubCaps with
             PrChecks = false
+            ExactRevisionCi = false
             IssueReopen = false
             ReleaseDelete = false
             PrEdit = false }
@@ -127,7 +135,7 @@ module private VersionGate =
 /// `ForgeKind.OfRemoteUrl`. A few operations are `Unsupported` on Gitea (`tea` lacks the
 /// command); the raw wrapper clients are one constructor away for anything else.
 [<Sealed>]
-type Forge private (cwd: string, backend: Backend) =
+type Forge private (cwd: string, backend: Backend, agentRepository: AgentRepositoryRoute option) =
 
     // --- Construction --------------------------------------------------------
 
@@ -144,54 +152,54 @@ type Forge private (cwd: string, backend: Backend) =
     /// ambient login).
     static member GitHub(cwd: string) =
         let absCwd = Forge.NormalizePathOrThrow("cwd", cwd)
-        Forge(absCwd, githubBackend (VcsToolkit.GitHub.GitHub.Create()))
+        Forge(absCwd, githubBackend (VcsToolkit.GitHub.GitHub.Create()), None)
 
     /// A GitLab-backed handle bound to `cwd` (glab's ambient login).
     static member GitLab(cwd: string) =
         let absCwd = Forge.NormalizePathOrThrow("cwd", cwd)
-        Forge(absCwd, gitlabBackend (VcsToolkit.GitLab.GitLab.Create()))
+        Forge(absCwd, gitlabBackend (VcsToolkit.GitLab.GitLab.Create()), None)
 
     /// A Gitea-backed handle bound to `cwd`. Gitea authenticates **only** through `tea`'s
     /// ambient login (`tea login add`) — there is no `GiteaWithToken`, because `tea` has
     /// no token-via-environment override the way `gh`/`glab` do.
     static member Gitea(cwd: string) =
         let absCwd = Forge.NormalizePathOrThrow("cwd", cwd)
-        Forge(absCwd, giteaBackend (VcsToolkit.Gitea.Gitea.Create()))
+        Forge(absCwd, giteaBackend (VcsToolkit.Gitea.Gitea.Create()), None)
 
     /// A GitHub-backed handle that authenticates with an explicit `token` (injected as
     /// `GH_TOKEN`) instead of gh's ambient login.
     static member GitHubWithToken(cwd: string, token: string) =
         let absCwd = Forge.NormalizePathOrThrow("cwd", cwd)
-        Forge(absCwd, githubBackend (VcsToolkit.GitHub.GitHub.Create().WithToken token))
+        Forge(absCwd, githubBackend (VcsToolkit.GitHub.GitHub.Create().WithToken token), None)
 
     /// A GitLab-backed handle that authenticates with an explicit `token` (injected as
     /// `GITLAB_TOKEN`) instead of glab's ambient login.
     static member GitLabWithToken(cwd: string, token: string) =
         let absCwd = Forge.NormalizePathOrThrow("cwd", cwd)
-        Forge(absCwd, gitlabBackend (VcsToolkit.GitLab.GitLab.Create().WithToken token))
+        Forge(absCwd, gitlabBackend (VcsToolkit.GitLab.GitLab.Create().WithToken token), None)
 
     /// Build a GitHub-backed handle from an explicit client — for a custom runner (e.g. a
     /// test seam) or a pre-configured `GitHub`.
     static member FromGitHub(cwd: string, client: VcsToolkit.GitHub.GitHub) =
         let absCwd = Forge.NormalizePathOrThrow("cwd", cwd)
-        Forge(absCwd, githubBackend client)
+        Forge(absCwd, githubBackend client, None)
 
     /// Build a GitLab-backed handle from an explicit `GitLab` client.
     static member FromGitLab(cwd: string, client: VcsToolkit.GitLab.GitLab) =
         let absCwd = Forge.NormalizePathOrThrow("cwd", cwd)
-        Forge(absCwd, gitlabBackend client)
+        Forge(absCwd, gitlabBackend client, None)
 
     /// Build a Gitea-backed handle from an explicit `Gitea` client.
     static member FromGitea(cwd: string, client: VcsToolkit.Gitea.Gitea) =
         let absCwd = Forge.NormalizePathOrThrow("cwd", cwd)
-        Forge(absCwd, giteaBackend client)
+        Forge(absCwd, giteaBackend client, None)
 
     /// Build a handle for a remote that didn't classify as a known forge. The handle has
     /// no CLI client — every operation returns `Unsupported`, and `Capabilities` returns
     /// the all-`false` shape without spawning.
     static member FromUnknown(cwd: string) =
         let absCwd = Forge.NormalizePathOrThrow("cwd", cwd)
-        Forge(absCwd, Backend.Unknown)
+        Forge(absCwd, Backend.Unknown, None)
 
     // --- Identity / re-anchoring / capability introspection ------------------
 
@@ -210,7 +218,7 @@ type Forge private (cwd: string, backend: Backend) =
     /// now so later operations do not inherit the process cwd.
     member _.At(dir: string) =
         let absDir = Forge.NormalizePathOrThrow("dir", dir)
-        Forge(absDir, backend)
+        Forge(absDir, backend, agentRepository)
 
     /// The underlying `GitHub` client, or `None` when another forge backs this handle — an escape
     /// hatch to `gh`-only operations off the forge-agnostic surface (Actions runs, `prReview`/
@@ -252,7 +260,18 @@ type Forge private (cwd: string, backend: Backend) =
                 giteaBackend (client.DefaultCancelOn(cancellationToken).WithOutputBudget(outputLimitBytes))
             | Backend.Unknown -> Backend.Unknown
 
-        Forge(cwd, configured)
+        Forge(cwd, configured, agentRepository)
+
+    /// Bind agent publication/CI calls to the exact repository selected from one remote.
+    member internal _.WithAgentRepository(host, selector, projectPath) =
+        Forge(
+            cwd,
+            backend,
+            Some
+                { Host = host
+                  Selector = selector
+                  ProjectPath = projectPath }
+        )
 
     /// Whether this handle's backend supports `op` — an **operation-level** gap only. The
     /// capability-varying operations (`ForgeOp`) are all present on GitHub and GitLab; Gitea
@@ -272,6 +291,7 @@ type Forge private (cwd: string, backend: Backend) =
             | ForgeOp.RepoView
             | ForgeOp.PrMarkReady
             | ForgeOp.PrChecks
+            | ForgeOp.ExactRevisionCi
             | ForgeOp.ReleaseView
             | ForgeOp.PrDiff
             | ForgeOp.IssueReopen
@@ -285,6 +305,7 @@ type Forge private (cwd: string, backend: Backend) =
             | ForgeOp.RepoView
             | ForgeOp.PrMarkReady
             | ForgeOp.PrChecks
+            | ForgeOp.ExactRevisionCi
             | ForgeOp.ReleaseView
             | ForgeOp.PrDiff
             | ForgeOp.IssueReopen
@@ -298,6 +319,7 @@ type Forge private (cwd: string, backend: Backend) =
             | ForgeOp.RepoView
             | ForgeOp.PrMarkReady
             | ForgeOp.PrChecks
+            | ForgeOp.ExactRevisionCi
             | ForgeOp.ReleaseView
             | ForgeOp.PrDiff
             | ForgeOp.IssueReopen
@@ -311,6 +333,7 @@ type Forge private (cwd: string, backend: Backend) =
             | ForgeOp.RepoView
             | ForgeOp.PrMarkReady
             | ForgeOp.PrChecks
+            | ForgeOp.ExactRevisionCi
             | ForgeOp.ReleaseView
             | ForgeOp.PrDiff
             | ForgeOp.IssueReopen
@@ -358,6 +381,29 @@ type Forge private (cwd: string, backend: Backend) =
         | Backend.GitLab(c, _) -> GitLabForge.authStatus c
         | Backend.Gitea(c, _) -> GiteaForge.authStatus c
         | Backend.Unknown -> task { return Ok false }
+
+    /// The authenticated login/username selected by the client. Gitea and Unknown are
+    /// structurally unsupported because their available CLI surfaces do not prove one account.
+    member _.AuthIdentity() =
+        task {
+            match backend with
+            | Backend.GitHub(client, _) ->
+                let! result =
+                    match agentRepository with
+                    | Some route -> client.AuthIdentityForHost route.Host
+                    | None -> client.AuthIdentity()
+
+                return ofForge result
+            | Backend.GitLab(client, _) ->
+                let! result =
+                    match agentRepository with
+                    | Some route -> client.AuthIdentityForHost route.Host
+                    | None -> client.AuthIdentity()
+
+                return ofForge result
+            | Backend.Gitea _ -> return Error(ForgeError.Unsupported(ForgeKind.Gitea, "authIdentity"))
+            | Backend.Unknown -> return Error(ForgeError.Unsupported(ForgeKind.Unknown, "authIdentity"))
+        }
 
     /// The repository/project for the bound directory. **`Unsupported` on Gitea** (`tea`
     /// has no current-repo view).
@@ -451,6 +497,22 @@ type Forge private (cwd: string, backend: Backend) =
         | Backend.Gitea(c, _) -> GiteaForge.prForBranch c cwd sourceBranch
         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prForBranch")) }
 
+    /// Agent-only complete exact source/target search pinned to the selected remote project.
+    member internal _.PrForBranchesComplete(sourceBranch: string, targetBranch: string) =
+        match backend, agentRepository with
+        | Backend.GitHub(client, _), Some route ->
+            GitHubForge.prForBranchesComplete client cwd route.Selector sourceBranch targetBranch
+        | Backend.GitLab(client, _), Some route ->
+            GitLabForge.prForBranchesComplete client cwd route.Host route.ProjectPath sourceBranch targetBranch
+        | Backend.Gitea _, _ -> task { return Error(ForgeError.Unsupported(ForgeKind.Gitea, "prForBranchesComplete")) }
+        | Backend.Unknown, _ ->
+            task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prForBranchesComplete")) }
+        | _, None ->
+            task {
+                return
+                    Error(ForgeError.InvalidInput("exact PR/MR recovery requires an explicit agent repository binding"))
+            }
+
     /// A single PR/MR by number (GitLab `iid`). On Gitea this lists and filters.
     member _.PrView(number: uint64) =
         match backend with
@@ -465,8 +527,14 @@ type Forge private (cwd: string, backend: Backend) =
     member _.PrCreate(spec: PrCreate) =
         gated backend "prCreate" (fun () ->
             match backend with
-            | Backend.GitHub(c, _) -> GitHubForge.prCreate c cwd spec
-            | Backend.GitLab(c, _) -> GitLabForge.prCreate c cwd spec
+            | Backend.GitHub(c, _) ->
+                match agentRepository with
+                | Some route -> GitHubForge.prCreateForRepository c cwd route.Selector spec
+                | None -> GitHubForge.prCreate c cwd spec
+            | Backend.GitLab(c, _) ->
+                match agentRepository with
+                | Some route -> GitLabForge.prCreateForRepository c cwd route.Selector spec
+                | None -> GitLabForge.prCreate c cwd spec
             | Backend.Gitea(c, _) -> GiteaForge.prCreate c cwd spec
             | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prCreate")) })
 
@@ -668,6 +736,77 @@ type Forge private (cwd: string, backend: Backend) =
         | Backend.GitLab(c, _) -> GitLabForge.prChecks c cwd number
         | Backend.Gitea _ -> task { return Error(ForgeError.Unsupported(ForgeKind.Gitea, "prChecks")) }
         | Backend.Unknown -> task { return Error(ForgeError.Unsupported(ForgeKind.Unknown, "prChecks")) }
+
+    /// CI runs/pipelines selected by one exact commit id. GitHub uses `gh run list --commit`;
+    /// GitLab uses the project pipelines API's `sha` filter. Gitea is unsupported.
+    member _.ExactRevisionCi(revision: string) =
+        task {
+            match backend with
+            | Backend.GitHub(client, _) ->
+                let! result =
+                    match agentRepository with
+                    | Some route -> client.RunListForRevisionComplete(cwd, route.Selector, revision)
+                    | None -> client.RunListForRevision(cwd, 1000, revision)
+
+                match result with
+                | Error error -> return Error(ForgeError.Forge error)
+                | Ok runs when agentRepository.IsNone && runs.Length >= 1000 ->
+                    return
+                        Error(
+                            ForgeError.Forge(
+                                ProcessError.Parse(
+                                    "gh",
+                                    "exact workflow-run inventory reached the safety limit of 1000; completeness is not proven"
+                                )
+                            )
+                        )
+                | Ok runs ->
+                    return
+                        Ok(
+                            runs
+                            |> List.map (fun run ->
+                                { Id = string run.DatabaseId
+                                  Name = run.WorkflowName
+                                  Status = run.Status
+                                  Conclusion =
+                                    if System.String.IsNullOrWhiteSpace run.Conclusion then
+                                        None
+                                    else
+                                        Some run.Conclusion
+                                  Revision = run.HeadSha
+                                  Branch = run.HeadBranch
+                                  Url = run.Url }
+                                : ForgeCiRun)
+                        )
+            | Backend.GitLab(client, _) ->
+                let! result =
+                    match agentRepository with
+                    | Some route -> client.PipelineListForRevisionComplete(cwd, route.Host, route.ProjectPath, revision)
+                    | None -> client.PipelineListForRevision(cwd, revision)
+
+                match result with
+                | Error error -> return Error(ForgeError.Forge error)
+                | Ok pipelines ->
+                    return
+                        Ok(
+                            pipelines
+                            |> List.map (fun pipeline ->
+                                { Id = string pipeline.Id
+                                  Name =
+                                    if System.String.IsNullOrWhiteSpace pipeline.Name then
+                                        "pipeline"
+                                    else
+                                        pipeline.Name
+                                  Status = pipeline.Status
+                                  Conclusion = None
+                                  Revision = pipeline.Sha
+                                  Branch = pipeline.Ref
+                                  Url = pipeline.WebUrl }
+                                : ForgeCiRun)
+                        )
+            | Backend.Gitea _ -> return Error(ForgeError.Unsupported(ForgeKind.Gitea, "exactRevisionCi"))
+            | Backend.Unknown -> return Error(ForgeError.Unsupported(ForgeKind.Unknown, "exactRevisionCi"))
+        }
 
     /// The PR/MR's unified diff, parsed into per-file `FileDiff` values (`gh pr diff <n>` /
     /// `glab mr diff <n>`, through the selected backend adapter).

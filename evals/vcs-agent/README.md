@@ -1,6 +1,6 @@
 # vcs-agent evaluation corpus
 
-This directory is the offline routing and evidence baseline for the planned
+This directory is the offline routing and evidence baseline for the
 vcs-agent interface. It measures selection and outcome evidence; it does not invoke
 an agent model or claim that the synthetic observations are live-model measurements.
 
@@ -30,6 +30,10 @@ The exact-path Git and Jujutsu commit scenarios now correspond to the implemente
 evidence: `VcsToolkit.Agent.Tests` supplies hermetic failure checks and real backend sandboxes
 that prove unrelated changes are preserved, selected renames expand atomically, and a late
 failure returns inspectable ambiguous evidence before a replay can capture unrelated work.
+The GitHub and GitLab publication scenarios correspond to the implemented checked `publish`
+plus exact-revision CI outcomes. Their required publication/terminal-CI fields remain synthetic
+routing expectations; executable Agent, forge-client, and sandbox tests separately prove exact
+argv, remote-revision verification, recovery, mismatch, inactivity, and cancellation behavior.
 
 ## Offline commands
 

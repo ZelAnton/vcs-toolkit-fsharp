@@ -240,12 +240,18 @@ must therefore remain on those typed ProcessKit-backed routes. There is delibera
 general raw-command escape hatch at this layer.
 
 `Agent.Server` is the thin `vcs-agent` global-tool adapter. It parses the declared v1
-command taxonomy, delegates the implemented read-only `probe` to the library, then writes
-the rendered stdout/stderr and returns the library's stable exit mapping. Operations not
-implemented in the current phase return a structured `unsupported` envelope before any
-VCS process can run. The exact v1 bytes, redaction, budget refusal, exit mapping, argv
-boundary, and probe non-mutation are covered by the two Agent test projects; package
-validation checks the global-tool metadata and bundled layout.
+command taxonomy and strict identity options, delegates every outcome to the library, then
+writes the rendered stdout/stderr and returns the library's stable terminal, non-terminal,
+or error exit mapping. `publish` composes a detected `Repo` and an explicitly selected
+`Forge`: it validates the local revision/ref, records preflight remote evidence, publishes an
+exact refspec, verifies the fetched remote ref, and recovers or creates one source/target PR/MR.
+`ci status` and `ci wait` first prove that same remote revision and then use the forge's
+exact-commit CI surface; wait layers polling, cancellation, overall deadline, and unchanged-state
+inactivity deadline over the one-shot observation. GitHub and GitLab expose the required typed
+identity and exact-revision calls; Gitea reports the absent capability as `Unsupported`.
+The exact v1 bytes, redaction, budget refusal, exit mapping, argv boundary, recovery, CI state
+mapping, and probe non-mutation are covered by the two Agent test projects; package validation
+checks the global-tool metadata and bundled layout.
 
 ### `VcsToolkit.Mcp` / `VcsToolkit.Mcp.Server` — the agent-facing tool surface
 

@@ -33,6 +33,18 @@ module internal EnvelopeSerialization =
             writer.WriteString("name", ContractNames.operation capability.Operation)
             writer.WriteString("availability", if capability.Supported then "supported" else "planned")
             writer.WriteBoolean("mutating", capability.Mutating)
+            writer.WriteStartArray("backends")
+
+            for backend in capability.Backends do
+                writer.WriteStringValue backend
+
+            writer.WriteEndArray()
+            writer.WriteStartArray("forges")
+
+            for forge in capability.Forges do
+                writer.WriteStringValue forge
+
+            writer.WriteEndArray()
             writer.WriteEndObject()
 
         writer.WriteEndArray()
@@ -109,10 +121,12 @@ module internal EnvelopeSerialization =
         writer.WriteBoolean("authenticated", inspect.Forge.Authenticated)
         writeOptionalString writer "version" inspect.Forge.Version
         writer.WriteStartObject("capabilities")
+        writer.WriteBoolean("repositoryIdentity", inspect.Forge.Capabilities.RepositoryIdentity)
         writer.WriteBoolean("pullRequestCreate", inspect.Forge.Capabilities.PullRequestCreate)
         writer.WriteBoolean("pullRequestComment", inspect.Forge.Capabilities.PullRequestComment)
         writer.WriteBoolean("pullRequestEdit", inspect.Forge.Capabilities.PullRequestEdit)
         writer.WriteBoolean("pullRequestChecks", inspect.Forge.Capabilities.PullRequestChecks)
+        writer.WriteBoolean("exactRevisionCi", inspect.Forge.Capabilities.ExactRevisionCi)
         writer.WriteBoolean("pullRequestMerge", inspect.Forge.Capabilities.PullRequestMerge)
         writer.WriteBoolean("issueCreate", inspect.Forge.Capabilities.IssueCreate)
         writer.WriteBoolean("issueReopen", inspect.Forge.Capabilities.IssueReopen)
@@ -241,12 +255,102 @@ module internal EnvelopeSerialization =
 
         writer.WriteEndObject()
 
+    let private writePublicationEvidence
+        (writer: Utf8JsonWriter)
+        (propertyName: string)
+        (evidence: PublicationEvidence)
+        =
+        writer.WriteStartObject(propertyName)
+        writer.WriteString("root", Redaction.redact evidence.Root)
+        writer.WriteString("backend", Redaction.redact evidence.Backend)
+        writer.WriteString("forge", Redaction.redact evidence.Forge)
+        writer.WriteString("account", Redaction.redact evidence.Account)
+        writer.WriteString("branch", Redaction.redact evidence.Branch)
+        writer.WriteString("remote", Redaction.redact evidence.Remote)
+        writer.WriteString("localRevision", Redaction.redact evidence.LocalRevision)
+        writeOptionalString writer "remoteRevision" evidence.RemoteRevision
+        writer.WriteEndObject()
+
+    let private writePublish (writer: Utf8JsonWriter) (publish: PublishData) =
+        writer.WriteStartObject()
+        writer.WriteString("kind", "publish")
+        writePublicationEvidence writer "preflight" publish.Preflight
+
+        match publish.Postflight with
+        | Some evidence -> writePublicationEvidence writer "postflight" evidence
+        | None -> writer.WriteNull "postflight"
+
+        match publish.ChangeRequest with
+        | Some changeRequest ->
+            writer.WriteStartObject("changeRequest")
+            writer.WriteNumber("number", changeRequest.Number)
+            writer.WriteString("url", Redaction.redact changeRequest.Url)
+            writer.WriteString("sourceBranch", Redaction.redact changeRequest.SourceBranch)
+            writer.WriteString("targetBranch", Redaction.redact changeRequest.TargetBranch)
+
+            writer.WriteString(
+                "disposition",
+                match changeRequest.Disposition with
+                | PublicationChangeRequestDisposition.Created -> "created"
+                | PublicationChangeRequestDisposition.Existing -> "existing"
+            )
+
+            writer.WriteEndObject()
+        | None -> writer.WriteNull "changeRequest"
+
+        writer.WriteString(
+            "completion",
+            match publish.Completion with
+            | PublishCompletion.Verified -> "verified"
+            | PublishCompletion.Ambiguous -> "ambiguous"
+        )
+
+        writer.WriteEndObject()
+
+    let private ciStateName state =
+        match state with
+        | AgentCiState.NoRuns -> "no-runs"
+        | AgentCiState.Pending -> "pending"
+        | AgentCiState.Success -> "success"
+        | AgentCiState.Failure -> "failure"
+        | AgentCiState.Cancelled -> "cancelled"
+        | AgentCiState.Skipped -> "skipped"
+        | AgentCiState.RevisionMismatch -> "revision-mismatch"
+
+    let private writeCi (writer: Utf8JsonWriter) (ci: CiData) =
+        writer.WriteStartObject()
+        writer.WriteString("kind", "ci")
+        writer.WriteString("root", Redaction.redact ci.Root)
+        writer.WriteString("forge", Redaction.redact ci.Forge)
+        writer.WriteString("account", Redaction.redact ci.Account)
+        writer.WriteString("branch", Redaction.redact ci.Branch)
+        writer.WriteString("remote", Redaction.redact ci.Remote)
+        writer.WriteString("revision", Redaction.redact ci.Revision)
+        writer.WriteString("state", ciStateName ci.State)
+        writer.WriteNumber("pollCount", ci.PollCount)
+        writer.WriteStartArray("runs")
+
+        for run in ci.Runs do
+            writer.WriteStartObject()
+            writer.WriteString("id", Redaction.redact run.Id)
+            writer.WriteString("name", Redaction.redact run.Name)
+            writer.WriteString("status", Redaction.redact run.Status)
+            writeOptionalString writer "conclusion" run.Conclusion
+            writer.WriteString("revision", Redaction.redact run.Revision)
+            writer.WriteString("url", Redaction.redact run.Url)
+            writer.WriteEndObject()
+
+        writer.WriteEndArray()
+        writer.WriteEndObject()
+
     let private writePayload (writer: Utf8JsonWriter) payload =
         match payload with
         | AgentPayload.Probe probe -> writeProbe writer probe
         | AgentPayload.Inspect inspect -> writeInspect writer inspect
         | AgentPayload.Changes changes -> writeChanges writer changes
         | AgentPayload.Commit commit -> writeCommit writer commit
+        | AgentPayload.Publish publish -> writePublish writer publish
+        | AgentPayload.Ci ci -> writeCi writer ci
 
     let serialize envelope =
         use stream = new MemoryStream()

@@ -13,10 +13,20 @@ namespace VcsToolkit.Agent
         [Microsoft.FSharp.Core.Literal]
         [System.Diagnostics.DebuggerBrowsable(System.Diagnostics.DebuggerBrowsableState.Never)]
         public const int MinimumOutputLimitBytes = 512;
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Value)]
+        public static System.TimeSpan MaxWaitDuration { get; }
         [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
                 1,
                 1})]
         public static System.Threading.Tasks.Task<VcsToolkit.Agent.AgentEnvelope> changes(VcsToolkit.Agent.ChangesRequest request, System.Threading.CancellationToken cancellationToken) { }
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1})]
+        public static System.Threading.Tasks.Task<VcsToolkit.Agent.AgentEnvelope> ciStatus(VcsToolkit.Agent.CiStatusRequest request, System.Threading.CancellationToken cancellationToken) { }
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1})]
+        public static System.Threading.Tasks.Task<VcsToolkit.Agent.AgentEnvelope> ciWait(VcsToolkit.Agent.CiWaitRequest request, System.Threading.CancellationToken cancellationToken) { }
         [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
                 1,
                 1})]
@@ -26,13 +36,21 @@ namespace VcsToolkit.Agent
                 1})]
         public static System.Threading.Tasks.Task<VcsToolkit.Agent.AgentEnvelope> inspect(VcsToolkit.Agent.InspectRequest request, System.Threading.CancellationToken cancellationToken) { }
         public static VcsToolkit.Agent.AgentEnvelope probe(string? toolVersion) { }
+        [Microsoft.FSharp.Core.CompilationArgumentCounts(new int[] {
+                1,
+                1})]
+        public static System.Threading.Tasks.Task<VcsToolkit.Agent.AgentEnvelope> publish(VcsToolkit.Agent.PublishRequest request, System.Threading.CancellationToken cancellationToken) { }
     }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
     [System.Serializable]
     public sealed class AgentCapability : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.AgentCapability>, System.IEquatable<VcsToolkit.Agent.AgentCapability>
     {
         [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Agent.AgentCapability))]
-        public AgentCapability(VcsToolkit.Agent.AgentOperation operation, bool supported, bool mutating) { }
+        public AgentCapability(VcsToolkit.Agent.AgentOperation operation, bool supported, bool mutating, Microsoft.FSharp.Collections.FSharpList<string> backends, Microsoft.FSharp.Collections.FSharpList<string> forges) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+        public Microsoft.FSharp.Collections.FSharpList<string> Backends { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+        public Microsoft.FSharp.Collections.FSharpList<string> Forges { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
         public bool Mutating { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
@@ -63,6 +81,42 @@ namespace VcsToolkit.Agent
         public Microsoft.FSharp.Core.FSharpOption<string>? OldPath { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
         public string Path { get; }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class AgentCiRun : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.AgentCiRun>, System.IEquatable<VcsToolkit.Agent.AgentCiRun>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Agent.AgentCiRun))]
+        public AgentCiRun(string id, string name, string status, Microsoft.FSharp.Core.FSharpOption<string>? conclusion, string revision, string url) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? Conclusion { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public string Id { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public string Name { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+        public string Revision { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public string Status { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 5)]
+        public string Url { get; }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+    [System.Serializable]
+    public sealed class AgentCiState : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.AgentCiState>, System.IEquatable<VcsToolkit.Agent.AgentCiState>
+    {
+        public static class Tags
+        {
+            public const int Cancelled = 4;
+            public const int Failure = 3;
+            public const int NoRuns = 0;
+            public const int Pending = 1;
+            public const int RevisionMismatch = 6;
+            public const int Skipped = 5;
+            public const int Success = 2;
+        }
     }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
     [System.Serializable]
@@ -165,6 +219,7 @@ namespace VcsToolkit.Agent
             public const int Forge = 4;
             public const int InvalidInput = 2;
             public const int OutputLimit = 8;
+            public const int RevisionMismatch = 10;
             public const int Timeout = 6;
             public const int Unsupported = 0;
         }
@@ -217,23 +272,27 @@ namespace VcsToolkit.Agent
     public sealed class AgentForgeCapabilities : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.AgentForgeCapabilities>, System.IEquatable<VcsToolkit.Agent.AgentForgeCapabilities>
     {
         [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Agent.AgentForgeCapabilities))]
-        public AgentForgeCapabilities(bool pullRequestCreate, bool pullRequestComment, bool pullRequestEdit, bool pullRequestChecks, bool pullRequestMerge, bool issueCreate, bool issueReopen, bool releaseDelete) { }
+        public AgentForgeCapabilities(bool repositoryIdentity, bool pullRequestCreate, bool pullRequestComment, bool pullRequestEdit, bool pullRequestChecks, bool exactRevisionCi, bool pullRequestMerge, bool issueCreate, bool issueReopen, bool releaseDelete) { }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 5)]
-        public bool IssueCreate { get; }
-        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 6)]
-        public bool IssueReopen { get; }
-        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
-        public bool PullRequestChecks { get; }
-        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
-        public bool PullRequestComment { get; }
-        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
-        public bool PullRequestCreate { get; }
-        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
-        public bool PullRequestEdit { get; }
-        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
-        public bool PullRequestMerge { get; }
+        public bool ExactRevisionCi { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 7)]
+        public bool IssueCreate { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 8)]
+        public bool IssueReopen { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+        public bool PullRequestChecks { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public bool PullRequestComment { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public bool PullRequestCreate { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+        public bool PullRequestEdit { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 6)]
+        public bool PullRequestMerge { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 9)]
         public bool ReleaseDelete { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public bool RepositoryIdentity { get; }
     }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
     [System.Serializable]
@@ -251,6 +310,19 @@ namespace VcsToolkit.Agent
         public VcsToolkit.Agent.AgentForgeStatus Status { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
         public Microsoft.FSharp.Core.FSharpOption<string>? Version { get; }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+    [System.Serializable]
+    public sealed class AgentForgeKind : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.AgentForgeKind>, System.IEquatable<VcsToolkit.Agent.AgentForgeKind>
+    {
+        public static class Tags
+        {
+            public const int GitHub = 0;
+            public const int GitLab = 1;
+            public const int Gitea = 2;
+        }
     }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
     [Microsoft.FSharp.Core.RequireQualifiedAccess]
@@ -294,6 +366,10 @@ namespace VcsToolkit.Agent
         [System.Serializable]
         public class Changes : VcsToolkit.Agent.AgentPayload { }
         [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+        [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.Agent.AgentPayload.Ci@DebugTypeProxy))]
+        [System.Serializable]
+        public class Ci : VcsToolkit.Agent.AgentPayload { }
+        [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
         [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.Agent.AgentPayload.Commit@DebugTypeProxy))]
         [System.Serializable]
         public class Commit : VcsToolkit.Agent.AgentPayload { }
@@ -305,12 +381,18 @@ namespace VcsToolkit.Agent
         [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.Agent.AgentPayload.Probe@DebugTypeProxy))]
         [System.Serializable]
         public class Probe : VcsToolkit.Agent.AgentPayload { }
+        [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+        [System.Diagnostics.DebuggerTypeProxy(typeof(VcsToolkit.Agent.AgentPayload.Publish@DebugTypeProxy))]
+        [System.Serializable]
+        public class Publish : VcsToolkit.Agent.AgentPayload { }
         public static class Tags
         {
             public const int Changes = 2;
+            public const int Ci = 5;
             public const int Commit = 3;
             public const int Inspect = 1;
             public const int Probe = 0;
+            public const int Publish = 4;
         }
     }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
@@ -446,6 +528,86 @@ namespace VcsToolkit.Agent
         public static VcsToolkit.Agent.ChangesRequest StructuredDiff(string repositoryPath) { }
         public static VcsToolkit.Agent.ChangesRequest Summary(string repositoryPath) { }
     }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class CiData : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.CiData>, System.IEquatable<VcsToolkit.Agent.CiData>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Agent.CiData))]
+        public CiData(string root, string forge, string account, string branch, string remote, string revision, VcsToolkit.Agent.AgentCiState state, Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Agent.AgentCiRun> runs, ulong pollCount) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public string Account { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+        public string Branch { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public string Forge { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 8)]
+        public ulong PollCount { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+        public string Remote { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 5)]
+        public string Revision { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public string Root { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 7)]
+        public Microsoft.FSharp.Collections.FSharpList<VcsToolkit.Agent.AgentCiRun> Runs { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 6)]
+        public VcsToolkit.Agent.AgentCiState State { get; }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class CiStatusRequest : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.CiStatusRequest>, System.IEquatable<VcsToolkit.Agent.CiStatusRequest>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Agent.CiStatusRequest))]
+        public CiStatusRequest(string repositoryPath, VcsToolkit.Agent.AgentForgeKind forge, string account, string branch, string remote, string revision, int outputLimitBytes) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public string Account { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+        public string Branch { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public VcsToolkit.Agent.AgentForgeKind Forge { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 6)]
+        public int OutputLimitBytes { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+        public string Remote { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public string RepositoryPath { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 5)]
+        public string Revision { get; }
+        public VcsToolkit.Agent.CiStatusRequest WithOutputLimit(int outputLimitBytes) { }
+        public static VcsToolkit.Agent.CiStatusRequest Create(string repositoryPath, VcsToolkit.Agent.AgentForgeKind forge, string account, string branch, string remote, string revision) { }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class CiWaitRequest : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.CiWaitRequest>, System.IEquatable<VcsToolkit.Agent.CiWaitRequest>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Agent.CiWaitRequest))]
+        public CiWaitRequest(string repositoryPath, VcsToolkit.Agent.AgentForgeKind forge, string account, string branch, string remote, string revision, System.TimeSpan pollInterval, System.TimeSpan deadline, System.TimeSpan inactivityDeadline, int outputLimitBytes) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public string Account { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+        public string Branch { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 7)]
+        public System.TimeSpan Deadline { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public VcsToolkit.Agent.AgentForgeKind Forge { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 8)]
+        public System.TimeSpan InactivityDeadline { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 9)]
+        public int OutputLimitBytes { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 6)]
+        public System.TimeSpan PollInterval { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+        public string Remote { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public string RepositoryPath { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 5)]
+        public string Revision { get; }
+        public VcsToolkit.Agent.CiWaitRequest WithDeadline(System.TimeSpan deadline) { }
+        public VcsToolkit.Agent.CiWaitRequest WithInactivityDeadline(System.TimeSpan inactivityDeadline) { }
+        public VcsToolkit.Agent.CiWaitRequest WithOutputLimit(int outputLimitBytes) { }
+        public VcsToolkit.Agent.CiWaitRequest WithPolling(System.TimeSpan pollInterval) { }
+        public static VcsToolkit.Agent.CiWaitRequest Create(string repositoryPath, VcsToolkit.Agent.AgentForgeKind forge, string account, string branch, string remote, string revision) { }
+    }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
     [Microsoft.FSharp.Core.RequireQualifiedAccess]
     [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
@@ -562,6 +724,114 @@ namespace VcsToolkit.Agent
         public string ToolName { get; }
         [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
         public string ToolVersion { get; }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class PublicationChangeRequest : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.PublicationChangeRequest>, System.IEquatable<VcsToolkit.Agent.PublicationChangeRequest>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Agent.PublicationChangeRequest))]
+        public PublicationChangeRequest(ulong number, string url, string sourceBranch, string targetBranch, VcsToolkit.Agent.PublicationChangeRequestDisposition disposition) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+        public VcsToolkit.Agent.PublicationChangeRequestDisposition Disposition { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public ulong Number { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public string SourceBranch { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+        public string TargetBranch { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public string Url { get; }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+    [System.Serializable]
+    public sealed class PublicationChangeRequestDisposition : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.PublicationChangeRequestDisposition>, System.IEquatable<VcsToolkit.Agent.PublicationChangeRequestDisposition>
+    {
+        public static class Tags
+        {
+            public const int Created = 0;
+            public const int Existing = 1;
+        }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class PublicationEvidence : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.PublicationEvidence>, System.IEquatable<VcsToolkit.Agent.PublicationEvidence>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Agent.PublicationEvidence))]
+        public PublicationEvidence(string root, string backend, string forge, string account, string branch, string remote, string localRevision, Microsoft.FSharp.Core.FSharpOption<string>? remoteRevision) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+        public string Account { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public string Backend { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+        public string Branch { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public string Forge { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 6)]
+        public string LocalRevision { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 5)]
+        public string Remote { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 7)]
+        public Microsoft.FSharp.Core.FSharpOption<string>? RemoteRevision { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public string Root { get; }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.SumType)]
+    [Microsoft.FSharp.Core.RequireQualifiedAccess]
+    [System.Diagnostics.DebuggerDisplay("{__DebugDisplay(),nq}")]
+    [System.Serializable]
+    public sealed class PublishCompletion : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.PublishCompletion>, System.IEquatable<VcsToolkit.Agent.PublishCompletion>
+    {
+        public static class Tags
+        {
+            public const int Ambiguous = 1;
+            public const int Verified = 0;
+        }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class PublishData : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.PublishData>, System.IEquatable<VcsToolkit.Agent.PublishData>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Agent.PublishData))]
+        public PublishData(VcsToolkit.Agent.PublicationEvidence preflight, Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Agent.PublicationEvidence>? postflight, Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Agent.PublicationChangeRequest>? changeRequest, VcsToolkit.Agent.PublishCompletion completion) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Agent.PublicationChangeRequest>? ChangeRequest { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+        public VcsToolkit.Agent.PublishCompletion Completion { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public Microsoft.FSharp.Core.FSharpOption<VcsToolkit.Agent.PublicationEvidence>? Postflight { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public VcsToolkit.Agent.PublicationEvidence Preflight { get; }
+    }
+    [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
+    [System.Serializable]
+    public sealed class PublishRequest : System.Collections.IStructuralComparable, System.Collections.IStructuralEquatable, System.IComparable, System.IComparable<VcsToolkit.Agent.PublishRequest>, System.IEquatable<VcsToolkit.Agent.PublishRequest>
+    {
+        [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.None | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicProperties, typeof(VcsToolkit.Agent.PublishRequest))]
+        public PublishRequest(string repositoryPath, string branch, string remote, string revision, VcsToolkit.Agent.AgentForgeKind forge, string account, string targetBranch, string title, string body, int outputLimitBytes) { }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 5)]
+        public string Account { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 8)]
+        public string Body { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 1)]
+        public string Branch { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 4)]
+        public VcsToolkit.Agent.AgentForgeKind Forge { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 9)]
+        public int OutputLimitBytes { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 2)]
+        public string Remote { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 0)]
+        public string RepositoryPath { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 3)]
+        public string Revision { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 6)]
+        public string TargetBranch { get; }
+        [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.Field, 7)]
+        public string Title { get; }
+        public VcsToolkit.Agent.PublishRequest WithOutputLimit(int outputLimitBytes) { }
+        public static VcsToolkit.Agent.PublishRequest Create(string repositoryPath, string branch, string remote, string revision, VcsToolkit.Agent.AgentForgeKind forge, string account, string targetBranch, string title, string body) { }
     }
     [Microsoft.FSharp.Core.CompilationMapping(Microsoft.FSharp.Core.SourceConstructFlags.RecordType)]
     [System.Serializable]

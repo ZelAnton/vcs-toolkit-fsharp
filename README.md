@@ -32,12 +32,12 @@ The toolkit is split into one package per concern, mirroring the Rust workspace.
 | `VcsToolkit.Diff` | Implemented | The git-format unified-diff model and parser, plus a tolerant `<tool> --version` parser. Pure, no subprocess. |
 | `VcsToolkit.Git` | Implemented | The `git` CLI client: status, branches, commit, checkout, diff/log, merge/rebase/reset, fetch/push/clone, worktrees, tags, blame, config — plus a `.At(dir)` cwd-bound view and a pure conflict-marker model (`Conflict`: `parseConflicts`/`render`/`resolve`, no subprocess). |
 | `VcsToolkit.Jj` | Implemented | The Jujutsu (`jj`) CLI client: changes/log, bookmarks, the operation log with rollback transactions, workspaces, squash/split/absorb, diff queries, and git sync — plus a `.At(dir)` cwd-bound view and the native materialized conflict model (`Conflict`). |
-| `VcsToolkit.GitHub` | Implemented | The GitHub (`gh`) CLI client: pull requests and issues (including typed label creation and add/remove operations), typed Actions workflow definitions (list/view) and runs (list/view/watch/dispatch/rerun/cancel), releases, repo view, and the REST/GraphQL escape hatch — plus a `.At(dir)` cwd-bound view. Tokens are injected as `GH_TOKEN`, never in argv. |
-| `VcsToolkit.GitLab` | Implemented | The GitLab (`glab`) CLI client: the lean merge-request and issue lifecycle (including typed label creation and add/remove operations), CI/pipeline status, releases, project view, and the REST/GraphQL escape hatch — plus a `.At(dir)` cwd-bound view. Tokens are injected as `GITLAB_TOKEN`, never in argv. |
+| `VcsToolkit.GitHub` | Implemented | The GitHub (`gh`) CLI client: pull requests and issues (including typed label creation and add/remove operations), typed Actions workflow definitions and runs (including exact-commit lookup), authenticated-user identity, releases, repo view, and the REST/GraphQL escape hatch — plus a `.At(dir)` cwd-bound view. Tokens are injected as `GH_TOKEN`, never in argv. |
+| `VcsToolkit.GitLab` | Implemented | The GitLab (`glab`) CLI client: the lean merge-request and issue lifecycle (including typed label creation and add/remove operations), exact-revision pipelines and authenticated-user identity, releases, project view, and the REST/GraphQL escape hatch — plus a `.At(dir)` cwd-bound view. Tokens are injected as `GITLAB_TOKEN`, never in argv. |
 | `VcsToolkit.Gitea` | Implemented | The Gitea/Forgejo (`tea`) CLI client: pull requests and issues (including labels on creation), releases, and a `.At(dir)` cwd-bound view. Unsupported `tea` operations such as PR/issue label mutation, PR edit, and release delete fail before spawning. Authentication is ambient (`tea`'s stored logins). |
 | `VcsToolkit.Core` | Implemented | The backend-agnostic `Repo` facade over Git / Jujutsu: `Open` auto-detects git vs jj, then one handle runs whatever both tools support — branch/snapshot reads, changed files, unified working-copy diffs & diff stats, partial commits, fetch/push/checkout/rebase, a trace-free merge-conflict probe (`TryMerge`), in-progress merge/rebase state, and worktree management — returning plain result types. Escape hatches `.Git`/`.Jj` (raw client) and `.GitAt`/`.JjAt` (dir-bound views) reach the raw surface; only the synchronous `cleanupWorktreeBlocking` Drop-guard is intentionally not ported (`IAsyncDisposable` awaits `RemoveWorktree`). |
-| `VcsToolkit.Forge` | Implemented | The unified forge facade over GitHub / GitLab / Gitea: one `Forge` handle exposes a common PR/MR, issue, and release surface, including typed label creation and mutation, and returns plain result types that don't mention which forge produced them. Backend gaps are explicit `Unsupported` results rather than silently dropped options; `ForgeKind.OfRemoteUrl` classifies the public-SaaS hosts with anti-spoofing checks. The gh/glab/tea analogue of `Core`'s `Repo` over git/jj. |
-| `VcsToolkit.Agent` | Implemented (v1 read + checked commit) | The transport-neutral application contract for outcome-oriented agent workflows. It owns the versioned envelope, operation/error taxonomy, deterministic `probe`, typed repository `inspect`, summary or structured-diff `changes`, exact-path checked `commit`, bounded JSON rendering, redaction, and stable exit mapping used by the thin `vcs-agent` global tool. Publication and CI operations remain reserved and report structured `unsupported`. |
+| `VcsToolkit.Forge` | Implemented | The unified forge facade over GitHub / GitLab / Gitea: one `Forge` handle exposes a common PR/MR, issue, release, authenticated-identity, and exact-revision CI surface. Backend gaps are explicit `Unsupported` results rather than silently dropped options; `ForgeKind.OfRemoteUrl` classifies the public-SaaS hosts with anti-spoofing checks. The gh/glab/tea analogue of `Core`'s `Repo` over git/jj. |
+| `VcsToolkit.Agent` | Implemented (v1 checked outcomes) | The transport-neutral application contract for outcome-oriented agent workflows. It owns the versioned envelope, deterministic `probe`, repository `inspect`/`changes`, exact-path checked `commit`, verified exact-revision `publish`, exact-revision `ci status`/`ci wait`, bounded JSON rendering, redaction, and stable exit mapping used by the thin `vcs-agent` global tool. |
 | `VcsToolkit.TestKit` | Implemented | Throwaway git/jj sandboxes (and a seeded bare remote) for integration tests, plus canonical parser-shaped GitHub, GitLab, and Gitea PR/issue/release fixtures: a self-cleaning `TempDir` whose tag is sanitized to one component and verified under the canonical OS temp root, `GitSandbox` / `JjSandbox` scenario builders, and `BareRemote` — dependency-free (no wrapper libraries, so it can be a test dependency of any without a cycle), hermetic (no host VCS config leaks in), and raising on failure; sandbox writes reject rooted or escaping paths before filesystem changes. |
 | `VcsToolkit.Watch` | Implemented | Filesystem-watch a git/jj repository and emit typed state-change events. A `RepoWatcher` watches the `.git`/`.jj` state dir (and, optionally, the working tree), debounces the write burst a VCS operation makes, re-queries `Repo.Snapshot`, and diffs it against the previous state to yield typed `RepoEvent`s (`HeadMoved`, `BranchSwitched`, `BranchCreated`/`Deleted`, `WorkingCopyChanged`, upstream/ahead-behind/operation/conflict). Re-query-and-diff (not raw FS events) makes it robust to ref temp-file renames and `index.lock` churn. The foundation for prompts, status bars, and TUIs. |
 | `VcsToolkit.Mcp` | Implemented | A Model Context Protocol server exposing the toolkit's typed git/jj + forge operations as agent-callable tools, including optional labels on creation and write-gated label add/remove tools. The `VcsToolkit.Mcp` library is the hermetically-testable core — `VcsMcpServer` with the `repo_*` / `forge_*` tools over `Core`/`Forge`, the `WriteGate` write policy (read tools always available, mutations gated by `--allow-write`/`--allow-tools`), the tool catalogue and dispatcher, and the CLI parser. The thin `vcs-mcp` binary (`VcsToolkit.Mcp.Server`) wires it to the `ModelContextProtocol` SDK over stdio, with a hardened git client, per-command timeout, and request cancellation propagation through commands and repository lock waits. |
@@ -61,7 +61,8 @@ dotnet pack VcsToolkit.slnx --configuration Release --output ./artifacts
 dotnet tool install --global vcs-agent --version 0.1.0 --add-source ./artifacts
 ```
 
-The implemented v1 outcomes are `probe`, `inspect`, `changes`, and checked exact-path `commit`. `probe` is
+The implemented v1 outcomes are `probe`, `inspect`, `changes`, checked exact-path `commit`, verified
+`publish`, and exact-revision `ci status` / `ci wait`. `probe` is
 deterministic and does not inspect a repository, executable, network, environment variable,
 or machine-local path.
 
@@ -72,6 +73,9 @@ vcs-agent inspect --repo .
 vcs-agent changes --repo . --view summary
 vcs-agent changes --repo . --view diff --output-budget 16384
 vcs-agent commit --repo . --path src/App.fs --path tests/App.Tests.fs --message "Update app"
+vcs-agent publish --repo . --branch feature --remote origin --revision <full-sha> --forge github --account alice --target main --title "Add feature"
+vcs-agent ci status --repo . --branch feature --remote origin --revision <full-sha> --forge github --account alice
+vcs-agent ci wait --repo . --branch feature --remote origin --revision <full-sha> --forge github --account alice --deadline-seconds 1800 --inactivity-seconds 600
 ```
 
 Every invocation emits one versioned JSON envelope on stdout. Diagnostics use stderr, and the
@@ -90,10 +94,15 @@ complete result budget and repository state before mutation. It delegates only t
 repository/ref evidence. Git success additionally proves that the revision is the single direct
 child of the source (or the sole root of an unborn repository); a late failure is explicitly
 ambiguous and carries bounded best-effort postflight evidence without claiming an unverified
-revision. Unrelated dirt remains preserved.
-`publish`, `ci status`, and `ci wait` are reserved in
-the v1 taxonomy and return `unsupported` with the machine-readable fallback reason
-`operation-not-implemented`.
+revision. Unrelated dirt remains preserved. `publish` requires explicit repository,
+branch/bookmark, remote, full revision, forge/account, target, and title; it pushes only that
+revision, proves the selected remote ref, pins every forge call to that remote's exact repository,
+and creates or recovers one exact PR/MR only after a complete search proves the candidate's source
+project and head revision. CI status/wait
+prove the same published revision before consuming complete GitHub/GitLab inventories by commit
+id; wait adds caller cancellation plus bounded overall and inactivity deadlines. `probe` reports
+the operation-by-backend/forge matrix, so Gitea is excluded from publish and exact-revision CI
+before invocation rather than producing partial success.
 
 Short read-only calls can run directly. For a durable lifecycle, hard or idle deadline,
 bounded capture, out-of-band cancellation, or nested containment, supervise the independently

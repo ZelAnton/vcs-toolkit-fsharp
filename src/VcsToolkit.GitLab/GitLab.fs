@@ -144,6 +144,19 @@ type GitLab private (core: ManagedClient) =
             | Ok code -> return Ok(code = 0)
         }
 
+    /// The username selected by this client's authentication context (`glab api user`).
+    member _.AuthIdentity() =
+        core.TryParse(core.Command [ "api"; "user" ], GitLabParse.parseUserName)
+
+    /// Agent-only account proof pinned to the selected remote host.
+    member internal _.AuthIdentityForHost(host: string) =
+        task {
+            match checkFlags BINARY [ "host", host ] with
+            | Error error -> return Error error
+            | Ok() ->
+                return! core.TryParse(core.Command [ "api"; "--hostname"; host; "user" ], GitLabParse.parseUserName)
+        }
+
     /// Raw GitLab REST/GraphQL response body (`glab api <endpoint>`), run in the bound repo
     /// `dir` so a relative endpoint resolves against *that* project rather than whatever repo
     /// the process cwd happens to be in.
@@ -197,6 +210,33 @@ type GitLab private (core: ManagedClient) =
                     )
         }
 
+    /// Agent-only complete open MR inventory pinned to one selected project. The explicit
+    /// project endpoint and `--paginate` avoid both cwd remote inference and first-page
+    /// truncation before no-duplicate recovery.
+    member internal _.MrListForBranchesComplete
+        (dir: string, host: string, projectPath: string, sourceBranch: string, targetBranch: string)
+        =
+        task {
+            match
+                checkFlags
+                    BINARY
+                    [ "host", host
+                      "projectPath", projectPath
+                      "sourceBranch", sourceBranch
+                      "targetBranch", targetBranch ]
+            with
+            | Error error -> return Error error
+            | Ok() ->
+                let endpoint =
+                    $"projects/{Uri.EscapeDataString projectPath}/merge_requests?state=opened&source_branch={Uri.EscapeDataString sourceBranch}&target_branch={Uri.EscapeDataString targetBranch}&per_page=100"
+
+                return!
+                    core.TryParse(
+                        core.CommandIn(dir, [ "api"; "--hostname"; host; "--paginate"; endpoint ]),
+                        GitLabParse.parseRecoveryMrList
+                    )
+        }
+
     /// A single merge request by its project-scoped number — GitLab's `iid`
     /// (`glab mr view <number> --output json`).
     member _.MrView(dir: string, number: uint64) =
@@ -229,6 +269,38 @@ type GitLab private (core: ManagedClient) =
                         @ (spec.Labels |> List.collect (fun label -> [ "--label"; label ]))
 
                     return! core.Run(core.CommandIn(dir, args))
+        }
+
+    /// Agent-only MR creation pinned to one selected project.
+    member internal _.MrCreateForRepository(dir: string, repository: string, spec: MrCreate) =
+        task {
+            match checkFlags BINARY [ "repository", repository ] with
+            | Error error -> return Error error
+            | Ok() ->
+                match rejectDashSentinel "body" spec.Body with
+                | Error error -> return Error error
+                | Ok() ->
+                    let labelCheck =
+                        if List.isEmpty spec.Labels then
+                            Ok()
+                        else
+                            validateLabels "mr create" spec.Labels
+
+                    match labelCheck with
+                    | Error error -> return Error error
+                    | Ok() ->
+                        let args =
+                            [ "mr"; "create"; "--title"; spec.Title; "--description"; spec.Body; "--yes" ]
+                            @ (match spec.Source with
+                               | Some source -> [ "--source-branch"; source ]
+                               | None -> [])
+                            @ (match spec.Target with
+                               | Some target -> [ "--target-branch"; target ]
+                               | None -> [])
+                            @ (spec.Labels |> List.collect (fun label -> [ "--label"; label ]))
+                            @ [ "--repo"; repository ]
+
+                        return! core.Run(core.CommandIn(dir, args))
         }
 
     // --- MR lifecycle --------------------------------------------------------
@@ -349,6 +421,37 @@ type GitLab private (core: ManagedClient) =
             core.CommandIn(dir, [ "mr"; "view"; string number; "--output"; "json" ]),
             GitLabParse.parseCiStatus
         )
+
+    /// Project pipelines selected by one exact commit id through GitLab's typed JSON API.
+    member _.PipelineListForRevision(dir: string, revision: string) =
+        task {
+            match checkFlags BINARY [ "revision", revision ] with
+            | Error error -> return Error error
+            | Ok() ->
+                let endpoint =
+                    $"projects/:id/pipelines?sha={Uri.EscapeDataString revision}&per_page=100"
+
+                return!
+                    core.TryParse(core.CommandIn(dir, [ "api"; "--paginate"; endpoint ]), GitLabParse.parsePipelineList)
+        }
+
+    /// Agent-only complete exact-revision pipeline inventory pinned to one selected project.
+    member internal _.PipelineListForRevisionComplete
+        (dir: string, host: string, projectPath: string, revision: string)
+        =
+        task {
+            match checkFlags BINARY [ "host", host; "projectPath", projectPath; "revision", revision ] with
+            | Error error -> return Error error
+            | Ok() ->
+                let endpoint =
+                    $"projects/{Uri.EscapeDataString projectPath}/pipelines?sha={Uri.EscapeDataString revision}&per_page=100"
+
+                return!
+                    core.TryParse(
+                        core.CommandIn(dir, [ "api"; "--hostname"; host; "--paginate"; endpoint ]),
+                        GitLabParse.parsePipelineList
+                    )
+        }
 
     /// The merge request's unified diff, parsed into per-file `FileDiff` values
     /// (`glab mr diff <n>`, then `VcsToolkit.Diff.parseDiff`). The number is a positional
@@ -576,6 +679,9 @@ and [<Sealed>] GitLabAt internal (gitlab: GitLab, dir: string) =
     /// Whether the user is authenticated (`glab auth status` exits zero).
     member _.AuthStatus() = gitlab.AuthStatus()
 
+    /// The username selected by this client's authentication context.
+    member _.AuthIdentity() = gitlab.AuthIdentity()
+
     // --- Modelled methods (dir injected as the first argument) ----------------
 
     /// Raw GitLab REST/GraphQL response body for the bound `dir` (`glab api <endpoint>`).
@@ -636,6 +742,10 @@ and [<Sealed>] GitLabAt internal (gitlab: GitLab, dir: string) =
 
     /// The MR's pipeline status, bucketed (`glab mr view <id> --output json`).
     member _.MrChecks(number: uint64) = gitlab.MrChecks(dir, number)
+
+    /// Project pipelines selected by one exact commit id.
+    member _.PipelineListForRevision(revision: string) =
+        gitlab.PipelineListForRevision(dir, revision)
 
     /// The merge request's unified diff, parsed into per-file `FileDiff` values
     /// (`glab mr diff <n>`).

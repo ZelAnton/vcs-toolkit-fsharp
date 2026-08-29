@@ -1,5 +1,6 @@
 module VcsToolkit.GitHub.Tests
 
+open System
 open System.Threading.Tasks
 open NUnit.Framework
 open ProcessKit
@@ -71,6 +72,25 @@ type ParseTests() =
         | other -> Assert.Fail $"expected one PR, got {other.Length}"
 
     [<Test>]
+    member _.RecoveryPrListRequiresCanonicalHeadRepositoryAndRevision() =
+        let revision = String('a', 40)
+
+        let json =
+            $"""[{{"number":42,"title":"Add feature","state":"OPEN","headRefName":"feat","baseRefName":"main","url":"u","headRepository":{{"name":"repo","nameWithOwner":"Example/Repo"}},"headRepositoryOwner":{{"login":"Example"}},"headRefOid":"{revision}"}}]"""
+
+        match expectOk (GitHubParse.parseRecoveryPrList json) with
+        | [ candidate ] ->
+            Assert.That(candidate.SourceRepository, Is.EqualTo "Example/Repo")
+            Assert.That(candidate.HeadRevision, Is.EqualTo revision)
+            Assert.That(candidate.PullRequest.Number, Is.EqualTo 42UL)
+        | other -> Assert.Fail $"expected one recovery candidate, got {other.Length}"
+
+        for incomplete in
+            [ """[{"number":42,"headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]"""
+              """[{"number":42,"headRepository":{"nameWithOwner":"example/repo"}}]""" ] do
+            Assert.That(Result.isError (GitHubParse.parseRecoveryPrList incomplete), Is.True)
+
+    [<Test>]
     member _.PrReadsNullHeadRefNameAsEmpty() =
         // gh sends a present `null` for a deleted head branch — that must read as "".
         let json =
@@ -135,13 +155,14 @@ type ParseTests() =
     member _.RunListParsesDatabaseIdAndEmptyConclusion() =
         // A still-running run reports an empty-string conclusion (not null).
         let json =
-            """[{"databaseId":123,"name":"CI","displayTitle":"fix stuff","status":"in_progress","conclusion":"","workflowName":"CI","headBranch":"main","event":"push","url":"u","createdAt":"t"}]"""
+            """[{"databaseId":123,"name":"CI","displayTitle":"fix stuff","status":"in_progress","conclusion":"","workflowName":"CI","headBranch":"main","headSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","event":"push","url":"u","createdAt":"t"}]"""
 
         match expectOk (GitHubParse.parseRunList json) with
         | [ run ] ->
             Assert.That(run.DatabaseId, Is.EqualTo 123UL)
             Assert.That(run.Status, Is.EqualTo "in_progress")
             Assert.That(run.Conclusion, Is.EqualTo "")
+            Assert.That(run.HeadSha, Is.EqualTo(String('a', 40)))
             Assert.That(run.Event, Is.EqualTo "push")
         | other -> Assert.Fail $"expected one run, got {other.Length}"
 
@@ -431,6 +452,42 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.PrListForBranchesCompletePinsExactRepositoryAndPair() : Task =
+        task {
+            let revision = String('a', 40)
+
+            let json =
+                $"""[{{"number":1,"title":"t","state":"OPEN","headRefName":"feat","baseRefName":"main","url":"u","headRepository":{{"name":"repo","nameWithOwner":"example/repo"}},"headRepositoryOwner":{{"login":"example"}},"headRefOid":"{revision}"}}]"""
+
+            let gh, args = capturing (Reply.Ok json)
+
+            match! gh.PrListForBranchesComplete(".", "github.com/example/repo", "feat", "main") with
+            | Ok [ candidate ] ->
+                Assert.That(candidate.PullRequest.Number, Is.EqualTo 1UL)
+                Assert.That(candidate.SourceRepository, Is.EqualTo "example/repo")
+                Assert.That(candidate.HeadRevision, Is.EqualTo revision)
+            | Ok xs -> Assert.Fail $"expected one exact PR, got {xs.Length}"
+            | Error e -> Assert.Fail $"complete PR search failed: {e}"
+
+            assertArgs
+                [ "pr"
+                  "list"
+                  "--head"
+                  "feat"
+                  "--base"
+                  "main"
+                  "--state"
+                  "open"
+                  "--limit"
+                  "1000"
+                  "--json"
+                  RECOVERY_PR_FIELDS
+                  "--repo"
+                  "github.com/example/repo" ]
+                args
+        }
+
+    [<Test>]
     member _.PrListForBranchTwoArgBuildsHeadStateAllWithoutBase() : Task =
         task {
             let json =
@@ -677,6 +734,46 @@ type ClientTests() =
             match! all.RunList(".", 5, None) with
             | Ok xs -> Assert.That(xs, Is.Empty)
             | Error e -> Assert.Fail $"run list (all) failed: {e}"
+        }
+
+    [<Test>]
+    member _.RunListForRevisionRoutesTheExactCommitAndParsesHeadSha() : Task =
+        task {
+            let revision = String('a', 40)
+
+            let json =
+                $"""[{{"databaseId":123,"name":"CI","displayTitle":"exact","status":"completed","conclusion":"success","workflowName":"CI","headBranch":"feature","headSha":"{revision}","event":"push","url":"u","createdAt":"t"}}]"""
+
+            let github, args = capturing (Reply.Ok json)
+
+            match! github.RunListForRevision(".", 100, revision) with
+            | Ok [ run ] ->
+                Assert.That(run.HeadSha, Is.EqualTo revision)
+
+                assertArgs
+                    [ "run"
+                      "list"
+                      "--limit"
+                      "100"
+                      "--commit"
+                      revision
+                      "--json"
+                      "databaseId,name,displayTitle,status,conclusion,workflowName,headBranch,headSha,event,url,createdAt" ]
+                    args
+            | Ok other -> Assert.Fail $"expected one run, got {other.Length}"
+            | Error error -> Assert.Fail $"exact revision run list failed: {error}"
+        }
+
+    [<Test>]
+    member _.AuthIdentityUsesTheTypedUserEndpoint() : Task =
+        task {
+            let github, args = capturing (Reply.Ok """{"login":"alice"}""")
+
+            match! github.AuthIdentity() with
+            | Ok login ->
+                Assert.That(login, Is.EqualTo "alice")
+                assertArgs [ "api"; "user" ] args
+            | Error error -> Assert.Fail $"auth identity failed: {error}"
         }
 
     [<Test>]
