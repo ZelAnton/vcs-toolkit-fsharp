@@ -33,6 +33,18 @@ module internal EnvelopeSerialization =
             writer.WriteString("name", ContractNames.operation capability.Operation)
             writer.WriteString("availability", if capability.Supported then "supported" else "planned")
             writer.WriteBoolean("mutating", capability.Mutating)
+            writer.WriteStartArray("backends")
+
+            for backend in capability.Backends do
+                writer.WriteStringValue backend
+
+            writer.WriteEndArray()
+            writer.WriteStartArray("forges")
+
+            for forge in capability.Forges do
+                writer.WriteStringValue forge
+
+            writer.WriteEndArray()
             writer.WriteEndObject()
 
         writer.WriteEndArray()
@@ -109,6 +121,7 @@ module internal EnvelopeSerialization =
         writer.WriteBoolean("authenticated", inspect.Forge.Authenticated)
         writeOptionalString writer "version" inspect.Forge.Version
         writer.WriteStartObject("capabilities")
+        writer.WriteBoolean("repositoryIdentity", inspect.Forge.Capabilities.RepositoryIdentity)
         writer.WriteBoolean("pullRequestCreate", inspect.Forge.Capabilities.PullRequestCreate)
         writer.WriteBoolean("pullRequestComment", inspect.Forge.Capabilities.PullRequestComment)
         writer.WriteBoolean("pullRequestEdit", inspect.Forge.Capabilities.PullRequestEdit)

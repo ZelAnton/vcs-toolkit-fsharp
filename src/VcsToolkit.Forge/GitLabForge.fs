@@ -204,6 +204,20 @@ module internal GitLabForge =
             | Ok mrs -> return Ok(mrs |> List.map mapMr)
         }
 
+    let prForBranchesComplete
+        (glab: VcsToolkit.GitLab.GitLab)
+        (dir: string)
+        (host: string)
+        (projectPath: string)
+        (sourceBranch: string)
+        (targetBranch: string)
+        =
+        task {
+            match! glab.MrListForBranchesComplete(dir, host, projectPath, sourceBranch, targetBranch) with
+            | Error error -> return Error(ForgeError.Forge error)
+            | Ok mergeRequests -> return Ok(mergeRequests |> List.map mapMr)
+        }
+
     let prCreate (glab: VcsToolkit.GitLab.GitLab) (dir: string) (spec: PrCreate) =
         task {
             // The unified source/target ARE glab's naming — a 1:1 field map.
@@ -221,6 +235,24 @@ module internal GitLabForge =
 
             let! r = glab.MrCreate(dir, create)
             return ofForge r
+        }
+
+    let prCreateForRepository (glab: VcsToolkit.GitLab.GitLab) (dir: string) (repository: string) (spec: PrCreate) =
+        task {
+            let create =
+                VcsToolkit.GitLab.MrCreate.Create(spec.Title, spec.Body)
+                |> fun value ->
+                    match spec.Source with
+                    | Some source -> value.WithSource source
+                    | None -> value
+                |> fun value ->
+                    match spec.Target with
+                    | Some target -> value.WithTarget target
+                    | None -> value
+                |> fun value -> value.WithLabels spec.Labels
+
+            let! result = glab.MrCreateForRepository(dir, repository, create)
+            return ofForge result
         }
 
     let prAddLabels (glab: VcsToolkit.GitLab.GitLab) (dir: string) (number: uint64) (labels: string list) =

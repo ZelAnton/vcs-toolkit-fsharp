@@ -96,11 +96,12 @@ child of the source (or the sole root of an unborn repository); a late failure i
 ambiguous and carries bounded best-effort postflight evidence without claiming an unverified
 revision. Unrelated dirt remains preserved. `publish` requires explicit repository,
 branch/bookmark, remote, full revision, forge/account, target, and title; it pushes only that
-revision, proves the selected remote ref, and creates or recovers one exact PR/MR without
-duplicates. CI status/wait prove the same published revision before selecting GitHub runs or
-GitLab pipelines by commit id; wait adds caller cancellation plus overall and inactivity
-deadlines. Gitea exact-revision CI and identities that the available CLI cannot prove remain
-typed `unsupported` rather than partial success.
+revision, proves the selected remote ref, pins every forge call to that remote's exact repository,
+and creates or recovers one exact PR/MR only after a complete no-duplicate search. CI status/wait
+prove the same published revision before consuming complete GitHub/GitLab inventories by commit
+id; wait adds caller cancellation plus bounded overall and inactivity deadlines. `probe` reports
+the operation-by-backend/forge matrix, so Gitea is excluded from publish and exact-revision CI
+before invocation rather than producing partial success.
 
 Short read-only calls can run directly. For a durable lifecycle, hard or idle deadline,
 bounded capture, out-of-band cancellation, or nested containment, supervise the independently

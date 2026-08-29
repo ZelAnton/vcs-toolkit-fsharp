@@ -44,9 +44,15 @@ type AgentFallbackReason =
 
 /// One operation advertised by `probe`.
 type AgentCapability =
-    { Operation: AgentOperation
-      Supported: bool
-      Mutating: bool }
+    {
+        Operation: AgentOperation
+        Supported: bool
+        Mutating: bool
+        /// Repository backends on which this operation can run.
+        Backends: string list
+        /// Forge kinds on which this operation can run; empty when it is forge-independent.
+        Forges: string list
+    }
 
 /// Compatibility declaration for optional ProcessKit-CLI supervision.
 type SupervisorCompatibility =
@@ -152,15 +158,19 @@ type AgentForgeStatus =
 
 /// Stable capability subset needed by outcome workflows.
 type AgentForgeCapabilities =
-    { PullRequestCreate: bool
-      PullRequestComment: bool
-      PullRequestEdit: bool
-      PullRequestChecks: bool
-      ExactRevisionCi: bool
-      PullRequestMerge: bool
-      IssueCreate: bool
-      IssueReopen: bool
-      ReleaseDelete: bool }
+    {
+        /// Whether the forge can prove auth and an explicitly selected repository identity.
+        RepositoryIdentity: bool
+        PullRequestCreate: bool
+        PullRequestComment: bool
+        PullRequestEdit: bool
+        PullRequestChecks: bool
+        ExactRevisionCi: bool
+        PullRequestMerge: bool
+        IssueCreate: bool
+        IssueReopen: bool
+        ReleaseDelete: bool
+    }
 
 /// Detected forge, authentication and capabilities.
 type AgentForgeInfo =

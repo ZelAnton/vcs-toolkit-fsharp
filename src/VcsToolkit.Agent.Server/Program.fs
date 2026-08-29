@@ -75,8 +75,18 @@ let private parseOptions args =
 
     let parseSeconds optionName (value: string) =
         match Double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture) with
-        | true, seconds when Double.IsFinite seconds && seconds > 0.0 -> Ok(TimeSpan.FromSeconds seconds)
-        | _ -> Error(Agent.invalidInput "command" $"{optionName} must be a positive number of seconds")
+        | true, seconds when
+            Double.IsFinite seconds
+            && seconds > 0.0
+            && seconds <= Agent.MaxWaitDuration.TotalSeconds
+            ->
+            Ok(TimeSpan.FromSeconds seconds)
+        | _ ->
+            Error(
+                Agent.invalidInput
+                    "command"
+                    $"{optionName} must be a positive number of seconds no greater than {Agent.MaxWaitDuration.TotalSeconds}"
+            )
 
     let rec loop (state: ParsedOptions) remaining =
         match remaining with

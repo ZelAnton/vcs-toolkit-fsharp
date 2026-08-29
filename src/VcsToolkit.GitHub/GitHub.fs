@@ -19,6 +19,8 @@ open VcsToolkit.Diff
 [<Sealed>]
 type GitHub private (core: ManagedClient) =
 
+    static let CompleteInventoryLimit = 1000
+
     static let validateLabels (operation: string) (labels: string list) : Result<unit, ProcessError> =
         if List.isEmpty labels || labels |> List.exists String.IsNullOrWhiteSpace then
             Error(ProcessError.Spawn(BINARY, sprintf "%s requires at least one non-empty label" operation))
@@ -222,6 +224,15 @@ type GitHub private (core: ManagedClient) =
     member _.AuthIdentity() =
         core.TryParse(core.Command [ "api"; "user" ], GitHubParse.parseUserLogin)
 
+    /// Agent-only account proof pinned to the selected remote host.
+    member internal _.AuthIdentityForHost(host: string) =
+        task {
+            match checkFlags BINARY [ "host", host ] with
+            | Error error -> return Error error
+            | Ok() ->
+                return! core.TryParse(core.Command [ "api"; "--hostname"; host; "user" ], GitHubParse.parseUserLogin)
+        }
+
     /// Whether the user is authenticated for `host` specifically (`gh auth status
     /// --hostname <host>` exits zero). Scoping the probe to one host means a broken session
     /// on a DIFFERENT host can't flip this false: the unscoped `AuthStatus` inspects every
@@ -337,6 +348,49 @@ type GitHub private (core: ManagedClient) =
                     )
         }
 
+    /// Agent-only exact open PR inventory pinned to one selected repository. `gh` walks
+    /// pages up to the requested limit; hitting the limit is not proof of completeness and
+    /// therefore fails closed before a caller may create another PR.
+    member internal _.PrListForBranchesComplete(dir: string, repository: string, head: string, baseBranch: string) =
+        task {
+            match checkFlags BINARY [ "repository", repository; "head", head; "baseBranch", baseBranch ] with
+            | Error error -> return Error error
+            | Ok() ->
+                let! result =
+                    core.TryParse(
+                        core.CommandIn(
+                            dir,
+                            [ "pr"
+                              "list"
+                              "--head"
+                              head
+                              "--base"
+                              baseBranch
+                              "--state"
+                              "open"
+                              "--limit"
+                              string CompleteInventoryLimit
+                              "--json"
+                              PR_FIELDS
+                              "--repo"
+                              repository ]
+                        ),
+                        GitHubParse.parsePrList
+                    )
+
+                match result with
+                | Error error -> return Error error
+                | Ok pullRequests when pullRequests.Length >= CompleteInventoryLimit ->
+                    return
+                        Error(
+                            ProcessError.Parse(
+                                BINARY,
+                                $"exact pull-request inventory reached the safety limit of {CompleteInventoryLimit}; completeness is not proven"
+                            )
+                        )
+                | Ok pullRequests -> return Ok pullRequests
+        }
+
     /// A single pull request by number (`gh pr view <n> --json …`).
     member _.PrView(dir: string, number: uint64) =
         core.TryParse(core.CommandIn(dir, [ "pr"; "view"; string number; "--json"; PR_FIELDS ]), GitHubParse.parsePr)
@@ -436,6 +490,35 @@ type GitHub private (core: ManagedClient) =
 
                 return! core.Run(core.CommandIn(dir, args))
 
+        }
+
+    /// Agent-only PR creation pinned to one selected repository.
+    member internal _.PrCreateForRepository(dir: string, repository: string, spec: PrCreate) =
+        task {
+            match checkFlags BINARY [ "repository", repository ] with
+            | Error error -> return Error error
+            | Ok() ->
+                let labelCheck =
+                    if List.isEmpty spec.Labels then
+                        Ok()
+                    else
+                        validateLabels "pr create" spec.Labels
+
+                match labelCheck with
+                | Error error -> return Error error
+                | Ok() ->
+                    let args =
+                        [ "pr"; "create"; "--title"; spec.Title; "--body"; spec.Body ]
+                        @ (match spec.Head with
+                           | Some head -> [ "--head"; head ]
+                           | None -> [])
+                        @ (match spec.Base with
+                           | Some baseBranch -> [ "--base"; baseBranch ]
+                           | None -> [])
+                        @ (spec.Labels |> List.collect (fun label -> [ "--label"; label ]))
+                        @ [ "--repo"; repository ]
+
+                    return! core.Run(core.CommandIn(dir, args))
         }
 
     // --- PR lifecycle --------------------------------------------------------
@@ -608,6 +691,44 @@ type GitHub private (core: ManagedClient) =
                             ),
                             GitHubParse.parseRunList
                         )
+        }
+
+    /// Agent-only complete exact-revision run inventory pinned to one selected repository.
+    /// Hitting the safety limit fails closed rather than treating a partial list as success.
+    member internal _.RunListForRevisionComplete(dir: string, repository: string, revision: string) =
+        task {
+            match checkFlags BINARY [ "repository", repository; "revision", revision ] with
+            | Error error -> return Error error
+            | Ok() ->
+                let! result =
+                    core.TryParse(
+                        core.CommandIn(
+                            dir,
+                            [ "run"
+                              "list"
+                              "--limit"
+                              string CompleteInventoryLimit
+                              "--commit"
+                              revision
+                              "--json"
+                              RUN_FIELDS
+                              "--repo"
+                              repository ]
+                        ),
+                        GitHubParse.parseRunList
+                    )
+
+                match result with
+                | Error error -> return Error error
+                | Ok runs when runs.Length >= CompleteInventoryLimit ->
+                    return
+                        Error(
+                            ProcessError.Parse(
+                                BINARY,
+                                $"exact workflow-run inventory reached the safety limit of {CompleteInventoryLimit}; completeness is not proven"
+                            )
+                        )
+                | Ok runs -> return Ok runs
         }
 
     /// A single workflow run by id (`gh run view <id> --json …`).

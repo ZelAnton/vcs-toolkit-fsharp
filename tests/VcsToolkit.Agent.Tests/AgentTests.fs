@@ -32,11 +32,9 @@ module private Golden =
         File.ReadAllText(Path.Combine(projectDir, "Golden", name)).Replace("\r\n", "\n")
 
 module private CommitTest =
-    type TrustedRemoteRunner(inner: IProcessRunner, trustedUrl: string) =
+    type TrustedRemoteListingRunner(inner: IProcessRunner, listing: string) =
         let remoteRunner =
-            ScriptedRunner()
-                .On([ "remote"; "-v" ], Reply.Ok($"origin\t{trustedUrl} (fetch)\norigin\t{trustedUrl} (push)\n"))
-            :> IProcessRunner
+            ScriptedRunner().On([ "remote"; "-v" ], Reply.Ok listing) :> IProcessRunner
 
         interface IProcessRunner with
             member _.CaptureStringAsync(command, cancellationToken) =
@@ -50,6 +48,21 @@ module private CommitTest =
 
             member _.SpawnAsync(command, cancellationToken) =
                 inner.SpawnAsync(command, cancellationToken)
+
+    type TrustedRemoteRunner(inner: IProcessRunner, trustedUrl: string) =
+        let trusted =
+            TrustedRemoteListingRunner(inner, $"origin\t{trustedUrl} (fetch)\norigin\t{trustedUrl} (push)\n")
+            :> IProcessRunner
+
+        interface IProcessRunner with
+            member _.CaptureStringAsync(command, cancellationToken) =
+                trusted.CaptureStringAsync(command, cancellationToken)
+
+            member _.CaptureBytesAsync(command, cancellationToken) =
+                trusted.CaptureBytesAsync(command, cancellationToken)
+
+            member _.SpawnAsync(command, cancellationToken) =
+                trusted.SpawnAsync(command, cancellationToken)
 
     type IsolatedJjRunner(inner: IProcessRunner, repositoryRoot: string) =
         let configRoot = Path.Combine(repositoryRoot, ".jj", ".vcs-toolkit-jj-config")
@@ -211,6 +224,22 @@ type ContractTests() =
         let expected = Golden.read "probe.v1.json"
         Assert.That(actual, Is.EqualTo expected)
 
+        use document = JsonDocument.Parse actual
+
+        let operation name =
+            document.RootElement.GetProperty("data").GetProperty("operations").EnumerateArray()
+            |> Seq.find (fun value -> value.GetProperty("name").GetString() = name)
+
+        for name in [ "publish"; "ci.status"; "ci.wait" ] do
+            let forges =
+                operation name
+                |> fun value -> value.GetProperty("forges").EnumerateArray()
+                |> Seq.map (fun value -> value.GetString())
+                |> Seq.toList
+
+            Assert.That((forges = [ "github"; "gitlab" ]), Is.True)
+            Assert.That(forges, Does.Not.Contain "gitea")
+
     [<Test>]
     member _.``Unsupported envelope matches the committed v1 golden``() =
         let actual = Agent.unsupported AgentOperation.Inspect |> AgentWire.serialize
@@ -220,7 +249,8 @@ type ContractTests() =
     [<Test>]
     member _.``Inspect envelope matches the committed v1 golden``() =
         let capabilities =
-            { PullRequestCreate = true
+            { RepositoryIdentity = true
+              PullRequestCreate = true
               PullRequestComment = true
               PullRequestEdit = true
               PullRequestChecks = true
@@ -258,7 +288,9 @@ type ContractTests() =
               Operations =
                 [ { Operation = AgentOperation.Inspect
                     Supported = true
-                    Mutating = false } ] }
+                    Mutating = false
+                    Backends = [ "git" ]
+                    Forges = [] } ] }
 
         let envelope: AgentEnvelope =
             { ContractVersion = Agent.ContractVersion
@@ -679,6 +711,7 @@ type ReadOnlyOutcomeTests() =
                     Assert.That(data.Forge.Status, Is.EqualTo AgentForgeStatus.Available)
                     Assert.That(data.Forge.Kind, Is.EqualTo(Some "github"))
                     Assert.That(data.Forge.Authenticated, Is.True)
+                    Assert.That(data.Forge.Capabilities.RepositoryIdentity, Is.True)
                     Assert.That(data.Forge.Capabilities.PullRequestChecks, Is.True)
                     Assert.That(data.Remotes.Head.Url, Does.Not.Contain secret)
                 | _ -> Assert.Fail "inspect payload expected"
@@ -686,6 +719,39 @@ type ReadOnlyOutcomeTests() =
                 let serialized = AgentWire.serialize envelope
                 Assert.That(serialized, Does.Not.Contain secret)
                 Assert.That(serialized, Does.Contain "[REDACTED]")
+            finally
+                Directory.Delete(root, true)
+        }
+
+    [<Test>]
+    member _.``Gitea inspect declares no publish or exact-CI repository identity``() : Task =
+        task {
+            let root = createTempRoot "gitea-inspect"
+
+            try
+                let repo = gitSnapshot root "https://gitea.com/example/repo.git"
+
+                let forgeRunner =
+                    ScriptedRunner()
+                        .On([ "--version" ], Reply.Ok "tea version 0.9.2\n")
+                        .On([ "login"; "list"; "--output"; "csv" ], Reply.Ok "")
+
+                let forge = Forge.FromGitea(root, VcsToolkit.Gitea.Gitea.WithRunner forgeRunner)
+                let! envelope = Agent.inspectWith repo (Some forge) CancellationToken.None Agent.DefaultOutputLimitBytes
+
+                match envelope.Data with
+                | Some(AgentPayload.Inspect data) ->
+                    Assert.That(data.Forge.Kind, Is.EqualTo(Some "gitea"))
+                    Assert.That(data.Forge.Capabilities.RepositoryIdentity, Is.False)
+                    Assert.That(data.Forge.Capabilities.ExactRevisionCi, Is.False)
+
+                    let publish =
+                        data.Operations
+                        |> List.find (fun capability -> capability.Operation = AgentOperation.Publish)
+
+                    Assert.That((publish.Forges = [ "github"; "gitlab" ]), Is.True)
+                    Assert.That(publish.Forges, Does.Not.Contain "gitea")
+                | _ -> Assert.Fail "Gitea inspect payload expected"
             finally
                 Directory.Delete(root, true)
         }
@@ -746,16 +812,20 @@ type PublicationAndCiOutcomeTests() =
         sandbox.Git [ "config"; $"url.{localUrl}.insteadOf"; trustedUrl ]
         sandbox.Git [ "remote"; "add"; "origin"; trustedUrl ]
 
-    let openRepo path =
+    let openRepoWithRemoteListing path listing =
         let runner =
-            CommitTest.TrustedRemoteRunner(JobRunner() :> IProcessRunner, "https://github.com/example/repo.git")
-            :> IProcessRunner
+            CommitTest.TrustedRemoteListingRunner(JobRunner() :> IProcessRunner, listing) :> IProcessRunner
 
         match Repo.OpenWith(path, (fun () -> Git.WithRunner runner), (fun () -> Jj.Create())) with
         | Ok repo -> repo
         | Error error ->
             Assert.Fail $"sandbox repository did not open: {error.Message}"
             Unchecked.defaultof<Repo>
+
+    let openRepo path =
+        openRepoWithRemoteListing
+            path
+            "origin\thttps://github.com/example/repo.git (fetch)\norigin\thttps://github.com/example/repo.git (push)\n"
 
     let githubForge path (runner: ScriptedRunner) =
         Forge.FromGitHub(path, VcsToolkit.GitHub.GitHub.WithRunner runner)
@@ -785,6 +855,30 @@ type PublicationAndCiOutcomeTests() =
             let! envelope = Agent.publish request CancellationToken.None
             Assert.That(envelope.Error.Value.Code, Is.EqualTo AgentErrorCode.InvalidInput)
             Assert.That(envelope.Operation, Is.EqualTo "publish")
+        }
+
+    [<Test>]
+    member _.``Reusable CI wait rejects timer-overflow durations before repository detection``() : Task =
+        task {
+            let missing =
+                Path.Combine(Path.GetTempPath(), "vcs-agent-missing-" + Guid.NewGuid().ToString("N"))
+
+            let baseline =
+                CiWaitRequest.Create(missing, AgentForgeKind.GitHub, "alice", "feature", "origin", String('a', 40))
+
+            let tooLarge = Agent.MaxWaitDuration + TimeSpan.FromMilliseconds 1.0
+
+            let requests =
+                [ baseline.WithPolling tooLarge
+                  baseline.WithDeadline tooLarge
+                  baseline.WithInactivityDeadline tooLarge ]
+
+            for request in requests do
+                let! envelope = Agent.ciWait request CancellationToken.None
+                Assert.That(envelope.Error.Value.Code, Is.EqualTo AgentErrorCode.InvalidInput)
+
+            let! boundary = Agent.ciWait (baseline.WithDeadline Agent.MaxWaitDuration) CancellationToken.None
+            Assert.That(boundary.Error.Value.Code, Is.EqualTo AgentErrorCode.Backend)
         }
 
     [<Test>]
@@ -849,6 +943,125 @@ type PublicationAndCiOutcomeTests() =
 
             Assert.That(mainRevision, Is.Not.EqualTo revision)
             Assert.That(wrongBranch.Error.Value.Code, Is.EqualTo AgentErrorCode.RevisionMismatch)
+        }
+
+    [<Test>]
+    member _.``Publish recovery and CI bind every forge query to the selected same-forge remote``() : Task =
+        task {
+            requireGit ()
+            use sandbox = GitSandbox.Init "agent-selected-forge-repository"
+            use origin = BareRemote.Seeded "agent-selected-origin"
+            use upstream = BareRemote.Seeded "agent-selected-upstream"
+            sandbox.CommitFile("base.txt", "base\n", "base")
+            sandbox.Branch "feature"
+            sandbox.Checkout "feature"
+            sandbox.CommitFile("feature.txt", "feature\n", "feature")
+            let revision = sandbox.RevParse "HEAD"
+            let originUrl = "https://github.com/example/origin.git"
+            let upstreamUrl = "https://github.com/example/upstream.git"
+            sandbox.Git [ "config"; $"url.{Uri(origin.Path).AbsoluteUri}.insteadOf"; originUrl ]
+            sandbox.Git [ "config"; $"url.{Uri(upstream.Path).AbsoluteUri}.insteadOf"; upstreamUrl ]
+            sandbox.Git [ "remote"; "add"; "origin"; originUrl ]
+            sandbox.Git [ "remote"; "add"; "upstream"; upstreamUrl ]
+            sandbox.Git [ "push"; "-q"; "upstream"; $"{revision}:refs/heads/feature" ]
+
+            let remoteListing =
+                $"origin\t{originUrl} (fetch)\norigin\t{originUrl} (push)\nupstream\t{upstreamUrl} (fetch)\nupstream\t{upstreamUrl} (push)\n"
+
+            let pullRequestJson =
+                """[{"number":9,"title":"feature","state":"OPEN","headRefName":"feature","baseRefName":"main","url":"https://github.com/example/upstream/pull/9"}]"""
+
+            let publishRunner =
+                ScriptedRunner()
+                    .On([ "api"; "--hostname"; "github.com"; "user" ], Reply.Ok """{"login":"alice"}""")
+                    .On(
+                        [ "pr"
+                          "list"
+                          "--head"
+                          "feature"
+                          "--base"
+                          "main"
+                          "--repo"
+                          "github.com/example/upstream" ],
+                        Reply.Ok pullRequestJson
+                    )
+
+            let publishRequest =
+                PublishRequest.Create(
+                    sandbox.Path,
+                    "feature",
+                    "upstream",
+                    revision,
+                    AgentForgeKind.GitHub,
+                    "alice",
+                    "main",
+                    "feature",
+                    ""
+                )
+
+            let repo = openRepoWithRemoteListing sandbox.Path remoteListing
+
+            let! published =
+                Agent.publishWith repo (githubForge sandbox.Path publishRunner) publishRequest CancellationToken.None
+
+            match published.Data with
+            | Some(AgentPayload.Publish data) ->
+                Assert.That(data.Completion, Is.EqualTo PublishCompletion.Verified)
+                Assert.That(data.ChangeRequest.Value.Number, Is.EqualTo 9UL)
+            | _ -> Assert.Fail "selected upstream publication must recover its existing PR"
+
+            let ambiguousPullRequests =
+                [ for number in 1..101 do
+                      $"""{{"number":{number},"title":"feature","state":"OPEN","headRefName":"feature","baseRefName":"main","url":"https://github.com/example/upstream/pull/{number}"}}""" ]
+                |> String.concat ","
+                |> fun rows -> $"[{rows}]"
+
+            let ambiguousRunner =
+                ScriptedRunner()
+                    .On([ "api"; "--hostname"; "github.com"; "user" ], Reply.Ok """{"login":"alice"}""")
+                    .On(
+                        [ "pr"
+                          "list"
+                          "--head"
+                          "feature"
+                          "--base"
+                          "main"
+                          "--limit"
+                          "1000"
+                          "--repo"
+                          "github.com/example/upstream" ],
+                        Reply.Ok ambiguousPullRequests
+                    )
+
+            let! ambiguous =
+                Agent.publishWith repo (githubForge sandbox.Path ambiguousRunner) publishRequest CancellationToken.None
+
+            Assert.That(ambiguous.Error.Value.Code, Is.EqualTo AgentErrorCode.Forge)
+
+            Assert.That(
+                ambiguousRunner.CountReceived(fun invocation -> invocation.Matches [ "pr"; "create" ]),
+                Is.EqualTo 0
+            )
+
+            let runJson =
+                $"""[{{"databaseId":51,"name":"CI","displayTitle":"feature","status":"completed","conclusion":"success","workflowName":"CI","headBranch":"feature","headSha":"{revision}","event":"push","url":"u","createdAt":"t"}}]"""
+
+            let ciRunner =
+                ScriptedRunner()
+                    .On([ "api"; "--hostname"; "github.com"; "user" ], Reply.Ok """{"login":"alice"}""")
+                    .On(
+                        [ "run"; "list"; "--commit"; revision; "--repo"; "github.com/example/upstream" ],
+                        Reply.Ok runJson
+                    )
+
+            let ciRequest =
+                CiStatusRequest.Create(sandbox.Path, AgentForgeKind.GitHub, "alice", "feature", "upstream", revision)
+
+            let! ci = Agent.ciStatusWith repo (githubForge sandbox.Path ciRunner) ciRequest CancellationToken.None
+
+            match ci.Data with
+            | Some(AgentPayload.Ci data) -> Assert.That(data.State, Is.EqualTo AgentCiState.Success)
+            | _ -> Assert.Fail "selected upstream CI must use its explicit repository route"
         }
 
     [<Test>]
@@ -1017,6 +1230,15 @@ type PublicationAndCiOutcomeTests() =
         Assert.That(Agent.ciState [ run "in_progress" None ], Is.EqualTo AgentCiState.Pending)
         Assert.That(Agent.ciState [ run "completed" (Some "success") ], Is.EqualTo AgentCiState.Success)
         Assert.That(Agent.ciState [ run "completed" (Some "future") ], Is.EqualTo AgentCiState.Failure)
+
+        let inventoryWithLatePending =
+            [ for id in 1..101 do
+                  if id = 101 then
+                      run "in_progress" None
+                  else
+                      run "completed" (Some "success") ]
+
+        Assert.That(Agent.ciState inventoryWithLatePending, Is.EqualTo AgentCiState.Pending)
 
     [<Test>]
     member _.``Invalid exact paths and cancellation never invoke a backend``() : Task =

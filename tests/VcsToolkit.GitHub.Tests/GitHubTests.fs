@@ -433,6 +433,37 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.PrListForBranchesCompletePinsExactRepositoryAndPair() : Task =
+        task {
+            let json =
+                """[{"number":1,"title":"t","state":"OPEN","headRefName":"feat","baseRefName":"main","url":"u"}]"""
+
+            let gh, args = capturing (Reply.Ok json)
+
+            match! gh.PrListForBranchesComplete(".", "github.com/example/repo", "feat", "main") with
+            | Ok [ pr ] -> Assert.That(pr.Number, Is.EqualTo 1UL)
+            | Ok xs -> Assert.Fail $"expected one exact PR, got {xs.Length}"
+            | Error e -> Assert.Fail $"complete PR search failed: {e}"
+
+            assertArgs
+                [ "pr"
+                  "list"
+                  "--head"
+                  "feat"
+                  "--base"
+                  "main"
+                  "--state"
+                  "open"
+                  "--limit"
+                  "1000"
+                  "--json"
+                  PR_FIELDS
+                  "--repo"
+                  "github.com/example/repo" ]
+                args
+        }
+
+    [<Test>]
     member _.PrListForBranchTwoArgBuildsHeadStateAllWithoutBase() : Task =
         task {
             let json =

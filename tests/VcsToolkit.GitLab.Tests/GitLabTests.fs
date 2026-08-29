@@ -307,6 +307,28 @@ type ClientTests() =
         }
 
     [<Test>]
+    member _.MrListForBranchesCompletePinsHostProjectAndAllPages() : Task =
+        task {
+            let json =
+                """[{"iid":1,"title":"t","state":"opened","source_branch":"feat","target_branch":"main"}]"""
+
+            let glab, args = capturing (Reply.Ok json)
+
+            match! glab.MrListForBranchesComplete(".", "gitlab.com", "group/project", "feat", "main") with
+            | Ok [ mr ] -> Assert.That(mr.Iid, Is.EqualTo 1UL)
+            | Ok xs -> Assert.Fail $"expected one exact MR, got {xs.Length}"
+            | Error e -> Assert.Fail $"complete MR search failed: {e}"
+
+            assertArgs
+                [ "api"
+                  "--hostname"
+                  "gitlab.com"
+                  "--paginate"
+                  "projects/group%2Fproject/merge_requests?state=opened&source_branch=feat&target_branch=main&per_page=100" ]
+                args
+        }
+
+    [<Test>]
     member _.MrListForBranchEmptyIsNotAnError() : Task =
         task {
             let glab =
@@ -539,7 +561,7 @@ type ClientTests() =
             | Ok [ pipeline ] ->
                 Assert.That(pipeline.Sha, Is.EqualTo revision)
 
-                assertArgs [ "api"; $"projects/:id/pipelines?sha={revision}&per_page=100" ] args
+                assertArgs [ "api"; "--paginate"; $"projects/:id/pipelines?sha={revision}&per_page=100" ] args
             | Ok other -> Assert.Fail $"expected one pipeline, got {other.Length}"
             | Error error -> Assert.Fail $"exact revision pipeline list failed: {error}"
         }

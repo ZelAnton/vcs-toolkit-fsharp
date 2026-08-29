@@ -4,6 +4,7 @@ open System
 open System.Threading
 open System.Threading.Tasks
 open ProcessKit
+open VcsToolkit.CliSupport
 open VcsToolkit.Core
 open VcsToolkit.Diff
 open VcsToolkit.Forge
@@ -19,6 +20,10 @@ module Agent =
 
     [<Literal>]
     let MinimumOutputLimitBytes = 512
+
+    /// Largest wait duration accepted by the reusable API and CLI. This stays one
+    /// millisecond below the `CancellationTokenSource.CancelAfter` unsigned timer limit.
+    let MaxWaitDuration = TimeSpan.FromMilliseconds 4_294_967_294.0
 
     let internal operationName operation = ContractNames.operation operation
 
@@ -43,25 +48,39 @@ module Agent =
     let private capabilities =
         [ { Operation = AgentOperation.Probe
             Supported = true
-            Mutating = false }
+            Mutating = false
+            Backends = [ "git"; "jj" ]
+            Forges = [] }
           { Operation = AgentOperation.Inspect
             Supported = true
-            Mutating = false }
+            Mutating = false
+            Backends = [ "git"; "jj" ]
+            Forges = [] }
           { Operation = AgentOperation.Changes
             Supported = true
-            Mutating = false }
+            Mutating = false
+            Backends = [ "git"; "jj" ]
+            Forges = [] }
           { Operation = AgentOperation.Commit
             Supported = true
-            Mutating = true }
+            Mutating = true
+            Backends = [ "git"; "jj" ]
+            Forges = [] }
           { Operation = AgentOperation.Publish
             Supported = true
-            Mutating = true }
+            Mutating = true
+            Backends = [ "git"; "jj" ]
+            Forges = [ "github"; "gitlab" ] }
           { Operation = AgentOperation.CiStatus
             Supported = true
-            Mutating = false }
+            Mutating = false
+            Backends = [ "git"; "jj" ]
+            Forges = [ "github"; "gitlab" ] }
           { Operation = AgentOperation.CiWait
             Supported = true
-            Mutating = false } ]
+            Mutating = false
+            Backends = [ "git"; "jj" ]
+            Forges = [ "github"; "gitlab" ] } ]
 
     let private failure operation code message retryable truncated limitBytes requiredBytes fallbackReason =
         { ContractVersion = ContractVersion
@@ -242,7 +261,8 @@ module Agent =
         | ChangeKind.Renamed -> "renamed"
 
     let private emptyForgeCapabilities =
-        { PullRequestCreate = false
+        { RepositoryIdentity = false
+          PullRequestCreate = false
           PullRequestComment = false
           PullRequestEdit = false
           PullRequestChecks = false
@@ -290,7 +310,10 @@ module Agent =
                               Authenticated = capabilities.Authed
                               Version = capabilities.Version |> Option.map string
                               Capabilities =
-                                { PullRequestCreate = capabilities.PrCreate
+                                { RepositoryIdentity =
+                                    capabilities.Authed
+                                    && (capabilities.Kind = ForgeKind.GitHub || capabilities.Kind = ForgeKind.GitLab)
+                                  PullRequestCreate = capabilities.PrCreate
                                   PullRequestComment = capabilities.PrComment
                                   PullRequestEdit = capabilities.PrEdit
                                   PullRequestChecks = capabilities.PrChecks
@@ -1052,6 +1075,69 @@ module Agent =
         else
             Ok()
 
+    type private SelectedForgeRepository =
+        { Host: string
+          Selector: string
+          ProjectPath: string }
+
+    let private selectedForgeRepository expectedForge (remoteUrl: string) =
+        let finish (host: string) (rawPath: string) =
+            try
+                let projectPath =
+                    Uri.UnescapeDataString rawPath
+                    |> fun value -> value.Trim('/')
+                    |> fun value ->
+                        if value.EndsWith(".git", StringComparison.OrdinalIgnoreCase) then
+                            value.Substring(0, value.Length - 4)
+                        else
+                            value
+
+                if
+                    String.IsNullOrWhiteSpace host
+                    || String.IsNullOrWhiteSpace projectPath
+                    || projectPath.StartsWith("-", StringComparison.Ordinal)
+                    || projectPath.Contains('\\')
+                    || projectPath.Contains("..", StringComparison.Ordinal)
+                    || projectPath.Contains("//", StringComparison.Ordinal)
+                    || projectPath |> Seq.exists Char.IsControl
+                then
+                    None
+                else
+                    let canonicalHost = host.ToLowerInvariant()
+
+                    match expectedForge with
+                    | ForgeKind.GitHub ->
+                        Some
+                            { Host = canonicalHost
+                              Selector = $"{canonicalHost}/{projectPath}"
+                              ProjectPath = projectPath }
+                    | ForgeKind.GitLab ->
+                        Some
+                            { Host = canonicalHost
+                              Selector = $"https://{canonicalHost}/{projectPath}"
+                              ProjectPath = projectPath }
+                    | _ -> None
+            with :? UriFormatException ->
+                None
+
+        let parsedUri =
+            try
+                Some(Uri(remoteUrl, UriKind.Absolute))
+            with :? UriFormatException ->
+                None
+
+        match parsedUri with
+        | Some uri when not (String.IsNullOrWhiteSpace uri.Host) -> finish uri.Host uri.AbsolutePath
+        | _ ->
+            let separator = remoteUrl.IndexOfAny([| ':'; '/' |])
+
+            if separator < 0 || separator = remoteUrl.Length - 1 then
+                None
+            else
+                let host = RemoteUrl.scpAuthority remoteUrl |> RemoteUrl.stripPort
+                let path = remoteUrl.Substring(separator + 1).Split([| '?'; '#' |]).[0]
+                finish host path
+
     let private configuredRemote operation outputLimitBytes (repo: Repo) remote expectedForge =
         task {
             match! repo.Remotes() with
@@ -1059,16 +1145,31 @@ module Agent =
             | Ok remotes ->
                 match remotes |> List.filter (fun configured -> configured.Name = remote) with
                 | [ configured ] ->
-                    match ForgeKind.OfRemoteUrl configured.Url with
-                    | Some kind when kind = expectedForge -> return Ok()
-                    | Some kind ->
+                    match
+                        ForgeKind.OfRemoteUrl configured.Url, selectedForgeRepository expectedForge configured.Url
+                    with
+                    | Some kind, Some repository when kind = expectedForge -> return Ok repository
+                    | Some kind, _ when kind <> expectedForge ->
                         return
                             Error(
                                 invalidInput
                                     operation
                                     $"remote '{remote}' identifies {kind.AsString}, not {expectedForge.AsString}"
                             )
-                    | None ->
+                    | Some _, None ->
+                        return
+                            Error(
+                                failure
+                                    operation
+                                    AgentErrorCode.Unsupported
+                                    $"remote '{remote}' does not expose a verifiable repository identity"
+                                    false
+                                    false
+                                    None
+                                    None
+                                    (Some AgentFallbackReason.UnsupportedForge)
+                            )
+                    | _ ->
                         return
                             Error(
                                 failure
@@ -1185,8 +1286,15 @@ module Agent =
                                 configuredForge.Kind
                         with
                         | Error envelope -> return envelope
-                        | Ok() ->
-                            match! configuredForge.AuthIdentity() with
+                        | Ok repository ->
+                            let selectedForge =
+                                configuredForge.WithAgentRepository(
+                                    repository.Host,
+                                    repository.Selector,
+                                    repository.ProjectPath
+                                )
+
+                            match! selectedForge.AuthIdentity() with
                             | Error error -> return forgeFailure operation outputLimitBytes error
                             | Ok observedAccount when
                                 not (
@@ -1352,7 +1460,12 @@ module Agent =
                                                             None
                                                         |> ambiguousPublishFailure outputLimitBytes ambiguousData
                                                 | _ ->
-                                                    match! configuredForge.PrForBranch request.Branch with
+                                                    match!
+                                                        selectedForge.PrForBranchesComplete(
+                                                            request.Branch,
+                                                            request.TargetBranch
+                                                        )
+                                                    with
                                                     | Error error ->
                                                         return
                                                             forgeFailure operation outputLimitBytes error
@@ -1399,8 +1512,13 @@ module Agent =
                                                                     .WithSource(request.Branch)
                                                                     .WithTarget(request.TargetBranch)
 
-                                                            let! created = configuredForge.PrCreate spec
-                                                            let! recovered = configuredForge.PrForBranch request.Branch
+                                                            let! created = selectedForge.PrCreate spec
+
+                                                            let! recovered =
+                                                                selectedForge.PrForBranchesComplete(
+                                                                    request.Branch,
+                                                                    request.TargetBranch
+                                                                )
 
                                                             match recovered with
                                                             | Ok requests ->
@@ -1678,8 +1796,11 @@ module Agent =
 
             match! configuredRemote operation outputLimitBytes configuredRepo remote (forgeKind forgeSelection) with
             | Error envelope -> return Error envelope
-            | Ok() ->
-                match! forge.AuthIdentity() with
+            | Ok repository ->
+                let selectedForge =
+                    forge.WithAgentRepository(repository.Host, repository.Selector, repository.ProjectPath)
+
+                match! selectedForge.AuthIdentity() with
                 | Error error -> return Error(forgeFailure operation outputLimitBytes error)
                 | Ok observedAccount when
                     not (String.Equals(observedAccount, account, StringComparison.OrdinalIgnoreCase))
@@ -1712,7 +1833,7 @@ module Agent =
                                     None
                                     None
                             )
-                    | Ok _ -> return Ok configuredRepo
+                    | Ok _ -> return Ok(configuredRepo, selectedForge)
         }
 
     let private ciStatusCore
@@ -1760,13 +1881,13 @@ module Agent =
                                 cancellationToken
                         with
                         | Error envelope -> return envelope
-                        | Ok configuredRepo ->
+                        | Ok(configuredRepo, selectedForge) ->
                             match!
                                 ciObservation
                                     operation
                                     request.OutputLimitBytes
                                     configuredRepo
-                                    configuredForge
+                                    selectedForge
                                     request.Forge
                                     request.Account
                                     request.Branch
@@ -1925,22 +2046,33 @@ module Agent =
                                 (Some data)
         }
 
+    let private validateCiWaitDurations (request: CiWaitRequest) =
+        let validate name value =
+            if value <= TimeSpan.Zero then
+                Error $"{name} must be positive"
+            elif value > MaxWaitDuration then
+                Error $"{name} must not exceed {MaxWaitDuration.TotalSeconds} seconds"
+            else
+                Ok()
+
+        match validate "poll interval" request.PollInterval with
+        | Error message -> Error message
+        | Ok() ->
+            match validate "deadline" request.Deadline with
+            | Error message -> Error message
+            | Ok() -> validate "inactivity deadline" request.InactivityDeadline
+
     let private ciWaitCore (repo: Repo) (forge: Forge) (request: CiWaitRequest) (cancellationToken: CancellationToken) =
         task {
             let operation = operationName AgentOperation.CiWait
 
             if request.OutputLimitBytes < MinimumOutputLimitBytes then
                 return invalidInput operation $"output budget must be at least {MinimumOutputLimitBytes} bytes"
-            elif request.PollInterval <= TimeSpan.Zero then
-                return invalidInput operation "poll interval must be positive"
-            elif request.Deadline <= TimeSpan.Zero then
-                return invalidInput operation "deadline must be positive"
-            elif request.InactivityDeadline <= TimeSpan.Zero then
-                return invalidInput operation "inactivity deadline must be positive"
             elif cancellationToken.IsCancellationRequested then
                 return cancellation operation
             else
                 match
+                    validateCiWaitDurations request,
                     validatePublicationIdentity
                         request.RepositoryPath
                         request.Branch
@@ -1949,8 +2081,9 @@ module Agent =
                         request.Account
                         request.Branch
                 with
-                | Error message -> return invalidInput operation message
-                | Ok() ->
+                | Error message, _
+                | _, Error message -> return invalidInput operation message
+                | Ok(), Ok() ->
                     use executionCts = CancellationTokenSource.CreateLinkedTokenSource cancellationToken
                     executionCts.CancelAfter request.Deadline
                     let executionToken = executionCts.Token
@@ -1988,13 +2121,13 @@ module Agent =
                                     None
                                     None
                         | Error envelope -> return envelope
-                        | Ok configuredRepo ->
+                        | Ok(configuredRepo, selectedForge) ->
                             return!
                                 ciPoll
                                     operation
                                     request
                                     configuredRepo
-                                    configuredForge
+                                    selectedForge
                                     cancellationToken
                                     executionToken
                                     clock
@@ -2011,30 +2144,27 @@ module Agent =
 
             if request.OutputLimitBytes < MinimumOutputLimitBytes then
                 return invalidInput operation $"output budget must be at least {MinimumOutputLimitBytes} bytes"
-            elif request.PollInterval <= TimeSpan.Zero then
-                return invalidInput operation "poll interval must be positive"
-            elif request.Deadline <= TimeSpan.Zero then
-                return invalidInput operation "deadline must be positive"
-            elif request.InactivityDeadline <= TimeSpan.Zero then
-                return invalidInput operation "inactivity deadline must be positive"
             elif cancellationToken.IsCancellationRequested then
                 return cancellation operation
             else
-                match
-                    validatePublicationIdentity
-                        request.RepositoryPath
-                        request.Branch
-                        request.Remote
-                        request.Revision
-                        request.Account
-                        request.Branch
-                with
+                match validateCiWaitDurations request with
                 | Error message -> return invalidInput operation message
                 | Ok() ->
-                    match Repo.Open request.RepositoryPath with
-                    | Error error -> return repoFailure operation request.OutputLimitBytes error
-                    | Ok repo ->
-                        return! ciWaitCore repo (forgeForKind repo.Root request.Forge) request cancellationToken
+                    match
+                        validatePublicationIdentity
+                            request.RepositoryPath
+                            request.Branch
+                            request.Remote
+                            request.Revision
+                            request.Account
+                            request.Branch
+                    with
+                    | Error message -> return invalidInput operation message
+                    | Ok() ->
+                        match Repo.Open request.RepositoryPath with
+                        | Error error -> return repoFailure operation request.OutputLimitBytes error
+                        | Ok repo ->
+                            return! ciWaitCore repo (forgeForKind repo.Root request.Forge) request cancellationToken
         }
         |> withBudget request.OutputLimitBytes
 

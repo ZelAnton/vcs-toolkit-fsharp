@@ -407,6 +407,52 @@ type DispatchTests() =
         }
 
     [<Test>]
+    member _.ExactRevisionCiIncludesNonTerminalEvidenceBeyondTheFirstHundredRows() : Task =
+        task {
+            let revision = String('c', 40)
+
+            let githubJson =
+                [ for id in 1..101 do
+                      let status, conclusion =
+                          if id = 101 then
+                              "in_progress", ""
+                          else
+                              "completed", "success"
+
+                      $"""{{"databaseId":{id},"name":"CI","displayTitle":"run","status":"{status}","conclusion":"{conclusion}","workflowName":"CI","headBranch":"feature","headSha":"{revision}","event":"push","url":"u","createdAt":"t"}}""" ]
+                |> String.concat ","
+                |> fun rows -> $"[{rows}]"
+
+            let github =
+                ghForge [ "run"; "list"; "--limit"; "1000"; "--commit"; revision ] (Reply.Ok githubJson)
+
+            match! github.ExactRevisionCi revision with
+            | Ok runs ->
+                Assert.That(runs.Length, Is.EqualTo 101)
+                Assert.That(runs.[100].Status, Is.EqualTo "in_progress")
+            | Error error -> Assert.Fail $"complete GitHub inventory failed: {error.Message}"
+
+            let gitlabJson =
+                [ for id in 1..101 do
+                      let status = if id = 101 then "running" else "success"
+
+                      $"""{{"id":{id},"name":"CI","status":"{status}","sha":"{revision}","ref":"feature","web_url":"u"}}""" ]
+                |> String.concat ","
+                |> fun rows -> $"[{rows}]"
+
+            let gitlab =
+                glForge
+                    [ "api"; "--paginate"; $"projects/:id/pipelines?sha={revision}&per_page=100" ]
+                    (Reply.Ok gitlabJson)
+
+            match! gitlab.ExactRevisionCi revision with
+            | Ok pipelines ->
+                Assert.That(pipelines.Length, Is.EqualTo 101)
+                Assert.That(pipelines.[100].Status, Is.EqualTo "running")
+            | Error error -> Assert.Fail $"complete GitLab inventory failed: {error.Message}"
+        }
+
+    [<Test>]
     member _.SupportsReviewMergeOptionsAndCloseReflectTheBackend() =
         // The kind/variant-dependent introspection queries — the counterpart of `Supports(op)`
         // for the finer refusals `ForgeOp` can't express. Each value is checked against real

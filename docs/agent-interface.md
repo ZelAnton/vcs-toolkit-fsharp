@@ -26,15 +26,15 @@ dotnet tool install --global vcs-agent --version 0.1.0 --add-source ./artifacts
 
 ## Operations
 
-| Command | Envelope operation | v1 availability | Mutating |
-|---|---|---|---|
-| `probe` | `probe` | supported | no |
-| `inspect` | `inspect` | supported | no |
-| `changes` | `changes` | supported | no |
-| `commit` | `commit` | supported | yes |
-| `publish` | `publish` | supported | yes |
-| `ci status` | `ci.status` | supported | no |
-| `ci wait` | `ci.wait` | supported | no |
+| Command | Envelope operation | v1 availability | Backends | Forges | Mutating |
+|---|---|---|---|---|---|
+| `probe` | `probe` | supported | Git, Jujutsu | none | no |
+| `inspect` | `inspect` | supported | Git, Jujutsu | none | no |
+| `changes` | `changes` | supported | Git, Jujutsu | none | no |
+| `commit` | `commit` | supported | Git, Jujutsu | none | yes |
+| `publish` | `publish` | supported | Git, Jujutsu | GitHub, GitLab | yes |
+| `ci status` | `ci.status` | supported | Git, Jujutsu | GitHub, GitLab | no |
+| `ci wait` | `ci.wait` | supported | Git, Jujutsu | GitHub, GitLab | no |
 
 There is no general raw-command operation. An unavailable backend or forge capability returns
 typed `unsupported`; an unrecognized or incomplete command returns `invalid-input` instead.
@@ -68,8 +68,8 @@ assembly metadata):
 		"toolName": "vcs-agent",
 		"toolVersion": "0.1.0",
 		"operations": [
-			{ "name": "probe", "availability": "supported", "mutating": false },
-			{ "name": "inspect", "availability": "supported", "mutating": false }
+			{ "name": "probe", "availability": "supported", "mutating": false, "backends": ["git", "jj"], "forges": [] },
+			{ "name": "inspect", "availability": "supported", "mutating": false, "backends": ["git", "jj"], "forges": [] }
 		],
 		"backends": ["git", "jj"],
 		"forges": ["github", "gitlab", "gitea"],
@@ -102,8 +102,8 @@ typed snapshot containing:
 - the current revision and optional branch;
 - dirty, changed-file, conflict, operation, and optional upstream/ahead/behind facts;
 - configured remote names and URLs;
-- forge status, kind, authentication, CLI version, and the supported PR, issue, and
-  release capabilities.
+- forge status, kind, authentication, CLI version, whether authenticated repository identity
+  can be proved, and the supported PR, issue, CI, and release capabilities.
 
 Forge status is `absent` when no remote identifies a forge, `unsupported` when a remote
 identifies an unknown forge family, `unauthenticated` when the known forge CLI reports no
@@ -200,7 +200,9 @@ vcs-agent publish --repo . --branch feature --remote origin \
 `publish` requires every identity input shown above except the optional body. Singleton options
 cannot be repeated. The revision must be a full 40- or 64-hex commit id, the selected local
 branch/bookmark must resolve to that revision, and the named remote must exist and identify the
-selected public forge host. The authenticated GitHub or GitLab username must match `--account`.
+selected public forge host and repository path. Every GitHub/GitLab identity, PR/MR search,
+creation, and CI call is explicitly routed to that selected host and repository rather than inferred
+from the working directory. The authenticated GitHub or GitLab username must match `--account`.
 Gitea and an unclassifiable/self-hosted remote return typed `unsupported` where the available CLI
 surface cannot prove that identity. Checked Jujutsu publication currently supports only an
 explicit `origin` remote; another named Jujutsu remote is refused instead of being silently
@@ -212,10 +214,12 @@ revision. Git publishes the exact revision with an explicit revision-to-branch r
 push (or when the remote was already exact), it fetches the named remote and requires the observed
 remote ref to equal the requested revision. A mismatch cannot produce success.
 
-The workflow then queries open PRs/MRs for the exact source and target pair. One existing match is
-returned with disposition `existing`; when there is no match, it creates one and queries again; multiple matches
-are an error. This makes a retry after an already-completed push or PR/MR creation idempotent and
-prevents duplicate creation. A late push, fetch, or forge error carries bounded pre/post evidence
+The workflow queries the complete open PR/MR inventory for the exact source and target pair.
+GitLab follows every API page; GitHub requests up to a bounded safety limit and fails closed if that
+limit is reached because absence or uniqueness is then unproved. One existing match is returned
+with disposition `existing`; when the proven-complete search has no match, it creates one and
+queries again; multiple matches are an error. This makes a retry after an already-completed push or
+PR/MR creation idempotent and prevents duplicate creation. A late push, fetch, or forge error carries bounded pre/post evidence
 with `completion: "ambiguous"`; only a proven remote revision plus one exact PR/MR yields
 `completion: "verified"`.
 
@@ -238,9 +242,12 @@ vcs-agent ci wait --repo . --branch feature --remote origin \
 
 Both commands require the same explicit repository, branch/bookmark, remote, full revision,
 forge, and account identity. Preflight fetches the selected remote and proves that its selected ref
-is at the requested revision before consulting CI. GitHub uses `gh run list --commit <revision>`;
-GitLab uses the project pipelines API with its `sha` filter. Every returned run is checked again
-for both the exact revision and selected branch. Gitea exact-revision CI is typed `unsupported`.
+is at the requested revision before consulting CI. GitHub uses a repository-pinned
+`gh run list --commit <revision>` inventory up to a bounded safety limit and fails closed if the
+limit is reached; GitLab follows every page of the selected project's pipelines API with its `sha`
+filter. Every returned run is checked again for both the exact revision and selected branch. Gitea
+exact-revision CI is typed `unsupported`, and `probe` excludes Gitea from the `publish`,
+`ci.status`, and `ci.wait` operation rows.
 
 CI data distinguishes `no-runs`, `pending`, terminal `success`, `failure`, `cancelled`, and
 `skipped`, plus a terminal structured `revision-mismatch` error if the forge returns another
@@ -252,7 +259,10 @@ CI observation when one exists.
 
 The reusable requests are `CiStatusRequest.Create(...)` and `CiWaitRequest.Create(...)`.
 `CiWaitRequest` additionally exposes `WithPolling`, `WithDeadline`, and
-`WithInactivityDeadline`; all three durations must be positive.
+`WithInactivityDeadline`; all three durations must be positive and no greater than
+4,294,967.294 seconds (one millisecond below the timer limit). The CLI applies the same bound before
+constructing a `TimeSpan`; an overflow or out-of-range value is one structured `invalid-input`
+envelope rather than an exception.
 
 ## Envelope and stream rules
 

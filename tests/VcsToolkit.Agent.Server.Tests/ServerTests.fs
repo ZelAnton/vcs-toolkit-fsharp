@@ -38,6 +38,58 @@ type ServerTests() =
         Assert.That(root.GetProperty("error").GetProperty("code").GetString(), Is.EqualTo "invalid-input")
 
     [<Test>]
+    member _.``CI wait duration bounds always return one structured envelope``() =
+        let missing =
+            Path.Combine(Path.GetTempPath(), "vcs-agent-missing-" + Guid.NewGuid().ToString("N"))
+
+        let invoke optionName value =
+            Main.run
+                [| "ci"
+                   "wait"
+                   "--repo"
+                   missing
+                   "--branch"
+                   "feature"
+                   "--remote"
+                   "origin"
+                   "--revision"
+                   String('a', 40)
+                   "--forge"
+                   "github"
+                   "--account"
+                   "alice"
+                   optionName
+                   value |]
+
+        for optionName in [ "--poll-seconds"; "--deadline-seconds"; "--inactivity-seconds" ] do
+            for value in [ "1e300"; "4294967.295" ] do
+                let result = invoke optionName value
+                Assert.That(result.ExitCode, Is.EqualTo 22)
+                Assert.That(result.Stderr, Is.EqualTo "vcs-agent: invalid-input\n")
+                Assert.That(result.Stdout.Trim().StartsWith("{"), Is.True)
+                Assert.That(result.Stdout.Trim().EndsWith("}"), Is.True)
+
+                use document = JsonDocument.Parse result.Stdout
+
+                Assert.That(
+                    document.RootElement.GetProperty("error").GetProperty("code").GetString(),
+                    Is.EqualTo "invalid-input"
+                )
+
+                Assert.That(result.Stdout, Does.Not.Contain "OverflowException")
+                Assert.That(result.Stderr, Does.Not.Contain " at ")
+
+        let boundary = invoke "--deadline-seconds" "4294967.294"
+        Assert.That(boundary.ExitCode, Is.EqualTo 23)
+
+        use boundaryDocument = JsonDocument.Parse boundary.Stdout
+
+        Assert.That(
+            boundaryDocument.RootElement.GetProperty("error").GetProperty("code").GetString(),
+            Is.EqualTo "backend"
+        )
+
+    [<Test>]
     member _.``Publication identity flags are strict and complete before repository execution``() =
         let missing =
             Path.Combine(Path.GetTempPath(), "vcs-agent-missing-" + Guid.NewGuid().ToString("N"))
