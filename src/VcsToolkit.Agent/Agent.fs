@@ -1233,6 +1233,11 @@ module Agent =
         )
         |> enforceBudget outputLimitBytes
 
+    type private ChangeRequestRecoveryMatch =
+        | NoRelevantCandidate
+        | ExactCandidates of ForgePr list
+        | CandidateMismatch of AgentErrorCode * string
+
     let private matchingOpenChangeRequests
         forge
         selectedRepository
@@ -1254,29 +1259,40 @@ module Agent =
             || (forge = AgentForgeKind.GitLab
                 && (candidate.TargetRepository |> Option.forall String.IsNullOrWhiteSpace))
 
-        if relevant |> List.exists missingProof then
-            Error "open PR/MR recovery candidate is missing source repository or exact head revision evidence"
-        else
-            relevant
-            |> List.filter (fun candidate ->
-                let sameRepository =
-                    match forge with
-                    | AgentForgeKind.GitHub ->
-                        String.Equals(
-                            candidate.SourceRepository,
-                            selectedRepository,
-                            StringComparison.OrdinalIgnoreCase
-                        )
-                    | AgentForgeKind.GitLab ->
-                        candidate.TargetRepository
-                        |> Option.exists (fun targetRepository ->
-                            String.Equals(candidate.SourceRepository, targetRepository, StringComparison.Ordinal))
-                    | AgentForgeKind.Gitea -> false
+        let sameRepository candidate =
+            match forge with
+            | AgentForgeKind.GitHub ->
+                String.Equals(candidate.SourceRepository, selectedRepository, StringComparison.OrdinalIgnoreCase)
+            | AgentForgeKind.GitLab ->
+                candidate.TargetRepository
+                |> Option.exists (fun targetRepository ->
+                    String.Equals(candidate.SourceRepository, targetRepository, StringComparison.Ordinal))
+            | AgentForgeKind.Gitea -> false
 
-                sameRepository
-                && String.Equals(candidate.HeadRevision, revision, StringComparison.OrdinalIgnoreCase))
-            |> List.map _.ChangeRequest
-            |> Ok
+        if List.isEmpty relevant then
+            NoRelevantCandidate
+        elif relevant |> List.exists missingProof then
+            CandidateMismatch(
+                AgentErrorCode.Forge,
+                "open PR/MR recovery candidate is missing source repository or exact head revision evidence"
+            )
+        elif
+            relevant
+            |> List.exists (fun candidate ->
+                sameRepository candidate
+                && not (String.Equals(candidate.HeadRevision, revision, StringComparison.OrdinalIgnoreCase)))
+        then
+            CandidateMismatch(
+                AgentErrorCode.RevisionMismatch,
+                "an open PR/MR from the selected repository matches the selected branches but its head revision does not match the requested publication revision"
+            )
+        elif relevant |> List.exists (sameRepository >> not) then
+            CandidateMismatch(
+                AgentErrorCode.Forge,
+                "an open PR/MR matches the selected branches but its source repository does not match the selected remote repository"
+            )
+        else
+            relevant |> List.map _.ChangeRequest |> ExactCandidates
 
     let private publishCoreUnbounded
         (repo: Repo)
@@ -1518,11 +1534,11 @@ module Agent =
                                                                 request.Revision
                                                                 existing
                                                         with
-                                                        | Error message ->
+                                                        | CandidateMismatch(code, message) ->
                                                             return
                                                                 failure
                                                                     operation
-                                                                    AgentErrorCode.Forge
+                                                                    code
                                                                     message
                                                                     false
                                                                     false
@@ -1532,7 +1548,7 @@ module Agent =
                                                                 |> ambiguousPublishFailure
                                                                     outputLimitBytes
                                                                     ambiguousData
-                                                        | Ok [ changeRequest ] ->
+                                                        | ExactCandidates [ changeRequest ] ->
                                                             let data =
                                                                 { ambiguousData with
                                                                     ChangeRequest =
@@ -1546,7 +1562,7 @@ module Agent =
                                                                     Completion = PublishCompletion.Verified }
 
                                                             return success operation (AgentPayload.Publish data)
-                                                        | Ok(_ :: _ :: _) ->
+                                                        | ExactCandidates(_ :: _ :: _) ->
                                                             return
                                                                 failure
                                                                     operation
@@ -1560,7 +1576,8 @@ module Agent =
                                                                 |> ambiguousPublishFailure
                                                                     outputLimitBytes
                                                                     ambiguousData
-                                                        | Ok [] ->
+                                                        | NoRelevantCandidate
+                                                        | ExactCandidates [] ->
                                                             let spec =
                                                                 PrCreate
                                                                     .Create(request.Title, request.Body)
@@ -1586,7 +1603,7 @@ module Agent =
                                                                         request.Revision
                                                                         requests
                                                                 with
-                                                                | Ok [ changeRequest ] ->
+                                                                | ExactCandidates [ changeRequest ] ->
                                                                     let data =
                                                                         { ambiguousData with
                                                                             ChangeRequest =
@@ -1606,11 +1623,11 @@ module Agent =
                                                                             Completion = PublishCompletion.Verified }
 
                                                                     return success operation (AgentPayload.Publish data)
-                                                                | Error message ->
+                                                                | CandidateMismatch(code, message) ->
                                                                     return
                                                                         failure
                                                                             operation
-                                                                            AgentErrorCode.Forge
+                                                                            code
                                                                             message
                                                                             false
                                                                             false
@@ -1620,7 +1637,9 @@ module Agent =
                                                                         |> ambiguousPublishFailure
                                                                             outputLimitBytes
                                                                             ambiguousData
-                                                                | Ok _ ->
+                                                                | ExactCandidates []
+                                                                | ExactCandidates(_ :: _ :: _)
+                                                                | NoRelevantCandidate ->
                                                                     let envelope =
                                                                         match created with
                                                                         | Error error ->

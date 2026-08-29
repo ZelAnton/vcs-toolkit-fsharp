@@ -1013,6 +1013,11 @@ type PublicationAndCiOutcomeTests() =
                 Assert.That(data.ChangeRequest.Value.Number, Is.EqualTo 9UL)
             | _ -> Assert.Fail "selected upstream publication must recover its existing PR"
 
+            Assert.That(
+                publishRunner.CountReceived(fun invocation -> invocation.Matches [ "pr"; "create" ]),
+                Is.EqualTo 0
+            )
+
             let ambiguousPullRequests =
                 [ for number in 1..101 do
                       $"""{{"number":{number},"title":"feature","state":"OPEN","headRefName":"feature","baseRefName":"main","url":"https://github.com/example/upstream/pull/{number}","headRepository":{{"name":"upstream","nameWithOwner":"example/upstream"}},"headRepositoryOwner":{{"login":"example"}},"headRefOid":"{revision}"}}""" ]
@@ -1048,10 +1053,7 @@ type PublicationAndCiOutcomeTests() =
 
             let wrongRevision = String('f', revision.Length)
 
-            let forkPullRequestJson =
-                $"""[{{"number":10,"title":"feature","state":"OPEN","headRefName":"feature","baseRefName":"main","url":"https://github.com/example/upstream/pull/10","headRepository":{{"name":"fork","nameWithOwner":"mallory/fork"}},"headRepositoryOwner":{{"login":"mallory"}},"headRefOid":"{revision}"}},{{"number":11,"title":"feature","state":"OPEN","headRefName":"feature","baseRefName":"main","url":"https://github.com/example/upstream/pull/11","headRepository":{{"name":"upstream","nameWithOwner":"example/upstream"}},"headRepositoryOwner":{{"login":"example"}},"headRefOid":"{wrongRevision}"}}]"""
-
-            let forkRunner =
+            let recoveryRunner response =
                 ScriptedRunner()
                     .On([ "api"; "--hostname"; "github.com"; "user" ], Reply.Ok """{"login":"alice"}""")
                     .On(
@@ -1063,20 +1065,13 @@ type PublicationAndCiOutcomeTests() =
                           "main"
                           "--repo"
                           "github.com/example/upstream" ],
-                        Reply.Ok forkPullRequestJson
+                        Reply.Ok response
                     )
-                    .On([ "--version" ], Reply.Ok "gh version 2.40.0\n")
-                    .On(
-                        [ "pr"
-                          "create"
-                          "--head"
-                          "feature"
-                          "--base"
-                          "main"
-                          "--repo"
-                          "github.com/example/upstream" ],
-                        Reply.Ok "https://github.com/example/upstream/pull/11\n"
-                    )
+
+            let forkPullRequestJson =
+                $"""[{{"number":10,"title":"feature","state":"OPEN","headRefName":"feature","baseRefName":"main","url":"https://github.com/example/upstream/pull/10","headRepository":{{"name":"fork","nameWithOwner":"mallory/fork"}},"headRepositoryOwner":{{"login":"mallory"}},"headRefOid":"{revision}"}}]"""
+
+            let forkRunner = recoveryRunner forkPullRequestJson
 
             let! forkCandidate =
                 Agent.publishWith repo (githubForge sandbox.Path forkRunner) publishRequest CancellationToken.None
@@ -1087,7 +1082,30 @@ type PublicationAndCiOutcomeTests() =
             | Some(AgentPayload.Publish data) -> Assert.That(data.Completion, Is.EqualTo PublishCompletion.Ambiguous)
             | _ -> Assert.Fail "foreign fork recovery must retain ambiguous publication evidence"
 
-            Assert.That(forkRunner.CountReceived(fun invocation -> invocation.Matches [ "pr"; "create" ]), Is.EqualTo 1)
+            Assert.That(forkRunner.CountReceived(fun invocation -> invocation.Matches [ "pr"; "create" ]), Is.EqualTo 0)
+
+            let wrongRevisionPullRequestJson =
+                $"""[{{"number":11,"title":"feature","state":"OPEN","headRefName":"feature","baseRefName":"main","url":"https://github.com/example/upstream/pull/11","headRepository":{{"name":"upstream","nameWithOwner":"example/upstream"}},"headRepositoryOwner":{{"login":"example"}},"headRefOid":"{wrongRevision}"}}]"""
+
+            let wrongRevisionRunner = recoveryRunner wrongRevisionPullRequestJson
+
+            let! wrongRevisionCandidate =
+                Agent.publishWith
+                    repo
+                    (githubForge sandbox.Path wrongRevisionRunner)
+                    publishRequest
+                    CancellationToken.None
+
+            Assert.That(wrongRevisionCandidate.Error.Value.Code, Is.EqualTo AgentErrorCode.RevisionMismatch)
+
+            match wrongRevisionCandidate.Data with
+            | Some(AgentPayload.Publish data) -> Assert.That(data.Completion, Is.EqualTo PublishCompletion.Ambiguous)
+            | _ -> Assert.Fail "wrong-revision recovery must retain ambiguous publication evidence"
+
+            Assert.That(
+                wrongRevisionRunner.CountReceived(fun invocation -> invocation.Matches [ "pr"; "create" ]),
+                Is.EqualTo 0
+            )
 
             let unprovenRunner =
                 ScriptedRunner()
@@ -1141,7 +1159,7 @@ type PublicationAndCiOutcomeTests() =
         }
 
     [<Test>]
-    member _.``GitLab recovery rejects same-branch foreign-project and wrong-revision candidates``() : Task =
+    member _.``GitLab recovery classifies foreign-project and wrong-revision candidates before create``() : Task =
         task {
             requireGit ()
             use sandbox = GitSandbox.Init "agent-gitlab-recovery-identity"
@@ -1159,10 +1177,7 @@ type PublicationAndCiOutcomeTests() =
 
             let remoteListing = $"origin\t{remoteUrl} (fetch)\norigin\t{remoteUrl} (push)\n"
 
-            let foreignMergeRequestJson =
-                $"""[{{"iid":12,"title":"feature","state":"opened","source_branch":"feature","target_branch":"main","web_url":"https://gitlab.com/example/repo/-/merge_requests/12","source_project_id":202,"target_project_id":101,"sha":"{revision}"}},{{"iid":13,"title":"feature","state":"opened","source_branch":"feature","target_branch":"main","web_url":"https://gitlab.com/example/repo/-/merge_requests/13","source_project_id":101,"target_project_id":101,"sha":"{wrongRevision}"}}]"""
-
-            let runner =
+            let recoveryRunner response =
                 ScriptedRunner()
                     .On([ "api"; "--hostname"; "gitlab.com"; "user" ], Reply.Ok """{"username":"alice"}""")
                     .On(
@@ -1171,19 +1186,7 @@ type PublicationAndCiOutcomeTests() =
                           "gitlab.com"
                           "--paginate"
                           "projects/example%2Frepo/merge_requests?state=opened&source_branch=feature&target_branch=main&per_page=100" ],
-                        Reply.Ok foreignMergeRequestJson
-                    )
-                    .On([ "--version" ], Reply.Ok "glab 1.36.0\n")
-                    .On(
-                        [ "mr"
-                          "create"
-                          "--source-branch"
-                          "feature"
-                          "--target-branch"
-                          "main"
-                          "--repo"
-                          "https://gitlab.com/example/repo" ],
-                        Reply.Ok "https://gitlab.com/example/repo/-/merge_requests/13\n"
+                        Reply.Ok response
                     )
 
             let request =
@@ -1201,15 +1204,61 @@ type PublicationAndCiOutcomeTests() =
 
             let repo = openRepoWithRemoteListing sandbox.Path remoteListing
 
-            let! envelope = Agent.publishWith repo (gitlabForge sandbox.Path runner) request CancellationToken.None
+            let foreignMergeRequestJson =
+                $"""[{{"iid":12,"title":"feature","state":"opened","source_branch":"feature","target_branch":"main","web_url":"https://gitlab.com/example/repo/-/merge_requests/12","source_project_id":202,"target_project_id":101,"sha":"{revision}"}}]"""
 
-            Assert.That(envelope.Error.Value.Code, Is.EqualTo AgentErrorCode.Forge)
+            let foreignRunner = recoveryRunner foreignMergeRequestJson
 
-            match envelope.Data with
+            let! foreign =
+                Agent.publishWith repo (gitlabForge sandbox.Path foreignRunner) request CancellationToken.None
+
+            Assert.That(foreign.Error.Value.Code, Is.EqualTo AgentErrorCode.Forge)
+
+            match foreign.Data with
             | Some(AgentPayload.Publish data) -> Assert.That(data.Completion, Is.EqualTo PublishCompletion.Ambiguous)
             | _ -> Assert.Fail "foreign GitLab recovery must retain ambiguous publication evidence"
 
-            Assert.That(runner.CountReceived(fun invocation -> invocation.Matches [ "mr"; "create" ]), Is.EqualTo 1)
+            Assert.That(
+                foreignRunner.CountReceived(fun invocation -> invocation.Matches [ "mr"; "create" ]),
+                Is.EqualTo 0
+            )
+
+            let wrongRevisionMergeRequestJson =
+                $"""[{{"iid":13,"title":"feature","state":"opened","source_branch":"feature","target_branch":"main","web_url":"https://gitlab.com/example/repo/-/merge_requests/13","source_project_id":101,"target_project_id":101,"sha":"{wrongRevision}"}}]"""
+
+            let wrongRevisionRunner = recoveryRunner wrongRevisionMergeRequestJson
+
+            let! wrongRevisionCandidate =
+                Agent.publishWith repo (gitlabForge sandbox.Path wrongRevisionRunner) request CancellationToken.None
+
+            Assert.That(wrongRevisionCandidate.Error.Value.Code, Is.EqualTo AgentErrorCode.RevisionMismatch)
+
+            match wrongRevisionCandidate.Data with
+            | Some(AgentPayload.Publish data) -> Assert.That(data.Completion, Is.EqualTo PublishCompletion.Ambiguous)
+            | _ -> Assert.Fail "wrong-revision GitLab recovery must retain ambiguous publication evidence"
+
+            Assert.That(
+                wrongRevisionRunner.CountReceived(fun invocation -> invocation.Matches [ "mr"; "create" ]),
+                Is.EqualTo 0
+            )
+
+            let exactMergeRequestJson =
+                $"""[{{"iid":14,"title":"feature","state":"opened","source_branch":"feature","target_branch":"main","web_url":"https://gitlab.com/example/repo/-/merge_requests/14","source_project_id":101,"target_project_id":101,"sha":"{revision}"}}]"""
+
+            let exactRunner = recoveryRunner exactMergeRequestJson
+
+            let! exact = Agent.publishWith repo (gitlabForge sandbox.Path exactRunner) request CancellationToken.None
+
+            match exact.Data with
+            | Some(AgentPayload.Publish data) ->
+                Assert.That(data.Completion, Is.EqualTo PublishCompletion.Verified)
+                Assert.That(data.ChangeRequest.Value.Number, Is.EqualTo 14UL)
+            | _ -> Assert.Fail "exact GitLab recovery candidate must be verified"
+
+            Assert.That(
+                exactRunner.CountReceived(fun invocation -> invocation.Matches [ "mr"; "create" ]),
+                Is.EqualTo 0
+            )
         }
 
     [<Test>]
