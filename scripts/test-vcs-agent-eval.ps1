@@ -5,7 +5,7 @@
 
 .DESCRIPTION
     Exercises the tracked golden documents, byte-for-byte recorder reproducibility,
-    invalid recorder input, an expectation mismatch, and rejected format drift.
+    invalid or unblinded recorder input, an expectation mismatch, and rejected format drift.
 #>
 [CmdletBinding()]
 param(
@@ -110,6 +110,17 @@ try {
         '-OutputPath', (Join-Path $testRoot 'invalid-results.json')
     )
     Assert-EvalFailure $invalidRecord 'observations.schemaVersion has unsupported value'
+
+    $unblindedObservations = Read-VcsAgentEvalJson (Join-Path $offline 'observations.v1.json') 'test observations'
+    $unblindedObservations.provenance.evaluator.expectedOrBaselineAccess = $true
+    $unblindedPath = Join-Path $testRoot 'unblinded-observations.json'
+    Write-VcsAgentEvalJson $unblindedObservations $unblindedPath
+    $unblindedRecord = Invoke-EvalScript $recorder @(
+        '-RepoRoot', $RepoRoot,
+        '-ObservationsPath', $unblindedPath,
+        '-OutputPath', (Join-Path $testRoot 'unblinded-results.json')
+    )
+    Assert-EvalFailure $unblindedRecord 'expectedOrBaselineAccess must be false'
 
     $observations = Read-VcsAgentEvalJson (Join-Path $offline 'observations.v1.json') 'test observations'
     $mismatchPatch = Read-VcsAgentEvalJson (Join-Path $fixtures 'checker-mismatch.patch.v1.json') 'mismatch patch'

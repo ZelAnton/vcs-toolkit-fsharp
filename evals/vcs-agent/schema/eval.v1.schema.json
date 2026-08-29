@@ -92,6 +92,9 @@
 			"required": [
 				"evaluationKind",
 				"recordingSource",
+				"measuredFields",
+				"supplementalFixtureFields",
+				"evaluator",
 				"skillName",
 				"skillContractVersion",
 				"skillSha256",
@@ -100,10 +103,93 @@
 			],
 			"properties": {
 				"evaluationKind": {
-					"const": "recorded-offline-observation"
+					"const": "independent-model-forward-routing"
 				},
 				"recordingSource": {
-					"const": "human-reviewed-fixture/v1"
+					"const": "orchestra-blinded-forward-evaluator/v1"
+				},
+				"measuredFields": {
+					"type": "array",
+					"minItems": 3,
+					"maxItems": 3,
+					"uniqueItems": true,
+					"items": {
+						"enum": [
+							"shouldActivate",
+							"selectedInterface",
+							"fallbackReason"
+						]
+					}
+				},
+				"supplementalFixtureFields": {
+					"type": "array",
+					"minItems": 4,
+					"maxItems": 4,
+					"uniqueItems": true,
+					"items": {
+						"enum": [
+							"commandValid",
+							"callCount",
+							"outcome",
+							"evidence"
+						]
+					}
+				},
+				"evaluator": {
+					"type": "object",
+					"additionalProperties": false,
+					"required": [
+						"identity",
+						"attempt",
+						"startedAt",
+						"completedAt",
+						"isolation",
+						"inputScope",
+						"prohibitedInputClasses",
+						"expectedOrBaselineAccess"
+					],
+					"properties": {
+						"identity": {
+							"const": "codex-independent-forward-eval/2"
+						},
+						"attempt": {
+							"const": 2
+						},
+						"startedAt": {
+							"type": "string",
+							"format": "date-time"
+						},
+						"completedAt": {
+							"type": "string",
+							"format": "date-time"
+						},
+						"isolation": {
+							"const": "fork-turns-none"
+						},
+						"inputScope": {
+							"const": "skill-and-routed-references-only"
+						},
+						"prohibitedInputClasses": {
+							"type": "array",
+							"minItems": 7,
+							"maxItems": 7,
+							"uniqueItems": true,
+							"items": {
+								"enum": [
+									"evals",
+									"tests",
+									"review",
+									"history",
+									"expected",
+									"baseline",
+									"results"
+								]
+							}
+						},
+						"expectedOrBaselineAccess": {
+							"const": false
+						}
+					}
 				},
 				"skillName": {
 					"type": "string",
@@ -272,6 +358,7 @@
 			"additionalProperties": false,
 			"required": [
 				"scenarioId",
+				"shouldActivate",
 				"selectedInterface",
 				"fallbackReason",
 				"commandValid",
@@ -282,6 +369,9 @@
 			"properties": {
 				"scenarioId": {
 					"type": "string"
+				},
+				"shouldActivate": {
+					"type": "boolean"
 				},
 				"selectedInterface": {
 					"enum": [
@@ -376,6 +466,7 @@
 			"additionalProperties": false,
 			"required": [
 				"scenarioId",
+				"shouldActivate",
 				"selectedInterface",
 				"fallbackReason",
 				"commandValid",
@@ -388,6 +479,9 @@
 			"properties": {
 				"scenarioId": {
 					"type": "string"
+				},
+				"shouldActivate": {
+					"type": "boolean"
 				},
 				"selectedInterface": {
 					"enum": [

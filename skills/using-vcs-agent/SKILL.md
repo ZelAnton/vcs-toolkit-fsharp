@@ -34,6 +34,11 @@ does not ask for a repository-state or revision outcome.
    unrelated state. For a commit, pass one literal repository-relative leaf path per
    `--path`; never substitute a whole-tree stage or commit.
 
+Authorization denial does not suppress Skill activation. Use the read-only
+`vcs-agent` probe, inspection, and change-review path to establish the exact repository
+outcome, then refuse the mutation. Report the route as `vcs-agent` inspection with a
+denied outcome; do not select `none` or raw CLI merely because mutation is prohibited.
+
 ## Mutate once and verify
 
 - Immediately before each commit or publication, confirm that the host authorization
@@ -94,6 +99,11 @@ exists (`operation-not-implemented`, `missing-executable`, `unsupported-backend`
 `unsupported-forge`, or `raw-diagnostic-required`). A denied, invalid-input, backend,
 forge, authentication, timeout, cancellation, output-limit, external-command, or
 revision-mismatch result is not permission to bypass the interface.
+
+For Gitea publication, activate this Skill and probe first. The v1 publication matrix
+excludes Gitea, so report observed `unsupported-forge`, `fallbackReason: unsupported`,
+and `nextInterface: raw-cli` before selecting `tea`; do not report `vcs-agent` as the
+publication interface merely because it performed the probe.
 
 ## Install from this checkout
 

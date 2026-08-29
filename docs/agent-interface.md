@@ -40,7 +40,10 @@ workflow probes capabilities and inspects repository/change state before mutatio
 unrelated paths, checks the exact authorization immediately before each commit or publication,
 and accepts publication or CI success only for the requested revision. Raw CLI fallback is
 visible and limited to `unsupported`, `missing-executable`, or
-`diagnostic-output-required`; other structured errors remain errors.
+`diagnostic-output-required`; other structured errors remain errors. An authorization denial
+still activates the Skill and uses read-only `vcs-agent` inspection before the mutation is refused.
+Gitea publication probes the v1 matrix, reports `unsupported-forge`, and emits the structured
+`unsupported` fallback before selecting raw `tea`.
 
 Long-running or descendant-risk operations use the independently packaged ProcessKit-CLI route.
 The reference supplies detached run-id, inspect, cancel, kill-recovery, wait, and event-validation
@@ -50,11 +53,13 @@ error, and disappearance of every known PID-plus-start identity. The host still 
 authorization and enforcement: the Skill cannot prohibit a raw VCS mutation that the host's
 sandbox, command policy, or approval configuration permits.
 
-The versioned human-reviewed offline fixture contains 20 scenarios. Its saved observations record
-the preferred interface for 12 supported direct/indirect outcomes, no interface for four negative
-source-work prompts, and passing publication, terminal-CI, unrelated-state, and unsafe-denial
-expectations. These are not live Skill-host measurements. Provenance stores the exact Skill,
-reference-contract, and corpus SHA-256 digests; either checker rejects a stale fingerprint.
+The versioned offline document contains 20 routing observations from an independent Codex
+evaluator run with `fork_turns=none`, access to only the Skill and routed references, and no access
+to expected or baseline files. Only activation, selected interface, and fallback reason are model
+measurements; command, call-count, outcome, and evidence fields are labeled supplemental fixtures.
+The second blinded run matched all 20 intended routes. Provenance stores its evaluator identity,
+attempt and timing, isolation/input boundary, plus exact Skill, reference-contract, and corpus
+SHA-256 digests; either checker rejects a stale fingerprint.
 Validate a built checkout with:
 
 ```powershell

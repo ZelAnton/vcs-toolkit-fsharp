@@ -156,6 +156,12 @@ try {
     }
     Assert-Rejected $fallback 'Agent fallback facts differ' 'Fallback taxonomy drift'
 
+    $routing = New-DriftFixture 'routing-drift' {
+        param($value)
+        $value.routingPolicy.authorizationDenied.inspectionInterface = 'none'
+    }
+    Assert-Rejected $routing 'Authorization-denial routing must inspect through vcs-agent' 'Authorization-denial routing drift'
+
     $readError = New-DriftFixture 'cleanup-read-error-drift' {
         param($value)
         $value.processKitCli.cleanup.readError = $true
@@ -174,7 +180,7 @@ try {
     }
     Assert-Rejected $controlTemplate 'cancellation template drifted' 'Control template drift'
 
-    Write-Host 'OK: platform apphost resolution and standalone Skill facts validate; option, exit, fallback, cleanup, and control drift fail closed.' -ForegroundColor Green
+    Write-Host 'OK: platform apphost resolution and standalone Skill facts validate; option, exit, fallback, routing, cleanup, and control drift fail closed.' -ForegroundColor Green
 }
 finally {
     if (Test-Path -LiteralPath $scratch) {

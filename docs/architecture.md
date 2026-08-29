@@ -261,7 +261,9 @@ The Skill chooses
 the outcome interface, sequences probe/inspection before mutations, keeps raw fallbacks visible,
 and verifies exact revision evidence. Authorization and prohibition of raw VCS mutations remain
 host responsibilities enforced by sandbox, command policy, or approvals; Skill text is not a
-security boundary.
+security boundary. A blinded independent evaluator measures activation/interface/fallback routing
+from only the Skill and routed reference bytes; CI deterministically replays those saved
+observations and rejects them as stale after either input changes.
 
 ### `VcsToolkit.Mcp` / `VcsToolkit.Mcp.Server` — the agent-facing tool surface
 

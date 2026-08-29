@@ -67,10 +67,12 @@ For Codex, copy the complete `skills/using-vcs-agent` directory to
 `CODEX_HOME` is unset); the adjacent versioned reference is required. Its narrow trigger covers
 repository inspection, change review, exact-path commits, publication, exact-revision CI, and
 conflict diagnosis, while ordinary source search, reading, and editing remain outside the Skill.
-The tracked human-reviewed 20-scenario fixture records `vcs-agent` for all 12 supported
-direct/indirect outcomes and no activation across four negative source-work scenarios. It is not
-a live Skill-host measurement. SHA-256 provenance binds those observations to the exact Skill,
-reference contract, and corpus bytes, so changing routing text makes the baseline stale. Run
+The tracked 20-scenario routing observation comes from an independent Codex evaluator isolated
+from expected and baseline files and allowed to read only the Skill and its routed references.
+It measures activation, selected interface, and fallback reason; command/outcome evidence remains
+explicitly supplemental fixture data. The second blinded run matched all 20 intended routes.
+SHA-256 provenance binds the observation to the exact Skill,
+reference contract, and corpus bytes, so changing routing text requires another blinded run. Run
 `scripts/check-vcs-agent-skill.ps1` against the built executable and
 `scripts/test-vcs-agent-skill.ps1` before installing a changed copy.
 
@@ -149,7 +151,9 @@ incompatible published binary fails closed instead of silently skipping supervis
 The Skill is workflow guidance, not an authorization or command-policy boundary. It checks
 authorization immediately before each mutation and reports classified raw-CLI fallbacks, but a
 host that prohibits raw VCS mutations must enforce that restriction through its sandbox, command
-policy, or approval mechanism.
+policy, or approval mechanism. A denial still uses the Skill's read-only `vcs-agent` inspection
+route before refusing the mutation. Gitea publication is outside the v1 matrix and therefore
+requires the Skill's structured `unsupported-forge` raw-CLI fallback.
 
 See [docs/agent-interface.md](docs/agent-interface.md) for the complete envelope, operation,
 error, exit-code, output, redaction, compatibility, and direct/supervised execution contract.

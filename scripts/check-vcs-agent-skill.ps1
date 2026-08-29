@@ -200,7 +200,9 @@ try {
             '`readError=false`',
             '`killError=false`',
             'host''s sandbox',
-            'fallbackReason'
+            'fallbackReason',
+            'Authorization denial does not suppress Skill activation',
+            'For Gitea publication, activate this Skill and probe first'
         )) {
         Assert-Condition $skill.Text.Contains($requiredText, [StringComparison]::Ordinal) "SKILL.md omits required workflow fact '$requiredText'."
     }
@@ -238,6 +240,23 @@ try {
     }
 
     Assert-Condition ((@($contract.agentFallbackReasons) -join "`n") -ceq (@($productFacts.fallbackReasons) -join "`n")) 'Agent fallback facts differ from built vcs-agent contractFacts.'
+
+    $routing = $contract.routingPolicy
+    Assert-Condition (
+        $routing.authorizationDenied.activate -and
+        $routing.authorizationDenied.inspectionInterface -ceq 'vcs-agent' -and
+        $routing.authorizationDenied.mutationOutcome -ceq 'denied' -and
+        -not $routing.authorizationDenied.rawFallback
+    ) 'Authorization-denial routing must inspect through vcs-agent before refusing mutation.'
+    Assert-Condition (
+        $routing.giteaPublication.activate -and
+        $routing.giteaPublication.agentCapability -ceq 'unsupported-forge' -and
+        $routing.giteaPublication.fallbackReason -ceq 'unsupported' -and
+        $routing.giteaPublication.nextInterface -ceq 'raw-cli'
+    ) 'Gitea publication routing must emit the structured unsupported fallback before raw CLI.'
+    $publishProbe = @($probe.data.operations | Where-Object { $_.name -ceq 'publish' })
+    Assert-Condition ($publishProbe.Count -eq 1) 'Built probe must expose exactly one publish capability row.'
+    Assert-Condition ((@($publishProbe[0].forges) -join "`n") -ceq "github`ngitlab") 'Gitea publication routing no longer matches the built v1 capability matrix.'
 
     $processKit = $contract.processKitCli
     Assert-Condition ($processKit.minimumExpectedDurationSeconds -eq 60) 'ProcessKit-CLI duration threshold must remain 60 seconds.'

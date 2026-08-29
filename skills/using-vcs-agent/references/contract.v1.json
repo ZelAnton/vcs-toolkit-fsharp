@@ -104,6 +104,20 @@
 			"raw-diagnostic-required"
 		]
 	},
+	"routingPolicy": {
+		"authorizationDenied": {
+			"activate": true,
+			"inspectionInterface": "vcs-agent",
+			"mutationOutcome": "denied",
+			"rawFallback": false
+		},
+		"giteaPublication": {
+			"activate": true,
+			"agentCapability": "unsupported-forge",
+			"fallbackReason": "unsupported",
+			"nextInterface": "raw-cli"
+		}
+	},
 	"processKitCli": {
 		"minimumExpectedDurationSeconds": 60,
 		"wrapOnDescendantCleanupRisk": true,

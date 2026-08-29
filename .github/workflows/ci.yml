@@ -236,8 +236,8 @@ jobs:
             ${{ runner.temp }}/vcs-agent-processkit-proof.json
           if-no-files-found: error
 
-  # Versioned routing/evidence fixtures only: no model, network, VCS, or forge process.
-  # Optional live-model artifacts live in an ignored directory and are never enumerated here.
+  # Deterministic replay of provenance-bound independent model-forward routing observations:
+  # CI invokes no model, network, VCS, or forge process and rejects changed Skill/reference bytes.
   vcs-agent-eval:
     runs-on: ubuntu-latest
     steps:

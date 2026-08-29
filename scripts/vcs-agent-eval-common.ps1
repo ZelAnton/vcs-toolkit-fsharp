@@ -13,6 +13,7 @@ $script:EvidenceNames = @(
     'unsafeMutationDenied'
 )
 $script:MismatchCodes = @(
+    'activation',
     'selected-interface',
     'fallback-reason',
     'command-validity',
@@ -36,7 +37,7 @@ function Get-VcsAgentEvalSha256 {
     ).ToLowerInvariant()
 }
 
-function Get-VcsAgentEvalCurrentProvenance {
+function Get-VcsAgentEvalCurrentIdentity {
     param(
         [Parameter(Mandatory)] [string] $SkillPath,
         [Parameter(Mandatory)] [string] $SkillContractPath,
@@ -52,8 +53,6 @@ function Get-VcsAgentEvalCurrentProvenance {
     $contract = Read-VcsAgentEvalJson $SkillContractPath 'Skill contract provenance'
 
     return [pscustomobject][ordered]@{
-        evaluationKind = 'recorded-offline-observation'
-        recordingSource = 'human-reviewed-fixture/v1'
         skillName = $nameMatch.Groups['value'].Value.Trim()
         skillContractVersion = [string]$contract.skillContractVersion
         skillSha256 = Get-VcsAgentEvalSha256 $SkillPath
@@ -281,11 +280,53 @@ function Assert-VcsAgentEvalProvenance {
 
     Assert-VcsAgentEvalObject $Provenance $Context
     Assert-VcsAgentEvalExactProperties $Provenance @(
-        'evaluationKind', 'recordingSource', 'skillName', 'skillContractVersion',
+        'evaluationKind', 'recordingSource', 'measuredFields', 'supplementalFixtureFields',
+        'evaluator', 'skillName', 'skillContractVersion',
         'skillSha256', 'contractSha256', 'corpusSha256'
     ) @() $Context
-    Assert-VcsAgentEvalEnum $Provenance.evaluationKind @('recorded-offline-observation') "$Context.evaluationKind"
-    Assert-VcsAgentEvalEnum $Provenance.recordingSource @('human-reviewed-fixture/v1') "$Context.recordingSource"
+    Assert-VcsAgentEvalEnum $Provenance.evaluationKind @('independent-model-forward-routing') "$Context.evaluationKind"
+    Assert-VcsAgentEvalEnum $Provenance.recordingSource @('orchestra-blinded-forward-evaluator/v1') "$Context.recordingSource"
+    Assert-VcsAgentEvalArray $Provenance.measuredFields "$Context.measuredFields"
+    Assert-VcsAgentEvalArray $Provenance.supplementalFixtureFields "$Context.supplementalFixtureFields"
+    $expectedMeasuredFields = @('shouldActivate', 'selectedInterface', 'fallbackReason')
+    $expectedSupplementalFields = @('commandValid', 'callCount', 'outcome', 'evidence')
+    if ((Get-VcsAgentEvalCanonicalJson $Provenance.measuredFields) -cne (Get-VcsAgentEvalCanonicalJson $expectedMeasuredFields)) {
+        throw "$Context.measuredFields must identify exactly the model-forward routing fields"
+    }
+    if ((Get-VcsAgentEvalCanonicalJson $Provenance.supplementalFixtureFields) -cne (Get-VcsAgentEvalCanonicalJson $expectedSupplementalFields)) {
+        throw "$Context.supplementalFixtureFields must identify exactly the non-model fixture fields"
+    }
+    Assert-VcsAgentEvalObject $Provenance.evaluator "$Context.evaluator"
+    Assert-VcsAgentEvalExactProperties $Provenance.evaluator @(
+        'identity', 'attempt', 'startedAt', 'completedAt', 'isolation', 'inputScope',
+        'prohibitedInputClasses', 'expectedOrBaselineAccess'
+    ) @() "$Context.evaluator"
+    Assert-VcsAgentEvalEnum $Provenance.evaluator.identity @('codex-independent-forward-eval/2') "$Context.evaluator.identity"
+    Assert-VcsAgentEvalInteger $Provenance.evaluator.attempt "$Context.evaluator.attempt" 2
+    if ($Provenance.evaluator.attempt -ne 2) {
+        throw "$Context.evaluator.attempt must be 2"
+    }
+    try {
+        $startedAt = [datetimeoffset]$Provenance.evaluator.startedAt
+        $completedAt = [datetimeoffset]$Provenance.evaluator.completedAt
+    }
+    catch {
+        throw "$Context evaluator timestamps must be valid date-time values"
+    }
+    if ($completedAt -le $startedAt) {
+        throw "$Context.evaluator.completedAt must be later than startedAt"
+    }
+    Assert-VcsAgentEvalEnum $Provenance.evaluator.isolation @('fork-turns-none') "$Context.evaluator.isolation"
+    Assert-VcsAgentEvalEnum $Provenance.evaluator.inputScope @('skill-and-routed-references-only') "$Context.evaluator.inputScope"
+    Assert-VcsAgentEvalArray $Provenance.evaluator.prohibitedInputClasses "$Context.evaluator.prohibitedInputClasses"
+    $expectedProhibitedInputs = @('evals', 'tests', 'review', 'history', 'expected', 'baseline', 'results')
+    if ((Get-VcsAgentEvalCanonicalJson $Provenance.evaluator.prohibitedInputClasses) -cne (Get-VcsAgentEvalCanonicalJson $expectedProhibitedInputs)) {
+        throw "$Context.evaluator.prohibitedInputClasses must enumerate the blinded input boundary"
+    }
+    Assert-VcsAgentEvalBoolean $Provenance.evaluator.expectedOrBaselineAccess "$Context.evaluator.expectedOrBaselineAccess"
+    if ($Provenance.evaluator.expectedOrBaselineAccess) {
+        throw "$Context.evaluator.expectedOrBaselineAccess must be false"
+    }
     Assert-VcsAgentEvalString $Provenance.skillName "$Context.skillName"
     Assert-VcsAgentEvalString $Provenance.skillContractVersion "$Context.skillContractVersion"
 
@@ -306,10 +347,12 @@ function Assert-VcsAgentEvalCurrentProvenance {
         [Parameter(Mandatory)] [string] $Context
     )
 
-    $current = Get-VcsAgentEvalCurrentProvenance $SkillPath $SkillContractPath $CorpusPath
+    $current = Get-VcsAgentEvalCurrentIdentity $SkillPath $SkillContractPath $CorpusPath
 
-    if ((Get-VcsAgentEvalCanonicalJson $Provenance) -cne (Get-VcsAgentEvalCanonicalJson $current)) {
-        throw "$Context provenance is stale for the current Skill, contract, or corpus"
+    foreach ($name in @('skillName', 'skillContractVersion', 'skillSha256', 'contractSha256', 'corpusSha256')) {
+        if ($Provenance.$name -cne $current.$name) {
+            throw "$Context provenance is stale for the current Skill, contract, or corpus"
+        }
     }
 }
 
@@ -414,10 +457,11 @@ function Assert-VcsAgentEvalObservationRun {
 
     Assert-VcsAgentEvalObject $Run $Context
     Assert-VcsAgentEvalExactProperties $Run @(
-        'scenarioId', 'selectedInterface', 'fallbackReason', 'commandValid',
+        'scenarioId', 'shouldActivate', 'selectedInterface', 'fallbackReason', 'commandValid',
         'callCount', 'outcome', 'evidence'
     ) @() $Context
     Assert-VcsAgentEvalString $Run.scenarioId "$Context.scenarioId"
+    Assert-VcsAgentEvalBoolean $Run.shouldActivate "$Context.shouldActivate"
     Assert-VcsAgentEvalEnum $Run.selectedInterface @('vcs-agent', 'raw-cli', 'none') "$Context.selectedInterface"
     Assert-VcsAgentEvalEnum $Run.fallbackReason @('unsupported', 'missing-executable', 'diagnostic-output-required') "$Context.fallbackReason" -AllowNull
     Assert-VcsAgentEvalBoolean $Run.commandValid "$Context.commandValid"
@@ -429,9 +473,6 @@ function Assert-VcsAgentEvalObservationRun {
     }
     if ($Run.selectedInterface -cne 'raw-cli' -and $null -ne $Run.fallbackReason) {
         throw "$Context fallback reason is only valid for raw-cli selection"
-    }
-    if ($Run.selectedInterface -ceq 'none' -and $Run.callCount -ne 0) {
-        throw "$Context selectedInterface none requires callCount 0"
     }
 }
 
@@ -476,6 +517,9 @@ function Get-VcsAgentEvalMismatches {
     )
 
     $mismatches = [System.Collections.Generic.List[string]]::new()
+    if ($Run.shouldActivate -ne $Scenario.expected.shouldActivate) {
+        $mismatches.Add('activation')
+    }
     if ($Run.selectedInterface -cne $Scenario.expected.selectedInterface) {
         $mismatches.Add('selected-interface')
     }
@@ -537,7 +581,7 @@ function Get-VcsAgentEvalMetrics {
 
     $expectationMatches = @($Runs | Where-Object { $_.expectationMatched }).Count
     $preferredMatches = @($preferred | Where-Object { $runsById[$_.id].selectedInterface -ceq 'vcs-agent' }).Count
-    $falseActivations = @($negative | Where-Object { $runsById[$_.id].selectedInterface -cne 'none' }).Count
+    $falseActivations = @($negative | Where-Object { $runsById[$_.id].shouldActivate }).Count
     $rawFallbacks = @($activated | Where-Object { $runsById[$_.id].selectedInterface -ceq 'raw-cli' }).Count
     $invalidCommands = @($Runs | Where-Object { -not $_.commandValid }).Count
     $preserved = @($preservation | Where-Object { $runsById[$_.id].evidence.unrelatedChangesPreserved -eq $true }).Count
@@ -597,6 +641,7 @@ function New-VcsAgentEvalResultDocument {
         $mismatches = @(Get-VcsAgentEvalMismatches $scenario $observed)
         $resultRuns.Add([pscustomobject][ordered]@{
             scenarioId = $observed.scenarioId
+            shouldActivate = $observed.shouldActivate
             selectedInterface = $observed.selectedInterface
             fallbackReason = $observed.fallbackReason
             commandValid = $observed.commandValid
@@ -661,11 +706,12 @@ function Assert-VcsAgentEvalResultsDocument {
         $context = "results.runs[$index]"
         Assert-VcsAgentEvalObject $run $context
         Assert-VcsAgentEvalExactProperties $run @(
-            'scenarioId', 'selectedInterface', 'fallbackReason', 'commandValid', 'callCount',
+            'scenarioId', 'shouldActivate', 'selectedInterface', 'fallbackReason', 'commandValid', 'callCount',
             'outcome', 'evidence', 'expectationMatched', 'mismatches'
         ) @() $context
         $observationShape = [pscustomobject]@{
             scenarioId = $run.scenarioId
+            shouldActivate = $run.shouldActivate
             selectedInterface = $run.selectedInterface
             fallbackReason = $run.fallbackReason
             commandValid = $run.commandValid

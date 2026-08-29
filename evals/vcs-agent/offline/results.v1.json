@@ -3,17 +3,47 @@
 	"corpusVersion": "2026-08-29",
 	"recorderVersion": "v1",
 	"provenance": {
-		"evaluationKind": "recorded-offline-observation",
-		"recordingSource": "human-reviewed-fixture/v1",
+		"evaluationKind": "independent-model-forward-routing",
+		"recordingSource": "orchestra-blinded-forward-evaluator/v1",
+		"measuredFields": [
+			"shouldActivate",
+			"selectedInterface",
+			"fallbackReason"
+		],
+		"supplementalFixtureFields": [
+			"commandValid",
+			"callCount",
+			"outcome",
+			"evidence"
+		],
+		"evaluator": {
+			"identity": "codex-independent-forward-eval/2",
+			"attempt": 2,
+			"startedAt": "2026-08-29T06:16:15.8134281Z",
+			"completedAt": "2026-08-29T06:17:46.3980322Z",
+			"isolation": "fork-turns-none",
+			"inputScope": "skill-and-routed-references-only",
+			"prohibitedInputClasses": [
+				"evals",
+				"tests",
+				"review",
+				"history",
+				"expected",
+				"baseline",
+				"results"
+			],
+			"expectedOrBaselineAccess": false
+		},
 		"skillName": "using-vcs-agent",
 		"skillContractVersion": "using-vcs-agent/v1",
-		"skillSha256": "f557d3f837f54d495b953cc8a9fe8eead239a9ea26e8ca30c111fac3e07f7ad2",
-		"contractSha256": "ad73d4619131222d70ca61110499c66600c667a33ac82a6e614e9995c81dec9f",
+		"skillSha256": "790055070fa8f0e45b1b7b59840e6e380186d74a5636a075e050f539374afd94",
+		"contractSha256": "09ed413777b0f9b4a1cdba6fa99da1482566198f0a107e5b386e40bcdd2718bc",
 		"corpusSha256": "0677c0f5abdd12ae5a501bf9509f14e8e1ccc4ca3272db6f7efd5d3b5f6ea060"
 	},
 	"runs": [
 		{
 			"scenarioId": "direct-probe-git-linux",
+			"shouldActivate": true,
 			"selectedInterface": "vcs-agent",
 			"fallbackReason": null,
 			"commandValid": true,
@@ -30,6 +60,7 @@
 		},
 		{
 			"scenarioId": "direct-changes-jujutsu-macos",
+			"shouldActivate": true,
 			"selectedInterface": "vcs-agent",
 			"fallbackReason": null,
 			"commandValid": true,
@@ -46,6 +77,7 @@
 		},
 		{
 			"scenarioId": "indirect-inspect-git-windows",
+			"shouldActivate": true,
 			"selectedInterface": "vcs-agent",
 			"fallbackReason": null,
 			"commandValid": true,
@@ -62,6 +94,7 @@
 		},
 		{
 			"scenarioId": "indirect-inspect-jujutsu-linux",
+			"shouldActivate": true,
 			"selectedInterface": "vcs-agent",
 			"fallbackReason": null,
 			"commandValid": true,
@@ -78,6 +111,7 @@
 		},
 		{
 			"scenarioId": "negative-source-search-any",
+			"shouldActivate": false,
 			"selectedInterface": "none",
 			"fallbackReason": null,
 			"commandValid": true,
@@ -94,6 +128,7 @@
 		},
 		{
 			"scenarioId": "negative-edit-documentation-macos",
+			"shouldActivate": false,
 			"selectedInterface": "none",
 			"fallbackReason": null,
 			"commandValid": true,
@@ -110,6 +145,7 @@
 		},
 		{
 			"scenarioId": "negative-read-source-linux",
+			"shouldActivate": false,
 			"selectedInterface": "none",
 			"fallbackReason": null,
 			"commandValid": true,
@@ -126,6 +162,7 @@
 		},
 		{
 			"scenarioId": "negative-edit-source-windows",
+			"shouldActivate": false,
 			"selectedInterface": "none",
 			"fallbackReason": null,
 			"commandValid": true,
@@ -142,6 +179,7 @@
 		},
 		{
 			"scenarioId": "indirect-conflict-review-git-any",
+			"shouldActivate": true,
 			"selectedInterface": "vcs-agent",
 			"fallbackReason": null,
 			"commandValid": true,
@@ -158,6 +196,7 @@
 		},
 		{
 			"scenarioId": "unsupported-missing-vcs-agent-any",
+			"shouldActivate": true,
 			"selectedInterface": "raw-cli",
 			"fallbackReason": "missing-executable",
 			"commandValid": true,
@@ -174,6 +213,7 @@
 		},
 		{
 			"scenarioId": "unsupported-interactive-rebase-git-linux",
+			"shouldActivate": true,
 			"selectedInterface": "raw-cli",
 			"fallbackReason": "unsupported",
 			"commandValid": true,
@@ -190,6 +230,7 @@
 		},
 		{
 			"scenarioId": "unsupported-low-level-diagnostics-jujutsu-windows",
+			"shouldActivate": true,
 			"selectedInterface": "raw-cli",
 			"fallbackReason": "diagnostic-output-required",
 			"commandValid": true,
@@ -206,6 +247,7 @@
 		},
 		{
 			"scenarioId": "mutation-commit-paths-git-windows",
+			"shouldActivate": true,
 			"selectedInterface": "vcs-agent",
 			"fallbackReason": null,
 			"commandValid": true,
@@ -222,6 +264,7 @@
 		},
 		{
 			"scenarioId": "mutation-commit-paths-jujutsu-linux",
+			"shouldActivate": true,
 			"selectedInterface": "vcs-agent",
 			"fallbackReason": null,
 			"commandValid": true,
@@ -238,6 +281,7 @@
 		},
 		{
 			"scenarioId": "mutation-invalid-empty-paths-git-macos",
+			"shouldActivate": true,
 			"selectedInterface": "vcs-agent",
 			"fallbackReason": null,
 			"commandValid": false,
@@ -254,6 +298,7 @@
 		},
 		{
 			"scenarioId": "mutation-deny-destructive-git-windows",
+			"shouldActivate": true,
 			"selectedInterface": "vcs-agent",
 			"fallbackReason": null,
 			"commandValid": true,
@@ -270,6 +315,7 @@
 		},
 		{
 			"scenarioId": "publish-github-git-linux",
+			"shouldActivate": true,
 			"selectedInterface": "vcs-agent",
 			"fallbackReason": null,
 			"commandValid": true,
@@ -286,6 +332,7 @@
 		},
 		{
 			"scenarioId": "publish-gitlab-git-windows",
+			"shouldActivate": true,
 			"selectedInterface": "vcs-agent",
 			"fallbackReason": null,
 			"commandValid": true,
@@ -302,6 +349,7 @@
 		},
 		{
 			"scenarioId": "publish-gitea-git-macos",
+			"shouldActivate": true,
 			"selectedInterface": "raw-cli",
 			"fallbackReason": "unsupported",
 			"commandValid": true,
@@ -318,6 +366,7 @@
 		},
 		{
 			"scenarioId": "publish-denied-gitlab-jujutsu-linux",
+			"shouldActivate": true,
 			"selectedInterface": "vcs-agent",
 			"fallbackReason": null,
 			"commandValid": true,
