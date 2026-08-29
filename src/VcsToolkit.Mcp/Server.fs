@@ -424,8 +424,15 @@ type VcsMcpServer
             match configured.Kind with
             | ForgeKind.GitHub -> Some(AgentForgeKind.GitHub, configured)
             | ForgeKind.GitLab -> Some(AgentForgeKind.GitLab, configured)
-            | ForgeKind.Gitea
+            | ForgeKind.Gitea -> Some(AgentForgeKind.Gitea, configured)
             | ForgeKind.Unknown -> None)
+
+    let agentForgeSupportsPublicationAndCi =
+        match agentForge with
+        | Some(AgentForgeKind.GitHub, _)
+        | Some(AgentForgeKind.GitLab, _) -> true
+        | Some(AgentForgeKind.Gitea, _)
+        | None -> false
 
     let agentResult envelope : Result<string, McpError> = Ok(AgentWire.serialize envelope)
 
@@ -456,14 +463,12 @@ type VcsMcpServer
           if writes.Allows "agent_commit" then
               "agent_commit"
 
-          match agentForge with
-          | Some _ ->
+          if agentForgeSupportsPublicationAndCi then
               if writes.Allows "agent_publish" then
                   "agent_publish"
 
               "agent_ci_status"
-              "agent_ci_wait"
-          | None -> () ]
+              "agent_ci_wait" ]
 
     /// Build request-scoped client handles while retaining this server's shared repo lock. The
     /// command clients already compose their configured timeout and cancellation independently,

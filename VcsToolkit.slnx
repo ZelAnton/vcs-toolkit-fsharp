@@ -49,6 +49,7 @@
 		</Project>
 		<Project Path="tests/VcsToolkit.Mcp.Tests/VcsToolkit.Mcp.Tests.fsproj">
 			<BuildDependency Project="src/VcsToolkit.Mcp/VcsToolkit.Mcp.fsproj" />
+			<BuildDependency Project="src/VcsToolkit.Agent.Server/VcsToolkit.Agent.Server.fsproj" />
 			<BuildDependency Project="src/VcsToolkit.Agent/VcsToolkit.Agent.fsproj" />
 			<BuildDependency Project="src/VcsToolkit.GitHub/VcsToolkit.GitHub.fsproj" />
 			<BuildDependency Project="src/VcsToolkit.GitLab/VcsToolkit.GitLab.fsproj" />

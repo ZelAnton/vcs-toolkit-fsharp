@@ -2,6 +2,12 @@
   "schemaVersion": 1,
   "corpusVersion": "outcomes-v1",
   "contractVersion": "1",
+  "replay": {
+    "cliContractPath": "skills/using-vcs-agent/references/contract.v1.json",
+    "cliAdapter": "vcs-agent Main.runWithCancellation",
+    "mcpAdapter": "VcsToolkit.Mcp Catalog.callToolWithCancellation",
+    "normalization": "complete JSON envelope with insignificant whitespace removed"
+  },
   "provenance": [
     {
       "path": "src/VcsToolkit.Agent/Contract.fs",
@@ -17,7 +23,7 @@
     },
     {
       "path": "src/VcsToolkit.Mcp/Server.fs",
-      "sha256": "a217d7e806cb453773eaefeee0681192385d04c8348e4dbdd593d2bf91dee6af"
+      "sha256": "36f091bc126842f6e6d22b0bad12d8f10b9ab23097dc40e655d8429aa912de98"
     },
     {
       "path": "src/VcsToolkit.Mcp/Catalog.fs",
@@ -26,6 +32,10 @@
     {
       "path": "src/VcsToolkit.Mcp.Server/Program.fs",
       "sha256": "95095fa141273d596ce8047ec895f1cfe410cc3f6c7ecaa195a2dfeeb730beb4"
+    },
+    {
+      "path": "tests/VcsToolkit.Mcp.Tests/McpTests.fs",
+      "sha256": "a4d149e56b3b1ac4a65da2563448a2d1e795391f79f11e218219b7ae7792f6be"
     },
     {
       "path": "skills/using-vcs-agent/SKILL.md",
@@ -39,31 +49,136 @@
   "scenarios": [
     {
       "id": "write-denied",
+      "cli": {
+        "argv": [
+          "commit",
+          "--repo",
+          "<repo>",
+          "--path",
+          "a.txt",
+          "--message",
+          "Selected paths",
+          "--output-budget",
+          "65536"
+        ],
+        "expectedExit": 21,
+        "expectedError": "denied",
+        "cancellation": "none"
+      },
+      "mcpTool": "agent_commit",
+      "mcpConfiguration": "conflicted-git",
+      "mcpArguments": {
+        "paths": [
+          "a.txt"
+        ],
+        "message": "Selected paths"
+      },
       "operation": "commit",
       "status": "error",
       "terminal": true,
-      "errorCode": "denied"
+      "errorCode": "denied",
+      "expectedExit": 21
     },
     {
       "id": "unsupported-forge",
+      "cli": {
+        "argv": [
+          "publish",
+          "--repo",
+          "<repo>",
+          "--branch",
+          "main",
+          "--remote",
+          "origin",
+          "--revision",
+          "<revision>",
+          "--forge",
+          "gitea",
+          "--account",
+          "owner",
+          "--target",
+          "main",
+          "--title",
+          "Checked publish",
+          "--body",
+          "",
+          "--output-budget",
+          "65536"
+        ],
+        "expectedExit": 20,
+        "expectedError": "unsupported",
+        "cancellation": "none"
+      },
+      "mcpTool": "agent_publish",
+      "mcpConfiguration": "gitea-git",
+      "mcpArguments": {
+        "branch": "main",
+        "remote": "origin",
+        "revision": "<revision>",
+        "account": "owner",
+        "target": "main",
+        "title": "Checked publish",
+        "body": ""
+      },
       "operation": "publish",
       "status": "error",
       "terminal": true,
-      "errorCode": "unsupported"
+      "errorCode": "unsupported",
+      "expectedExit": 20
     },
     {
       "id": "cancellation",
+      "cli": {
+        "argv": [
+          "changes",
+          "--repo",
+          "<repo>",
+          "--view",
+          "summary",
+          "--output-budget",
+          "65536"
+        ],
+        "expectedExit": 27,
+        "expectedError": "cancellation",
+        "cancellation": "pre-cancelled"
+      },
+      "mcpTool": "agent_changes",
+      "mcpConfiguration": "pre-cancelled-git",
+      "mcpArguments": {
+        "view": "summary"
+      },
       "operation": "changes",
       "status": "error",
       "terminal": true,
-      "errorCode": "cancellation"
+      "errorCode": "cancellation",
+      "expectedExit": 27
     },
     {
       "id": "output-limit",
+      "cli": {
+        "argv": [
+          "changes",
+          "--repo",
+          "<repo>",
+          "--view",
+          "summary",
+          "--output-budget",
+          "512"
+        ],
+        "expectedExit": 28,
+        "expectedError": "output-limit",
+        "cancellation": "none"
+      },
+      "mcpTool": "agent_changes",
+      "mcpConfiguration": "large-changes-git",
+      "mcpArguments": {
+        "view": "summary"
+      },
       "operation": "changes",
       "status": "error",
       "terminal": true,
-      "errorCode": "output-limit"
+      "errorCode": "output-limit",
+      "expectedExit": 28
     }
   ]
 }

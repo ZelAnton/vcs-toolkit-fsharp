@@ -2953,9 +2953,14 @@ type CatalogTests() =
         Assert.That(giteaNames, Does.Not.Contain "agent_ci_status")
         Assert.That(giteaNames, Does.Contain "forge_pr_create", "low-level Gitea tools remain compatible")
 
-    [<Test>]
-    member _.``Versioned outcome corpus is identical at Agent wire and MCP intent boundaries``() : Task =
+    [<Test; NonParallelizable>]
+    member _.``Versioned outcome corpus replays the Skill CLI and MCP intent adapters``() : Task =
         task {
+            try
+                Raw.git "." [ "--version" ]
+            with _ ->
+                Assert.Ignore "git not available on PATH"
+
             let repoRoot =
                 Assembly.GetExecutingAssembly().GetCustomAttributes<AssemblyMetadataAttribute>()
                 |> Seq.find (fun attribute -> attribute.Key = "RepoRoot")
@@ -2968,46 +2973,224 @@ type CatalogTests() =
                 Path.Combine(repoRoot, "evals", "vcs-agent", "outcome-corpus.v1.json")
 
             use corpus = JsonDocument.Parse(File.ReadAllText corpusPath)
+            let corpusRoot = corpus.RootElement
 
-            Assert.That(corpus.RootElement.GetProperty("contractVersion").GetString(), Is.EqualTo Agent.ContractVersion)
+            let requiredString (element: JsonElement) (propertyName: string) : string =
+                match element.GetProperty(propertyName).GetString() with
+                | null -> failwith $"required corpus property '{propertyName}' is null"
+                | value -> value
 
-            for provenance in corpus.RootElement.GetProperty("provenance").EnumerateArray() do
-                let relative = provenance.GetProperty("path").GetString()
-                let expectedHash = provenance.GetProperty("sha256").GetString()
+            Assert.That(corpusRoot.GetProperty("contractVersion").GetString(), Is.EqualTo Agent.ContractVersion)
 
-                match relative, expectedHash with
-                | null, _
-                | _, null -> Assert.Fail "outcome corpus provenance contains a null path or hash"
-                | relative, expectedHash ->
-                    let current =
-                        Path.Combine(repoRoot, relative)
-                        |> File.ReadAllBytes
-                        |> SHA256.HashData
-                        |> Convert.ToHexString
-                        |> _.ToLowerInvariant()
+            let replay = corpusRoot.GetProperty "replay"
 
-                    Assert.That(current, Is.EqualTo expectedHash, $"stale outcome provenance: {relative}")
-
-            let skillContractPath =
-                Path.Combine(repoRoot, "skills", "using-vcs-agent", "references", "contract.v1.json")
-
-            use skillContract = JsonDocument.Parse(File.ReadAllText skillContractPath)
+            Assert.That(replay.GetProperty("cliAdapter").GetString(), Is.EqualTo "vcs-agent Main.runWithCancellation")
 
             Assert.That(
-                skillContract.RootElement.GetProperty("agentContractVersion").GetString(),
+                replay.GetProperty("mcpAdapter").GetString(),
+                Is.EqualTo "VcsToolkit.Mcp Catalog.callToolWithCancellation"
+            )
+
+            Assert.That(
+                replay.GetProperty("normalization").GetString(),
+                Is.EqualTo "complete JSON envelope with insignificant whitespace removed"
+            )
+
+            for provenance in corpusRoot.GetProperty("provenance").EnumerateArray() do
+                let relative = requiredString provenance "path"
+                let expectedHash = requiredString provenance "sha256"
+
+                let current =
+                    Path.Combine(repoRoot, relative)
+                    |> File.ReadAllBytes
+                    |> SHA256.HashData
+                    |> Convert.ToHexString
+                    |> _.ToLowerInvariant()
+
+                Assert.That(current, Is.EqualTo expectedHash, $"stale outcome provenance: {relative}")
+
+            let skillContractPath =
+                Path.Combine(repoRoot, requiredString replay "cliContractPath")
+
+            use skillContract = JsonDocument.Parse(File.ReadAllText skillContractPath)
+            let skillRoot = skillContract.RootElement
+
+            Assert.That(
+                skillRoot.GetProperty("agentContractVersion").GetString(),
                 Is.EqualTo Agent.ContractVersion,
                 "Skill and outcome corpus must target the current Agent contract"
             )
 
-            let expected id =
-                corpus.RootElement.GetProperty("scenarios").EnumerateArray()
-                |> Seq.find (fun scenario -> scenario.GetProperty("id").GetString() = id)
+            let routingPolicy = skillRoot.GetProperty "routingPolicy"
 
-            let assertScenario id (agentJson: string) (mcpJson: string) =
-                Assert.That(mcpJson, Is.EqualTo agentJson, $"{id}: transport envelopes diverged")
-                use actual = JsonDocument.Parse agentJson
-                let scenario = expected id
+            Assert.That(
+                routingPolicy.GetProperty("authorizationDenied").GetProperty("mutationOutcome").GetString(),
+                Is.EqualTo "denied"
+            )
+
+            Assert.That(
+                routingPolicy.GetProperty("giteaPublication").GetProperty("agentCapability").GetString(),
+                Is.EqualTo "unsupported-forge"
+            )
+
+            let scenarios = corpusRoot.GetProperty("scenarios").EnumerateArray() |> Seq.toList
+
+            let scenarioIds values =
+                values
+                |> Seq.map (fun (scenario: JsonElement) -> requiredString scenario "id")
+                |> Set.ofSeq
+
+            let requiredScenarioIds =
+                Set.ofList [ "write-denied"; "unsupported-forge"; "cancellation"; "output-limit" ]
+
+            Assert.That(
+                (scenarioIds scenarios = requiredScenarioIds),
+                Is.True,
+                "the mandatory denial, unsupported, cancellation, and output-budget replay set cannot be narrowed"
+            )
+
+            let conflictedMerge () =
+                let sandbox = GitSandbox.Init "outcome-corpus-denied"
+                sandbox.CommitFile("a.txt", "base\n", "seed")
+                sandbox.Branch "feature"
+                sandbox.Checkout "feature"
+                sandbox.CommitFile("a.txt", "feature change\n", "feature")
+                sandbox.Checkout "main"
+                sandbox.CommitFile("a.txt", "main change\n", "main")
+
+                try
+                    sandbox.Git [ "merge"; "-q"; "--no-edit"; "feature" ]
+                with _ ->
+                    // The fixture deliberately leaves the merge unresolved so commit is denied.
+                    ()
+
+                sandbox
+
+            use deniedRepo = conflictedMerge ()
+            use giteaRepo = GitSandbox.Init "outcome-corpus-gitea"
+            giteaRepo.CommitFile("a.txt", "content\n", "seed")
+            giteaRepo.Git [ "remote"; "add"; "origin"; "https://gitea.example/owner/project.git" ]
+            let giteaRevision = giteaRepo.RevParse "HEAD"
+
+            use cancellationRepo = GitSandbox.Init "outcome-corpus-cancellation"
+            cancellationRepo.CommitFile("a.txt", "content\n", "seed")
+
+            use budgetRepo = GitSandbox.Init "outcome-corpus-budget"
+            budgetRepo.CommitFile("base.txt", "base\n", "seed")
+
+            for index in 0..39 do
+                budgetRepo.Write($"untracked-outcome-{index:D2}.txt", "changed\n")
+
+            let normalizeJson (json: string) =
+                use document = JsonDocument.Parse json
+                JsonSerializer.Serialize document.RootElement
+
+            let replacePlaceholders repo revision (value: string) =
+                value
+                    .Replace("<repo>", repo, StringComparison.Ordinal)
+                    .Replace("<revision>", revision, StringComparison.Ordinal)
+
+            for scenario in scenarios do
+                let id = requiredString scenario "id"
+                let cliScenario = scenario.GetProperty "cli"
+
+                let configuration = requiredString scenario "mcpConfiguration"
+
+                let repoPath, revision, forge, outputBudget =
+                    match configuration with
+                    | "conflicted-git" -> deniedRepo.Path, deniedRepo.RevParse "HEAD", Option.None, Some 65_536
+                    | "gitea-git" -> giteaRepo.Path, giteaRevision, Some(Forge.Gitea giteaRepo.Path), Some 65_536
+                    | "pre-cancelled-git" ->
+                        cancellationRepo.Path, cancellationRepo.RevParse "HEAD", Option.None, Some 65_536
+                    | "large-changes-git" ->
+                        budgetRepo.Path, budgetRepo.RevParse "HEAD", Option.None, Some Agent.MinimumOutputLimitBytes
+                    | other -> failwith $"unknown outcome corpus configuration: {other}"
+
+                let argv =
+                    cliScenario.GetProperty("argv").EnumerateArray()
+                    |> Seq.map (fun argument ->
+                        match argument.GetString() with
+                        | null -> failwith $"{id}: CLI argv contains null"
+                        | value -> replacePlaceholders repoPath revision value)
+                    |> Seq.toArray
+
+                let operationName = argv |> Array.head
+
+                let skillCommands =
+                    skillRoot.GetProperty("commands").EnumerateArray()
+                    |> Seq.map (fun command ->
+                        match command.GetString() with
+                        | null -> failwith "Skill command is null"
+                        | value -> value)
+                    |> Set.ofSeq
+
+                Assert.That(skillCommands.Contains operationName, Is.True, $"{id}: command is absent from the Skill")
+
+                let skillOptions =
+                    skillRoot.GetProperty("requiredOptions").GetProperty(operationName).EnumerateArray()
+                    |> Seq.map (fun option ->
+                        match option.GetString() with
+                        | null -> failwith $"{id}: Skill option is null"
+                        | value -> value)
+                    |> Set.ofSeq
+
+                let cliOptions =
+                    argv |> Seq.filter _.StartsWith("--", StringComparison.Ordinal) |> Set.ofSeq
+
+                Assert.That(
+                    (cliOptions = skillOptions),
+                    Is.True,
+                    $"{id}: corpus argv must use the complete Skill-prescribed option surface"
+                )
+
+                let mcpArguments =
+                    scenario.GetProperty("mcpArguments").GetRawText()
+                    |> replacePlaceholders repoPath revision
+                    |> argsOf
+
+                use cancellation = new CancellationTokenSource()
+
+                match requiredString cliScenario "cancellation" with
+                | "none" -> ()
+                | "pre-cancelled" -> cancellation.Cancel()
+                | other -> failwith $"{id}: unknown Skill cancellation mode: {other}"
+
+                let! cli = Main.runWithCancellation argv cancellation.Token
+
+                use server =
+                    new VcsMcpServer(Repo.FromGit(repoPath, repoPath, Git.Create()), forge, WriteGate.All, outputBudget)
+
+                let tool = requiredString scenario "mcpTool"
+
+                let! mcpResult = Catalog.callToolWithCancellation server tool mcpArguments cancellation.Token
+
+                let mcp =
+                    match mcpResult with
+                    | Ok json -> json
+                    | Error error -> failwith $"{id}: MCP adapter returned protocol error: {error.Message}"
+
+                Assert.That(
+                    normalizeJson mcp,
+                    Is.EqualTo(normalizeJson cli.Stdout),
+                    $"{id}: complete normalized CLI and MCP envelopes diverged"
+                )
+
+                use actual = JsonDocument.Parse cli.Stdout
                 let root = actual.RootElement
+                let errorCode = requiredString scenario "errorCode"
+                let expectedExit = scenario.GetProperty("expectedExit").GetInt32()
+
+                Assert.That(cliScenario.GetProperty("expectedError").GetString(), Is.EqualTo errorCode, id)
+                Assert.That(cliScenario.GetProperty("expectedExit").GetInt32(), Is.EqualTo expectedExit, id)
+
+                Assert.That(
+                    skillRoot.GetProperty("errorExits").GetProperty(errorCode).GetInt32(),
+                    Is.EqualTo expectedExit,
+                    id
+                )
+
+                Assert.That(cli.ExitCode, Is.EqualTo expectedExit, id)
+                Assert.That(cli.Stderr, Is.EqualTo($"vcs-agent: {errorCode}\n"), id)
 
                 Assert.That(
                     root.GetProperty("operation").GetString(),
@@ -3027,81 +3210,7 @@ type CatalogTests() =
                     id
                 )
 
-                Assert.That(
-                    root.GetProperty("error").GetProperty("code").GetString(),
-                    Is.EqualTo(scenario.GetProperty("errorCode").GetString()),
-                    id
-                )
-
-            let denied =
-                Agent.denied
-                    AgentOperation.Commit
-                    "write tool 'agent_commit' is disabled; restart the server with --allow-write or --allow-tools naming it"
-                |> AgentWire.serialize
-
-            match!
-                Catalog.callTool
-                    (gitServer (ScriptedRunner()) WriteGate.None)
-                    "agent_commit"
-                    (argsOf """{"paths":["src/App.fs"],"message":"message"}""")
-            with
-            | Ok mcp -> assertScenario "write-denied" denied mcp
-            | Error error -> Assert.Fail $"write-denied returned an MCP error: {error.Message}"
-
-            let unsupported = Agent.unsupported AgentOperation.Publish |> AgentWire.serialize
-
-            match!
-                Catalog.callTool
-                    (gitServerWithGiteaForge (ScriptedRunner()) WriteGate.All)
-                    "agent_publish"
-                    (argsOf
-                        """{"branch":"feature","remote":"origin","revision":"0123456789abcdef0123456789abcdef01234567","account":"owner","target":"main","title":"Title","body":"Body"}""")
-            with
-            | Ok mcp -> assertScenario "unsupported-forge" unsupported mcp
-            | Error error -> Assert.Fail $"unsupported-forge returned an MCP error: {error.Message}"
-
-            use cancellation = new CancellationTokenSource()
-            cancellation.Cancel()
-            let cancelledRepo = Repo.FromGit("/repo", "/repo", Git.WithRunner(ScriptedRunner()))
-
-            let! cancelled =
-                Agent.changesWith cancelledRepo ChangesMode.Summary cancellation.Token Agent.DefaultOutputLimitBytes
-
-            match!
-                Catalog.callToolWithCancellation
-                    (gitServer (ScriptedRunner()) WriteGate.None)
-                    "agent_changes"
-                    (argsOf "{}")
-                    cancellation.Token
-            with
-            | Ok mcp -> assertScenario "cancellation" (AgentWire.serialize cancelled) mcp
-            | Error error -> Assert.Fail $"cancellation returned an MCP error: {error.Message}"
-
-            let longPath = String.replicate 700 "x" + ".fs"
-            let nul = string '\000'
-
-            let outcomeRunner () =
-                ScriptedRunner()
-                    .On([ "status"; "--porcelain=v1"; "-z" ], Reply.Ok($" M {longPath}{nul}"))
-                    .On([ "rev-parse"; "--verify"; "-q"; "HEAD" ], Reply.Ok "abc123\n")
-                    .On(
-                        [ "diff"; "--no-relative"; "--shortstat"; "HEAD" ],
-                        Reply.Ok " 1 file changed, 1 insertion(+), 1 deletion(-)\n"
-                    )
-
-            let directRepo = Repo.FromGit("/repo", "/repo", Git.WithRunner(outcomeRunner ()))
-
-            let! limited =
-                Agent.changesWith directRepo ChangesMode.Summary CancellationToken.None Agent.MinimumOutputLimitBytes
-
-            match!
-                Catalog.callTool
-                    (gitServerWithBudget (outcomeRunner ()) WriteGate.None (Some Agent.MinimumOutputLimitBytes))
-                    "agent_changes"
-                    (argsOf "{}")
-            with
-            | Ok mcp -> assertScenario "output-limit" (AgentWire.serialize limited) mcp
-            | Error error -> Assert.Fail $"output-limit returned an MCP error: {error.Message}"
+                Assert.That(root.GetProperty("error").GetProperty("code").GetString(), Is.EqualTo errorCode, id)
         }
 
     [<Test>]
